@@ -127,7 +127,8 @@ def add_known_user(case_id):
                 username=username,
                 user_id=known_user.id,
                 current_user_id=current_user.id,
-                description=f'Compromised user added manually (SID: {user_sid or "N/A"})'
+                description=f'Compromised user added manually (SID: {user_sid or "N/A"})',
+                user_sid=user_sid  # v1.24.0: Pass SID to create inactive user_sid IOC
             )
             ioc_created = success and ioc_id is not None
         
@@ -256,16 +257,17 @@ def update_known_user(case_id, user_id):
         
         db.session.commit()
         
-        # v1.21.0: IOC synchronization when compromised status changes
+        # v1.21.0 / v1.24.0: IOC synchronization when compromised status changes
         ioc_created = False
         if not old_compromised and known_user.compromised:
-            # User became compromised → Create IOC
+            # User became compromised → Create username IOC + user_sid IOC (if SID present)
             success, ioc_id, msg = sync_user_to_ioc(
                 case_id=case_id,
                 username=known_user.username,
                 user_id=known_user.id,
                 current_user_id=current_user.id,
-                description=f'User marked compromised (Type: {known_user.user_type}, SID: {known_user.user_sid or "N/A"})'
+                description=f'User marked compromised (Type: {known_user.user_type}, SID: {known_user.user_sid or "N/A"})',
+                user_sid=known_user.user_sid  # v1.24.0: Pass SID to create inactive user_sid IOC
             )
             ioc_created = success and ioc_id is not None
         
@@ -417,18 +419,13 @@ def upload_csv(case_id):
             return jsonify({'success': False, 'error': f'CSV must have "Username" column. Found columns: {", ".join(csv_reader.fieldnames)}'}), 400
         
         added_count = 0
+        updated_count = 0  # v1.24.0: Track updates
         skipped_count = 0
         iocs_created_count = 0  # v1.21.0: Track IOCs created
         errors = []
         
         # Track usernames seen in this CSV to prevent duplicates within the file
         seen_usernames = set()
-        
-        # Pre-load existing usernames for this case (case-insensitive)
-        existing_usernames = set()
-        existing_users = KnownUser.query.filter_by(case_id=case_id).all()
-        for user in existing_users:
-            existing_usernames.add(user.username.lower())
         
         for row_num, row in enumerate(csv_reader, start=2):  # start=2 because row 1 is headers
             try:
@@ -483,14 +480,15 @@ def upload_csv(case_id):
                 db.session.flush()  # Get ID before IOC sync
                 added_count += 1
                 
-                # v1.21.0: If user is compromised, create IOC
+                # v1.21.0 / v1.24.0: If user is compromised, create username + user_sid IOCs
                 if compromised:
                     success, ioc_id, msg = sync_user_to_ioc(
                         case_id=case_id,
                         username=username,
                         user_id=known_user.id,
                         current_user_id=current_user.id,
-                        description=f'Compromised user from CSV import (SID: {user_sid or "N/A"})'
+                        description=f'Compromised user from CSV import (SID: {user_sid or "N/A"})',
+                        user_sid=user_sid  # v1.24.0: Pass SID to create inactive user_sid IOC
                     )
                     if success and ioc_id:
                         iocs_created_count += 1
@@ -662,14 +660,15 @@ def bulk_edit_known_users(case_id):
             
             updated_count += 1
             
-            # v1.21.0: If user is NOW compromised (and wasn't before), create IOC
+            # v1.21.0 / v1.24.0: If user is NOW compromised (and wasn't before), create IOC
             if updates.get('compromised') == True and not was_compromised:
                 success, ioc_id, msg = sync_user_to_ioc(
                     case_id=case_id,
                     username=known_user.username,
                     user_id=known_user.id,
                     current_user_id=current_user.id,
-                    description=f'Compromised via bulk edit (SID: {known_user.user_sid or "N/A"})'
+                    description=f'Compromised via bulk edit (SID: {known_user.user_sid or "N/A"})',
+                    user_sid=known_user.user_sid  # v1.24.0: Pass SID to create inactive user_sid IOC
                 )
                 if success and ioc_id:
                     iocs_created_count += 1

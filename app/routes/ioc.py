@@ -50,7 +50,7 @@ def add_ioc(case_id):
         return jsonify({'success': False, 'error': 'Read-only users cannot add IOCs'}), 403
     
     from main import db, Case, IOC
-    from known_user_ioc_sync import sync_ioc_to_user  # v1.21.0: Known User integration
+    from known_user_ioc_sync import sync_ioc_to_user, sync_sid_ioc_to_user  # v1.21.0, v1.24.0
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -87,7 +87,10 @@ def add_ioc(case_id):
         ioc_id_for_background = ioc.id
         
         # v1.21.0: If IOC is a username, auto-create Known User
+        # v1.24.0: If IOC is a user_sid, auto-create Known User with SID
         user_created = False
+        user_created_msg = ''
+        
         if ioc_type == 'username':
             success, user_id, msg = sync_ioc_to_user(
                 case_id=case_id,
@@ -97,6 +100,18 @@ def add_ioc(case_id):
                 threat_level=threat_level
             )
             user_created = success and user_id is not None
+            user_created_msg = msg if user_created else ''
+        
+        elif ioc_type == 'user_sid':
+            # v1.24.0: User SID IOC → Create Known User
+            success, user_id, msg = sync_sid_ioc_to_user(
+                case_id=case_id,
+                user_sid=ioc_value,
+                ioc_id=ioc.id,
+                current_user_id=current_user.id
+            )
+            user_created = success and user_id is not None
+            user_created_msg = msg if user_created else ''
         
         # Audit log
         from audit_logger import log_ioc_action
@@ -105,12 +120,16 @@ def add_ioc(case_id):
             'case_name': case.name,
             'ioc_type': ioc_type,
             'threat_level': threat_level,
-            'user_created': user_created  # v1.21.0: Track if Known User was created
+            'user_created': user_created,  # v1.21.0 / v1.24.0
+            'user_created_msg': user_created_msg
         })
         
         flash_msg = f'IOC added: {ioc_value}'
         if user_created:
-            flash_msg += ' (Known User created automatically)'
+            if ioc_type == 'username':
+                flash_msg += ' (Known User created automatically)'
+            elif ioc_type == 'user_sid':
+                flash_msg += ' (Known User created with SID)'
         flash(flash_msg, 'success')
         
         # Return success immediately, then do enrichment in background
