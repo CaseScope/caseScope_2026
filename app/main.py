@@ -307,10 +307,22 @@ def _old_login_template():
 @app.route('/logout')
 @login_required
 def logout():
-    """Logout"""
-    # Log logout
+    """Logout and release all case locks (v1.25.0)"""
     from audit_logger import log_action
+    from case_lock_manager import release_all_user_locks
+    
     username = current_user.username if current_user.is_authenticated else 'unknown'
+    user_id = current_user.id if current_user.is_authenticated else None
+    
+    # Release all locks held by this user
+    if user_id:
+        count, msg = release_all_user_locks(user_id)
+        if count > 0:
+            log_action('release_locks_on_logout', resource_type='case_lock', 
+                      resource_name=f'{count} locks released', 
+                      details={'user_id': user_id, 'username': username})
+    
+    # Log logout
     log_action('logout', resource_type='auth', resource_name=username)
     
     logout_user()
@@ -324,24 +336,134 @@ def logout():
 @app.route('/select_case/<int:case_id>')
 @login_required
 def select_case(case_id):
-    """Set the current case in session and redirect"""
+    """
+    Set the current case in session and acquire lock (v1.25.0)
+    Checks if another user has the case locked and shows warning if so
+    """
+    from case_lock_manager import acquire_case_lock, get_case_lock_info
+    
     case = db.session.get(Case, case_id)
-    if case:
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Check lock status first
+    lock_info = get_case_lock_info(case_id)
+    
+    # If case is locked by another user, show warning and return lock info as JSON for modal
+    if lock_info['is_locked'] and lock_info['locked_by_user_id'] != current_user.id:
+        # Return JSON for AJAX request (modal will handle display)
+        if request.args.get('check_only') == '1':
+            return jsonify({
+                'locked': True,
+                'locked_by': lock_info['locked_by_username'],
+                'locked_at': lock_info['locked_at'].isoformat() if lock_info['locked_at'] else None,
+                'last_activity': lock_info['last_activity'].isoformat() if lock_info['last_activity'] else None,
+                'is_stale': lock_info['is_stale'],
+                'case_name': case.name,
+                'case_id': case_id
+            })
+        else:
+            # Direct navigation - show flash message and redirect
+            flash(f'⚠️ Case "{case.name}" is currently being worked on by {lock_info["locked_by_username"]}', 'warning')
+            return redirect(url_for('dashboard'))
+    
+    # Try to acquire lock
+    force = request.args.get('force') == '1'  # Allow force override if ?force=1
+    success, lock, message, locked_by = acquire_case_lock(
+        case_id=case_id,
+        user_id=current_user.id,
+        session_id=session.sid,
+        force=force
+    )
+    
+    if success:
         session['current_case_id'] = case_id
         flash(f'Case selected: {case.name}', 'success')
         return redirect(url_for('view_case', case_id=case_id))
     else:
-        flash('Case not found', 'error')
+        # Failed to acquire lock
+        flash(f'⚠️ {message}', 'warning')
         return redirect(url_for('dashboard'))
 
 
 @app.route('/clear_case')
 @login_required
 def clear_case():
-    """Clear the current case selection"""
+    """Clear the current case selection and release lock (v1.25.0)"""
+    from case_lock_manager import release_case_lock
+    
+    case_id = session.get('current_case_id')
+    if case_id:
+        # Release lock when clearing case
+        release_case_lock(case_id, user_id=current_user.id, session_id=session.sid)
+    
     session.pop('current_case_id', None)
     flash('Case selection cleared', 'info')
     return redirect(url_for('dashboard'))
+
+
+# ============================================================================
+# CASE LOCK MANAGEMENT (v1.25.0)
+# ============================================================================
+
+@app.route('/case/<int:case_id>/unlock', methods=['POST'])
+@login_required
+def unlock_case(case_id):
+    """
+    Unlock a case (release lock voluntarily)
+    Called when user clicks "Unlock Case" button
+    """
+    from case_lock_manager import release_case_lock
+    
+    success, message = release_case_lock(case_id, user_id=current_user.id, session_id=session.sid)
+    
+    if success:
+        # Clear from session
+        if session.get('current_case_id') == case_id:
+            session.pop('current_case_id', None)
+        
+        flash('Case unlocked successfully', 'success')
+        return redirect(url_for('case_selection'))
+    else:
+        flash(f'Error unlocking case: {message}', 'error')
+        return redirect(url_for('view_case', case_id=case_id))
+
+
+@app.route('/case/<int:case_id>/lock_status', methods=['GET'])
+@login_required
+def case_lock_status(case_id):
+    """Get lock status for a case (AJAX endpoint)"""
+    from case_lock_manager import get_case_lock_info
+    
+    lock_info = get_case_lock_info(case_id)
+    
+    return jsonify({
+        'is_locked': lock_info['is_locked'],
+        'locked_by_user_id': lock_info['locked_by_user_id'],
+        'locked_by_username': lock_info['locked_by_username'],
+        'locked_at': lock_info['locked_at'].isoformat() if lock_info['locked_at'] else None,
+        'last_activity': lock_info['last_activity'].isoformat() if lock_info['last_activity'] else None,
+        'is_stale': lock_info['is_stale'],
+        'can_force_unlock': lock_info['can_force_unlock']
+    })
+
+
+@app.route('/case/<int:case_id>/heartbeat', methods=['POST'])
+@login_required
+def case_heartbeat(case_id):
+    """
+    Update case lock activity (heartbeat)
+    Called periodically by frontend JavaScript to keep lock alive
+    """
+    from case_lock_manager import update_lock_activity
+    
+    success, message = update_lock_activity(case_id, current_user.id, session.sid)
+    
+    return jsonify({
+        'success': success,
+        'message': message
+    })
 
 
 # ============================================================================

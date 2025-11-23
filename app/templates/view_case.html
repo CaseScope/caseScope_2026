@@ -9,6 +9,14 @@
         <p class="text-secondary">{{ case.description or 'No description provided' }}</p>
     </div>
     <div class="content-actions">
+        <!-- Unlock Case Button (v1.25.0) -->
+        <form action="{{ url_for('unlock_case', case_id=case.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('⚠️ Unlock this case?\n\nThis will release your lock and return you to case selection. Other users will be able to select this case.');">
+            <button type="submit" class="btn" style="background: var(--color-warning); color: white;" title="Release your lock on this case">
+                <span>🔓</span>
+                <span>Unlock Case</span>
+            </button>
+        </form>
+        
         {% if current_user.role == 'administrator' or case.created_by == current_user.id %}
         <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" class="btn" style="background: var(--color-info); color: white;">
             <span>✏️</span>
@@ -637,6 +645,50 @@ function cancelTimeline(timelineId) {
 
 // Check timeline status on page load
 setTimeout(checkTimelineStatus, 500);
+
+// ============================================================================
+// CASE LOCK HEARTBEAT (v1.25.0)
+// ============================================================================
+
+// Send heartbeat every 60 seconds to keep case lock alive
+const caseId = {{ case.id }};
+let heartbeatInterval = null;
+
+function sendHeartbeat() {
+    fetch(`/case/${caseId}/heartbeat`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            console.warn('[CASE LOCK] Heartbeat failed:', data.message);
+            // Lock may have been lost - consider showing warning to user
+        }
+    })
+    .catch(error => {
+        console.error('[CASE LOCK] Heartbeat error:', error);
+    });
+}
+
+// Start heartbeat on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Send initial heartbeat after 30 seconds
+    setTimeout(sendHeartbeat, 30000);
+    
+    // Then send every 60 seconds
+    heartbeatInterval = setInterval(sendHeartbeat, 60000);
+});
+
+// Stop heartbeat when page is unloaded (user navigates away)
+window.addEventListener('beforeunload', function() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+});
+
 </script>
 {% endblock %}
 

@@ -57,6 +57,36 @@ class Case(db.Model):
     archiver = db.relationship('User', foreign_keys=[archived_by], backref='cases_archived')
 
 
+class CaseLock(db.Model):
+    """
+    Case Lock Management (v1.25.0)
+    Tracks which user is actively working on a case to prevent conflicts
+    """
+    __tablename__ = 'case_lock'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, unique=True, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    locked_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_activity = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    session_id = db.Column(db.String(255), nullable=False)  # Flask session ID
+    
+    # Relationships
+    case = db.relationship('Case', backref='lock')
+    user = db.relationship('User', backref='case_locks')
+    
+    def is_stale(self, timeout_hours=4):
+        """Check if lock is stale (no activity for timeout_hours)"""
+        if not self.last_activity:
+            return True
+        time_since_activity = datetime.utcnow() - self.last_activity
+        return time_since_activity.total_seconds() > (timeout_hours * 3600)
+    
+    def update_activity(self):
+        """Update last activity timestamp"""
+        self.last_activity = datetime.utcnow()
+
+
 class CaseFile(db.Model):
     """Files uploaded to cases"""
     __tablename__ = 'case_file'
