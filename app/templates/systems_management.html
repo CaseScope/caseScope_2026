@@ -125,10 +125,26 @@
         </div>
         <div class="card-body">
             {% if systems %}
+            <!-- Bulk Actions Toolbar (v1.23.0) -->
+            <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 8px; display: flex; gap: var(--spacing-sm); flex-wrap: wrap; align-items: center;">
+                <span style="font-weight: 600; margin-right: var(--spacing-sm);">Bulk Actions:</span>
+                <button id="bulkEditBtn" onclick="showBulkEditModal()" class="btn btn-sm btn-secondary" disabled>
+                    ✏️ Edit (<span id="countEdit">0</span>)
+                </button>
+                {% if current_user.role == 'administrator' %}
+                <button id="bulkDeleteBtn" onclick="bulkDeleteSystems()" class="btn btn-sm btn-danger" disabled>
+                    🗑️ Delete (<span id="countDelete">0</span>) - Admin Only
+                </button>
+                {% endif %}
+            </div>
+            
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
+                            <th style="width: 50px;">
+                                <input type="checkbox" id="selectAllSystems" onclick="toggleSelectAllSystems()" title="Select All">
+                            </th>
                             <th>
                                 <a href="javascript:void(0)" onclick="sortBy('system_name')" style="color: inherit; text-decoration: none; cursor: pointer;">
                                     System Name
@@ -170,6 +186,9 @@
                     <tbody>
                         {% for system in systems %}
                         <tr {% if system.hidden %}style="opacity: 0.5;"{% endif %}>
+                            <td>
+                                <input type="checkbox" class="system-checkbox" value="{{ system.id }}" onchange="updateBulkButtons()">
+                            </td>
                             <td>
                                 <strong>{{ system.system_name }}</strong>
                                 {% if system.hidden %}
@@ -369,6 +388,56 @@
             <div class="modal-footer">
                 <button type="button" onclick="closeSystemModal()" class="btn btn-secondary">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save System</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Bulk Edit Modal (v1.23.0) -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Bulk Edit Systems</h2>
+            <button type="button" class="modal-close" onclick="closeBulkEditModal()">✕</button>
+        </div>
+        <form id="bulkEditForm" onsubmit="bulkEditSystems(event)">
+            <div class="modal-body">
+                <div style="background: var(--color-info-bg); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid var(--color-info);">
+                    <p style="margin: 0; color: var(--color-info);">
+                        ℹ️ <strong><span id="bulkEditCount">0</span> systems</strong> selected for bulk edit.<br>
+                        <small>Only fields you change will be updated. System names and IP addresses cannot be changed in bulk.</small>
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">System Type</label>
+                    <select id="bulk_system_type" name="system_type" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="workstation">💻 Workstation</option>
+                        <option value="server">🖥️ Server</option>
+                        <option value="firewall">🔥 Firewall</option>
+                        <option value="switch">🔀 Switch</option>
+                        <option value="printer">🖨️ Printer</option>
+                        <option value="actor_system">⚠️ Actor System</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Hidden Status</label>
+                    <select id="bulk_hidden" name="hidden" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="false">Visible</option>
+                        <option value="true">Hidden</option>
+                    </select>
+                    <small style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        Hidden systems are excluded from case statistics but remain in the database.
+                    </small>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeBulkEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update Selected Systems</button>
             </div>
         </form>
     </div>
@@ -645,6 +714,212 @@ function bulkSyncAllSystems() {
 document.getElementById('systemModal').addEventListener('click', function(e) {
     if (e.target === this) {
         closeSystemModal();
+    }
+});
+
+// ============================================================================
+// BULK OPERATIONS (v1.23.0)
+// ============================================================================
+
+// Store selected IDs across pagination
+let selectedSystemIds = new Set();
+
+// Toggle select all checkboxes
+function toggleSelectAllSystems() {
+    const selectAll = document.getElementById('selectAllSystems');
+    const checkboxes = document.querySelectorAll('.system-checkbox');
+    
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+        if (selectAll.checked) {
+            selectedSystemIds.add(parseInt(cb.value));
+        } else {
+            selectedSystemIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    updateBulkButtons();
+}
+
+// Update bulk action buttons based on selection
+function updateBulkButtons() {
+    const checkboxes = document.querySelectorAll('.system-checkbox:checked');
+    const count = checkboxes.length;
+    
+    // Update selected IDs set
+    document.querySelectorAll('.system-checkbox').forEach(cb => {
+        if (cb.checked) {
+            selectedSystemIds.add(parseInt(cb.value));
+        } else {
+            selectedSystemIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    // Use the set size for total count (includes selections from other pages)
+    const totalCount = selectedSystemIds.size;
+    
+    // Update button counts
+    document.getElementById('countEdit').textContent = totalCount;
+    const deleteBtn = document.getElementById('countDelete');
+    if (deleteBtn) {
+        deleteBtn.textContent = totalCount;
+    }
+    
+    // Enable/disable buttons
+    const hasSelection = totalCount > 0;
+    document.getElementById('bulkEditBtn').disabled = !hasSelection;
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.disabled = !hasSelection;
+    }
+}
+
+// Show bulk edit modal
+function showBulkEditModal() {
+    if (selectedSystemIds.size === 0) {
+        alert('⚠️ Please select at least one system to edit.');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedSystemIds.size;
+    document.getElementById('bulkEditForm').reset();
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+// Close bulk edit modal
+function closeBulkEditModal() {
+    document.getElementById('bulkEditModal').style.display = 'none';
+}
+
+// Bulk edit systems
+function bulkEditSystems(event) {
+    event.preventDefault();
+    
+    if (selectedSystemIds.size === 0) {
+        alert('⚠️ No systems selected.');
+        return;
+    }
+    
+    const systemType = document.getElementById('bulk_system_type').value;
+    const hidden = document.getElementById('bulk_hidden').value;
+    
+    // Check if at least one field is being changed
+    if (!systemType && !hidden) {
+        alert('⚠️ Please select at least one field to update.');
+        return;
+    }
+    
+    const modal = document.getElementById('bulkEditModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Updating...';
+    }
+    
+    // Build request payload
+    const payload = {
+        system_ids: Array.from(selectedSystemIds)
+    };
+    
+    if (systemType) payload.system_type = systemType;
+    if (hidden) payload.hidden = hidden === 'true';
+    
+    fetch(`/case/${caseId}/systems/bulk_edit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showFlash(`✅ Bulk edit complete! Updated: ${data.updated} systems`, 'success');
+            selectedSystemIds.clear();  // Clear selection
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showFlash('❌ Error: ' + (data.error || 'Failed to bulk edit systems'), 'error');
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Update Selected Systems';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Bulk edit error:', err);
+        showFlash('❌ Error: ' + err.message, 'error');
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Update Selected Systems';
+        }
+    });
+}
+
+// Bulk delete systems
+function bulkDeleteSystems() {
+    if (selectedSystemIds.size === 0) {
+        alert('⚠️ Please select at least one system to delete.');
+        return;
+    }
+    
+    if (!confirm(`⚠️ Are you sure you want to delete ${selectedSystemIds.size} selected system(s)?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    const button = document.getElementById('bulkDeleteBtn');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Deleting...';
+    
+    fetch(`/case/${caseId}/systems/bulk_delete`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            system_ids: Array.from(selectedSystemIds)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showFlash(`✅ Bulk delete complete! Deleted: ${data.deleted} systems`, 'success');
+            selectedSystemIds.clear();  // Clear selection
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showFlash('❌ Error: ' + (data.error || 'Failed to bulk delete systems'), 'error');
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    })
+    .catch(err => {
+        console.error('Bulk delete error:', err);
+        showFlash('❌ Error: ' + err.message, 'error');
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
+// Restore checkbox states on page load (for pagination)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.system-checkbox').forEach(cb => {
+        if (selectedSystemIds.has(parseInt(cb.value))) {
+            cb.checked = true;
+        }
+    });
+    updateBulkButtons();
+});
+
+// Close bulk edit modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+    const bulkModal = document.getElementById('bulkEditModal');
+    if (bulkModal) {
+        bulkModal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeBulkEditModal();
+            }
+        });
     }
 });
 

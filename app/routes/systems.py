@@ -1060,3 +1060,146 @@ def export_systems_csv(case_id):
         flash(f'Export failed: {str(e)}', 'error')
         return redirect(url_for('systems.systems_management', case_id=case_id))
 
+
+@systems_bp.route('/case/<int:case_id>/systems/bulk_edit', methods=['POST'])
+@login_required
+def bulk_edit_systems(case_id):
+    """Bulk edit systems (v1.23.0)"""
+    # Permission check: Read-only users cannot edit
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot edit systems'}), 403
+    
+    from main import db
+    from models import System, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        data = request.get_json()
+        system_ids = data.get('system_ids', [])
+        
+        if not system_ids or not isinstance(system_ids, list):
+            return jsonify({'success': False, 'error': 'No systems selected'}), 400
+        
+        # Get fields to update (only non-None values)
+        updates = {}
+        if 'system_type' in data:
+            updates['system_type'] = data['system_type']
+        if 'hidden' in data:
+            updates['hidden'] = data['hidden']
+        
+        if not updates:
+            return jsonify({'success': False, 'error': 'No fields to update'}), 400
+        
+        # Update systems
+        updated_count = 0
+        
+        for system_id in system_ids:
+            system = db.session.get(System, system_id)
+            
+            if not system:
+                continue  # Skip missing systems
+            
+            # Verify system belongs to this case
+            if system.case_id != case_id:
+                continue  # Skip systems from other cases
+            
+            # Apply updates
+            for key, value in updates.items():
+                setattr(system, key, value)
+            
+            updated_count += 1
+        
+        db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_edit_systems', resource_type='system', resource_id=None,
+                  resource_name=f'{updated_count} systems',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'system_ids': system_ids,
+                      'updated_count': updated_count,
+                      'updates': updates
+                  })
+        
+        flash(f'Bulk edit complete: {updated_count} systems updated', 'success')
+        return jsonify({
+            'success': True,
+            'updated': updated_count
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Bulk edit error: {str(e)}'}), 500
+
+
+@systems_bp.route('/case/<int:case_id>/systems/bulk_delete', methods=['POST'])
+@login_required
+def bulk_delete_systems(case_id):
+    """Bulk delete systems (v1.23.0)"""
+    # Permission check: Only administrators can delete
+    if current_user.role != 'administrator':
+        return jsonify({'success': False, 'error': 'Only administrators can delete systems'}), 403
+    
+    from main import db
+    from models import System, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        data = request.get_json()
+        system_ids = data.get('system_ids', [])
+        
+        if not system_ids or not isinstance(system_ids, list):
+            return jsonify({'success': False, 'error': 'No systems selected'}), 400
+        
+        # Delete systems
+        deleted_count = 0
+        deleted_names = []
+        
+        for system_id in system_ids:
+            system = db.session.get(System, system_id)
+            
+            if not system:
+                continue  # Skip missing systems
+            
+            # Verify system belongs to this case
+            if system.case_id != case_id:
+                continue  # Skip systems from other cases
+            
+            deleted_names.append(system.system_name)
+            db.session.delete(system)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_delete_systems', resource_type='system', resource_id=None,
+                  resource_name=f'{deleted_count} systems',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'system_ids': system_ids,
+                      'deleted_count': deleted_count,
+                      'deleted_names': deleted_names
+                  })
+        
+        flash(f'Bulk delete complete: {deleted_count} systems deleted', 'success')
+        return jsonify({
+            'success': True,
+            'deleted': deleted_count
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Bulk delete error: {str(e)}'}), 500
+
