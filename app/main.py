@@ -333,6 +333,16 @@ def logout():
 # CASE SELECTION
 # ============================================================================
 
+def get_session_id():
+    """Generate a consistent session ID for lock management (v1.25.0)"""
+    # Use a combination of session data to create a unique session ID
+    # Flask session is a SecureCookieSession without a direct .sid attribute
+    import hashlib
+    # Create a hash from the session's identity
+    session_data = f"{current_user.id}_{id(session)}"
+    return hashlib.md5(session_data.encode()).hexdigest()
+
+
 @app.route('/select_case/<int:case_id>')
 @login_required
 def select_case(case_id):
@@ -370,10 +380,11 @@ def select_case(case_id):
     
     # Try to acquire lock
     force = request.args.get('force') == '1'  # Allow force override if ?force=1
+    session_id = get_session_id()
     success, lock, message, locked_by = acquire_case_lock(
         case_id=case_id,
         user_id=current_user.id,
-        session_id=session.sid,
+        session_id=session_id,
         force=force
     )
     
@@ -396,7 +407,8 @@ def clear_case():
     case_id = session.get('current_case_id')
     if case_id:
         # Release lock when clearing case
-        release_case_lock(case_id, user_id=current_user.id, session_id=session.sid)
+        session_id = get_session_id()
+        release_case_lock(case_id, user_id=current_user.id, session_id=session_id)
     
     session.pop('current_case_id', None)
     flash('Case selection cleared', 'info')
@@ -416,7 +428,8 @@ def unlock_case(case_id):
     """
     from case_lock_manager import release_case_lock
     
-    success, message = release_case_lock(case_id, user_id=current_user.id, session_id=session.sid)
+    session_id = get_session_id()
+    success, message = release_case_lock(case_id, user_id=current_user.id, session_id=session_id)
     
     if success:
         # Clear from session
@@ -458,7 +471,8 @@ def case_heartbeat(case_id):
     """
     from case_lock_manager import update_lock_activity
     
-    success, message = update_lock_activity(case_id, current_user.id, session.sid)
+    session_id = get_session_id()
+    success, message = update_lock_activity(case_id, current_user.id, session_id)
     
     return jsonify({
         'success': success,
