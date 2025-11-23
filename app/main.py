@@ -367,8 +367,8 @@ def select_case(case_id):
             return jsonify({
                 'locked': True,
                 'locked_by': lock_info['locked_by_username'],
-                'locked_at': lock_info['locked_at'].isoformat() if lock_info['locked_at'] else None,
-                'last_activity': lock_info['last_activity'].isoformat() if lock_info['last_activity'] else None,
+                'locked_at': lock_info['locked_at'].isoformat() + 'Z' if lock_info['locked_at'] else None,
+                'last_activity': lock_info['last_activity'].isoformat() + 'Z' if lock_info['last_activity'] else None,
                 'is_stale': lock_info['is_stale'],
                 'case_name': case.name,
                 'case_id': case_id

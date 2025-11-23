@@ -9,66 +9,6 @@
         <h1 class="content-title">{{ case.name }}</h1>
         <p class="text-secondary">Case ID: {{ case.id }} • Created: {{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
     </div>
-    <div class="content-actions">
-        {% if case.status != 'Archived' %}
-        <!-- Unlock Case Button (v1.25.0) -->
-        <form action="{{ url_for('unlock_case', case_id=case.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('⚠️ Unlock this case?\n\nThis will release your lock and return you to case selection. Other users will be able to select this case.');">
-            <button type="submit" class="btn" style="background: var(--color-warning); color: white;" title="Release your lock on this case">
-                <span>🔓</span>
-                <span>Unlock Case</span>
-            </button>
-        </form>
-        <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
-            <span>📅</span>
-            <span>AI Case Timeline</span>
-        </button>
-        <button onclick="generateAIReport()" class="btn" style="background: var(--color-primary); color: white;" id="aiReportBtn">
-            <span>🤖</span>
-            <span>Generate AI Report</span>
-        </button>
-        <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary">
-            <span>📤</span>
-            <span>Upload Files</span>
-        </a>
-        <button onclick="confirmClearFiles()" class="btn" style="background: var(--color-error); color: white;">
-            <span>🗑️</span>
-            <span>Clear All Files</span>
-        </button>
-        <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
-            <span>🎯</span>
-            <span>Re-Hunt IOCs</span>
-        </button>
-        <button onclick="showArchiveModal()" class="btn" style="background: #6b7280; color: white;" title="Archive case files to cold storage">
-            <span>🗄️</span>
-            <span>Archive Case</span>
-        </button>
-        {% else %}
-        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Case is archived">
-            <span>📅</span>
-            <span>AI Case Timeline</span>
-        </button>
-        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Case is archived">
-            <span>🤖</span>
-            <span>Generate AI Report</span>
-        </button>
-        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Cannot upload to archived case">
-            <span>📤</span>
-            <span>Upload Files</span>
-        </button>
-        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Cannot clear archived case files">
-            <span>🗑️</span>
-            <span>Clear All Files</span>
-        </button>
-        <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
-            <span>🎯</span>
-            <span>Re-Hunt IOCs</span>
-        </button>
-        {% endif %}
-        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
-            <span>←</span>
-            <span>Back to Dashboard</span>
-        </a>
-    </div>
 </div>
 
 <!-- ============================================================================
@@ -106,11 +46,78 @@
 
 <!-- ============================================================================
      CASE DASHBOARD TILES
-     ROW 1: Tile 1 (Case Details) - Full Width
-     ROW 2: Tiles 2 & 3 (Case Files, Event Stats) - 50/50 Split
+     ROW 1: Case Actions (Full Width)
+     ROW 2: Case Details (Full Width)
+     ROW 3: Tiles 2 & 3 (Case Files, Event Stats) - 50/50 Split
      ============================================================================ -->
 
-<!-- TILE ROW 1: CASE DETAILS (Full Width) -->
+<!-- TILE ROW 1: CASE ACTIONS (Full Width) -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-body" style="padding: var(--spacing-md);">
+        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap; justify-content: center; align-items: center;">
+            {% if case.status != 'Archived' %}
+            <!-- Unlock Case Button (v1.25.0) -->
+            <form action="{{ url_for('unlock_case', case_id=case.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('⚠️ Unlock this case?\n\nThis will release your lock and return you to case selection. Other users will be able to select this case.');">
+                <button type="submit" class="btn" style="background: var(--color-warning); color: white;" title="Release your lock on this case">
+                    <span>🔓</span>
+                    <span>Unlock Case</span>
+                </button>
+            </form>
+            <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
+                <span>📅</span>
+                <span>AI Case Timeline</span>
+            </button>
+            <button onclick="generateAIReport()" class="btn" style="background: var(--color-primary); color: white;" id="aiReportBtn">
+                <span>🤖</span>
+                <span>Generate AI Report</span>
+            </button>
+            <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary">
+                <span>📤</span>
+                <span>Upload Files</span>
+            </a>
+            <button onclick="confirmClearFiles()" class="btn" style="background: var(--color-error); color: white;">
+                <span>🗑️</span>
+                <span>Clear All Files</span>
+            </button>
+            <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
+                <span>🎯</span>
+                <span>Re-Hunt IOCs</span>
+            </button>
+            <button onclick="showArchiveModal()" class="btn" style="background: #6b7280; color: white;" title="Archive case files to cold storage">
+                <span>🗄️</span>
+                <span>Archive Case</span>
+            </button>
+            {% else %}
+            <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Case is archived">
+                <span>📅</span>
+                <span>AI Case Timeline</span>
+            </button>
+            <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Case is archived">
+                <span>🤖</span>
+                <span>Generate AI Report</span>
+            </button>
+            <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Cannot upload to archived case">
+                <span>📤</span>
+                <span>Upload Files</span>
+            </button>
+            <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Cannot clear archived case files">
+                <span>🗑️</span>
+                <span>Clear All Files</span>
+            </button>
+            <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
+                <span>🎯</span>
+                <span>Re-Hunt IOCs</span>
+            </button>
+            {% endif %}
+            <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+                <span>←</span>
+                <span>Back to Dashboard</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- TILE ROW 2: CASE DETAILS (Full Width) -->
 <div style="margin-bottom: var(--spacing-lg);">
 
 <!-- CASE DETAILS TILE -->
