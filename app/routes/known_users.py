@@ -469,6 +469,17 @@ def upload_csv(case_id):
                 # Track this username as seen
                 seen_usernames.add(username_lower)
                 
+                # v1.26.0: Check if username IOC already exists - if so, mark as compromised
+                if not compromised:  # Only check if not already marked compromised in CSV
+                    from models import IOC
+                    existing_username_ioc = db.session.query(IOC).filter(
+                        IOC.case_id == case_id,
+                        db.func.lower(IOC.ioc_value) == username_lower,
+                        IOC.ioc_type == 'username'
+                    ).first()
+                    if existing_username_ioc:
+                        compromised = True  # Auto-mark as compromised if IOC exists
+                
                 # Create known user
                 known_user = KnownUser(
                     case_id=case_id,
