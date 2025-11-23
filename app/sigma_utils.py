@@ -129,16 +129,23 @@ def update_sigma_rules():
     """
     Update SIGMA rules from GitHub (git pull)
     
+    Tracks two timestamps:
+    - last_checked: When we last checked for updates (updated every time)
+    - last_updated: When rules were actually updated (only when changes pulled)
+    
     Returns:
-        dict with: success, message, output
+        dict with: success, message, output, was_updated
     """
+    import json
     sigma_repo = Path('/opt/casescope/sigma_rules_repo')
+    tracking_file = Path('/opt/casescope/app/sigma_update_tracking.json')
     
     if not sigma_repo.exists():
         return {
             'success': False,
             'message': 'SIGMA rules repository not found',
-            'output': ''
+            'output': '',
+            'was_updated': False
         }
     
     try:
@@ -159,26 +166,49 @@ def update_sigma_rules():
         )
         
         output = result.stdout + result.stderr
+        current_time = datetime.now()
         
         if result.returncode == 0:
             # Check if there were updates
-            if 'Already up to date' in output or 'Already up-to-date' in output:
-                message = 'SIGMA rules are already up to date'
-            else:
-                message = 'SIGMA rules updated successfully'
+            was_updated = not ('Already up to date' in output or 'Already up-to-date' in output)
             
-            logger.info(f"[SIGMA UPDATE] {message}")
+            if was_updated:
+                message = 'SIGMA rules updated successfully'
+            else:
+                message = 'SIGMA rules are already up to date'
+            
+            # Update tracking file
+            tracking_data = {}
+            if tracking_file.exists():
+                try:
+                    tracking_data = json.loads(tracking_file.read_text())
+                except:
+                    pass
+            
+            # Always update last_checked
+            tracking_data['last_checked'] = current_time.isoformat()
+            
+            # Only update last_updated if rules were actually updated
+            if was_updated:
+                tracking_data['last_updated'] = current_time.isoformat()
+            
+            # Save tracking file
+            tracking_file.write_text(json.dumps(tracking_data, indent=2))
+            
+            logger.info(f"[SIGMA UPDATE] {message} (was_updated={was_updated})")
             return {
                 'success': True,
                 'message': message,
-                'output': output
+                'output': output,
+                'was_updated': was_updated
             }
         else:
             logger.error(f"[SIGMA UPDATE] Git pull failed: {output}")
             return {
                 'success': False,
                 'message': 'Failed to update SIGMA rules',
-                'output': output
+                'output': output,
+                'was_updated': False
             }
     
     except subprocess.TimeoutExpired:
@@ -186,14 +216,16 @@ def update_sigma_rules():
         return {
             'success': False,
             'message': 'Update timeout (60s)',
-            'output': 'Operation timed out'
+            'output': 'Operation timed out',
+            'was_updated': False
         }
     except Exception as e:
         logger.error(f"[SIGMA UPDATE] Error: {e}", exc_info=True)
         return {
             'success': False,
             'message': f'Error: {str(e)}',
-            'output': str(e)
+            'output': str(e),
+            'was_updated': False
         }
 
 
@@ -202,12 +234,14 @@ def get_sigma_stats():
     Get SIGMA statistics from all rule sets
     
     Returns:
-        dict with: total_rules, last_updated, breakdown by rule set
+        dict with: total_rules, last_checked, last_updated, breakdown by rule set
     """
+    import json
     from models import SigmaViolation
     from main import db
     
     sigma_repo = Path('/opt/casescope/sigma_rules_repo')
+    tracking_file = Path('/opt/casescope/app/sigma_update_tracking.json')
     
     # Multiple rule directories to count
     lolrmm_repo = Path('/opt/casescope/lolrmm')
@@ -222,7 +256,6 @@ def get_sigma_stats():
     
     total_rules = 0
     rule_breakdown = {}
-    last_updated = None
     
     for name, path in rule_paths.items():
         if path.exists():
@@ -230,25 +263,43 @@ def get_sigma_stats():
                        for f in files if f.endswith('.yml'))
             rule_breakdown[name] = count
             total_rules += count
-            
-            # Get most recent modification time
-            try:
-                stat = os.stat(path)
-                mod_time = datetime.fromtimestamp(stat.st_mtime)
-                if last_updated is None or mod_time > last_updated:
-                    last_updated = mod_time
-            except:
-                pass
         else:
             rule_breakdown[name] = 0
     
     # Count violations
     total_violations = db.session.query(SigmaViolation).count()
     
+    # Get tracked timestamps from tracking file
+    last_checked = None
+    last_updated = None
+    
+    if tracking_file.exists():
+        try:
+            tracking_data = json.loads(tracking_file.read_text())
+            if 'last_checked' in tracking_data:
+                last_checked = datetime.fromisoformat(tracking_data['last_checked'])
+            if 'last_updated' in tracking_data:
+                last_updated = datetime.fromisoformat(tracking_data['last_updated'])
+        except Exception as e:
+            logger.warning(f"[SIGMA STATS] Could not read tracking file: {e}")
+    
+    # Fallback: If no tracking file, use directory modification time for last_updated
+    if last_updated is None:
+        for name, path in rule_paths.items():
+            if path.exists():
+                try:
+                    stat = os.stat(path)
+                    mod_time = datetime.fromtimestamp(stat.st_mtime)
+                    if last_updated is None or mod_time > last_updated:
+                        last_updated = mod_time
+                except:
+                    pass
+    
     return {
         'total_rules': total_rules,
         'enabled_rules': total_rules,  # All rules are enabled by default
-        'last_updated': last_updated,
+        'last_checked': last_checked,  # When we last checked for updates
+        'last_updated': last_updated,  # When rules were actually updated
         'total_violations': total_violations,
         'breakdown': rule_breakdown
     }

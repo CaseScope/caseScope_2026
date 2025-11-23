@@ -100,13 +100,13 @@
                 </div>
             </div>
             <div class="stat-item">
-                <div class="stat-item-label">SIGMA Last Updated</div>
+                <div class="stat-item-label">SIGMA Last Checked</div>
                 <div>
                     <a href="{{ url_for('sigma_management') }}" class="stat-item-value">
-                        {% if sigma_info.last_updated %}
-                            {{ sigma_info.last_updated.strftime('%Y-%m-%d') }}
+                        {% if sigma_info.last_checked %}
+                            {{ sigma_info.last_checked.strftime('%Y-%m-%d') }}
                         {% else %}
-                            Unknown
+                            Never
                         {% endif %}
                     </a>
                 </div>
