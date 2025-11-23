@@ -136,7 +136,7 @@ class IOC(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
-    ioc_type = db.Column(db.String(50), nullable=False)  # ip, username, hostname, fqdn, command, filename, malware_name, hash, port, url, registry_key, email
+    ioc_type = db.Column(db.String(50), nullable=False)  # ip, username, user_sid, hostname, fqdn, command, command_complex, filename, malware_name, hash, port, url, registry_key, email, pid, other
     ioc_value = db.Column(db.String(500), nullable=False, index=True)
     description = db.Column(db.Text)
     threat_level = db.Column(db.String(20), default='medium')
