@@ -258,21 +258,23 @@ Filters:
 | `/case/<int:case_id>/ioc/<int:ioc_id>/enrich` | POST | `enrich_ioc()` | Enrich with OpenCTI |
 | `/case/<int:case_id>/ioc/bulk_enrich` | POST | `bulk_enrich_iocs()` | Enrich selected IOCs |
 
-#### IOC Types Supported:
+#### IOC Types Supported (v1.23.1):
 - IP addresses
-- URLs  
-- FQDNs (domains)
-- Filenames
-- File paths
-- MD5/SHA256 hashes
-- Usernames
+- Usernames (auto-creates Known User if compromised, v1.21.0)
 - User SIDs
+- Hostnames
+- FQDNs (domains)
 - Commands (simple)
 - Commands (complex/obfuscated)
+- Filenames
+- Malware names
+- Hashes (MD5/SHA1/SHA256)
+- Ports
+- URLs
 - Registry keys
 - Email addresses
-- Ports
-- Malware names
+- **PID (Process ID)** - New in v1.23.1
+- **Other** - Catch-all for custom artifacts (mutex names, service names, etc.) - New in v1.23.1
 
 #### Example IOC Add:
 ```json
@@ -311,28 +313,35 @@ POST /case/22/ioc/add
 
 ## 🖥️ Systems Management Routes
 
-### **File**: `routes/systems.py` (1,062 lines)
+### **File**: `routes/systems.py` (1,190+ lines with v1.23.0 bulk operations)
 
 #### System Discovery
 | Route | Method | Function | Purpose |
 |-------|--------|----------|---------|
-| `/case/<int:case_id>/systems` | GET | `systems_management()` | Systems management page |
+| `/case/<int:case_id>/systems` | GET | `systems_management()` | Systems management page with pagination |
 | `/case/<int:case_id>/systems/discover` | POST | `discover_systems()` | Auto-discover systems |
 | `/case/<int:case_id>/systems/add` | POST | `add_system()` | Manually add system |
 | `/case/<int:case_id>/systems/<int:system_id>/edit` | POST | `edit_system()` | Edit system |
-| `/case/<int:case_id>/systems/<int:system_id>/delete` | POST | `delete_system()` | Delete system |
+| `/case/<int:case_id>/systems/<int:system_id>/delete` | POST | `delete_system()` | Delete system (Admin only) |
+| `/case/<int:case_id>/systems/<int:system_id>/toggle_hidden` | POST | `toggle_hidden()` | Show/hide system |
+
+#### Bulk Operations (v1.23.0)
+| Route | Method | Function | Purpose |
+|-------|--------|----------|---------|
+| `/case/<int:case_id>/systems/bulk_edit` | POST | `bulk_edit_systems()` | Bulk edit system type/hidden status |
+| `/case/<int:case_id>/systems/bulk_delete` | POST | `bulk_delete_systems()` | Bulk delete systems (Admin only) |
+
+**Bulk Edit Fields**: System Type, Hidden Status  
+**Protected Fields**: System Name, IP Address (cannot be bulk-changed per design)  
+**Selection Persistence**: JavaScript Set maintains selections across pagination
 
 #### System Types:
 - Workstation
 - Server
-- Domain Controller
 - Firewall
-- Router
 - Switch
-- IDS/IPS
-- Web Server
-- Database Server
-- Unknown
+- Printer
+- Actor System (malicious/attacker-controlled)
 
 #### System Discovery Sources:
 - Computer field in events
@@ -344,15 +353,42 @@ POST /case/22/ioc/add
 
 ## 👤 Known Users Routes
 
-### **File**: `routes/known_users.py` (514 lines)
+### **File**: `routes/known_users.py` (650+ lines with v1.22.0 bulk operations)
 
+#### User CRUD
 | Route | Method | Function | Purpose |
 |-------|--------|----------|---------|
-| `/case/<int:case_id>/known_users` | GET | `known_users()` | Known users management |
+| `/case/<int:case_id>/known_users` | GET | `known_users()` | Known users management with pagination |
 | `/case/<int:case_id>/known_users/discover` | POST | `discover_users()` | Auto-discover users |
-| `/case/<int:case_id>/known_users/add` | POST | `add_known_user()` | Manually add user |
-| `/case/<int:case_id>/known_users/<int:user_id>/edit` | POST | `edit_known_user()` | Edit user |
-| `/case/<int:case_id>/known_users/<int:user_id>/delete` | POST | `delete_known_user()` | Delete user |
+| `/case/<int:case_id>/known_users/add` | POST | `add_known_user()` | Manually add user (auto-creates IOC if compromised, v1.21.0) |
+| `/case/<int:case_id>/known_users/<int:user_id>` | GET | `get_known_user()` | Get user details (JSON) |
+| `/case/<int:case_id>/known_users/<int:user_id>/edit` | POST | `edit_known_user()` | Edit user (auto-creates IOC if marked compromised, v1.21.0) |
+| `/case/<int:case_id>/known_users/<int:user_id>/delete` | POST | `delete_known_user()` | Delete user (Admin only) |
+
+#### Bulk Operations (v1.22.0)
+| Route | Method | Function | Purpose |
+|-------|--------|----------|---------|
+| `/case/<int:case_id>/known_users/bulk_edit` | POST | `bulk_edit_known_users()` | Bulk edit user type/status/compromised/active |
+| `/case/<int:case_id>/known_users/bulk_delete` | POST | `bulk_delete_known_users()` | Bulk delete users (Admin only) |
+
+**Bulk Edit Fields**: User Type, Compromised Status, Active Status  
+**Protected Fields**: Username, User SID (cannot be bulk-changed)  
+**IOC Integration**: Bulk marking as compromised auto-creates username IOCs  
+**Selection Persistence**: JavaScript Set maintains selections across pagination
+
+#### User Types (v1.21.0):
+- Domain
+- Local
+- Unknown (auto-assigned when created from IOC)
+- Invalid
+
+#### Import/Export
+| Route | Method | Function | Purpose |
+|-------|--------|----------|---------|
+| `/case/<int:case_id>/known_users/upload_csv` | POST | `upload_csv()` | Import users from CSV (auto-creates IOCs for compromised users) |
+| `/case/<int:case_id>/known_users/export_csv` | GET | `export_csv()` | Export users to CSV |
+
+**CSV Format**: Username, Type, Compromised, Active, UserSID
 
 ---
 
