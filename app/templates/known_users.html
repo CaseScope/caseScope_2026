@@ -88,13 +88,30 @@
         </div>
         <div class="card-body">
             {% if known_users %}
+            <!-- Bulk Actions Toolbar (v1.22.0) -->
+            <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 8px; display: flex; gap: var(--spacing-sm); flex-wrap: wrap; align-items: center;">
+                <span style="font-weight: 600; margin-right: var(--spacing-sm);">Bulk Actions:</span>
+                <button id="bulkEditBtn" onclick="showBulkEditModal()" class="btn btn-sm btn-secondary" disabled>
+                    ✏️ Edit (<span id="countEdit">0</span>)
+                </button>
+                {% if current_user.role == 'administrator' %}
+                <button id="bulkDeleteBtn" onclick="bulkDeleteUsers()" class="btn btn-sm btn-danger" disabled>
+                    🗑️ Delete (<span id="countDelete">0</span>) - Admin Only
+                </button>
+                {% endif %}
+            </div>
+            
             <div style="overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
                         <tr>
+                            <th style="width: 50px;">
+                                <input type="checkbox" id="selectAllUsers" onclick="toggleSelectAllUsers()" title="Select All">
+                            </th>
                             <th>Username</th>
                             <th>Type</th>
                             <th>Compromised</th>
+                            <th>Active</th>
                             <th>Added Type</th>
                             <th>Added By</th>
                             <th>Date Added</th>
@@ -104,6 +121,9 @@
                     <tbody>
                         {% for user in known_users %}
                         <tr>
+                            <td>
+                                <input type="checkbox" class="user-checkbox" value="{{ user.id }}" onchange="updateBulkButtons()">
+                            </td>
                             <td>
                                 <strong>{{ user.username }}</strong>
                             </td>
@@ -126,8 +146,17 @@
                                 {% endif %}
                             </td>
                             <td>
+                                {% if user.active %}
+                                <span class="status-badge status-completed">🟢 Active</span>
+                                {% else %}
+                                <span class="status-badge">⚪ Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>
                                 <span class="status-badge">
-                                    {% if user.added_method == 'csv' %}📤 CSV{% else %}✍️ Manual{% endif %}
+                                    {% if user.added_method == 'csv' %}📤 CSV
+                                    {% elif user.added_method == 'ioc_sync' %}🔄 IOC
+                                    {% else %}✍️ Manual{% endif %}
                                 </span>
                             </td>
                             <td class="text-muted">{{ user.creator.username if user.creator else 'Unknown' }}</td>
@@ -302,6 +331,63 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('editUserModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Update User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Bulk Edit Modal (v1.22.0) -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Bulk Edit Known Users</h2>
+            <button type="button" class="modal-close" onclick="closeModal('bulkEditModal')">✕</button>
+        </div>
+        <form id="bulkEditForm" onsubmit="bulkEditUsers(event)">
+            <div class="modal-body">
+                <div style="background: var(--color-info-bg); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid var(--color-info);">
+                    <p style="margin: 0; color: var(--color-info);">
+                        ℹ️ <strong><span id="bulkEditCount">0</span> users</strong> selected for bulk edit.<br>
+                        <small>Only fields you change will be updated. Leave unchanged to keep current values.</small>
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">User Type</label>
+                    <select id="bulk_user_type" name="user_type" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="domain">Domain User</option>
+                        <option value="local">Local User</option>
+                        <option value="unknown">Unknown</option>
+                        <option value="invalid">Invalid (should not exist)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Compromised Status</label>
+                    <select id="bulk_compromised" name="compromised" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="false">Not Compromised</option>
+                        <option value="true">Compromised</option>
+                    </select>
+                    <small style="color: var(--color-info); display: block; margin-top: 4px;">
+                        ℹ️ Marking as compromised will auto-create username IOCs
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Active Status</label>
+                    <select id="bulk_active" name="active" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('bulkEditModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update Selected Users</button>
             </div>
         </form>
     </div>
@@ -560,6 +646,195 @@ function uploadCSV(event) {
         }
     });
 }
+
+// ============================================================================
+// BULK OPERATIONS (v1.22.0)
+// ============================================================================
+
+// Store selected IDs across pagination
+let selectedUserIds = new Set();
+
+// Toggle select all checkboxes
+function toggleSelectAllUsers() {
+    const selectAll = document.getElementById('selectAllUsers');
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+    
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+        if (selectAll.checked) {
+            selectedUserIds.add(parseInt(cb.value));
+        } else {
+            selectedUserIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    updateBulkButtons();
+}
+
+// Update bulk action buttons based on selection
+function updateBulkButtons() {
+    const checkboxes = document.querySelectorAll('.user-checkbox:checked');
+    const count = checkboxes.length;
+    
+    // Update selected IDs set
+    document.querySelectorAll('.user-checkbox').forEach(cb => {
+        if (cb.checked) {
+            selectedUserIds.add(parseInt(cb.value));
+        } else {
+            selectedUserIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    // Use the set size for total count (includes selections from other pages)
+    const totalCount = selectedUserIds.size;
+    
+    // Update button counts
+    document.getElementById('countEdit').textContent = totalCount;
+    {% if current_user.role == 'administrator' %}
+    document.getElementById('countDelete').textContent = totalCount;
+    {% endif %}
+    
+    // Enable/disable buttons
+    const hasSelection = totalCount > 0;
+    document.getElementById('bulkEditBtn').disabled = !hasSelection;
+    {% if current_user.role == 'administrator' %}
+    document.getElementById('bulkDeleteBtn').disabled = !hasSelection;
+    {% endif %}
+}
+
+// Show bulk edit modal
+function showBulkEditModal() {
+    if (selectedUserIds.size === 0) {
+        alert('⚠️ Please select at least one user to edit.');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedUserIds.size;
+    document.getElementById('bulkEditForm').reset();
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+// Bulk edit users
+function bulkEditUsers(event) {
+    event.preventDefault();
+    
+    if (selectedUserIds.size === 0) {
+        alert('⚠️ No users selected.');
+        return;
+    }
+    
+    const userType = document.getElementById('bulk_user_type').value;
+    const compromised = document.getElementById('bulk_compromised').value;
+    const active = document.getElementById('bulk_active').value;
+    
+    // Check if at least one field is being changed
+    if (!userType && !compromised && !active) {
+        alert('⚠️ Please select at least one field to update.');
+        return;
+    }
+    
+    const modal = document.getElementById('bulkEditModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Updating...';
+    }
+    
+    // Build request payload
+    const payload = {
+        user_ids: Array.from(selectedUserIds)
+    };
+    
+    if (userType) payload.user_type = userType;
+    if (compromised) payload.compromised = compromised === 'true';
+    if (active) payload.active = active === 'true';
+    
+    fetch('/case/{{ case_id }}/known_users/bulk_edit', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Bulk edit complete!\n\nUpdated: ${data.updated} users`);
+            selectedUserIds.clear();  // Clear selection
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to bulk edit users'));
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Update Selected Users';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Bulk edit error:', err);
+        alert('❌ Error: ' + err.message);
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Update Selected Users';
+        }
+    });
+}
+
+// Bulk delete users
+function bulkDeleteUsers() {
+    if (selectedUserIds.size === 0) {
+        alert('⚠️ Please select at least one user to delete.');
+        return;
+    }
+    
+    if (!confirm(`⚠️ Are you sure you want to delete ${selectedUserIds.size} selected user(s)?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    const button = document.getElementById('bulkDeleteBtn');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Deleting...';
+    
+    fetch('/case/{{ case_id }}/known_users/bulk_delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            user_ids: Array.from(selectedUserIds)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Bulk delete complete!\n\nDeleted: ${data.deleted} users`);
+            selectedUserIds.clear();  // Clear selection
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to bulk delete users'));
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    })
+    .catch(err => {
+        console.error('Bulk delete error:', err);
+        alert('❌ Error: ' + err.message);
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
+// Restore checkbox states on page load (for pagination)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.user-checkbox').forEach(cb => {
+        if (selectedUserIds.has(parseInt(cb.value))) {
+            cb.checked = true;
+        }
+    });
+    updateBulkButtons();
+});
 </script>
 
 {% endblock %}

@@ -602,3 +602,172 @@ def export_csv(case_id):
         flash(f'Export failed: {str(e)}', 'error')
         return redirect(url_for('known_users.list_known_users', case_id=case_id))
 
+
+@known_users_bp.route('/case/<int:case_id>/known_users/bulk_edit', methods=['POST'])
+@login_required
+def bulk_edit_known_users(case_id):
+    """Bulk edit known users (v1.22.0)"""
+    # Permission check: Read-only users cannot edit
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot edit known users'}), 403
+    
+    from main import db
+    from models import KnownUser, Case
+    from known_user_ioc_sync import sync_user_to_ioc  # v1.21.0: IOC integration
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        
+        if not user_ids or not isinstance(user_ids, list):
+            return jsonify({'success': False, 'error': 'No users selected'}), 400
+        
+        # Get fields to update (only non-None values)
+        updates = {}
+        if 'user_type' in data:
+            updates['user_type'] = data['user_type']
+        if 'compromised' in data:
+            updates['compromised'] = data['compromised']
+        if 'active' in data:
+            updates['active'] = data['active']
+        
+        if not updates:
+            return jsonify({'success': False, 'error': 'No fields to update'}), 400
+        
+        # Update users
+        updated_count = 0
+        iocs_created_count = 0
+        
+        for user_id in user_ids:
+            known_user = db.session.get(KnownUser, user_id)
+            
+            if not known_user:
+                continue  # Skip missing users
+            
+            # Verify user belongs to this case
+            if known_user.case_id != case_id:
+                continue  # Skip users from other cases
+            
+            # Track if compromised status changes
+            was_compromised = known_user.compromised
+            
+            # Apply updates
+            for key, value in updates.items():
+                setattr(known_user, key, value)
+            
+            updated_count += 1
+            
+            # v1.21.0: If user is NOW compromised (and wasn't before), create IOC
+            if updates.get('compromised') == True and not was_compromised:
+                success, ioc_id, msg = sync_user_to_ioc(
+                    case_id=case_id,
+                    username=known_user.username,
+                    user_id=known_user.id,
+                    current_user_id=current_user.id,
+                    description=f'Compromised via bulk edit (SID: {known_user.user_sid or "N/A"})'
+                )
+                if success and ioc_id:
+                    iocs_created_count += 1
+        
+        db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_edit_known_users', resource_type='known_user', resource_id=None,
+                  resource_name=f'{updated_count} users',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'user_ids': user_ids,
+                      'updated_count': updated_count,
+                      'iocs_created_count': iocs_created_count,
+                      'updates': updates
+                  })
+        
+        # Build result message
+        message = f'Bulk edit complete: {updated_count} users updated'
+        if iocs_created_count > 0:
+            message += f' ({iocs_created_count} IOCs created automatically)'
+        
+        flash(message, 'success')
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'iocs_created': iocs_created_count
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Bulk edit error: {str(e)}'}), 500
+
+
+@known_users_bp.route('/case/<int:case_id>/known_users/bulk_delete', methods=['POST'])
+@login_required
+def bulk_delete_known_users(case_id):
+    """Bulk delete known users (v1.22.0)"""
+    # Permission check: Only administrators can delete
+    if current_user.role != 'administrator':
+        return jsonify({'success': False, 'error': 'Only administrators can delete known users'}), 403
+    
+    from main import db
+    from models import KnownUser, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        
+        if not user_ids or not isinstance(user_ids, list):
+            return jsonify({'success': False, 'error': 'No users selected'}), 400
+        
+        # Delete users
+        deleted_count = 0
+        deleted_usernames = []
+        
+        for user_id in user_ids:
+            known_user = db.session.get(KnownUser, user_id)
+            
+            if not known_user:
+                continue  # Skip missing users
+            
+            # Verify user belongs to this case
+            if known_user.case_id != case_id:
+                continue  # Skip users from other cases
+            
+            deleted_usernames.append(known_user.username)
+            db.session.delete(known_user)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_delete_known_users', resource_type='known_user', resource_id=None,
+                  resource_name=f'{deleted_count} users',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'user_ids': user_ids,
+                      'deleted_count': deleted_count,
+                      'deleted_usernames': deleted_usernames
+                  })
+        
+        flash(f'Bulk delete complete: {deleted_count} users deleted', 'success')
+        return jsonify({
+            'success': True,
+            'deleted': deleted_count
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Bulk delete error: {str(e)}'}), 500
+
