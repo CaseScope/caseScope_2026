@@ -64,32 +64,26 @@
     
     <div class="card" style="margin-bottom: 0;">
         <div class="card-body">
-            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Last Checked</div>
-            <div style="font-size: 1.125rem; font-weight: 700; color: var(--color-text-primary);">
-                {% if sigma_info.last_checked %}
-                    {{ sigma_info.last_checked.strftime('%Y-%m-%d') }}
-                {% else %}
-                    Never
-                {% endif %}
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Last Checked / Updated</div>
+            <div style="font-size: 1.125rem; font-weight: 700; color: var(--color-text-primary); margin-bottom: var(--spacing-xs);">
+                <span style="color: var(--color-success);">
+                    {% if sigma_info.last_checked %}
+                        {{ sigma_info.last_checked.strftime('%Y-%m-%d') }}
+                    {% else %}
+                        Never
+                    {% endif %}
+                </span>
+                <span style="color: var(--color-text-secondary); font-size: 0.875rem; font-weight: 400;"> / </span>
+                <span style="color: var(--color-primary);">
+                    {% if sigma_info.last_updated %}
+                        {{ sigma_info.last_updated.strftime('%Y-%m-%d') }}
+                    {% else %}
+                        Unknown
+                    {% endif %}
+                </span>
             </div>
             <div style="margin-top: var(--spacing-sm); font-size: 0.75rem; color: var(--color-text-secondary);">
-                Last update check
-            </div>
-        </div>
-    </div>
-    
-    <div class="card" style="margin-bottom: 0;">
-        <div class="card-body">
-            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Last Updated</div>
-            <div style="font-size: 1.125rem; font-weight: 700; color: var(--color-text-primary);">
-                {% if sigma_info.last_updated %}
-                    {{ sigma_info.last_updated.strftime('%Y-%m-%d') }}
-                {% else %}
-                    Unknown
-                {% endif %}
-            </div>
-            <div style="margin-top: var(--spacing-sm); font-size: 0.75rem; color: var(--color-text-secondary);">
-                Rules actually updated
+                Last check / Rules updated
             </div>
         </div>
     </div>

@@ -298,32 +298,52 @@ def get_service_status():
 
 
 def get_sigma_rules_info():
-    """Get SIGMA rules information"""
+    """Get SIGMA rules information (v1.26.0: includes last_checked and last_updated)"""
+    import json
+    from pathlib import Path
     try:
         sigma_path = '/opt/casescope/sigma_rules'
+        tracking_file = Path('/opt/casescope/app/sigma_update_tracking.json')
         
         if not os.path.exists(sigma_path):
-            return {'total': 0, 'enabled': 0, 'last_updated': None}
+            return {'total': 0, 'enabled': 0, 'last_checked': None, 'last_updated': None}
         
         # Count .yml files
         total_rules = 0
         for root, dirs, files in os.walk(sigma_path):
             total_rules += len([f for f in files if f.endswith('.yml')])
         
-        # Get last modification time
-        try:
-            stat = os.stat(sigma_path)
-            from datetime import datetime
-            last_updated = datetime.fromtimestamp(stat.st_mtime)
-        except:
-            last_updated = None
+        # Get tracked timestamps from tracking file (v1.26.0)
+        last_checked = None
+        last_updated = None
+        
+        if tracking_file.exists():
+            try:
+                from datetime import datetime
+                tracking_data = json.loads(tracking_file.read_text())
+                if 'last_checked' in tracking_data:
+                    last_checked = datetime.fromisoformat(tracking_data['last_checked'])
+                if 'last_updated' in tracking_data:
+                    last_updated = datetime.fromisoformat(tracking_data['last_updated'])
+            except Exception as e:
+                print(f"Warning: Could not read SIGMA tracking file: {e}")
+        
+        # Fallback: Get last modification time if no tracking file
+        if last_updated is None:
+            try:
+                stat = os.stat(sigma_path)
+                from datetime import datetime
+                last_updated = datetime.fromtimestamp(stat.st_mtime)
+            except:
+                last_updated = None
         
         return {
             'total': total_rules,
             'enabled': total_rules,  # All rules are enabled by default
-            'last_updated': last_updated
+            'last_checked': last_checked,  # v1.26.0: When we last ran update check
+            'last_updated': last_updated   # v1.26.0: When rules were actually updated
         }
     except Exception as e:
         print(f"Error getting SIGMA rules info: {e}")
-        return {'total': 0, 'enabled': 0, 'last_updated': None}
+        return {'total': 0, 'enabled': 0, 'last_checked': None, 'last_updated': None}
 
