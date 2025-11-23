@@ -424,6 +424,10 @@ def upload_csv(case_id):
         iocs_created_count = 0  # v1.21.0: Track IOCs created
         errors = []
         
+        # Pre-load existing usernames for this case (case-insensitive)
+        existing_users = db.session.query(KnownUser).filter_by(case_id=case_id).all()
+        existing_usernames = {user.username.lower() for user in existing_users}
+        
         # Track usernames seen in this CSV to prevent duplicates within the file
         seen_usernames = set()
         
