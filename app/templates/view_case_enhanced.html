@@ -11,6 +11,13 @@
     </div>
     <div class="content-actions">
         {% if case.status != 'Archived' %}
+        <!-- Unlock Case Button (v1.25.0) -->
+        <form action="{{ url_for('unlock_case', case_id=case.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('⚠️ Unlock this case?\n\nThis will release your lock and return you to case selection. Other users will be able to select this case.');">
+            <button type="submit" class="btn" style="background: var(--color-warning); color: white;" title="Release your lock on this case">
+                <span>🔓</span>
+                <span>Unlock Case</span>
+            </button>
+        </form>
         <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
             <span>📅</span>
             <span>AI Case Timeline</span>
