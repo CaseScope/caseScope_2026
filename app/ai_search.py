@@ -214,11 +214,13 @@ def simple_keyword_search(
 ) -> List[Dict]:
     """
     Fallback simple search using just query_string
+    Limits keywords to prevent "too many clauses" error on large indices
     """
     index_name = f"case_{case_id}"
     
-    # Build simple OR query
-    query_text = " OR ".join(keywords)
+    # Limit keywords to top 5 to avoid maxClauseCount errors
+    limited_keywords = keywords[:5]
+    query_text = " OR ".join(limited_keywords)
     
     try:
         logger.info(f"[AI_SEARCH] Trying fallback simple search with: {query_text}")
@@ -235,8 +237,10 @@ def simple_keyword_search(
                     }
                 },
                 "size": max_results,
-                "_source": True
-            }
+                "_source": True,
+                "timeout": "15s"
+            },
+            request_timeout=20
         )
         
         results = [
@@ -296,10 +300,24 @@ def semantic_search_events(
     clean_keywords = [k for k in keywords if '*' not in k]
     
     # Add each keyword as a separate multi_match clause with fuzziness
+    # LIMIT to specific fields for performance on large indices
+    search_fields = [
+        "event_title^3",  # Boost title matches
+        "event_description^2",
+        "computer_name",
+        "username",
+        "process_name",
+        "command_line",
+        "source_ip",
+        "destination_ip",
+        "file_path"
+    ]
+    
     for keyword in clean_keywords:
         should_clauses.append({
             "multi_match": {
                 "query": keyword,
+                "fields": search_fields,
                 "type": "best_fields",
                 "fuzziness": "AUTO",
                 "lenient": True,
@@ -350,8 +368,10 @@ def semantic_search_events(
                     {"_score": {"order": "desc"}},
                     {"normalized_timestamp": {"order": "desc"}}
                 ],
-                "_source": True
-            }
+                "_source": True,
+                "timeout": "30s"  # Prevent long-running queries on large indices
+            },
+            request_timeout=35  # Client-side timeout slightly longer than query timeout
         )
         
         total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
