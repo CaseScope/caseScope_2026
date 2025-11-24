@@ -210,28 +210,45 @@ Event 12 shows a scheduled task created at 14:35:12 using the harvested
 credentials, establishing persistence.
 ```
 
-### Viewing Evidence Events
+### Viewing and Interacting with Evidence Events
 
-After the AI generates a response, you can view the exact events it used:
+After the AI generates a response, you can load the exact events it analyzed into the main search results table for full interaction:
 
-1. **In the Modal**: Click "View in Search Results" button in the Evidence Events section
-2. **Result**: The search results table will display ONLY the events the AI analyzed (typically 20 events)
-3. **Table Shows**:
-   - Tag status (⭐ if analyst-tagged)
-   - Event ID
-   - Timestamp
-   - Description
-   - Computer Name
-   - Source File
-   - Flags (SIGMA ⚠️, IOC 🎯)
-   - Actions (👁️ to view full event details)
-4. **Reset**: Click "Reset to Full Search" to return to normal search
+1. **In the Modal**: 
+   - View a preview of the first 5 evidence events with flags and timestamps
+   - See total count: "📋 Evidence Events (20)"
+   - Click the **"Show in Search Results →"** button (purple gradient)
 
-This allows you to:
-- Verify the AI's analysis against raw evidence
-- Tag important events
-- Pivot to other related events
-- Export the evidence set
+2. **Result**: 
+   - Modal closes automatically
+   - Search results table loads with ONLY the AI evidence events
+   - Header updates to show "X AI evidence events"
+   - Table scrolls into view
+
+3. **Full Interaction Available**:
+   - **⭐ Tag Events**: Click star icon to mark important events for your timeline/report
+   - **👁️ View Details**: Click eye icon to open full event modal with raw EventData
+   - **Export**: Use bulk operations to export the evidence set
+   - **Pivot**: From tagged events, continue investigating related activity
+   - **All Standard Features**: Filtering, sorting, column management work normally
+
+4. **Use Case Example**:
+   ```
+   Analyst asks: "What lateral movement occurred?"
+   → AI responds with analysis referencing 20 events
+   → Modal shows preview: "5 events shown, ...and 15 more"
+   → Click "Show in Search Results" button
+   → Modal closes, 20 events load in table below
+   → Analyst tags 5 key events showing PsExec/WMI activity
+   → Analyst views full details of Event 8 (LSASS access)
+   → Analyst exports tagged events for incident report
+   ```
+
+This workflow provides:
+- **Evidence Verification**: Compare AI conclusions against raw event data
+- **Investigation Continuity**: Seamlessly transition from AI analysis to manual triage
+- **Report Building**: Tag and export the exact events AI used in its analysis
+- **Audit Trail**: All analyst interactions logged for compliance
 
 ---
 
@@ -315,16 +332,17 @@ If your GPU is busy with other tasks:
 |----------|---------|
 | `showAIQuestionModal()` | Opens the AI Question modal |
 | `submitAIQuestion()` | Sends question to backend, streams response via SSE |
-| `showAIEventsInSearch()` | Fetches and displays AI evidence events in search results table |
-| `buildAIEventsTable(events)` | Renders events table with all flags/badges matching normal search results |
+| `handleAIStreamData(data)` | Processes streaming data: status, events preview, response chunks |
+| `showAIEventsInSearchResults()` | Populates main search results table with AI evidence events for full interaction (tagging, viewing, exporting) |
 
 ### API Endpoints (app/routes/ai_search.py)
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/case/<id>/ai-search/status` | GET | Check if Ollama and LLM are available |
-| `/case/<id>/ai-search/ask` | POST | Submit question, returns SSE stream with AI response |
-| `/case/<id>/ai-search/events` | POST | Fetch full event details for list of event IDs |
+| `/case/<id>/ai-search/ask` | POST | Submit question, returns SSE stream with AI response and full event data |
+
+**Note**: As of v1.27.6+, the `/events` endpoint is no longer used. Event data is now streamed directly in the `/ask` response for better performance.
 
 ---
 
@@ -336,4 +354,9 @@ If your GPU is busy with other tasks:
 | 1.27.1 | Nov 2025 | Bugfixes: modal styling, log_action parameters |
 | 1.27.2 | Nov 2025 | Enhanced keyword extraction (CamelCase, usernames, quoted strings) |
 | 1.27.3 | Nov 2025 | Robust search (multi-match, fuzziness, fallback) |
-| 1.27.4 | Nov 2025 | Bugfix: "View in Search Results" button now displays AI evidence events |
+| 1.27.4 | Nov 2025 | "View in Search Results" button to display evidence events in table |
+| 1.27.5 | Nov 2025 | Performance fixes for large indices (field limiting, timeouts, keyword capping) |
+| 1.27.6 | Nov 2025 | Simplified event display: show events directly in modal (removed external fetch) |
+| 1.27.7 | Nov 2025 | Prioritize tagged events: boost analyst-tagged events highest in results |
+| 1.27.8 | Nov 2025 | Bugfix: datetime JSON serialization error in event streaming |
+| 1.27.9 | Nov 2025 | **Enhancement**: Evidence events now load into main search results table for full analyst interaction (tagging, viewing details, exporting) |
