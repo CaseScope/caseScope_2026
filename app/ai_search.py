@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
 """
-CaseScope AI Search Module (RAG Implementation)
+CaseScope AI Search Module (RAG Implementation) - UPDATED
 Provides semantic search using embeddings + LLM-powered question answering
-
-RAG = Retrieval-Augmented Generation:
-1. Convert user question to embedding vector
-2. Find semantically similar events in OpenSearch
-3. Pass those events to LLM as context
-4. LLM generates answer grounded in actual evidence
-
-PERFORMANCE DESIGN:
-- Embeddings use sentence-transformers on CPU (fast, leaves GPU for LLM)
-- Embeddings happen ONLY at query time, NOT during ingestion
-- LLM uses GPU via Ollama (your existing DFIR models)
-- Zero impact on file processing pipeline
 """
 
 import requests
@@ -31,8 +19,6 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 
 # Embedding model configuration
-# all-MiniLM-L6-v2: 90MB, 384 dimensions, runs on CPU at ~1000+ embeddings/sec
-# This keeps your GPU free for LLM inference
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 # LLM model for generating answers (uses your existing DFIR models on GPU)
@@ -46,9 +32,6 @@ _embedding_model_load_attempted = False
 def _load_embedding_model():
     """
     Lazy-load the sentence-transformers embedding model
-    
-    Uses CPU by default to keep GPU free for LLM.
-    Model is cached after first load (~2-3 seconds initial load).
     """
     global _embedding_model, _embedding_model_load_attempted
     
@@ -61,16 +44,12 @@ def _load_embedding_model():
         from sentence_transformers import SentenceTransformer
         
         logger.info(f"[AI_SEARCH] Loading embedding model: {EMBEDDING_MODEL_NAME}")
-        
-        # Load model - will use CPU by default
-        # device='cpu' ensures GPU stays free for Ollama LLM
         _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu')
-        
         logger.info(f"[AI_SEARCH] Embedding model loaded successfully (CPU mode)")
         return _embedding_model
         
     except ImportError:
-        logger.error("[AI_SEARCH] sentence-transformers not installed. Run: pip install sentence-transformers --break-system-packages")
+        logger.error("[AI_SEARCH] sentence-transformers not installed")
         return None
     except Exception as e:
         logger.error(f"[AI_SEARCH] Failed to load embedding model: {e}")
@@ -78,17 +57,9 @@ def _load_embedding_model():
 
 
 def check_embedding_model_available() -> Dict[str, Any]:
-    """
-    Check if the embedding model can be loaded
-    
-    Returns:
-        dict with 'available', 'model', and 'error' keys
-    """
+    """Check if the embedding model can be loaded"""
     try:
-        # Check if sentence-transformers is installed
         import sentence_transformers
-        
-        # Try to load the model
         model = _load_embedding_model()
         
         if model is not None:
@@ -114,7 +85,7 @@ def check_embedding_model_available() -> Dict[str, Any]:
             'model': EMBEDDING_MODEL_NAME,
             'type': 'sentence-transformers',
             'device': 'cpu',
-            'error': "sentence-transformers not installed. Run: pip install sentence-transformers --break-system-packages"
+            'error': "sentence-transformers not installed"
         }
     except Exception as e:
         return {
@@ -127,26 +98,14 @@ def check_embedding_model_available() -> Dict[str, Any]:
 
 
 def get_embedding(text: str) -> Optional[np.ndarray]:
-    """
-    Generate embedding vector for text using sentence-transformers (CPU)
-    
-    Args:
-        text: Text to embed (question or event summary)
-    
-    Returns:
-        numpy array (embedding vector) or None on error
-    """
+    """Generate embedding vector for text"""
     model = _load_embedding_model()
     if model is None:
         return None
     
     try:
-        # Truncate very long text (model has ~256 token limit, ~1000 chars safe)
         text = text[:2000] if len(text) > 2000 else text
-        
-        # Generate embedding - runs on CPU, very fast
         embedding = model.encode(text, convert_to_numpy=True, show_progress_bar=False)
-        
         return embedding
         
     except Exception as e:
@@ -155,32 +114,19 @@ def get_embedding(text: str) -> Optional[np.ndarray]:
 
 
 def get_embeddings_batch(texts: List[str]) -> Optional[np.ndarray]:
-    """
-    Generate embeddings for multiple texts efficiently (batched)
-    
-    Args:
-        texts: List of texts to embed
-    
-    Returns:
-        numpy array of shape (n_texts, embedding_dim) or None on error
-    """
+    """Generate embeddings for multiple texts efficiently"""
     model = _load_embedding_model()
     if model is None:
         return None
     
     try:
-        # Truncate each text
         texts = [t[:2000] if len(t) > 2000 else t for t in texts]
-        
-        # Batch encode - much faster than individual calls
-        # batch_size=32 is efficient for CPU
         embeddings = model.encode(
             texts, 
             convert_to_numpy=True, 
             show_progress_bar=False,
             batch_size=32
         )
-        
         return embeddings
         
     except Exception as e:
@@ -194,36 +140,15 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def cosine_similarity_batch(query_embedding: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
-    """
-    Calculate cosine similarity between query and multiple embeddings
-    
-    Args:
-        query_embedding: Single embedding vector (1D)
-        embeddings: Matrix of embeddings (2D: n_docs x embedding_dim)
-    
-    Returns:
-        Array of similarity scores
-    """
-    # Normalize vectors
+    """Calculate cosine similarity between query and multiple embeddings"""
     query_norm = query_embedding / np.linalg.norm(query_embedding)
     embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-    
-    # Dot product gives cosine similarity for normalized vectors
     similarities = np.dot(embeddings_norm, query_norm)
-    
     return similarities
 
 
 def create_event_summary(event: Dict[str, Any]) -> str:
-    """
-    Create a text summary of an event for embedding/LLM context
-    
-    Args:
-        event: Event document from OpenSearch
-    
-    Returns:
-        Human-readable summary string
-    """
+    """Create a text summary of an event for embedding/LLM context"""
     source = event.get('_source', event)
     
     parts = []
@@ -239,12 +164,12 @@ def create_event_summary(event: Dict[str, Any]) -> str:
                 source.get('host', {}).get('name') if isinstance(source.get('host'), dict) else source.get('host', 'Unknown'))
     parts.append(f"Computer: {computer}")
     
-    # Event ID (for Windows events)
+    # Event ID
     event_id = source.get('normalized_event_id') or source.get('EventID') or source.get('event_id')
     if event_id:
         parts.append(f"Event ID: {event_id}")
     
-    # Extract key fields from EventData or event root
+    # Extract key fields
     key_fields = [
         'SubjectUserName', 'TargetUserName', 'User', 'user',
         'SourceNetworkAddress', 'IpAddress', 'source_ip',
@@ -262,7 +187,7 @@ def create_event_summary(event: Dict[str, Any]) -> str:
     if isinstance(event_data, dict):
         for field in key_fields:
             if field in event_data and event_data[field]:
-                value = str(event_data[field])[:200]  # Limit length
+                value = str(event_data[field])[:200]
                 parts.append(f"{field}: {value}")
     
     # Also check root level
@@ -281,6 +206,57 @@ def create_event_summary(event: Dict[str, Any]) -> str:
     return " | ".join(parts)
 
 
+def simple_keyword_search(
+    opensearch_client,
+    case_id: int,
+    keywords: List[str],
+    max_results: int = 50
+) -> List[Dict]:
+    """
+    Fallback simple search using just query_string
+    """
+    index_name = f"case_{case_id}"
+    
+    # Build simple OR query
+    query_text = " OR ".join(keywords)
+    
+    try:
+        logger.info(f"[AI_SEARCH] Trying fallback simple search with: {query_text}")
+        
+        response = opensearch_client.search(
+            index=index_name,
+            body={
+                "query": {
+                    "query_string": {
+                        "query": query_text,
+                        "default_operator": "OR",
+                        "lenient": True,
+                        "analyze_wildcard": True
+                    }
+                },
+                "size": max_results,
+                "_source": True
+            }
+        )
+        
+        results = [
+            {
+                '_id': hit['_id'],
+                '_index': hit['_index'],
+                '_score': hit.get('_score', 0),
+                '_source': hit['_source']
+            }
+            for hit in response['hits']['hits']
+        ]
+        
+        logger.info(f"[AI_SEARCH] Fallback search returned {len(results)} results")
+        return results
+        
+    except Exception as e:
+        logger.error(f"[AI_SEARCH] Simple search failed: {e}")
+        return []
+
+
 def semantic_search_events(
     opensearch_client,
     case_id: int,
@@ -293,52 +269,50 @@ def semantic_search_events(
     """
     Perform semantic search: find events relevant to the question
     
-    HYBRID APPROACH (best of both worlds):
-    1. Keyword search to get candidate events (fast, OpenSearch)
-    2. Embed the question and candidate events (CPU, ~500ms for 50 events)
-    3. Re-rank candidates by semantic similarity
-    4. Return top results
-    
-    This approach:
-    - Has ZERO impact on ingestion (embeddings only at query time)
-    - Uses CPU for embeddings, keeping GPU free for LLM
-    - Gets semantic understanding without pre-indexing vectors
-    
-    Args:
-        opensearch_client: OpenSearch client instance
-        case_id: Case ID to search within
-        question: Natural language question from analyst
-        max_results: Maximum events to return (after re-ranking)
-        include_sigma: Boost SIGMA violation events
-        include_ioc: Boost IOC match events
-        boost_tagged: Boost events that are tagged
-    
-    Returns:
-        Tuple of (events list, search_explanation string)
+    ENHANCED VERSION with:
+    - Better multi_match queries with fuzziness
+    - Fallback simple search
+    - Improved logging
+    - No problematic wildcards
     """
     index_name = f"case_{case_id}"
     
     # Step 1: Extract keywords for initial retrieval
     keywords = extract_keywords_from_question(question)
     
-    # Build OpenSearch query for candidate retrieval
+    if not keywords:
+        logger.warning("[AI_SEARCH] No keywords extracted from question")
+        return [], "Could not extract search terms from your question."
+    
+    logger.info(f"[AI_SEARCH] Searching with keywords: {keywords}")
+    
     # Get MORE candidates than we need (will re-rank with embeddings)
-    candidate_count = min(max_results * 5, 100)  # Get 5x candidates, max 100
+    candidate_count = min(max_results * 5, 100)
     
-    query = {
-        "bool": {
-            "should": [],
-            "minimum_should_match": 1
-        }
-    }
+    # Build a more robust query with multiple should clauses
+    should_clauses = []
     
-    # Add keyword matches
-    if keywords:
-        query["bool"]["should"].append({
+    # Remove wildcards from keywords for cleaner queries
+    clean_keywords = [k for k in keywords if '*' not in k]
+    
+    # Add each keyword as a separate multi_match clause with fuzziness
+    for keyword in clean_keywords:
+        should_clauses.append({
+            "multi_match": {
+                "query": keyword,
+                "type": "best_fields",
+                "fuzziness": "AUTO",
+                "lenient": True,
+                "boost": 2.0
+            }
+        })
+    
+    # Also add a query_string for the full question (catches phrases)
+    if clean_keywords:
+        should_clauses.append({
             "query_string": {
-                "query": " OR ".join(keywords),
+                "query": " OR ".join(clean_keywords),
                 "default_operator": "OR",
-                "analyze_wildcard": True,
                 "lenient": True,
                 "boost": 1.0
             }
@@ -346,18 +320,27 @@ def semantic_search_events(
     
     # Boost SIGMA events
     if include_sigma:
-        query["bool"]["should"].append({
-            "term": {"has_sigma": {"value": True, "boost": 2.0}}
+        should_clauses.append({
+            "term": {"has_sigma": {"value": True, "boost": 3.0}}
         })
     
     # Boost IOC events
     if include_ioc:
-        query["bool"]["should"].append({
-            "term": {"has_ioc": {"value": True, "boost": 2.0}}
+        should_clauses.append({
+            "term": {"has_ioc": {"value": True, "boost": 3.0}}
         })
     
-    # Step 2: Get candidate events from OpenSearch
+    query = {
+        "bool": {
+            "should": should_clauses,
+            "minimum_should_match": 1
+        }
+    }
+    
+    # Step 2: Execute search
     try:
+        logger.info(f"[AI_SEARCH] Executing query on index {index_name}")
+        
         response = opensearch_client.search(
             index=index_name,
             body={
@@ -371,6 +354,9 @@ def semantic_search_events(
             }
         )
         
+        total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
+        logger.info(f"[AI_SEARCH] Query returned {total_hits} total hits")
+        
         candidates = []
         for hit in response['hits']['hits']:
             event = {
@@ -381,71 +367,73 @@ def semantic_search_events(
             }
             candidates.append(event)
         
+        # Try fallback if no results
         if not candidates:
-            return [], "No events found matching your question keywords."
+            logger.warning(f"[AI_SEARCH] Primary query returned 0 results, trying fallback")
+            candidates = simple_keyword_search(opensearch_client, case_id, clean_keywords, candidate_count)
+            
+            if not candidates:
+                logger.warning(f"[AI_SEARCH] Fallback also returned 0 results")
+                return [], f"No events found matching: {', '.join(clean_keywords[:5])}"
+            
+            total_hits = len(candidates)
         
-        logger.info(f"[AI_SEARCH] Retrieved {len(candidates)} candidate events for semantic re-ranking")
+        logger.info(f"[AI_SEARCH] Retrieved {len(candidates)} candidate events")
         
     except Exception as e:
         logger.error(f"[AI_SEARCH] OpenSearch query failed: {e}")
-        return [], f"Search error: {str(e)}"
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Try fallback on error
+        logger.info("[AI_SEARCH] Attempting fallback search after error")
+        candidates = simple_keyword_search(opensearch_client, case_id, clean_keywords, candidate_count)
+        if not candidates:
+            return [], f"Search error: {str(e)}"
+        total_hits = len(candidates)
     
-    # Step 3: Embed question and candidates for semantic re-ranking
-    # Check if embedding model is available
+    # Step 3: Semantic re-ranking (if embedding model available)
     embedding_available = _load_embedding_model() is not None
     
     if embedding_available and len(candidates) > 1:
         try:
-            # Embed the question
             question_embedding = get_embedding(question)
             
             if question_embedding is not None:
-                # Create text summaries for each candidate
                 event_summaries = [create_event_summary(e) for e in candidates]
-                
-                # Batch embed all summaries (fast on CPU)
                 event_embeddings = get_embeddings_batch(event_summaries)
                 
                 if event_embeddings is not None:
-                    # Calculate semantic similarity scores
                     similarities = cosine_similarity_batch(question_embedding, event_embeddings)
                     
-                    # Combine OpenSearch score with semantic similarity
-                    # Normalize OpenSearch scores to 0-1 range
                     os_scores = np.array([e['_score'] for e in candidates])
-                    os_scores_norm = os_scores / (os_scores.max() + 0.001)  # Avoid div by zero
+                    os_scores_norm = os_scores / (os_scores.max() + 0.001)
                     
-                    # Combined score: 40% OpenSearch relevance + 60% semantic similarity
                     combined_scores = 0.4 * os_scores_norm + 0.6 * similarities
+                    ranked_indices = np.argsort(combined_scores)[::-1]
                     
-                    # Sort by combined score
-                    ranked_indices = np.argsort(combined_scores)[::-1]  # Descending
-                    
-                    # Re-order candidates
                     candidates = [candidates[i] for i in ranked_indices]
                     
-                    # Add semantic scores for debugging
                     for i, idx in enumerate(ranked_indices):
                         if i < len(candidates):
                             candidates[i]['_semantic_score'] = float(similarities[idx])
                             candidates[i]['_combined_score'] = float(combined_scores[idx])
                     
                     logger.info(f"[AI_SEARCH] Re-ranked events using semantic similarity")
-                    explanation = f"Found {len(candidates)} events, re-ranked by semantic similarity to: '{question[:50]}...'"
+                    explanation = f"Found {total_hits} events, showing top {len(candidates[:max_results])} re-ranked by relevance"
                 else:
-                    explanation = f"Found {len(candidates)} events using keywords: {', '.join(keywords[:5])}"
+                    explanation = f"Found {total_hits} events matching: {', '.join(clean_keywords[:5])}"
             else:
-                explanation = f"Found {len(candidates)} events using keywords: {', '.join(keywords[:5])}"
+                explanation = f"Found {total_hits} events matching: {', '.join(clean_keywords[:5])}"
                 
         except Exception as e:
-            logger.warning(f"[AI_SEARCH] Semantic re-ranking failed, using keyword results: {e}")
-            explanation = f"Found {len(candidates)} events using keywords: {', '.join(keywords[:5])}"
+            logger.warning(f"[AI_SEARCH] Semantic re-ranking failed: {e}")
+            explanation = f"Found {total_hits} events matching: {', '.join(clean_keywords[:5])}"
     else:
-        explanation = f"Found {len(candidates)} events using keywords: {', '.join(keywords[:5])}"
+        explanation = f"Found {total_hits} events matching: {', '.join(clean_keywords[:5])}"
         if not embedding_available:
-            explanation += " (Install sentence-transformers for semantic search)"
+            explanation += " (semantic ranking unavailable)"
     
-    # Return top results after re-ranking
     return candidates[:max_results], explanation
 
 
@@ -458,6 +446,8 @@ def extract_keywords_from_question(question: str) -> List[str]:
     - Usernames with dots (Rachel.B → rachel.b, rachel)
     - Windows paths
     - Common DFIR terms
+    
+    UPDATED: Removed problematic wildcard generation
     """
     import re
     
@@ -518,14 +508,12 @@ def extract_keywords_from_question(question: str) -> List[str]:
     for hostname in hostnames:
         keywords.append(hostname.lower())
     
-    # Split CamelCase words (GoToAssist → Go, To, Assist → goto, assist)
+    # Split CamelCase words
     def split_camel_case(word):
-        # Split on uppercase letters
         parts = re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)', word)
         return [p.lower() for p in parts if len(p) > 1]
     
-    # Extract words, handling special characters
-    # Keep dots in usernames, split on other punctuation
+    # Extract words
     raw_words = re.findall(r'[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z]+)?', question)
     
     for word in raw_words:
@@ -539,34 +527,24 @@ def extract_keywords_from_question(question: str) -> List[str]:
         if len(word_lower) < 3:
             continue
             
-        # Check if already covered by a preserved term
+        # Check if already covered
         if any(word_lower in kw for kw in keywords):
             continue
         
         # Check for CamelCase and split
-        if re.search(r'[a-z][A-Z]', word):  # Has camelCase
+        if re.search(r'[a-z][A-Z]', word):
             parts = split_camel_case(word)
             keywords.extend(parts)
-            # Also add the full word as wildcard
-            keywords.append(f"{word_lower}*")
         else:
             keywords.append(word_lower)
     
-    # Add wildcards for key terms to catch partial matches
-    wildcard_keywords = []
-    for kw in keywords:
-        if not kw.endswith('*') and len(kw) >= 4:
-            # Don't add wildcard to already-wildcarded or short terms
-            wildcard_keywords.append(kw)
-            # Also add a wildcard version for partial matching
-            if len(kw) >= 5:
-                wildcard_keywords.append(f"*{kw}*")
+    # REMOVED: Wildcard generation - causes query issues
+    # The multi_match with fuzziness handles partial matching better
     
-    # Combine and deduplicate while preserving order
-    all_keywords = keywords + wildcard_keywords
+    # Deduplicate while preserving order
     seen = set()
     unique_keywords = []
-    for kw in all_keywords:
+    for kw in keywords:
         if kw not in seen and kw not in stop_words:
             seen.add(kw)
             unique_keywords.append(kw)
@@ -575,6 +553,8 @@ def extract_keywords_from_question(question: str) -> List[str]:
     
     return unique_keywords[:20]  # Limit to top 20 keywords
 
+
+# ... rest of the file (generate_ai_answer, ai_question_search, __all__) remains the same ...
 
 def generate_ai_answer(
     question: str,
