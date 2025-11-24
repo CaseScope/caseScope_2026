@@ -358,19 +358,13 @@
 {% endif %}
 
 <!-- AI Question Modal -->
-<div id="aiQuestionModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; align-items: center; justify-content: center;">
-    <div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); width: 90%; max-width: 700px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.5);">
-        <!-- Modal Header -->
-        <div style="padding: var(--spacing-lg); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
-            <h2 style="margin: 0; display: flex; align-items: center; gap: var(--spacing-sm);">
-                <span style="font-size: 1.5rem;">🤖</span>
-                AI Question
-            </h2>
-            <button onclick="closeAIQuestionModal()" style="background: none; border: none; color: var(--color-text-secondary); cursor: pointer; font-size: 1.5rem; line-height: 1;">&times;</button>
+<div id="aiQuestionModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px; max-height: 90vh;">
+        <div class="modal-header">
+            <h2 class="modal-title">🤖 AI Question</h2>
+            <button class="modal-close" onclick="closeAIQuestionModal()">×</button>
         </div>
-        
-        <!-- Modal Body -->
-        <div style="padding: var(--spacing-lg); overflow-y: auto; flex: 1;">
+        <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
             <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
                 Ask a question about the events in this case. The AI will search for relevant events and provide an analysis grounded in actual evidence.
             </p>
@@ -427,9 +421,7 @@
                 </div>
             </div>
         </div>
-        
-        <!-- Modal Footer -->
-        <div style="padding: var(--spacing-lg); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: var(--spacing-md);">
+        <div class="modal-footer">
             <button onclick="closeAIQuestionModal()" class="btn btn-secondary">Close</button>
             <button onclick="submitAIQuestion()" id="aiSubmitBtn" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                 <span>🔍</span>
@@ -3548,7 +3540,7 @@ let aiRetrievedEventIds = [];
 // Show AI Question Modal
 function showAIQuestionModal() {
     const modal = document.getElementById('aiQuestionModal');
-    modal.style.display = 'flex';
+    modal.style.display = 'block';
     document.getElementById('aiQuestionInput').focus();
     
     // Reset state
