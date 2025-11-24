@@ -3720,18 +3720,160 @@ function showAIEventsInSearch() {
         return;
     }
     
+    const caseId = {{ case.id }};
+    
     // Close the modal
     closeAIQuestionModal();
     
-    // Build a search query to show these specific events
-    // We'll use the IDs filter in the search
-    const caseId = {{ case.id }};
+    // Show loading indicator
+    const resultsSection = document.querySelector('.card-body');
+    if (resultsSection) {
+        resultsSection.innerHTML = `
+            <div style="text-align: center; padding: var(--spacing-xl);">
+                <div class="spinner"></div>
+                <p class="text-muted">Loading AI evidence events...</p>
+            </div>
+        `;
+    }
     
-    // For now, just show the panel and let user know
-    showAIResultsInPanel();
+    // Fetch the full event details
+    fetch(`/case/${caseId}/ai-search/events`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            event_ids: aiRetrievedEventIds
+        }),
+        credentials: 'same-origin'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.events || data.events.length === 0) {
+            resultsSection.innerHTML = `
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <p class="text-muted">No events found.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Show the AI results panel
+        showAIResultsInPanel();
+        
+        // Build the events table
+        buildAIEventsTable(data.events);
+        
+        // Update result count
+        const totalSpan = document.querySelector('.card-header .text-muted');
+        if (totalSpan) {
+            totalSpan.textContent = `${data.events.length} AI evidence events`;
+        }
+        
+        // Scroll to results
+        const resultsCard = document.querySelector('.card');
+        if (resultsCard) {
+            resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching AI events:', error);
+        resultsSection.innerHTML = `
+            <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                <p>❌ Error loading events: ${error.message}</p>
+                <button onclick="location.reload()" class="btn btn-secondary" style="margin-top: var(--spacing-md);">Reload Page</button>
+            </div>
+        `;
+    });
+}
+
+// Build events table from AI evidence events
+function buildAIEventsTable(events) {
+    const resultsSection = document.querySelector('.card-body');
+    if (!resultsSection) return;
     
-    // Flash a message
-    alert(`Found ${aiRetrievedEventIds.length} events. The AI analysis is shown above the search results. You can use the structured search to explore further.`);
+    // Build table HTML
+    let tableHTML = `
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">Tag</th>
+                        <th>Event ID</th>
+                        <th>Timestamp</th>
+                        <th>Description</th>
+                        <th>Computer Name</th>
+                        <th>Source File</th>
+                        <th style="width: 100px;">Flags</th>
+                        <th style="width: 100px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    events.forEach((event, index) => {
+        const eventId = event.event_id || 'N/A';
+        const timestamp = event.timestamp || 'N/A';
+        const description = event.description || 'No description';
+        const computer = event.computer_name || 'Unknown';
+        const sourceFile = event.source_file || 'Unknown';
+        const isTagged = event.is_tagged || false;
+        const hasSigma = event.has_sigma || false;
+        const hasIoc = event.has_ioc || false;
+        const iocCount = event.ioc_count || 0;
+        const _id = event._id;
+        const _index = event._index;
+        
+        // Build flags
+        let flagsHTML = '';
+        if (hasSigma) {
+            flagsHTML += '<span class="badge" style="background: var(--color-error); margin-right: 4px;" title="SIGMA Rule Violation">⚠️</span>';
+        }
+        if (hasIoc) {
+            const iocText = iocCount > 1 ? `${iocCount} IOCs` : '1 IOC';
+            flagsHTML += `<span class="badge" style="background: var(--color-warning); margin-right: 4px;" title="${iocText}">🎯</span>`;
+        }
+        
+        tableHTML += `
+            <tr data-event-id="${_id}" data-index="${_index}">
+                <td style="text-align: center;">
+                    ${isTagged ? '<span class="badge" style="background: var(--color-warning);">⭐</span>' : '☆'}
+                </td>
+                <td>${eventId}</td>
+                <td>${timestamp}</td>
+                <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${description}</td>
+                <td>${computer}</td>
+                <td style="font-size: 0.875rem; color: var(--color-text-secondary);">${sourceFile}</td>
+                <td>${flagsHTML || '-'}</td>
+                <td>
+                    <button onclick="viewEventDetails('${_id}', '${_index}')" class="btn btn-sm btn-secondary" title="View Details">
+                        👁️
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    tableHTML += `
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: var(--border-radius); border-left: 4px solid #764ba2;">
+            <p style="margin: 0; color: var(--color-text-secondary);">
+                <strong>🤖 AI Evidence Events</strong> - These are the ${events.length} events that were used by the AI to generate its analysis.
+                <button onclick="location.reload()" class="btn btn-sm btn-secondary" style="margin-left: var(--spacing-md);">
+                    Reset to Full Search
+                </button>
+            </p>
+        </div>
+    `;
+    
+    resultsSection.innerHTML = tableHTML;
 }
 
 // Check AI service status on page load
