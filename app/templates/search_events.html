@@ -3827,14 +3827,14 @@ function showAIEventsInSearchResults() {
     // Replace table content
     tbody.innerHTML = rows;
     
-    // Update the results count
+    // Update the results count and title
     const resultsCountEl = document.querySelector('.card-header h2');
     if (resultsCountEl) {
-        resultsCountEl.innerHTML = `🔍 Search Results <span style="color: var(--color-text-secondary); font-size: 0.875rem;">(${window.aiRetrievedEvents.length} AI evidence events)</span>`;
+        resultsCountEl.innerHTML = `📊 Search Results <span style="color: var(--color-text-secondary); font-size: 0.875rem;">(${window.aiRetrievedEvents.length} AI evidence events)</span>`;
     }
     
-    // Update total count at top
-    const totalCountEl = document.querySelector('.card-header p');
+    // Update total count - it's a span not a p
+    const totalCountEl = document.querySelector('.card-header span.text-muted');
     if (totalCountEl) {
         totalCountEl.textContent = `${window.aiRetrievedEvents.length} events found`;
     }
