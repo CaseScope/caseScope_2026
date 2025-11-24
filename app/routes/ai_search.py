@@ -105,11 +105,8 @@ def ai_search_ask(case_id):
         resource_type='case',
         resource_id=case_id,
         resource_name=case.name,
-        details=f"Question: {question[:100]}...",
-        user_id=current_user.id,
-        ip_address=request.remote_addr
+        details=f"Question: {question[:100]}... (User: {current_user.username}, IP: {request.remote_addr})"
     )
-    
     def generate():
         """Generator for SSE stream"""
         try:
