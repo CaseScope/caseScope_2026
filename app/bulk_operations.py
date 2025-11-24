@@ -109,6 +109,8 @@ def clear_opensearch_events(opensearch_client, files: List[Any],
         # because reset_file_metadata() may have already cleared it
         files_to_clear = len(files)
         
+        logger.info(f"[BULK OPS] [{scope.upper()}] Threshold check: {files_to_clear}/{total_case_files} files ({(files_to_clear/total_case_files*100):.1f}% >= 95%?)")
+        
         # If clearing ALL files (or close to it), delete entire index
         if files_to_clear >= total_case_files * 0.95:  # 95% threshold
             try:
@@ -120,6 +122,8 @@ def clear_opensearch_events(opensearch_client, files: List[Any],
             except Exception as e:
                 logger.warning(f"[BULK OPS] [{scope.upper()}] Could not delete index {index_name}: {e}, falling back to per-file deletion")
                 # Fall through to per-file deletion if index delete fails
+        else:
+            logger.info(f"[BULK OPS] [{scope.upper()}] Using per-file deletion (threshold not met)")
         
         # Per-file deletion (for partial reindex of selected files)
         for f in files:
