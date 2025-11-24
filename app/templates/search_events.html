@@ -3744,56 +3744,99 @@ function showAIEventsInSearchResults() {
         return;
     }
     
-    // Build table rows
+    // Get the current column configuration by reading the header
+    const headers = document.querySelectorAll('.table-container thead th');
+    const columns = [];
+    headers.forEach((th, idx) => {
+        const text = th.textContent.trim();
+        if (text && !text.includes('☑') && text !== 'Tag' && text !== 'Flags' && text !== 'Actions') {
+            // Map header text to field names
+            if (text.includes('Event ID')) columns.push('event_id');
+            else if (text.includes('Timestamp')) columns.push('timestamp');
+            else if (text.includes('Description')) columns.push('description');
+            else if (text.includes('Computer')) columns.push('computer_name');
+            else if (text.includes('Source File')) columns.push('source_file');
+        }
+    });
+    
+    // Build table rows matching exact structure
     let rows = '';
     window.aiRetrievedEvents.forEach((event) => {
-        const eventId = event.event_id || 'N/A';
-        const timestamp = event.timestamp || 'N/A';
-        const description = event.description || event.event_title || 'No description';
-        const computer = event.computer_name || 'Unknown';
-        const sourceFile = event.source_file || 'Unknown';
-        const isTagged = event.is_tagged || false;
-        const hasSigma = event.has_sigma || false;
-        const hasIoc = event.has_ioc || false;
-        const iocCount = event.ioc_count || 0;
         const _id = event._id;
         const _index = event._index;
+        const isTagged = event.is_tagged || false;
         
-        // Build flags
-        let flagsHTML = '';
-        if (hasSigma) {
-            flagsHTML += '<span class="badge" style="background: var(--color-error); margin-right: 4px;" title="SIGMA">⚠️</span>';
-        }
-        if (hasIoc) {
-            const iocText = iocCount > 1 ? `${iocCount} IOCs` : '1 IOC';
-            flagsHTML += `<span class="badge" style="background: var(--color-warning); margin-right: 4px;" title="${iocText}">🎯</span>`;
+        rows += `<tr data-event-id="${_id}" data-index="${_index}">`;
+        
+        // Checkbox column
+        rows += `<td><input type="checkbox" class="event-checkbox" value="${_id}"></td>`;
+        
+        // Tag column
+        if (isTagged) {
+            rows += `<td><button onclick="untagEvent('${_id}', '${_index}')" class="btn btn-sm" style="background: var(--color-warning); padding: 4px 8px;">⭐</button></td>`;
+        } else {
+            rows += `<td><button onclick="tagEvent('${_id}', '${_index}')" class="btn btn-sm btn-secondary" style="padding: 4px 8px;">☆</button></td>`;
         }
         
-        rows += `
-            <tr data-event-id="${_id}" data-index="${_index}">
-                <td style="text-align: center; cursor: pointer;" onclick="toggleTag('${_id}', '${_index}', this)">
-                    ${isTagged ? '<span class="badge" style="background: var(--color-warning);">⭐</span>' : '☆'}
-                </td>
-                <td>${eventId}</td>
-                <td>${timestamp}</td>
-                <td>${description}</td>
-                <td>${computer}</td>
-                <td style="font-size: 0.875rem; color: var(--color-text-secondary);">${sourceFile}</td>
-                <td>${flagsHTML || '-'}</td>
-                <td>
-                    <button onclick="viewEventDetails('${_id}', '${_index}')" class="btn btn-sm btn-secondary">👁️</button>
-                </td>
-            </tr>
-        `;
+        // Dynamic columns based on page configuration
+        columns.forEach(col => {
+            if (col === 'event_id') {
+                const eventId = event.event_id || 'N/A';
+                rows += `<td><a href="javascript:void(0)" onclick="showEventDetail('${_id}', '${_index}')" style="color: var(--color-primary); cursor: pointer;"><strong>${eventId}</strong></a></td>`;
+            } else if (col === 'timestamp') {
+                const timestamp = event.timestamp || 'N/A';
+                rows += `<td>${timestamp}</td>`;
+            } else if (col === 'description') {
+                let desc = event.description || event.event_title || 'No description';
+                if (desc.length > 100) desc = desc.substring(0, 100) + '...';
+                rows += `<td>${desc}</td>`;
+            } else if (col === 'computer_name') {
+                const computer = event.computer_name || 'Unknown';
+                rows += `<td>${computer}</td>`;
+            } else if (col === 'source_file') {
+                const sourceFile = event.source_file || 'Unknown';
+                rows += `<td><span class="text-muted" style="font-size: 0.875rem;">${sourceFile}</span></td>`;
+            }
+        });
+        
+        // Flags column
+        rows += '<td><div style="display: flex; gap: var(--spacing-xs);">';
+        if (event.has_sigma) {
+            rows += '<span class="status-badge status-sigma" style="font-size: 0.75rem;">SIGMA</span>';
+        }
+        if (event.has_ioc) {
+            if (event.ioc_details && event.ioc_details.length > 0) {
+                event.ioc_details.forEach(ioc_type => {
+                    rows += `<span class="status-badge status-ioc" style="font-size: 0.75rem;" title="IOC: ${ioc_type}">${ioc_type.toUpperCase()}</span>`;
+                });
+            } else {
+                rows += '<span class="status-badge status-ioc" style="font-size: 0.75rem;">IOC</span>';
+            }
+        }
+        rows += '</div></td>';
+        
+        // Actions column
+        rows += `<td>
+            <button onclick="showEventDetail('${_id}', '${_index}')" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; margin-right: 4px;">View</button>
+            <button onclick="hideEvent('${_id}', '${_index}')" class="btn btn-sm btn-secondary">Hide</button>
+        </td>`;
+        
+        rows += '</tr>';
     });
     
     // Replace table content
     tbody.innerHTML = rows;
     
     // Update the results count
-    const headerTitle = document.querySelector('.card-header h2');
-    if (headerTitle) {
-        headerTitle.innerHTML = `🔍 Search Results <span class="text-muted">(${window.aiRetrievedEvents.length} AI evidence events)</span>`;
+    const resultsCountEl = document.querySelector('.card-header h2');
+    if (resultsCountEl) {
+        resultsCountEl.innerHTML = `🔍 Search Results <span style="color: var(--color-text-secondary); font-size: 0.875rem;">(${window.aiRetrievedEvents.length} AI evidence events)</span>`;
+    }
+    
+    // Update total count at top
+    const totalCountEl = document.querySelector('.card-header p');
+    if (totalCountEl) {
+        totalCountEl.textContent = `${window.aiRetrievedEvents.length} events found`;
     }
     
     // Scroll to results
