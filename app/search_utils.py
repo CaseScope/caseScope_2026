@@ -81,7 +81,38 @@ def build_search_query(
                 text = text.replace(char, f'\\{char}')
             return text
         
-        escaped_query = escape_lucene(search_text)
+        # Smart wildcard helper (v1.27.13): Auto-add wildcards for simple partial searches
+        # This improves UX so users don't need to manually add * for common searches like "nltest"
+        # Examples:
+        #   "nltest" → "*nltest*" (matches nltest.exe, c:\nltest.exe, etc.)
+        #   "python" → "*python*" (matches python.exe, python3, etc.)
+        #   "192.168" → "*192.168*" (matches IP addresses)
+        # BUT preserve advanced queries:
+        #   "nltest AND domain" → unchanged (has operator)
+        #   "*nltest" → unchanged (already has wildcard)
+        #   "EventID:4624" → unchanged (field query)
+        #   '"exact phrase"' → unchanged (quoted)
+        def smart_wildcard(text):
+            # Don't add wildcards if query already has them or uses advanced syntax
+            advanced_indicators = [
+                ' AND ', ' OR ', ' NOT ',  # Boolean operators
+                '(', ')',                   # Grouping
+                '"',                        # Phrases
+                ':',                        # Field queries
+                '*', '?'                    # Already has wildcards
+            ]
+            
+            # Check if this is a simple search term
+            is_simple = not any(indicator in text for indicator in advanced_indicators)
+            
+            # For simple single terms, add wildcards for partial matching
+            if is_simple and text.strip():
+                return f"*{text.strip()}*"
+            
+            return text
+        
+        processed_query = smart_wildcard(search_text)
+        escaped_query = escape_lucene(processed_query)
         
         query["bool"]["must"].append({
             "query_string": {
