@@ -336,16 +336,25 @@ def semantic_search_events(
             }
         })
     
-    # Boost SIGMA events
-    if include_sigma:
+    # Boost priority: Tagged > IOC > SIGMA > Other
+    # This helps surface events analyst has already identified as important
+    
+    # Boost analyst-tagged events (HIGHEST priority)
+    if boost_tagged:
         should_clauses.append({
-            "term": {"has_sigma": {"value": True, "boost": 3.0}}
+            "term": {"is_tagged": {"value": True, "boost": 5.0}}
         })
     
-    # Boost IOC events
+    # Boost IOC events (HIGH priority)
     if include_ioc:
         should_clauses.append({
-            "term": {"has_ioc": {"value": True, "boost": 3.0}}
+            "term": {"has_ioc": {"value": True, "boost": 3.5}}
+        })
+    
+    # Boost SIGMA events (MEDIUM priority)
+    if include_sigma:
+        should_clauses.append({
+            "term": {"has_sigma": {"value": True, "boost": 2.5}}
         })
     
     query = {
