@@ -3574,15 +3574,14 @@ function submitAIQuestion() {
     const responseArea = document.getElementById('aiResponseArea');
     const responseContent = document.getElementById('aiResponseContent');
     const eventsArea = document.getElementById('aiEventsArea');
-    const eventsList = document.getElementById('aiEventsList');
     const statusEl = document.getElementById('aiStatus');
     const submitBtn = document.getElementById('aiSubmitBtn');
     
     responseArea.style.display = 'block';
     responseContent.textContent = '';
     eventsArea.style.display = 'none';
-    const eventsTable = document.getElementById('aiEventsTable');
-    eventsTable.innerHTML = '';
+    const eventsPreview = document.getElementById('aiEventsPreview');
+    eventsPreview.innerHTML = '';
     statusEl.textContent = 'Starting...';
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span>⏳</span><span>Analyzing...</span>';
@@ -3652,7 +3651,6 @@ function submitAIQuestion() {
 function handleAIStreamData(data) {
     const responseContent = document.getElementById('aiResponseContent');
     const eventsArea = document.getElementById('aiEventsArea');
-    const eventsList = document.getElementById('aiEventsList');
     const eventCount = document.getElementById('aiEventCount');
     const statusEl = document.getElementById('aiStatus');
     
