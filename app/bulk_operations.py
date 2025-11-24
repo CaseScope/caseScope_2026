@@ -95,6 +95,31 @@ def clear_opensearch_events(opensearch_client, files: List[Any],
         index_name = make_index_name(case_id)
         deleted_count = 0
         
+        # v1.27.15: Check if we're clearing ALL files in the case
+        # If so, DELETE the entire index for a true "fresh start"
+        # This ensures: (1) Fresh 50K field limit, (2) No old mappings, (3) No timeout issues
+        from main import CaseFile, db
+        total_case_files = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).count()
+        
+        files_to_clear = len([f for f in files if f.opensearch_key])
+        
+        # If clearing ALL files (or close to it), delete entire index
+        if files_to_clear >= total_case_files * 0.95:  # 95% threshold
+            try:
+                logger.info(f"[BULK OPS] [{scope.upper()}] Deleting entire index {index_name} (clearing {files_to_clear}/{total_case_files} files)")
+                result = opensearch_client.indices.delete(index=index_name, ignore=[404])
+                logger.info(f"[BULK OPS] [{scope.upper()}] Deleted index {index_name} - will be recreated with fresh 50K field limit")
+                # Return 0 since we don't know exact event count (index deleted)
+                return 0
+            except Exception as e:
+                logger.warning(f"[BULK OPS] [{scope.upper()}] Could not delete index {index_name}: {e}, falling back to per-file deletion")
+                # Fall through to per-file deletion if index delete fails
+        
+        # Per-file deletion (for partial reindex of selected files)
         for f in files:
             if f.opensearch_key:
                 try:

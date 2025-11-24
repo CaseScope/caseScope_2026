@@ -779,7 +779,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         "settings": {
                             "index": {
                                 "max_result_window": 100000,  # Allow deep pagination
-                                "mapping.total_fields.limit": 10000  # v1.13.1: 1 index per case = many event types = many fields
+                                "mapping.total_fields.limit": 50000,  # v1.27.15: Increased from 10K to 50K for large forensic datasets
+                                "mapping.nested_fields.limit": 500     # v1.27.15: Increased from 100 to 500 for complex event structures
                             }
                         },
                         "mappings": {
