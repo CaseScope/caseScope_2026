@@ -453,9 +453,15 @@ def extract_keywords_from_question(question: str) -> List[str]:
     """
     Extract search keywords from natural language question
     
-    This is a simple keyword extraction - could be enhanced with NLP
+    Handles:
+    - CamelCase splitting (GoToAssist → goto, assist)
+    - Usernames with dots (Rachel.B → rachel.b, rachel)
+    - Windows paths
+    - Common DFIR terms
     """
-    # Common DFIR-related terms to preserve
+    import re
+    
+    # Common DFIR-related terms to preserve as-is
     preserve_terms = {
         'lateral movement', 'credential', 'brute force', 'logon', 'login',
         'failed', 'success', 'admin', 'administrator', 'remote', 'rdp',
@@ -465,7 +471,7 @@ def extract_keywords_from_question(question: str) -> List[str]:
         'privilege escalation', 'uac', 'mimikatz', 'kerberos',
         'pass the hash', 'pass the ticket', 'golden ticket',
         '4624', '4625', '4648', '4672', '4688', '4697', '4698', '4699',
-        '5140', '5145', '1102', '7045'
+        '5140', '5145', '1102', '7045', 'netstat', 'ipconfig', 'tree'
     }
     
     # Words to ignore
@@ -483,35 +489,91 @@ def extract_keywords_from_question(question: str) -> List[str]:
         'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those',
         'am', 'show', 'me', 'find', 'get', 'see', 'look', 'tell', 'give',
         'any', 'events', 'event', 'logs', 'log', 'please', 'i', 'you',
-        'my', 'your', 'we', 'our', 'they', 'their', 'it', 'its'
+        'my', 'your', 'we', 'our', 'they', 'their', 'it', 'its',
+        'summarize', 'summary', 'describe', 'explain', 'activity',
+        'involved', 'happened', 'occurred', 'can', 'about'
     }
     
     question_lower = question.lower()
+    keywords = []
     
     # First, extract preserved multi-word terms
-    keywords = []
     for term in preserve_terms:
         if term in question_lower:
             keywords.append(term)
     
-    # Then extract individual words
-    words = question_lower.replace('?', '').replace('.', '').replace(',', '').split()
-    for word in words:
-        if word not in stop_words and len(word) > 2:
-            # Check if already covered by a multi-word term
-            already_covered = any(word in kw for kw in keywords)
-            if not already_covered:
-                keywords.append(word)
+    # Extract quoted strings as exact terms
+    quoted = re.findall(r'"([^"]+)"', question)
+    for q in quoted:
+        keywords.append(q.lower())
     
-    # Deduplicate while preserving order
+    # Extract usernames with dots (e.g., Rachel.B, admin.user)
+    usernames = re.findall(r'\b([A-Za-z]+\.[A-Za-z]+)\b', question)
+    for username in usernames:
+        keywords.append(username.lower())  # rachel.b
+        keywords.append(username.split('.')[0].lower())  # rachel
+    
+    # Extract potential hostnames/domains
+    hostnames = re.findall(r'\b([A-Za-z0-9\-]+\.(?:local|com|net|org|internal))\b', question, re.IGNORECASE)
+    for hostname in hostnames:
+        keywords.append(hostname.lower())
+    
+    # Split CamelCase words (GoToAssist → Go, To, Assist → goto, assist)
+    def split_camel_case(word):
+        # Split on uppercase letters
+        parts = re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)', word)
+        return [p.lower() for p in parts if len(p) > 1]
+    
+    # Extract words, handling special characters
+    # Keep dots in usernames, split on other punctuation
+    raw_words = re.findall(r'[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z]+)?', question)
+    
+    for word in raw_words:
+        word_lower = word.lower()
+        
+        # Skip stop words
+        if word_lower in stop_words:
+            continue
+        
+        # Skip very short words
+        if len(word_lower) < 3:
+            continue
+            
+        # Check if already covered by a preserved term
+        if any(word_lower in kw for kw in keywords):
+            continue
+        
+        # Check for CamelCase and split
+        if re.search(r'[a-z][A-Z]', word):  # Has camelCase
+            parts = split_camel_case(word)
+            keywords.extend(parts)
+            # Also add the full word as wildcard
+            keywords.append(f"{word_lower}*")
+        else:
+            keywords.append(word_lower)
+    
+    # Add wildcards for key terms to catch partial matches
+    wildcard_keywords = []
+    for kw in keywords:
+        if not kw.endswith('*') and len(kw) >= 4:
+            # Don't add wildcard to already-wildcarded or short terms
+            wildcard_keywords.append(kw)
+            # Also add a wildcard version for partial matching
+            if len(kw) >= 5:
+                wildcard_keywords.append(f"*{kw}*")
+    
+    # Combine and deduplicate while preserving order
+    all_keywords = keywords + wildcard_keywords
     seen = set()
     unique_keywords = []
-    for kw in keywords:
-        if kw not in seen:
+    for kw in all_keywords:
+        if kw not in seen and kw not in stop_words:
             seen.add(kw)
             unique_keywords.append(kw)
     
-    return unique_keywords[:15]  # Limit to top 15 keywords
+    logger.info(f"[AI_SEARCH] Extracted keywords from question: {unique_keywords[:20]}")
+    
+    return unique_keywords[:20]  # Limit to top 20 keywords
 
 
 def generate_ai_answer(
