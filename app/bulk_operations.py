@@ -105,7 +105,9 @@ def clear_opensearch_events(opensearch_client, files: List[Any],
             CaseFile.is_hidden == False
         ).count()
         
-        files_to_clear = len([f for f in files if f.opensearch_key])
+        # v1.27.16: Use len(files) instead of checking opensearch_key
+        # because reset_file_metadata() may have already cleared it
+        files_to_clear = len(files)
         
         # If clearing ALL files (or close to it), delete entire index
         if files_to_clear >= total_case_files * 0.95:  # 95% threshold
