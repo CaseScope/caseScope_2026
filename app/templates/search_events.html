@@ -406,14 +406,19 @@
                     </div>
                 </div>
                 
-                <!-- Retrieved Events Table -->
+                <!-- Retrieved Events Summary -->
                 <div id="aiEventsArea" style="display: none; margin-top: var(--spacing-md);">
                     <div style="border-top: 1px solid var(--color-border); padding-top: var(--spacing-md);">
-                        <h4 style="margin: 0 0 var(--spacing-md) 0; font-size: 0.875rem; color: var(--color-text-secondary);">
-                            📋 Evidence Events (<span id="aiEventCount">0</span>)
-                        </h4>
-                        <div id="aiEventsTable" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--border-radius);">
-                            <!-- Events table will be inserted here -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md);">
+                            <h4 style="margin: 0; font-size: 0.875rem; color: var(--color-text-secondary);">
+                                📋 Evidence Events (<span id="aiEventCount">0</span>)
+                            </h4>
+                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                Show in Search Results →
+                            </button>
+                        </div>
+                        <div id="aiEventsPreview" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-sm); background: var(--color-background-tertiary); font-size: 0.875rem;">
+                            <!-- Events preview will be inserted here -->
                         </div>
                     </div>
                 </div>
@@ -3657,55 +3662,32 @@ function handleAIStreamData(data) {
             break;
             
         case 'events':
-            // Display events directly in modal
+            // Store events globally and show preview in modal
+            window.aiRetrievedEvents = data.data;
             eventsArea.style.display = 'block';
             eventCount.textContent = data.data.length;
             
-            // Build simple events table
-            const eventsTable = document.getElementById('aiEventsTable');
-            let tableHTML = `
-                <table style="width: 100%; font-size: 0.875rem;">
-                    <thead style="background: var(--color-background-tertiary); position: sticky; top: 0;">
-                        <tr>
-                            <th style="padding: 8px; text-align: left;">Timestamp</th>
-                            <th style="padding: 8px; text-align: left;">Description</th>
-                            <th style="padding: 8px; text-align: left;">Computer</th>
-                            <th style="padding: 8px; text-align: center; width: 80px;">Flags</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
+            // Build simple preview list
+            const eventsPreview = document.getElementById('aiEventsPreview');
+            let previewHTML = '<div style="display: flex; flex-direction: column; gap: 4px;">';
             
-            data.data.forEach((event, index) => {
+            data.data.slice(0, 5).forEach((event) => {
                 const timestamp = event.timestamp || 'N/A';
-                const description = (event.description || event.event_title || 'No description').substring(0, 100);
-                const computer = event.computer_name || 'Unknown';
-                
-                // Build flags
+                const description = (event.description || event.event_title || 'No description').substring(0, 80);
                 let flags = '';
-                if (event.has_sigma) {
-                    flags += '<span style="color: var(--color-error); margin-right: 4px;" title="SIGMA">⚠️</span>';
-                }
-                if (event.has_ioc) {
-                    const count = event.ioc_count || 1;
-                    flags += `<span style="color: var(--color-warning); margin-right: 4px;" title="${count} IOC(s)">🎯</span>`;
-                }
-                if (event.is_tagged) {
-                    flags += '<span style="color: var(--color-warning);" title="Tagged">⭐</span>';
-                }
+                if (event.is_tagged) flags += '⭐ ';
+                if (event.has_ioc) flags += '🎯 ';
+                if (event.has_sigma) flags += '⚠️ ';
                 
-                tableHTML += `
-                    <tr style="border-bottom: 1px solid var(--color-border); ${index % 2 === 0 ? 'background: var(--color-background);' : ''}">
-                        <td style="padding: 8px; white-space: nowrap;">${timestamp}</td>
-                        <td style="padding: 8px;">${description}</td>
-                        <td style="padding: 8px;">${computer}</td>
-                        <td style="padding: 8px; text-align: center;">${flags || '-'}</td>
-                    </tr>
-                `;
+                previewHTML += `<div style="padding: 4px; border-bottom: 1px solid var(--color-border);">${flags}${timestamp} - ${description}...</div>`;
             });
             
-            tableHTML += '</tbody></table>';
-            eventsTable.innerHTML = tableHTML;
+            if (data.data.length > 5) {
+                previewHTML += `<div style="padding: 4px; color: var(--color-text-secondary); font-style: italic;">...and ${data.data.length - 5} more events</div>`;
+            }
+            
+            previewHTML += '</div>';
+            eventsPreview.innerHTML = previewHTML;
             break;
             
         case 'chunk':
@@ -3745,6 +3727,82 @@ function showAIResultsInPanel() {
 // Hide AI results panel
 function hideAIResultsPanel() {
     document.getElementById('aiResultsPanel').style.display = 'none';
+}
+
+// Show AI evidence events in main search results table
+function showAIEventsInSearchResults() {
+    if (!window.aiRetrievedEvents || window.aiRetrievedEvents.length === 0) {
+        alert('No events to display');
+        return;
+    }
+    
+    // Close the modal
+    closeAIQuestionModal();
+    
+    // Get the search results table body
+    const tbody = document.querySelector('.table-container tbody');
+    if (!tbody) {
+        alert('Could not find search results table');
+        return;
+    }
+    
+    // Build table rows
+    let rows = '';
+    window.aiRetrievedEvents.forEach((event) => {
+        const eventId = event.event_id || 'N/A';
+        const timestamp = event.timestamp || 'N/A';
+        const description = event.description || event.event_title || 'No description';
+        const computer = event.computer_name || 'Unknown';
+        const sourceFile = event.source_file || 'Unknown';
+        const isTagged = event.is_tagged || false;
+        const hasSigma = event.has_sigma || false;
+        const hasIoc = event.has_ioc || false;
+        const iocCount = event.ioc_count || 0;
+        const _id = event._id;
+        const _index = event._index;
+        
+        // Build flags
+        let flagsHTML = '';
+        if (hasSigma) {
+            flagsHTML += '<span class="badge" style="background: var(--color-error); margin-right: 4px;" title="SIGMA">⚠️</span>';
+        }
+        if (hasIoc) {
+            const iocText = iocCount > 1 ? `${iocCount} IOCs` : '1 IOC';
+            flagsHTML += `<span class="badge" style="background: var(--color-warning); margin-right: 4px;" title="${iocText}">🎯</span>`;
+        }
+        
+        rows += `
+            <tr data-event-id="${_id}" data-index="${_index}">
+                <td style="text-align: center; cursor: pointer;" onclick="toggleTag('${_id}', '${_index}', this)">
+                    ${isTagged ? '<span class="badge" style="background: var(--color-warning);">⭐</span>' : '☆'}
+                </td>
+                <td>${eventId}</td>
+                <td>${timestamp}</td>
+                <td>${description}</td>
+                <td>${computer}</td>
+                <td style="font-size: 0.875rem; color: var(--color-text-secondary);">${sourceFile}</td>
+                <td>${flagsHTML || '-'}</td>
+                <td>
+                    <button onclick="viewEventDetails('${_id}', '${_index}')" class="btn btn-sm btn-secondary">👁️</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    // Replace table content
+    tbody.innerHTML = rows;
+    
+    // Update the results count
+    const headerTitle = document.querySelector('.card-header h2');
+    if (headerTitle) {
+        headerTitle.innerHTML = `🔍 Search Results <span class="text-muted">(${window.aiRetrievedEvents.length} AI evidence events)</span>`;
+    }
+    
+    // Scroll to results
+    const resultsCard = document.querySelector('.card');
+    if (resultsCard) {
+        resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 }
 
 // Check AI service status on page load
