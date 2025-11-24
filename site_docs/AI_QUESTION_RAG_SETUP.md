@@ -210,6 +210,29 @@ Event 12 shows a scheduled task created at 14:35:12 using the harvested
 credentials, establishing persistence.
 ```
 
+### Viewing Evidence Events
+
+After the AI generates a response, you can view the exact events it used:
+
+1. **In the Modal**: Click "View in Search Results" button in the Evidence Events section
+2. **Result**: The search results table will display ONLY the events the AI analyzed (typically 20 events)
+3. **Table Shows**:
+   - Tag status (⭐ if analyst-tagged)
+   - Event ID
+   - Timestamp
+   - Description
+   - Computer Name
+   - Source File
+   - Flags (SIGMA ⚠️, IOC 🎯)
+   - Actions (👁️ to view full event details)
+4. **Reset**: Click "Reset to Full Search" to return to normal search
+
+This allows you to:
+- Verify the AI's analysis against raw evidence
+- Tag important events
+- Pivot to other related events
+- Export the evidence set
+
 ---
 
 ## Performance Tuning
@@ -282,9 +305,26 @@ If your GPU is busy with other tasks:
 | File | Purpose |
 |------|---------|
 | `app/ai_search.py` | RAG backend - embeddings, semantic search, LLM integration |
-| `app/routes/ai_search.py` | Flask API routes for AI Question |
-| `app/templates/search_events.html` | UI with AI Question button and modal |
+| `app/routes/ai_search.py` | Flask API routes for AI Question (includes `/status`, `/ask`, `/events` endpoints) |
+| `app/templates/search_events.html` | UI with AI Question button, modal, and evidence events display |
 | `app/requirements.txt` | Updated with sentence-transformers, numpy |
+
+### Key Functions in search_events.html
+
+| Function | Purpose |
+|----------|---------|
+| `showAIQuestionModal()` | Opens the AI Question modal |
+| `submitAIQuestion()` | Sends question to backend, streams response via SSE |
+| `showAIEventsInSearch()` | Fetches and displays AI evidence events in search results table |
+| `buildAIEventsTable(events)` | Renders events table with all flags/badges matching normal search results |
+
+### API Endpoints (app/routes/ai_search.py)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/case/<id>/ai-search/status` | GET | Check if Ollama and LLM are available |
+| `/case/<id>/ai-search/ask` | POST | Submit question, returns SSE stream with AI response |
+| `/case/<id>/ai-search/events` | POST | Fetch full event details for list of event IDs |
 
 ---
 
@@ -292,5 +332,8 @@ If your GPU is busy with other tasks:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | Nov 2025 | Initial RAG with keyword search only |
-| 1.1.0 | Nov 2025 | Added sentence-transformers semantic search, hybrid re-ranking |
+| 1.27.0 | Nov 2025 | Initial RAG feature with semantic search and streaming responses |
+| 1.27.1 | Nov 2025 | Bugfixes: modal styling, log_action parameters |
+| 1.27.2 | Nov 2025 | Enhanced keyword extraction (CamelCase, usernames, quoted strings) |
+| 1.27.3 | Nov 2025 | Robust search (multi-match, fuzziness, fallback) |
+| 1.27.4 | Nov 2025 | Bugfix: "View in Search Results" button now displays AI evidence events |
