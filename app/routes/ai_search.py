@@ -107,6 +107,7 @@ def ai_search_ask(case_id):
         resource_name=case.name,
         details=f"Question: {question[:100]}... (User: {current_user.username}, IP: {request.remote_addr})"
     )
+    
     def generate():
         """Generator for SSE stream"""
         try:
@@ -122,9 +123,15 @@ def ai_search_ask(case_id):
                 update_data = update.get('data', '')
                 
                 if update_type == 'events':
-                    # Send event IDs for frontend to link
-                    event_ids = [e.get('_id') for e in update_data]
-                    yield f"data: {json.dumps({'type': 'events', 'data': event_ids})}\n\n"
+                    # Send event data for frontend to display directly
+                    from search_utils import extract_event_fields
+                    event_list = []
+                    for e in update_data:
+                        fields = extract_event_fields(e.get('_source', {}))
+                        fields['_id'] = e.get('_id')
+                        fields['_index'] = e.get('_index')
+                        event_list.append(fields)
+                    yield f"data: {json.dumps({'type': 'events', 'data': event_list})}\n\n"
                 elif update_type == 'chunk':
                     yield f"data: {json.dumps({'type': 'chunk', 'data': update_data})}\n\n"
                 elif update_type == 'status':
