@@ -131,7 +131,8 @@ def ai_search_ask(case_id):
                         fields['_id'] = e.get('_id')
                         fields['_index'] = e.get('_index')
                         event_list.append(fields)
-                    yield f"data: {json.dumps({'type': 'events', 'data': event_list})}\n\n"
+                    # Use default=str to handle datetime and other non-serializable objects
+                    yield f"data: {json.dumps({'type': 'events', 'data': event_list}, default=str)}\n\n"
                 elif update_type == 'chunk':
                     yield f"data: {json.dumps({'type': 'chunk', 'data': update_data})}\n\n"
                 elif update_type == 'status':
