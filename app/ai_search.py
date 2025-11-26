@@ -134,7 +134,7 @@ QUESTION_PATTERNS = [
     (r'malware|virus|trojan|ransomware|infection|compromis|malicious|suspicious|bad', 'malware'),
     (r'lateral|spread|pivot|move.*between|hop|remote\s+exec', 'lateral movement'),
     (r'persist|backdoor|maintain.*access|survive.*reboot|autorun|startup', 'persistence'),
-    (r'credential|password|hash|ticket|authenticat|logon.*as|steal.*cred|dump|ntlm', 'credential'),
+    (r'credential|password|hash|ticket|authenticat|logon.*as|steal.*cred|dump|ntlm|brute|spray|failed.*logon|lockout', 'credential'),
     (r'exfil|steal.*data|data.*theft|upload|send.*out|leak|extract', 'exfiltration'),
     (r'recon|discover|enumerat|scan|map.*network|survey|footprint', 'discovery'),
     (r'evad|bypass|disable|hide|obfuscat|tamper|kill.*av|blind', 'defense evasion'),
@@ -1071,23 +1071,15 @@ def semantic_search_events(
     if must_not_clauses:
         query["bool"]["must_not"] = must_not_clauses
     
-    # Step 3: Execute search with diversity (via collapse)
+    # Step 3: Execute search
     candidate_count = min(max_results * 8, 200)
     
     try:
-        # Query with collapse to diversify by event type
         response = opensearch_client.search(
             index=index_name,
             body={
                 "query": query,
                 "size": candidate_count,
-                "collapse": {
-                    "field": "normalized_event_id",
-                    "inner_hits": {
-                        "name": "same_type",
-                        "size": 2  # Max 2 more per event type
-                    }
-                },
                 "sort": [
                     {"_score": {"order": "desc"}},
                     {"normalized_timestamp": {"order": "desc"}}
@@ -1098,33 +1090,36 @@ def semantic_search_events(
             request_timeout=35
         )
         
-        # Collect results with diversity
+        # Collect results with manual diversity (limit per event type)
         candidates = []
         event_ids_seen = set()
+        event_type_counts = defaultdict(int)
+        max_per_type = 5  # Limit events per event ID type for diversity
         
         for hit in response['hits']['hits']:
-            # Add main hit
-            event = {
-                '_id': hit['_id'],
+            event_id = hit['_id']
+            event_type = str(hit['_source'].get('normalized_event_id', 'unknown'))
+            
+            # Skip if we've seen this exact event
+            if event_id in event_ids_seen:
+                continue
+            
+            # Apply diversity limit (but always include flagged events)
+            is_flagged = (hit['_source'].get('is_tagged') or 
+                         hit['_source'].get('has_sigma') or 
+                         hit['_source'].get('has_ioc'))
+            
+            if not is_flagged and event_type_counts[event_type] >= max_per_type:
+                continue
+            
+            candidates.append({
+                '_id': event_id,
                 '_index': hit['_index'],
                 '_score': hit.get('_score', 0),
                 '_source': hit['_source']
-            }
-            if hit['_id'] not in event_ids_seen:
-                candidates.append(event)
-                event_ids_seen.add(hit['_id'])
-            
-            # Add inner hits (same event type)
-            inner = hit.get('inner_hits', {}).get('same_type', {}).get('hits', {}).get('hits', [])
-            for ih in inner:
-                if ih['_id'] not in event_ids_seen:
-                    candidates.append({
-                        '_id': ih['_id'],
-                        '_index': ih['_index'],
-                        '_score': ih.get('_score', 0),
-                        '_source': ih['_source']
-                    })
-                    event_ids_seen.add(ih['_id'])
+            })
+            event_ids_seen.add(event_id)
+            event_type_counts[event_type] += 1
         
         total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
         
