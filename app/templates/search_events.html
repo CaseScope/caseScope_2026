@@ -3833,10 +3833,13 @@ function showAIEventsInSearchResults() {
         resultsCountEl.innerHTML = `📊 Search Results <span style="color: var(--color-text-secondary); font-size: 0.875rem;">(${window.aiRetrievedEvents.length} AI evidence events)</span>`;
     }
     
-    // Update total count - it's a span not a p
-    const totalCountEl = document.querySelector('.card-header span.text-muted');
-    if (totalCountEl) {
-        totalCountEl.textContent = `${window.aiRetrievedEvents.length} events found`;
+    // Update total count in the header (sibling of h2, not inside it)
+    const headerDiv = document.querySelector('.card-header > div');
+    if (headerDiv) {
+        const totalCountEl = headerDiv.querySelector('span.text-muted');
+        if (totalCountEl) {
+            totalCountEl.textContent = `${window.aiRetrievedEvents.length.toLocaleString()} events found`;
+        }
     }
     
     // Scroll to results
