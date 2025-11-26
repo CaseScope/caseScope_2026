@@ -3835,11 +3835,19 @@ function showAIEventsInSearchResults() {
     
     // Update total count in the header (sibling of h2, not inside it)
     const headerDiv = document.querySelector('.card-header > div');
+    console.log('[AI] headerDiv found:', !!headerDiv);
     if (headerDiv) {
         const totalCountEl = headerDiv.querySelector('span.text-muted');
+        console.log('[AI] totalCountEl found:', !!totalCountEl);
         if (totalCountEl) {
-            totalCountEl.textContent = `${window.aiRetrievedEvents.length.toLocaleString()} events found`;
+            const newText = `${window.aiRetrievedEvents.length.toLocaleString()} events found`;
+            console.log('[AI] Updating count from', totalCountEl.textContent, 'to', newText);
+            totalCountEl.textContent = newText;
+        } else {
+            console.error('[AI] Could not find span.text-muted in header div');
         }
+    } else {
+        console.error('[AI] Could not find .card-header > div');
     }
     
     // Scroll to results
