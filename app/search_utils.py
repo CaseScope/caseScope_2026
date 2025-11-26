@@ -68,8 +68,8 @@ def build_search_query(
         #   - Paths: / (and \ for Windows paths)
         #   - Spaces: (for operator separation)
         def escape_lucene(text):
-            special_chars = ['+', '=', '{', '}', '[', ']', '^', '~']
-            # Only escape rarely-used special characters
+            special_chars = ['+', '=', '{', '}', '[', ']', '^', '~', '/']
+            # Only escape rarely-used special characters (added / for paths like Win32/)
             # Examples of working queries:
             #   "python AND mkeane"
             #   "bob AND (NOT joe) OR sam"
