@@ -1461,7 +1461,14 @@ function tagEvent(eventId, indexName) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            location.reload();
+            // Update UI without full page reload (faster!)
+            const row = document.querySelector(`tr[data-event-id="${eventId}"]`);
+            if (row) {
+                const tagCell = row.querySelector('td:nth-child(2)');  // Tag column is 2nd
+                if (tagCell) {
+                    tagCell.innerHTML = `<button onclick="untagEvent('${eventId}', '${indexName}')" class="btn btn-sm" style="background: var(--color-warning); padding: 4px 8px;">⭐</button>`;
+                }
+            }
         } else {
             alert(data.error || 'Failed to tag event');
         }
@@ -1477,7 +1484,14 @@ function untagEvent(eventId, indexName) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            location.reload();
+            // Update UI without full page reload (faster!)
+            const row = document.querySelector(`tr[data-event-id="${eventId}"]`);
+            if (row) {
+                const tagCell = row.querySelector('td:nth-child(2)');  // Tag column is 2nd
+                if (tagCell) {
+                    tagCell.innerHTML = `<button onclick="tagEvent('${eventId}', '${indexName}')" class="btn btn-sm btn-secondary" style="padding: 4px 8px;">☆</button>`;
+                }
+            }
         }
     });
 }
