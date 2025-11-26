@@ -169,7 +169,7 @@ def create_event_summary(event: Dict[str, Any]) -> str:
     if event_id:
         parts.append(f"Event ID: {event_id}")
     
-    # Extract key fields
+    # Extract key fields (including Windows Defender malware detection fields)
     key_fields = [
         'SubjectUserName', 'TargetUserName', 'User', 'user',
         'SourceNetworkAddress', 'IpAddress', 'source_ip',
@@ -179,7 +179,14 @@ def create_event_summary(event: Dict[str, Any]) -> str:
         'LogonType', 'logon_type',
         'Status', 'FailureReason',
         'ServiceName', 'service_name',
-        'TaskName', 'ScheduledTaskName'
+        'TaskName', 'ScheduledTaskName',
+        # Windows Defender / Antivirus fields (CRITICAL for malware detection)
+        'Threat Name', 'ThreatName',
+        'Severity Name', 'SeverityName', 
+        'Category Name', 'CategoryName',
+        'Action Name', 'ActionName',
+        'Detection User', 'DetectionUser',
+        'Path'  # Malware path/location
     ]
     
     # Check EventData
@@ -195,6 +202,16 @@ def create_event_summary(event: Dict[str, Any]) -> str:
         if field in source and source[field] and field not in str(parts):
             value = str(source[field])[:200]
             parts.append(f"{field}: {value}")
+    
+    # Check forensic_ prefixed fields (from our forensic field extraction)
+    forensic_fields = ['forensic_Threat Name', 'forensic_Severity Name', 'forensic_Category Name', 
+                      'forensic_Action Name', 'forensic_Path']
+    for field in forensic_fields:
+        if field in source and source[field]:
+            value = str(source[field])[:200]
+            # Remove 'forensic_' prefix for cleaner display
+            display_name = field.replace('forensic_', '')
+            parts.append(f"{display_name}: {value}")
     
     # SIGMA/IOC flags
     if source.get('has_sigma'):
