@@ -2131,7 +2131,7 @@ def search_events(case_id):
     sort_field = request.args.get('sort', 'normalized_timestamp')  # Use normalized field
     sort_order = request.args.get('order', 'desc')
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 1000)  # Max 1000 per page
     
     # Get custom date range if provided
     custom_date_start = None
@@ -3791,7 +3791,7 @@ def sigma_management():
     
     # Get pagination parameters
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 1000)  # Max 1000 per page
     search_query = request.args.get('search', '', type=str).strip()
     
     # Get SIGMA stats

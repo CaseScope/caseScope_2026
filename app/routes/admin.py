@@ -40,7 +40,7 @@ def audit_trail():
     
     # Get filter parameters
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 1000)  # Max 1000 per page
     action_filter = request.args.get('action', '')
     resource_filter = request.args.get('resource', '')
     user_filter = request.args.get('user', '')

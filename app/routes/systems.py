@@ -31,7 +31,7 @@ def systems_management(case_id):
     
     # Get pagination and sorting parameters
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 1000)  # Max 1000 per page
     sort_field = request.args.get('sort', 'system_name')
     sort_order = request.args.get('order', 'asc')
     
