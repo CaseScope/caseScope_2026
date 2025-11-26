@@ -2135,9 +2135,19 @@ def search_events(case_id):
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
+    # Check if AI evidence mode
+    ai_evidence = request.args.get('ai_evidence') == 'true'
+    if ai_evidence:
+        session['ai_evidence_mode'] = True
+    elif 'ai_evidence_mode' in session and not ai_evidence:
+        # Clear AI mode if explicitly not in AI mode
+        session.pop('ai_evidence_mode', None)
+        session.pop('ai_evidence_ids', None)
+        session.pop('ai_evidence_case_id', None)
+    
     # Get search parameters
     search_text = request.args.get('q', '')
-    filter_type = request.args.get('filter', 'all')  # all, sigma, ioc, sigma_and_ioc, tagged
+    filter_type = request.args.get('filter', 'ai_evidence' if session.get('ai_evidence_mode') else 'all')  # all, sigma, ioc, sigma_and_ioc, tagged, ai_evidence
     date_range = request.args.get('date_range', 'all')
     file_types = request.args.getlist('file_types')  # ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
     if not file_types:  # Default: all types checked
@@ -2170,13 +2180,21 @@ def search_events(case_id):
             except:
                 pass
     
-    # If filtering by tagged events, get the list of tagged event IDs for this case
+    # If filtering by tagged events or AI evidence, get the list of event IDs
     tagged_event_ids = None
     if filter_type == 'tagged':
         from models import TimelineTag
         tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
         tagged_event_ids = [tag.event_id for tag in tagged_events]
         logger.debug(f"[SEARCH] Found {len(tagged_event_ids)} tagged events for case {case_id}")
+    elif filter_type == 'ai_evidence':
+        # Get AI evidence event IDs from session
+        if session.get('ai_evidence_case_id') == case_id and session.get('ai_evidence_ids'):
+            tagged_event_ids = session.get('ai_evidence_ids')
+            logger.info(f"[SEARCH] Filtering to {len(tagged_event_ids)} AI evidence events for case {case_id}")
+        else:
+            logger.warning(f"[SEARCH] AI evidence mode but no IDs in session for case {case_id}")
+            tagged_event_ids = []  # Empty list will show no results
     
     # Get column configuration from session or use defaults
     columns = session.get(f'search_columns_{case_id}', [

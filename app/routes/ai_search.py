@@ -221,6 +221,26 @@ def ai_search_get_events(case_id):
         return jsonify({"error": str(e)}), 500
 
 
+@ai_search_bp.route('/case/<int:case_id>/ai-search/store-evidence', methods=['POST'])
+@login_required
+def store_ai_evidence(case_id):
+    """Store AI evidence event IDs in session for filtered display"""
+    data = request.get_json() or {}
+    event_ids = data.get('event_ids', [])
+    
+    if not event_ids:
+        return jsonify({"error": "No event IDs provided"}), 400
+    
+    # Store in session
+    from flask import session
+    session['ai_evidence_ids'] = event_ids[:50]  # Limit to 50 events
+    session['ai_evidence_case_id'] = case_id
+    
+    logger.info(f"[AI_SEARCH] Stored {len(event_ids)} AI evidence event IDs for case {case_id}")
+    
+    return jsonify({"success": True, "count": len(session['ai_evidence_ids'])})
+
+
 # Register blueprint function (call from main.py)
 def register_ai_search_routes(app):
     """Register AI search blueprint with Flask app"""

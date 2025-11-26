@@ -455,10 +455,21 @@
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
         <div>
+            {% if session.get('ai_evidence_mode') %}
+            <h2 class="card-title">🤖 AI Evidence Events</h2>
+            <span class="text-muted">{{ "{:,}".format(total_count) }} events from AI analysis</span>
+            {% else %}
             <h2 class="card-title">📊 Search Results</h2>
             <span class="text-muted">{{ "{:,}".format(total_count) }} events found</span>
+            {% endif %}
         </div>
         <div style="display: flex; gap: var(--spacing-md); align-items: center;">
+            {% if session.get('ai_evidence_mode') %}
+            <button onclick="clearAIEvidence()" class="btn btn-secondary">
+                <span>🔙</span>
+                <span>Back to Search</span>
+            </button>
+            {% endif %}
             <div id="bulkActions" style="display: none; gap: var(--spacing-xs);">
                 <button onclick="bulkTagSelected()" class="btn btn-sm" style="background: var(--color-warning);">
                     <span>⭐</span>
@@ -3729,6 +3740,42 @@ function hideAIResultsPanel() {
 
 // Show AI evidence events in main search results table
 function showAIEventsInSearchResults() {
+    if (!window.aiRetrievedEvents || window.aiRetrievedEvents.length === 0) {
+        alert('No events to display');
+        return;
+    }
+    
+    const caseId = {{ case.id }};
+    const eventIds = window.aiRetrievedEvents.map(e => e._id);
+    
+    // Store AI evidence event IDs in session via API
+    fetch(`/case/${caseId}/ai-search/store-evidence`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event_ids: eventIds})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Redirect to AI evidence view
+            window.location.href = `/case/${caseId}/search?ai_evidence=true`;
+        } else {
+            alert('Failed to store AI evidence events');
+        }
+    })
+    .catch(error => {
+        console.error('[AI] Error storing evidence:', error);
+        alert('Error storing AI evidence events');
+    });
+}
+
+function clearAIEvidence() {
+    // Redirect to clear AI evidence mode
+    const caseId = {{ case.id }};
+    window.location.href = `/case/${caseId}/search`;
+}
+
+function showAIEventsInSearchResults_OLD() {
     if (!window.aiRetrievedEvents || window.aiRetrievedEvents.length === 0) {
         alert('No events to display');
         return;
