@@ -438,7 +438,32 @@ def semantic_search_events(
                     os_scores = np.array([e['_score'] for e in candidates])
                     os_scores_norm = os_scores / (os_scores.max() + 0.001)
                     
-                    combined_scores = 0.4 * os_scores_norm + 0.6 * similarities
+                    # Calculate base scores (balanced keyword + semantic)
+                    base_scores = 0.5 * os_scores_norm + 0.5 * similarities
+                    
+                    # Apply multiplicative boosts AFTER normalization to prevent boost erasure
+                    combined_scores = np.zeros(len(candidates))
+                    for i, candidate in enumerate(candidates):
+                        source = candidate.get('_source', {})
+                        boost = 1.0
+                        
+                        # Analyst-tagged events get major boost (most important)
+                        if source.get('is_tagged'):
+                            boost *= 2.5
+                        
+                        # IOC matches are strong signals
+                        if source.get('has_ioc'):
+                            ioc_count = source.get('ioc_count', 1)
+                            boost *= (1.0 + 0.3 * min(ioc_count, 5))  # 1.3x to 2.5x
+                        
+                        # SIGMA matches indicate suspicious activity
+                        if source.get('has_sigma'):
+                            sigma_level = source.get('sigma_level', 'medium')
+                            sigma_boosts = {'critical': 1.8, 'high': 1.5, 'medium': 1.3, 'low': 1.1}
+                            boost *= sigma_boosts.get(sigma_level, 1.2)
+                        
+                        combined_scores[i] = base_scores[i] * boost
+                    
                     ranked_indices = np.argsort(combined_scores)[::-1]
                     
                     candidates = [candidates[i] for i in ranked_indices]
@@ -605,14 +630,32 @@ def generate_ai_answer(
     Yields:
         Response text chunks
     """
-    # Build context from events
+    # Build context from events with dynamic size check
+    MAX_CONTEXT_TOKENS = 6000  # Leave room for prompt and response
+    CHARS_PER_TOKEN = 4  # Approximate characters per token
+    
     event_context = []
-    for i, event in enumerate(events[:15], 1):  # Limit to 15 events for context
+    total_length = 0
+    events_included = 0
+    
+    for i, event in enumerate(events[:15], 1):  # Try up to 15 events
         summary = create_event_summary(event)
         event_id = event.get('_id', f'event_{i}')
-        event_context.append(f"[Event {i}] (ID: {event_id})\n{summary}")
+        event_text = f"[Event {i}] (ID: {event_id})\n{summary}"
+        
+        estimated_tokens = len(event_text) // CHARS_PER_TOKEN
+        
+        # Check if adding this event would overflow context
+        if total_length + estimated_tokens > MAX_CONTEXT_TOKENS:
+            logger.info(f"[AI_SEARCH] Context limit reached at {i} events ({total_length} tokens)")
+            break
+        
+        event_context.append(event_text)
+        total_length += estimated_tokens
+        events_included = i
     
     events_text = "\n\n".join(event_context)
+    logger.info(f"[AI_SEARCH] Including {events_included} events in LLM context ({total_length} estimated tokens)")
     
     # Build the prompt
     prompt = f"""You are a Digital Forensics and Incident Response (DFIR) analyst assistant. You help analysts understand security events and identify potential threats.

@@ -10,6 +10,8 @@ import shutil
 from datetime import datetime
 from flask import Flask, render_template_string, render_template, request, redirect, url_for, jsonify, session, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from opensearchpy import OpenSearch
 from sqlalchemy import text
@@ -95,6 +97,14 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+# Initialize rate limiter (Redis-backed for distributed rate limiting)
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="redis://localhost:6379"
+)
+
 # Initialize OpenSearch
 opensearch_client = OpenSearch(
     hosts=[{'host': app.config['OPENSEARCH_HOST'], 'port': app.config['OPENSEARCH_PORT']}],
@@ -135,6 +145,9 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(timeline_bp)
 app.register_blueprint(archive_bp)
 app.register_blueprint(ai_search_bp)
+
+# Apply rate limiting to AI search endpoint (10 questions per minute per user)
+limiter.limit("10 per minute")(ai_search_bp.view_functions['ai_search_ask'])
 
 # User loader for Flask-Login
 @login_manager.user_loader

@@ -9,7 +9,7 @@ Routes:
 - GET  /case/<id>/ai-search/status    - Check AI service status
 """
 
-from flask import Blueprint, render_template, request, jsonify, Response, stream_with_context
+from flask import Blueprint, render_template, request, jsonify, Response, stream_with_context, current_app
 from flask_login import login_required, current_user
 import json
 import logging
@@ -18,6 +18,8 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 ai_search_bp = Blueprint('ai_search', __name__)
+
+# Rate limiting will be applied via decorator from main.limiter
 
 
 @ai_search_bp.route('/case/<int:case_id>/ai-search/status')
@@ -62,6 +64,8 @@ def ai_search_status(case_id):
 def ai_search_ask(case_id):
     """
     Submit a question and get AI-generated answer based on case events
+    
+    RATE LIMIT: 10 AI questions per minute per user (prevents GPU exhaustion)
     
     Request JSON:
     {
