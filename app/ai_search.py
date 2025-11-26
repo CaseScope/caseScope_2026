@@ -149,109 +149,57 @@ def cosine_similarity_batch(query_embedding: np.ndarray, embeddings: np.ndarray)
 
 def create_event_summary(event: Dict[str, Any]) -> str:
     """
-    Create a comprehensive event summary for LLM context.
-    Includes ALL relevant fields so AI can find patterns and connections.
-    Truncated to 2000 chars to fit in context window.
+    Create event summary with ALL raw data for semantic analysis.
+    
+    Philosophy: Semantic search works BEST with complete, unfiltered data.
+    The LLM is trained to extract meaning from raw text - let it do its job.
+    We provide: flags (tagged/SIGMA/IOC), identifiers (time/computer/ID), 
+    and EVERYTHING in search_blob (all EventData, UserData, System fields).
+    
+    Truncated to 3000 chars to fit ~12-15 events in 6000 token context budget.
     """
     source = event.get('_source', event)
     
-    parts = []
-    
-    # === CORE IDENTIFIERS ===
+    # === CORE IDENTIFIERS (always visible) ===
     timestamp = source.get('normalized_timestamp') or source.get('@timestamp') or source.get('timestamp', 'Unknown')
     computer = source.get('normalized_computer') or source.get('Computer') or source.get('computer') or 'Unknown'
     event_id = source.get('normalized_event_id') or source.get('EventID') or source.get('event_id') or 'Unknown'
     
-    parts.append(f"Time: {timestamp}")
-    parts.append(f"Computer: {computer}")
-    parts.append(f"Event ID: {event_id}")
+    header = f"Time: {timestamp} | Computer: {computer} | Event ID: {event_id}"
     
-    # === DETECTION FLAGS (CRITICAL - show first) ===
+    # === DETECTION FLAGS (analyst curation + automated detection) ===
     flags = []
     if source.get('is_tagged'):
         flags.append("⭐ ANALYST TAGGED")
     if source.get('has_sigma'):
-        flags.append("⚠️ SIGMA VIOLATION")
+        sigma_level = source.get('sigma_level', 'unknown')
+        flags.append(f"⚠️ SIGMA {sigma_level.upper()}")
     if source.get('has_ioc'):
-        flags.append(f"🎯 IOC MATCH ({source.get('ioc_count', 1)})")
-    if flags:
-        parts.append(f"FLAGS: {' | '.join(flags)}")
+        ioc_count = source.get('ioc_count', 1)
+        flags.append(f"🎯 IOC MATCH ({ioc_count})")
     
-    # === WINDOWS DEFENDER / ANTIVIRUS (CRITICAL for malware) ===
-    threat_name = source.get('forensic_Threat Name')
-    if threat_name:
-        parts.append(f"🦠 MALWARE DETECTED: {threat_name}")
-        severity = source.get('forensic_Severity Name')
-        category = source.get('forensic_Category Name')
-        action = source.get('forensic_Action Name')
-        if severity:
-            parts.append(f"Severity: {severity}")
-        if category:
-            parts.append(f"Category: {category}")
-        if action:
-            parts.append(f"Action Taken: {action}")
-        malware_path = source.get('forensic_Path')
-        if malware_path:
-            parts.append(f"Location: {malware_path[:150]}")
+    flag_line = f" | FLAGS: {' '.join(flags)}" if flags else ""
     
-    # === USER / AUTHENTICATION ===
-    event_data = source.get('EventData', {})
-    if isinstance(event_data, dict):
-        subject_user = event_data.get('SubjectUserName') or source.get('SubjectUserName')
-        target_user = event_data.get('TargetUserName') or source.get('TargetUserName')
-        logon_type = event_data.get('LogonType') or source.get('LogonType')
-        
-        if subject_user and target_user and subject_user != target_user:
-            parts.append(f"User: {subject_user} → {target_user}")
-        elif target_user:
-            parts.append(f"User: {target_user}")
-        elif subject_user:
-            parts.append(f"User: {subject_user}")
-        
-        if logon_type:
-            parts.append(f"Logon Type: {logon_type}")
+    # === RAW EVENT DATA (the magic - ALL forensic details) ===
+    # search_blob contains EVERYTHING: EventData, UserData, System fields
+    # This is where semantic search shines - LLM extracts patterns from raw data
+    raw_data = source.get('search_blob', '')
     
-    # === PROCESS / EXECUTION ===
-    process_name = event_data.get('NewProcessName') or event_data.get('Image') or source.get('process_name')
-    parent_process = event_data.get('ParentProcessName') or event_data.get('ParentImage')
-    command_line = event_data.get('CommandLine') or source.get('command_line')
+    # If search_blob is missing/empty, fallback to EventData JSON
+    if not raw_data:
+        event_data = source.get('Event', {}).get('EventData')
+        if isinstance(event_data, str):
+            raw_data = event_data
+        elif isinstance(event_data, dict):
+            raw_data = ' '.join(f"{k}: {v}" for k, v in event_data.items() if v)
     
-    if process_name:
-        if parent_process:
-            parts.append(f"Process: {parent_process} → {process_name}")
-        else:
-            parts.append(f"Process: {process_name}")
+    # Build complete summary
+    summary = f"{header}{flag_line}\nDATA: {raw_data}"
     
-    if command_line:
-        # Truncate very long command lines but keep important parts
-        cmd_truncated = command_line[:300] + "..." if len(command_line) > 300 else command_line
-        parts.append(f"CommandLine: {cmd_truncated}")
-    
-    # === NETWORK ===
-    source_ip = event_data.get('IpAddress') or event_data.get('SourceNetworkAddress') or source.get('source_ip')
-    dest_ip = source.get('destination_ip')
-    if source_ip and source_ip not in ['-', '::1', '127.0.0.1', '']:
-        parts.append(f"Source IP: {source_ip}")
-    if dest_ip:
-        parts.append(f"Dest IP: {dest_ip}")
-    
-    # === FILE / OBJECT ===
-    target_file = event_data.get('TargetFilename') or event_data.get('ObjectName') or source.get('file_path')
-    if target_file:
-        parts.append(f"Target: {target_file[:150]}")
-    
-    # === SERVICE / TASK ===
-    service_name = event_data.get('ServiceName') or source.get('service_name')
-    task_name = event_data.get('TaskName') or event_data.get('ScheduledTaskName')
-    if service_name:
-        parts.append(f"Service: {service_name}")
-    if task_name:
-        parts.append(f"Task: {task_name}")
-    
-    # Combine and truncate to fit context window
-    summary = " | ".join(parts)
-    if len(summary) > 2000:
-        summary = summary[:2000] + "..."
+    # Truncate to fit context budget (3000 chars ≈ 750 tokens per event)
+    # This allows ~12-15 events in 6000 token budget with room for LLM response
+    if len(summary) > 3000:
+        summary = summary[:3000] + "..."
     
     return summary
 

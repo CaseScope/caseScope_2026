@@ -709,11 +709,11 @@ def delete_files(db, opensearch_client, files: List[Any],
     file_ids = [f.id for f in files]
     
     stats['sigma_deleted'] = db.session.query(SigmaViolation).filter(
-        SigmaViolation.case_file_id.in_(file_ids)
+        SigmaViolation.file_id.in_(file_ids)
     ).delete(synchronize_session=False)
     
     stats['ioc_deleted'] = db.session.query(IOCMatch).filter(
-        IOCMatch.case_file_id.in_(file_ids)
+        IOCMatch.file_id.in_(file_ids)
     ).delete(synchronize_session=False)
     
     # Delete from filesystem and database
