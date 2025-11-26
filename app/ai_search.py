@@ -368,6 +368,7 @@ def semantic_search_events(
     try:
         logger.info(f"[AI_SEARCH] Executing query on index {index_name}")
         
+        # First, get keyword-matched events
         response = opensearch_client.search(
             index=index_name,
             body={
@@ -383,10 +384,33 @@ def semantic_search_events(
             request_timeout=35  # Client-side timeout slightly longer than query timeout
         )
         
+        # Also fetch tagged events separately (they may not match keywords)
+        tagged_response = None
+        if boost_tagged:
+            try:
+                tagged_response = opensearch_client.search(
+                    index=index_name,
+                    body={
+                        "query": {"term": {"is_tagged": True}},
+                        "size": 20,  # Get up to 20 tagged events
+                        "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                        "_source": True,
+                        "timeout": "10s"
+                    },
+                    request_timeout=15
+                )
+                logger.info(f"[AI_SEARCH] Found {len(tagged_response['hits']['hits'])} tagged events")
+            except Exception as e:
+                logger.warning(f"[AI_SEARCH] Failed to fetch tagged events: {e}")
+                tagged_response = None
+        
         total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
         logger.info(f"[AI_SEARCH] Query returned {total_hits} total hits")
         
         candidates = []
+        event_ids_seen = set()
+        
+        # Add keyword-matched events
         for hit in response['hits']['hits']:
             event = {
                 '_id': hit['_id'],
@@ -395,6 +419,21 @@ def semantic_search_events(
                 '_source': hit['_source']
             }
             candidates.append(event)
+            event_ids_seen.add(hit['_id'])
+        
+        # Merge in tagged events (avoiding duplicates)
+        if tagged_response:
+            for hit in tagged_response['hits']['hits']:
+                if hit['_id'] not in event_ids_seen:
+                    event = {
+                        '_id': hit['_id'],
+                        '_index': hit['_index'],
+                        '_score': 10.0,  # Give high score to ensure they rank well
+                        '_source': hit['_source']
+                    }
+                    candidates.append(event)
+                    event_ids_seen.add(hit['_id'])
+            logger.info(f"[AI_SEARCH] Merged {len(candidates)} total candidates (keyword + tagged)")
         
         # Try fallback if no results
         if not candidates:
