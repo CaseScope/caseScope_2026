@@ -146,8 +146,17 @@ app.register_blueprint(timeline_bp)
 app.register_blueprint(archive_bp)
 app.register_blueprint(ai_search_bp)
 
-# Apply rate limiting to AI search endpoint (10 questions per minute per user)
-limiter.limit("10 per minute")(ai_search_bp.view_functions['ai_search_ask'])
+# Apply rate limiting to AI search endpoint AFTER blueprint registration
+# This must be done after app.register_blueprint() so view_functions are populated
+@app.before_request
+def check_ai_search_rate_limit():
+    """Apply rate limiting to AI search endpoint"""
+    if request.endpoint == 'ai_search.ai_search_ask':
+        try:
+            limiter.limit("10 per minute").test()
+        except Exception:
+            from flask import jsonify
+            return jsonify({"error": "Rate limit exceeded. Please wait before asking another AI question."}), 429
 
 # User loader for Flask-Login
 @login_manager.user_loader
