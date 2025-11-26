@@ -1142,7 +1142,21 @@ function bulkTagSelected() {
     .then(data => {
         if (data.success) {
             alert(`✅ Tagged ${data.tagged} event(s) (${data.skipped} already tagged)`);
-            window.location.reload();
+            
+            // Update UI without reload - change each tagged event's button
+            events.forEach(event => {
+                const row = document.querySelector(`tr[data-event-id="${event.event_id}"]`);
+                if (row) {
+                    const tagCell = row.querySelector('td:nth-child(2)');
+                    if (tagCell) {
+                        tagCell.innerHTML = `<button onclick="untagEvent('${event.event_id}', '${event.index_name}')" class="btn btn-sm" style="background: var(--color-warning); padding: 4px 8px;">⭐</button>`;
+                    }
+                }
+            });
+            
+            // Clear selections
+            document.querySelectorAll('.event-checkbox:checked').forEach(cb => cb.checked = false);
+            updateBulkButtons();
         } else {
             alert(`❌ Error: ${data.error}`);
         }
@@ -1223,7 +1237,26 @@ function bulkActionRequest(endpoint, actionName, events, confirmMsg) {
         if (data.success) {
             const count = data.hidden || data.unhidden || data.tagged || data.untagged || 0;
             alert(`✅ ${actionName} ${count} event(s)`);
-            window.location.reload();
+            
+            // Update UI without reload for untag operations
+            if (endpoint === 'bulk-untag' && data.untagged) {
+                events.forEach(event => {
+                    const row = document.querySelector(`tr[data-event-id="${event.event_id}"]`);
+                    if (row) {
+                        const tagCell = row.querySelector('td:nth-child(2)');
+                        if (tagCell) {
+                            tagCell.innerHTML = `<button onclick="tagEvent('${event.event_id}', '${event.index_name}')" class="btn btn-sm btn-secondary" style="padding: 4px 8px;">☆</button>`;
+                        }
+                    }
+                });
+                
+                // Clear selections
+                document.querySelectorAll('.event-checkbox:checked').forEach(cb => cb.checked = false);
+                updateBulkButtons();
+            } else {
+                // For hide/unhide operations, still reload (need to update visibility)
+                window.location.reload();
+            }
         } else {
             alert(`❌ Error: ${data.error}`);
         }
