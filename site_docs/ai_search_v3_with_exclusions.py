@@ -20,22 +20,22 @@ import logging
 import re
 import numpy as np
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Generator, Set
+from typing import List, Dict, Any, Optional, Tuple, Generator
 from logging_config import get_logger
 
 logger = get_logger('app')
 
-# Ollama API endpoints (for LLM generation)
+# Ollama API endpoints
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 
 # Embedding model configuration
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
-# LLM model for generating answers (uses your existing DFIR models on GPU)
+# LLM model
 DEFAULT_LLM_MODEL = "dfir-llama:latest"
 
-# Lazy-loaded embedding model (loaded on first use, not at import)
+# Lazy-loaded embedding model
 _embedding_model = None
 _embedding_model_load_attempted = False
 
@@ -155,21 +155,15 @@ COMMON_EXCLUSIONS = {
 def expand_query_for_dfir(question: str) -> List[str]:
     """
     Expand a natural language question into DFIR-relevant search terms.
-    
-    Example:
-        "Do you see signs of malware?" 
-        → ['powershell', 'encodedcommand', 'certutil', 'base64', ...]
     """
     expanded_terms = []
     question_lower = question.lower()
     
-    # Check which categories match the question
     matched_categories = set()
     for pattern, category in QUESTION_PATTERNS:
         if re.search(pattern, question_lower):
             matched_categories.add(category)
     
-    # Add expansion terms
     for category in matched_categories:
         if category in DFIR_QUERY_EXPANSION:
             expanded_terms.extend(DFIR_QUERY_EXPANSION[category])
@@ -183,271 +177,10 @@ def expand_query_for_dfir(question: str) -> List[str]:
             unique_terms.append(term)
     
     if matched_categories:
-        logger.info(f"[AI_SEARCH] Query expansion matched categories: {matched_categories}")
+        logger.info(f"[AI_SEARCH] Query expansion matched: {matched_categories}")
         logger.info(f"[AI_SEARCH] Expanded to {len(unique_terms)} DFIR terms")
     
     return unique_terms[:30]
-
-
-# =============================================================================
-# EMBEDDING MODEL
-# =============================================================================
-
-def _load_embedding_model():
-    """Lazy-load the sentence-transformers embedding model"""
-    global _embedding_model, _embedding_model_load_attempted
-    
-    if _embedding_model_load_attempted:
-        return _embedding_model
-    
-    _embedding_model_load_attempted = True
-    
-    try:
-        from sentence_transformers import SentenceTransformer
-        
-        logger.info(f"[AI_SEARCH] Loading embedding model: {EMBEDDING_MODEL_NAME}")
-        _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu')
-        logger.info(f"[AI_SEARCH] Embedding model loaded successfully (CPU mode)")
-        return _embedding_model
-        
-    except ImportError:
-        logger.error("[AI_SEARCH] sentence-transformers not installed")
-        return None
-    except Exception as e:
-        logger.error(f"[AI_SEARCH] Failed to load embedding model: {e}")
-        return None
-
-
-def check_embedding_model_available() -> Dict[str, Any]:
-    """Check if the embedding model can be loaded"""
-    try:
-        import sentence_transformers
-        model = _load_embedding_model()
-        
-        if model is not None:
-            return {
-                'available': True,
-                'model': EMBEDDING_MODEL_NAME,
-                'type': 'sentence-transformers',
-                'device': 'cpu',
-                'error': None
-            }
-        else:
-            return {
-                'available': False,
-                'model': EMBEDDING_MODEL_NAME,
-                'type': 'sentence-transformers',
-                'device': 'cpu',
-                'error': "Failed to load embedding model"
-            }
-            
-    except ImportError:
-        return {
-            'available': False,
-            'model': EMBEDDING_MODEL_NAME,
-            'type': 'sentence-transformers',
-            'device': 'cpu',
-            'error': "sentence-transformers not installed"
-        }
-    except Exception as e:
-        return {
-            'available': False,
-            'model': EMBEDDING_MODEL_NAME,
-            'type': 'sentence-transformers',
-            'device': 'cpu',
-            'error': str(e)
-        }
-
-
-def get_embedding(text: str) -> Optional[np.ndarray]:
-    """Generate embedding vector for text"""
-    model = _load_embedding_model()
-    if model is None:
-        return None
-    
-    try:
-        text = text[:2000] if len(text) > 2000 else text
-        embedding = model.encode(text, convert_to_numpy=True, show_progress_bar=False)
-        return embedding
-        
-    except Exception as e:
-        logger.error(f"[AI_SEARCH] Error generating embedding: {e}")
-        return None
-
-
-def get_embeddings_batch(texts: List[str]) -> Optional[np.ndarray]:
-    """Generate embeddings for multiple texts efficiently"""
-    model = _load_embedding_model()
-    if model is None:
-        return None
-    
-    try:
-        texts = [t[:2000] if len(t) > 2000 else t for t in texts]
-        embeddings = model.encode(
-            texts, 
-            convert_to_numpy=True, 
-            show_progress_bar=False,
-            batch_size=32
-        )
-        return embeddings
-        
-    except Exception as e:
-        logger.error(f"[AI_SEARCH] Error generating batch embeddings: {e}")
-        return None
-
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Calculate cosine similarity between two vectors"""
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-
-def cosine_similarity_batch(query_embedding: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
-    """Calculate cosine similarity between query and multiple embeddings"""
-    query_norm = query_embedding / np.linalg.norm(query_embedding)
-    embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-    similarities = np.dot(embeddings_norm, query_norm)
-    return similarities
-
-
-# =============================================================================
-# EVENT SUMMARY - Rich context for LLM
-# =============================================================================
-
-def create_event_summary(event: Dict[str, Any]) -> str:
-    """
-    Create DFIR-aware event summary with attack context.
-    
-    Key improvements:
-    - Shows SIGMA rule NAME (not just "detected")
-    - Shows event_title (human readable)
-    - Structured key fields (process chain, command line)
-    - Truncated intelligently
-    """
-    source = event.get('_source', event)
-    parts = []
-    
-    # === HEADER ===
-    timestamp = source.get('normalized_timestamp') or source.get('@timestamp', 'Unknown')
-    computer = source.get('normalized_computer') or source.get('Computer', 'Unknown')
-    event_id = source.get('normalized_event_id') or source.get('EventID', '?')
-    event_title = source.get('event_title', '')
-    
-    header = f"**{timestamp}** | {computer} | Event {event_id}"
-    if event_title:
-        header += f" ({event_title})"
-    parts.append(header)
-    
-    # === DETECTION FLAGS (critical for analyst) ===
-    if source.get('is_tagged'):
-        parts.append("⭐ **ANALYST TAGGED**")
-    
-    if source.get('has_sigma'):
-        sigma_level = source.get('sigma_level', 'unknown').upper()
-        sigma_rules = source.get('sigma_rules', [])
-        if sigma_rules and isinstance(sigma_rules, list):
-            rule_names = []
-            for r in sigma_rules[:3]:
-                if isinstance(r, dict):
-                    rule_names.append(r.get('title') or r.get('name', 'Unknown rule'))
-                elif isinstance(r, str):
-                    rule_names.append(r)
-            if rule_names:
-                parts.append(f"⚠️ **SIGMA {sigma_level}**: {', '.join(rule_names)}")
-            else:
-                parts.append(f"⚠️ **SIGMA {sigma_level}**")
-        else:
-            parts.append(f"⚠️ **SIGMA {sigma_level}**")
-    
-    if source.get('has_ioc'):
-        ioc_count = source.get('ioc_count', 1)
-        ioc_matches = source.get('ioc_matches', [])
-        if ioc_matches and isinstance(ioc_matches, list):
-            match_vals = [str(m.get('value', ''))[:30] for m in ioc_matches[:2] if isinstance(m, dict)]
-            if match_vals:
-                parts.append(f"🎯 **IOC**: {', '.join(match_vals)}")
-            else:
-                parts.append(f"🎯 **IOC MATCH** ({ioc_count})")
-        else:
-            parts.append(f"🎯 **IOC MATCH** ({ioc_count})")
-    
-    # === KEY FORENSIC FIELDS ===
-    event_data = source.get('EventData', {})
-    if not event_data:
-        event_data = source.get('Event', {}).get('EventData', {})
-    if isinstance(event_data, str):
-        event_data = {}
-    
-    if isinstance(event_data, dict):
-        # User
-        user = (event_data.get('TargetUserName') or 
-                event_data.get('SubjectUserName') or 
-                event_data.get('User'))
-        if user and user not in ['-', '']:
-            parts.append(f"User: {user}")
-        
-        # Process chain (CRITICAL for malware detection)
-        process = (event_data.get('NewProcessName') or 
-                   event_data.get('Image') or 
-                   event_data.get('ProcessName'))
-        parent = (event_data.get('ParentProcessName') or 
-                  event_data.get('ParentImage'))
-        if process:
-            if parent:
-                # Show the spawn chain
-                parent_short = parent.split('\\')[-1] if '\\' in parent else parent
-                process_short = process.split('\\')[-1] if '\\' in process else process
-                parts.append(f"Process: {parent_short} → {process_short}")
-            else:
-                parts.append(f"Process: {process}")
-        
-        # Command line (THE KEY for detecting malware)
-        cmdline = event_data.get('CommandLine') or event_data.get('command_line')
-        if cmdline:
-            parts.append(f"CommandLine: {cmdline[:600]}")
-        
-        # Network
-        src_ip = event_data.get('IpAddress') or event_data.get('SourceNetworkAddress')
-        if src_ip and src_ip not in ['-', '::1', '127.0.0.1', '', 'LOCAL']:
-            parts.append(f"Source IP: {src_ip}")
-        
-        # Logon type
-        logon_type = event_data.get('LogonType')
-        if logon_type:
-            logon_map = {
-                '2': 'Interactive', '3': 'Network', '4': 'Batch',
-                '5': 'Service', '7': 'Unlock', '10': 'RDP', '11': 'Cached'
-            }
-            lt_desc = logon_map.get(str(logon_type), '')
-            parts.append(f"LogonType: {logon_type} ({lt_desc})" if lt_desc else f"LogonType: {logon_type}")
-        
-        # Target file/object
-        target = (event_data.get('TargetFilename') or 
-                  event_data.get('ObjectName') or 
-                  event_data.get('ShareName'))
-        if target:
-            parts.append(f"Target: {target[:200]}")
-        
-        # Service/Task
-        service = event_data.get('ServiceName')
-        if service:
-            parts.append(f"Service: {service}")
-        task = event_data.get('TaskName')
-        if task:
-            parts.append(f"Task: {task}")
-    
-    # === FALLBACK to search_blob if no structured data ===
-    if len(parts) <= 2:
-        blob = source.get('search_blob', '')
-        if blob:
-            parts.append(f"Data: {blob[:1000]}")
-    
-    summary = '\n'.join(parts)
-    
-    # Truncate to fit context budget
-    if len(summary) > 2500:
-        summary = summary[:2500] + "..."
-    
-    return summary
 
 
 # =============================================================================
@@ -543,21 +276,16 @@ def extract_keywords_with_exclusions(question: str) -> Tuple[List[str], List[str
         # Add common variations
         if term.endswith('one'):  # sentinelone -> sentinel
             expanded_excludes.append(term[:-3])
-        if not term.endswith('.exe') and ' ' not in term:
+        if not term.endswith('.exe') and not ' ' in term:
             expanded_excludes.append(f"{term}.exe")  # veeam -> veeam.exe
     
     exclude_terms = list(set(expanded_excludes))
     
-    if exclude_terms:
-        logger.info(f"[AI_SEARCH] Include terms: {include_terms}")
-        logger.info(f"[AI_SEARCH] Exclude terms: {exclude_terms}")
+    logger.info(f"[AI_SEARCH] Include terms: {include_terms}")
+    logger.info(f"[AI_SEARCH] Exclude terms: {exclude_terms}")
     
     return include_terms, exclude_terms
 
-
-# =============================================================================
-# KEYWORD EXTRACTION
-# =============================================================================
 
 def extract_keywords_from_question(question: str) -> List[str]:
     """Extract search keywords from natural language question (cleaned of exclusions)"""
@@ -625,7 +353,220 @@ def extract_keywords_from_question(question: str) -> List[str]:
 
 
 # =============================================================================
-# MAIN SEARCH FUNCTION
+# EMBEDDING MODEL
+# =============================================================================
+
+def _load_embedding_model():
+    """Lazy-load the sentence-transformers embedding model"""
+    global _embedding_model, _embedding_model_load_attempted
+    
+    if _embedding_model_load_attempted:
+        return _embedding_model
+    
+    _embedding_model_load_attempted = True
+    
+    try:
+        from sentence_transformers import SentenceTransformer
+        logger.info(f"[AI_SEARCH] Loading embedding model: {EMBEDDING_MODEL_NAME}")
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu')
+        logger.info(f"[AI_SEARCH] Embedding model loaded (CPU)")
+        return _embedding_model
+    except ImportError:
+        logger.error("[AI_SEARCH] sentence-transformers not installed")
+        return None
+    except Exception as e:
+        logger.error(f"[AI_SEARCH] Failed to load embedding model: {e}")
+        return None
+
+
+def check_embedding_model_available() -> Dict[str, Any]:
+    """Check if the embedding model can be loaded"""
+    try:
+        import sentence_transformers
+        model = _load_embedding_model()
+        return {
+            'available': model is not None,
+            'model': EMBEDDING_MODEL_NAME,
+            'type': 'sentence-transformers',
+            'device': 'cpu',
+            'error': None if model else "Failed to load"
+        }
+    except ImportError:
+        return {
+            'available': False,
+            'model': EMBEDDING_MODEL_NAME,
+            'error': "sentence-transformers not installed"
+        }
+
+
+def get_embedding(text: str) -> Optional[np.ndarray]:
+    """Generate embedding vector for text"""
+    model = _load_embedding_model()
+    if model is None:
+        return None
+    try:
+        text = text[:2000] if len(text) > 2000 else text
+        return model.encode(text, convert_to_numpy=True, show_progress_bar=False)
+    except Exception as e:
+        logger.error(f"[AI_SEARCH] Embedding error: {e}")
+        return None
+
+
+def get_embeddings_batch(texts: List[str]) -> Optional[np.ndarray]:
+    """Generate embeddings for multiple texts"""
+    model = _load_embedding_model()
+    if model is None:
+        return None
+    try:
+        texts = [t[:2000] for t in texts]
+        return model.encode(texts, convert_to_numpy=True, show_progress_bar=False, batch_size=32)
+    except Exception as e:
+        logger.error(f"[AI_SEARCH] Batch embedding error: {e}")
+        return None
+
+
+def cosine_similarity_batch(query_embedding: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
+    """Calculate cosine similarity between query and multiple embeddings"""
+    query_norm = query_embedding / np.linalg.norm(query_embedding)
+    embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+    return np.dot(embeddings_norm, query_norm)
+
+
+# =============================================================================
+# EVENT SUMMARY - Rich context for LLM
+# =============================================================================
+
+def create_event_summary(event: Dict[str, Any]) -> str:
+    """
+    Create DFIR-aware event summary with attack context.
+    """
+    source = event.get('_source', event)
+    parts = []
+    
+    # === HEADER ===
+    timestamp = source.get('normalized_timestamp') or source.get('@timestamp', 'Unknown')
+    computer = source.get('normalized_computer') or source.get('Computer', 'Unknown')
+    event_id = source.get('normalized_event_id') or source.get('EventID', '?')
+    event_title = source.get('event_title', '')
+    
+    header = f"**{timestamp}** | {computer} | Event {event_id}"
+    if event_title:
+        header += f" ({event_title})"
+    parts.append(header)
+    
+    # === DETECTION FLAGS ===
+    if source.get('is_tagged'):
+        parts.append("⭐ **ANALYST TAGGED**")
+    
+    if source.get('has_sigma'):
+        sigma_level = source.get('sigma_level', 'unknown').upper()
+        sigma_rules = source.get('sigma_rules', [])
+        if sigma_rules and isinstance(sigma_rules, list):
+            rule_names = []
+            for r in sigma_rules[:3]:
+                if isinstance(r, dict):
+                    rule_names.append(r.get('title') or r.get('name', 'Unknown rule'))
+                elif isinstance(r, str):
+                    rule_names.append(r)
+            if rule_names:
+                parts.append(f"⚠️ **SIGMA {sigma_level}**: {', '.join(rule_names)}")
+            else:
+                parts.append(f"⚠️ **SIGMA {sigma_level}**")
+        else:
+            parts.append(f"⚠️ **SIGMA {sigma_level}**")
+    
+    if source.get('has_ioc'):
+        ioc_count = source.get('ioc_count', 1)
+        ioc_matches = source.get('ioc_matches', [])
+        if ioc_matches and isinstance(ioc_matches, list):
+            match_vals = [str(m.get('value', ''))[:30] for m in ioc_matches[:2] if isinstance(m, dict)]
+            if match_vals:
+                parts.append(f"🎯 **IOC**: {', '.join(match_vals)}")
+            else:
+                parts.append(f"🎯 **IOC MATCH** ({ioc_count})")
+        else:
+            parts.append(f"🎯 **IOC MATCH** ({ioc_count})")
+    
+    # === KEY FORENSIC FIELDS ===
+    event_data = source.get('EventData', {})
+    if not event_data:
+        event_data = source.get('Event', {}).get('EventData', {})
+    if isinstance(event_data, str):
+        event_data = {}
+    
+    if isinstance(event_data, dict):
+        # User
+        user = (event_data.get('TargetUserName') or 
+                event_data.get('SubjectUserName') or 
+                event_data.get('User'))
+        if user and user not in ['-', '', 'N/A']:
+            parts.append(f"User: {user}")
+        
+        # Process chain
+        process = (event_data.get('NewProcessName') or 
+                   event_data.get('Image') or 
+                   event_data.get('ProcessName'))
+        parent = (event_data.get('ParentProcessName') or 
+                  event_data.get('ParentImage'))
+        if process:
+            if parent:
+                parent_short = parent.split('\\')[-1] if '\\' in parent else parent
+                process_short = process.split('\\')[-1] if '\\' in process else process
+                parts.append(f"Process: {parent_short} → {process_short}")
+            else:
+                parts.append(f"Process: {process}")
+        
+        # Command line (THE KEY for detecting malware)
+        cmdline = event_data.get('CommandLine') or event_data.get('command_line')
+        if cmdline:
+            parts.append(f"CommandLine: {cmdline[:600]}")
+        
+        # Network
+        src_ip = event_data.get('IpAddress') or event_data.get('SourceNetworkAddress')
+        if src_ip and src_ip not in ['-', '::1', '127.0.0.1', '', 'LOCAL', '-']:
+            parts.append(f"Source IP: {src_ip}")
+        
+        # Logon type
+        logon_type = event_data.get('LogonType')
+        if logon_type:
+            logon_map = {
+                '2': 'Interactive', '3': 'Network', '4': 'Batch',
+                '5': 'Service', '7': 'Unlock', '10': 'RDP', '11': 'Cached'
+            }
+            lt_desc = logon_map.get(str(logon_type), '')
+            parts.append(f"LogonType: {logon_type} ({lt_desc})" if lt_desc else f"LogonType: {logon_type}")
+        
+        # Target file/object
+        target = (event_data.get('TargetFilename') or 
+                  event_data.get('ObjectName') or 
+                  event_data.get('ShareName'))
+        if target:
+            parts.append(f"Target: {target[:200]}")
+        
+        # Service/Task
+        service = event_data.get('ServiceName')
+        if service:
+            parts.append(f"Service: {service}")
+        task = event_data.get('TaskName')
+        if task:
+            parts.append(f"Task: {task}")
+    
+    # === FALLBACK to search_blob ===
+    if len(parts) <= 2:
+        blob = source.get('search_blob', '')
+        if blob:
+            parts.append(f"Data: {blob[:1000]}")
+    
+    summary = '\n'.join(parts)
+    
+    if len(summary) > 2500:
+        summary = summary[:2500] + "..."
+    
+    return summary
+
+
+# =============================================================================
+# MAIN SEARCH FUNCTION WITH EXCLUSIONS
 # =============================================================================
 
 def semantic_search_events(
@@ -638,19 +579,12 @@ def semantic_search_events(
     boost_tagged: bool = True
 ) -> Tuple[List[Dict], str]:
     """
-    Semantic search with DFIR query expansion, EXCLUSIONS, and diversification.
+    Semantic search with DFIR query expansion, exclusions, and diversification.
     
     Supports exclusion patterns:
     - "malware excluding veeam and sentinelone"
     - "suspicious activity but not defender"
     - "processes ignore backup software"
-    
-    Key features:
-    1. Expands DFIR concepts (malware -> powershell, certutil, etc.)
-    2. Searches search_blob field
-    3. Diversifies results by event type
-    4. Guarantees tagged events appear
-    5. EXCLUDES user-specified noise (security tools, backup software, etc.)
     """
     index_name = f"case_{case_id}"
     
@@ -738,11 +672,11 @@ def semantic_search_events(
     if must_not_clauses:
         query["bool"]["must_not"] = must_not_clauses
     
-    # Step 3: Execute search with diversity (via collapse)
+    # Step 3: Execute search with diversity
     candidate_count = min(max_results * 8, 200)
     
     try:
-        # Query with collapse to diversify by event type
+        # Use collapse for diversity by event type
         response = opensearch_client.search(
             index=index_name,
             body={
@@ -752,7 +686,7 @@ def semantic_search_events(
                     "field": "normalized_event_id",
                     "inner_hits": {
                         "name": "same_type",
-                        "size": 2  # Max 2 more per event type
+                        "size": 2
                     }
                 },
                 "sort": [
@@ -765,12 +699,11 @@ def semantic_search_events(
             request_timeout=35
         )
         
-        # Collect results with diversity
+        # Collect diversified results
         candidates = []
         event_ids_seen = set()
         
         for hit in response['hits']['hits']:
-            # Add main hit
             event = {
                 '_id': hit['_id'],
                 '_index': hit['_index'],
@@ -781,7 +714,7 @@ def semantic_search_events(
                 candidates.append(event)
                 event_ids_seen.add(hit['_id'])
             
-            # Add inner hits (same event type)
+            # Add inner hits
             inner = hit.get('inner_hits', {}).get('same_type', {}).get('hits', {}).get('hits', [])
             for ih in inner:
                 if ih['_id'] not in event_ids_seen:
@@ -803,7 +736,7 @@ def semantic_search_events(
         import traceback
         logger.error(traceback.format_exc())
         
-        # Fallback to simple search with exclusions
+        # Fallback to simple search
         try:
             fallback_query = {
                 "bool": {
@@ -827,12 +760,11 @@ def semantic_search_events(
                 for h in response['hits']['hits']
             ]
             total_hits = len(candidates)
-            event_ids_seen = {c['_id'] for c in candidates}
         except Exception as e2:
             logger.error(f"[AI_SEARCH] Fallback also failed: {e2}")
             return [], f"Search error: {str(e)}"
     
-    # Step 4: Fetch tagged events from database (they may not match keywords)
+    # Step 4: Fetch tagged events from database
     if boost_tagged:
         try:
             from models import TimelineTag
@@ -854,7 +786,7 @@ def semantic_search_events(
                         excluded = any(ex.lower() in search_blob for ex in exclude_terms)
                         
                         if not excluded:
-                            candidates.insert(0, {  # Insert at front
+                            candidates.insert(0, {
                                 '_id': doc['_id'],
                                 '_index': doc['_index'],
                                 '_score': 100.0,
@@ -884,7 +816,6 @@ def semantic_search_events(
                     os_scores = np.array([c['_score'] for c in candidates])
                     os_scores_norm = os_scores / (os_scores.max() + 0.001)
                     
-                    # Base score: 50% keyword, 50% semantic
                     base_scores = 0.5 * os_scores_norm + 0.5 * similarities
                     
                     # Apply multiplicative boosts
@@ -894,7 +825,7 @@ def semantic_search_events(
                         boost = 1.0
                         
                         if src.get('is_tagged'):
-                            boost *= 3.0  # Tagged = analyst verified important
+                            boost *= 3.0
                         if src.get('has_sigma'):
                             level = src.get('sigma_level', 'medium')
                             boost *= {'critical': 2.5, 'high': 2.0, 'medium': 1.5, 'low': 1.2}.get(level, 1.3)
@@ -940,13 +871,13 @@ def generate_ai_answer(
     total_length = 0
     events_included = 0
     
-    # Count flags for context
     tagged_count = sum(1 for e in events if e.get('_source', {}).get('is_tagged'))
     sigma_count = sum(1 for e in events if e.get('_source', {}).get('has_sigma'))
     ioc_count = sum(1 for e in events if e.get('_source', {}).get('has_ioc'))
     
     for i, event in enumerate(events[:15], 1):
         summary = create_event_summary(event)
+        event_id = event.get('_id', f'event_{i}')
         event_text = f"### Event {i}\n{summary}"
         
         est_tokens = len(event_text) // CHARS_PER_TOKEN
@@ -960,7 +891,6 @@ def generate_ai_answer(
     events_text = "\n\n".join(event_context)
     logger.info(f"[AI_SEARCH] LLM context: {events_included} events, ~{total_length} tokens")
     
-    # Enhanced DFIR-aware prompt
     prompt = f"""You are a senior Digital Forensics and Incident Response (DFIR) analyst investigating a security incident.
 
 ## CASE: {case_name}
@@ -979,10 +909,13 @@ def generate_ai_answer(
 - **Event 4624** = Successful logon (LogonType: 2=interactive, 3=network, 10=RDP)
 - **Event 4625** = Failed logon (brute force indicator)
 - **Event 4648** = Explicit credential use (pass-the-hash indicator)
+- **Event 4672** = Admin logon with special privileges
 - **Event 7045** = Service installed (persistence indicator)
 - **Event 4698** = Scheduled task created (persistence indicator)
+- **Event 1102** = Security log cleared (anti-forensics!)
 - **Sysmon 1** = Process with full command line
 - **Sysmon 3** = Network connection
+- **Sysmon 10** = Process access (credential dumping indicator)
 
 ## EVIDENCE EVENTS
 
@@ -993,7 +926,7 @@ def generate_ai_answer(
 Based on the evidence above, answer the analyst's question. Follow these rules:
 1. **Reference events by number**: "Event 3 shows..." or "[Event 3]"
 2. **Prioritize flagged events**: ⭐ tagged events are analyst-verified important
-3. **Look for chains**: Process spawning process, logon then lateral movement, etc.
+3. **Look for attack chains**: Process → process, logon → lateral movement, etc.
 4. **Be specific**: Quote usernames, IPs, command lines, timestamps
 5. **Acknowledge gaps**: If evidence is insufficient, say what's missing
 6. **NO fabrication**: Only cite what's in the events above
@@ -1059,7 +992,7 @@ def ai_question_search(
         yield {"type": "error", "data": "No relevant events found. Try rephrasing or using DFIR terms like 'powershell', 'lateral movement', 'persistence'."}
         return
     
-    yield {"type": "status", "data": f"Found {len(events)} relevant events. Generating analysis..."}
+    yield {"type": "status", "data": f"{explanation}. Generating analysis..."}
     yield {"type": "events", "data": events}
     
     for chunk in generate_ai_answer(question, events, case_name, model):
@@ -1069,7 +1002,7 @@ def ai_question_search(
 
 
 # =============================================================================
-# EXPORTS
+# HELPER: Get exclusion suggestions
 # =============================================================================
 
 def get_exclusion_suggestions() -> Dict[str, List[str]]:
@@ -1080,6 +1013,10 @@ def get_exclusion_suggestions() -> Dict[str, List[str]]:
     """
     return COMMON_EXCLUSIONS
 
+
+# =============================================================================
+# EXPORTS
+# =============================================================================
 
 __all__ = [
     'check_embedding_model_available',
