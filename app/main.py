@@ -101,7 +101,7 @@ login_manager.login_view = 'login'
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=[],  # No default limits - only apply to specific endpoints
     storage_uri="redis://localhost:6379"
 )
 
