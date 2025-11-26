@@ -413,8 +413,8 @@
                             <h4 style="margin: 0; font-size: 0.875rem; color: var(--color-text-secondary);">
                                 📋 Evidence Events (<span id="aiEventCount">0</span>)
                             </h4>
-                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                                Show in Search Results →
+                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="Opens in new tab so you can keep this analysis visible">
+                                Open Events in New Tab ↗
                             </button>
                         </div>
                         <div id="aiEventsPreview" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-sm); background: var(--color-background-tertiary); font-size: 0.875rem;">
@@ -3804,8 +3804,8 @@ function showAIEventsInSearchResults() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Redirect to AI evidence view
-            window.location.href = `/case/${caseId}/search?ai_evidence=true`;
+            // Open in NEW TAB so RAG analysis stays visible in the modal
+            window.open(`/case/${caseId}/search?ai_evidence=true`, '_blank');
         } else {
             alert('Failed to store AI evidence events');
         }
