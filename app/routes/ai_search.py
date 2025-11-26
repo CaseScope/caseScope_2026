@@ -59,13 +59,7 @@ def ai_search_status(case_id):
     })
 
 
-def _get_limiter():
-    """Lazy import limiter to avoid circular import"""
-    from main import limiter
-    return limiter
-
 @ai_search_bp.route('/case/<int:case_id>/ai-search/ask', methods=['POST'])
-@_get_limiter().limit("10 per minute")
 @login_required
 def ai_search_ask(case_id):
     """
