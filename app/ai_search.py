@@ -385,23 +385,37 @@ def semantic_search_events(
         )
         
         # Also fetch tagged events separately (they may not match keywords)
+        # Tags are stored in PostgreSQL, not OpenSearch
         tagged_response = None
+        tagged_event_ids = []
         if boost_tagged:
             try:
-                tagged_response = opensearch_client.search(
-                    index=index_name,
-                    body={
-                        "query": {"term": {"is_tagged": True}},
-                        "size": 20,  # Get up to 20 tagged events
-                        "sort": [{"normalized_timestamp": {"order": "desc"}}],
-                        "_source": True,
-                        "timeout": "10s"
-                    },
-                    request_timeout=15
-                )
-                logger.info(f"[AI_SEARCH] Found {len(tagged_response['hits']['hits'])} tagged events")
+                from models import TimelineTag
+                from sqlalchemy import and_
+                # Get tagged event IDs from database
+                tagged_records = TimelineTag.query.filter(
+                    and_(
+                        TimelineTag.case_id == case_id,
+                        TimelineTag.index_name == index_name
+                    )
+                ).limit(20).all()
+                
+                tagged_event_ids = [tag.event_id for tag in tagged_records]
+                
+                if tagged_event_ids:
+                    # Fetch these events from OpenSearch
+                    tagged_response = opensearch_client.mget(
+                        index=index_name,
+                        body={"ids": tagged_event_ids}
+                    )
+                    found_count = sum(1 for doc in tagged_response.get('docs', []) if doc.get('found'))
+                    logger.info(f"[AI_SEARCH] Found {found_count} tagged events from database")
+                else:
+                    logger.info(f"[AI_SEARCH] No tagged events found in database for this case")
             except Exception as e:
                 logger.warning(f"[AI_SEARCH] Failed to fetch tagged events: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
                 tagged_response = None
         
         total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
@@ -422,17 +436,17 @@ def semantic_search_events(
             event_ids_seen.add(hit['_id'])
         
         # Merge in tagged events (avoiding duplicates)
-        if tagged_response:
-            for hit in tagged_response['hits']['hits']:
-                if hit['_id'] not in event_ids_seen:
+        if tagged_response and 'docs' in tagged_response:
+            for doc in tagged_response['docs']:
+                if doc.get('found') and doc['_id'] not in event_ids_seen:
                     event = {
-                        '_id': hit['_id'],
-                        '_index': hit['_index'],
+                        '_id': doc['_id'],
+                        '_index': doc['_index'],
                         '_score': 10.0,  # Give high score to ensure they rank well
-                        '_source': hit['_source']
+                        '_source': doc['_source']
                     }
                     candidates.append(event)
-                    event_ids_seen.add(hit['_id'])
+                    event_ids_seen.add(doc['_id'])
             logger.info(f"[AI_SEARCH] Merged {len(candidates)} total candidates (keyword + tagged)")
         
         # Try fallback if no results
