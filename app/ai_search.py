@@ -1090,11 +1090,15 @@ def semantic_search_events(
             request_timeout=35
         )
         
-        # Collect results with manual diversity (limit per event type)
+        # Collect results with soft diversity (prefer variety but don't hard limit)
         candidates = []
         event_ids_seen = set()
         event_type_counts = defaultdict(int)
-        max_per_type = 5  # Limit events per event ID type for diversity
+        
+        # Two-pass approach: first pass collects diverse events, second pass fills to max
+        first_pass = []
+        overflow = []
+        max_per_type_first_pass = 8  # Soft limit for diversity in first pass
         
         for hit in response['hits']['hits']:
             event_id = hit['_id']
@@ -1104,22 +1108,27 @@ def semantic_search_events(
             if event_id in event_ids_seen:
                 continue
             
-            # Apply diversity limit (but always include flagged events)
-            is_flagged = (hit['_source'].get('is_tagged') or 
-                         hit['_source'].get('has_sigma') or 
-                         hit['_source'].get('has_ioc'))
-            
-            if not is_flagged and event_type_counts[event_type] >= max_per_type:
-                continue
-            
-            candidates.append({
+            event_data = {
                 '_id': event_id,
                 '_index': hit['_index'],
                 '_score': hit.get('_score', 0),
                 '_source': hit['_source']
-            })
+            }
             event_ids_seen.add(event_id)
-            event_type_counts[event_type] += 1
+            
+            # Flagged events always go to first pass
+            is_flagged = (hit['_source'].get('is_tagged') or 
+                         hit['_source'].get('has_sigma') or 
+                         hit['_source'].get('has_ioc'))
+            
+            if is_flagged or event_type_counts[event_type] < max_per_type_first_pass:
+                first_pass.append(event_data)
+                event_type_counts[event_type] += 1
+            else:
+                overflow.append(event_data)
+        
+        # Combine: diverse events first, then overflow to fill up to candidate_count
+        candidates = first_pass + overflow
         
         total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
         
