@@ -2364,12 +2364,6 @@ def search_events(case_id):
             total_count
         )
     
-    # Override total_count for AI evidence mode (show actual AI event count, not search total)
-    if filter_type == 'ai_evidence' and session.get('ai_evidence_ids'):
-        total_count = len(session.get('ai_evidence_ids'))
-        total_pages = (total_count + per_page - 1) // per_page
-        logger.info(f"[SEARCH] AI evidence mode: overriding total_count to {total_count}")
-    
     # Check if DFIR-IRIS is enabled
     dfir_iris_enabled = get_setting('dfir_iris_enabled', 'false') == 'true'
     
