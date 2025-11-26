@@ -1071,25 +1071,145 @@ def semantic_search_events(
     if must_not_clauses:
         query["bool"]["must_not"] = must_not_clauses
     
-    # Step 3: Execute search
-    # Get 4x the requested amount for re-ranking, up to 2000 max
+    # Step 3: Execute search with stratified sampling for large datasets
+    # Strategy: Get top matches + samples from different event types + flagged events
     candidate_count = min(max_results * 4, 2000)
     
     try:
-        response = opensearch_client.search(
+        # First: Get aggregation to understand what event types match
+        agg_response = opensearch_client.search(
             index=index_name,
             body={
                 "query": query,
-                "size": candidate_count,
-                "sort": [
-                    {"_score": {"order": "desc"}},
-                    {"normalized_timestamp": {"order": "desc"}}
-                ],
-                "_source": True,
-                "timeout": "30s"
+                "size": 0,
+                "aggs": {
+                    "event_types": {
+                        "terms": {
+                            "field": "normalized_event_id",
+                            "size": 50  # Top 50 event types
+                        }
+                    },
+                    "flagged_count": {
+                        "filter": {
+                            "bool": {
+                                "should": [
+                                    {"term": {"is_tagged": True}},
+                                    {"term": {"has_sigma": True}},
+                                    {"term": {"has_ioc": True}}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "timeout": "10s"
             },
-            request_timeout=35
+            request_timeout=15
         )
+        
+        total_matching = agg_response['hits']['total']['value'] if isinstance(agg_response['hits']['total'], dict) else agg_response['hits']['total']
+        event_type_buckets = agg_response.get('aggregations', {}).get('event_types', {}).get('buckets', [])
+        flagged_count = agg_response.get('aggregations', {}).get('flagged_count', {}).get('doc_count', 0)
+        
+        logger.info(f"[AI_SEARCH] Total matching: {total_matching}, Event types: {len(event_type_buckets)}, Flagged: {flagged_count}")
+        
+        # Strategy for large datasets: sample across event types
+        all_candidates = []
+        event_ids_seen = set()
+        
+        # Part 1: Get ALL flagged events first (they're analyst-verified important)
+        if flagged_count > 0:
+            flagged_query = {
+                "bool": {
+                    "must": [query],
+                    "filter": {
+                        "bool": {
+                            "should": [
+                                {"term": {"is_tagged": True}},
+                                {"term": {"has_sigma": True}},
+                                {"term": {"has_ioc": True}}
+                            ]
+                        }
+                    }
+                }
+            }
+            flagged_response = opensearch_client.search(
+                index=index_name,
+                body={
+                    "query": flagged_query,
+                    "size": min(flagged_count, 500),  # Up to 500 flagged events
+                    "sort": [{"_score": {"order": "desc"}}],
+                    "_source": True
+                },
+                request_timeout=20
+            )
+            for hit in flagged_response['hits']['hits']:
+                if hit['_id'] not in event_ids_seen:
+                    all_candidates.append({
+                        '_id': hit['_id'],
+                        '_index': hit['_index'],
+                        '_score': hit.get('_score', 0) * 2,  # Boost flagged
+                        '_source': hit['_source']
+                    })
+                    event_ids_seen.add(hit['_id'])
+            logger.info(f"[AI_SEARCH] Retrieved {len(all_candidates)} flagged events")
+        
+        # Part 2: Sample from each event type for diversity
+        samples_per_type = max(10, candidate_count // max(len(event_type_buckets), 1))
+        for bucket in event_type_buckets[:30]:  # Top 30 event types
+            event_type = bucket['key']
+            type_query = {
+                "bool": {
+                    "must": [query],
+                    "filter": {"term": {"normalized_event_id": event_type}}
+                }
+            }
+            type_response = opensearch_client.search(
+                index=index_name,
+                body={
+                    "query": type_query,
+                    "size": samples_per_type,
+                    "sort": [{"_score": {"order": "desc"}}],
+                    "_source": True
+                },
+                request_timeout=10
+            )
+            for hit in type_response['hits']['hits']:
+                if hit['_id'] not in event_ids_seen:
+                    all_candidates.append({
+                        '_id': hit['_id'],
+                        '_index': hit['_index'],
+                        '_score': hit.get('_score', 0),
+                        '_source': hit['_source']
+                    })
+                    event_ids_seen.add(hit['_id'])
+        
+        logger.info(f"[AI_SEARCH] After stratified sampling: {len(all_candidates)} candidates")
+        
+        # Part 3: Fill remaining with top scoring (if needed)
+        remaining = candidate_count - len(all_candidates)
+        if remaining > 0:
+            response = opensearch_client.search(
+                index=index_name,
+                body={
+                    "query": query,
+                    "size": remaining + len(event_ids_seen),  # Get extra to account for dupes
+                    "sort": [{"_score": {"order": "desc"}}],
+                    "_source": True
+                },
+                request_timeout=30
+            )
+            for hit in response['hits']['hits']:
+                if hit['_id'] not in event_ids_seen and len(all_candidates) < candidate_count:
+                    all_candidates.append({
+                        '_id': hit['_id'],
+                        '_index': hit['_index'],
+                        '_score': hit.get('_score', 0),
+                        '_source': hit['_source']
+                    })
+                    event_ids_seen.add(hit['_id'])
+        
+        # Use all_candidates as our response
+        response = {'hits': {'hits': [{'_id': c['_id'], '_index': c['_index'], '_score': c['_score'], '_source': c['_source']} for c in all_candidates], 'total': {'value': total_matching}}}
         
         # Collect results with soft diversity (prefer variety but don't hard limit)
         candidates = []
