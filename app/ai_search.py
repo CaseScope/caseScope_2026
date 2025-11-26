@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-CaseScope AI Search Module (RAG Implementation) - V3 with EXCLUSIONS
+CaseScope AI Search Module (RAG Implementation) - V4 ATTACK PATTERNS
 Provides semantic search using embeddings + LLM-powered question answering
 
-Key features:
-- EXCLUSION SUPPORT: "show malware excluding veeam and sentinelone"
-- DFIR query expansion (malware -> powershell, encodedcommand, certutil, etc.)
-- Searches search_blob field (where all the data is!)
-- Result diversification (max 3 events per event type)
-- Better event summaries with SIGMA rule names
-- Attack-aware LLM prompt
+Key features in V4:
+- MITRE ATT&CK technique detection and mapping
+- Attack chain analysis (find related events across kill chain)
+- Multi-query expansion (search same concept multiple ways)
+- Step-back prompting (abstract questions for broader context)
+- Gap analysis (identify missing evidence in attack chain)
+- All V3 features (exclusions, DFIR expansion, diversification)
 
-Version: 3.0 (November 2025)
+Based on:
+- MITRE ATT&CK Framework (https://attack.mitre.org/)
+- RAG Survey paper (arXiv:2312.10997v5) techniques
+
+Version: 4.0 (November 2025)
 """
 
 import requests
@@ -21,6 +25,7 @@ import re
 import numpy as np
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Generator, Set
+from collections import defaultdict
 from logging_config import get_logger
 
 logger = get_logger('app')
@@ -152,6 +157,198 @@ COMMON_EXCLUSIONS = {
 }
 
 
+# =============================================================================
+# MITRE ATT&CK TECHNIQUE PATTERNS - Key techniques with detection indicators
+# =============================================================================
+
+MITRE_ATTACK_PATTERNS = {
+    # EXECUTION
+    'T1059.001': {
+        'name': 'PowerShell',
+        'tactic': 'Execution',
+        'indicators': ['powershell', 'pwsh', 'encodedcommand', '-enc', 'bypass', 'hidden', 
+                       'downloadstring', 'iex', 'invoke-expression', 'frombase64string'],
+        'event_ids': ['4688', '4104', '1'],
+    },
+    'T1218': {
+        'name': 'LOLBAS',
+        'tactic': 'Execution',
+        'indicators': ['certutil', 'bitsadmin', 'mshta', 'regsvr32', 'rundll32', 
+                       'msiexec', 'installutil', 'cmstp', 'msbuild'],
+        'event_ids': ['4688', '1'],
+    },
+    
+    # PERSISTENCE
+    'T1053.005': {
+        'name': 'Scheduled Task',
+        'tactic': 'Persistence',
+        'indicators': ['schtasks', '/create', 'at.exe', 'taskschd'],
+        'event_ids': ['4698', '4699', '4702'],
+    },
+    'T1543.003': {
+        'name': 'Windows Service',
+        'tactic': 'Persistence',
+        'indicators': ['sc create', 'sc config', 'new-service', 'binpath'],
+        'event_ids': ['7045', '4697'],
+    },
+    
+    # CREDENTIAL ACCESS
+    'T1003.001': {
+        'name': 'LSASS Credential Dump',
+        'tactic': 'Credential Access',
+        'indicators': ['lsass', 'mimikatz', 'sekurlsa', 'procdump', 'comsvcs', 'minidump'],
+        'event_ids': ['10', '4688', '1'],
+    },
+    'T1110': {
+        'name': 'Brute Force / Password Spray',
+        'tactic': 'Credential Access',
+        'indicators': ['failed logon', 'bad password', 'account lockout'],
+        'event_ids': ['4625', '4771', '4776'],
+    },
+    'T1558.003': {
+        'name': 'Kerberoasting',
+        'tactic': 'Credential Access',
+        'indicators': ['kerberoast', 'tgs-req', 'serviceprincipalname', 'rc4-hmac'],
+        'event_ids': ['4769'],
+    },
+    
+    # LATERAL MOVEMENT
+    'T1021.002': {
+        'name': 'SMB/Admin Shares',
+        'tactic': 'Lateral Movement',
+        'indicators': ['admin$', 'c$', 'ipc$', 'net use', 'psexec', 'smbexec'],
+        'event_ids': ['5140', '5145', '4624'],
+    },
+    'T1021.001': {
+        'name': 'RDP',
+        'tactic': 'Lateral Movement',
+        'indicators': ['mstsc', 'rdp', '3389', 'remote desktop', 'termsrv'],
+        'event_ids': ['4624', '4778', '4779', '1149'],
+    },
+    'T1550.002': {
+        'name': 'Pass the Hash',
+        'tactic': 'Lateral Movement',
+        'indicators': ['pass the hash', 'pth', 'ntlm', 'sekurlsa::pth', 'overpass'],
+        'event_ids': ['4624', '4648', '4672'],
+    },
+    'T1550.003': {
+        'name': 'Pass the Ticket',
+        'tactic': 'Lateral Movement',
+        'indicators': ['pass the ticket', 'ptt', 'golden ticket', 'silver ticket', 'kirbi'],
+        'event_ids': ['4768', '4769', '4770'],
+    },
+    
+    # DEFENSE EVASION
+    'T1070.001': {
+        'name': 'Log Clearing',
+        'tactic': 'Defense Evasion',
+        'indicators': ['wevtutil cl', 'clear-eventlog', 'remove-eventlog'],
+        'event_ids': ['1102', '104'],
+    },
+    'T1562.001': {
+        'name': 'Disable Security Tools',
+        'tactic': 'Defense Evasion',
+        'indicators': ['set-mppreference', 'disablerealtimemonitoring', 'tamper', 
+                       'sc stop', 'net stop', 'defender', 'antivirus'],
+        'event_ids': ['4688', '1', '5001'],
+    },
+    
+    # EXFILTRATION
+    'T1048': {
+        'name': 'Exfiltration',
+        'tactic': 'Exfiltration',
+        'indicators': ['curl', 'wget', 'invoke-webrequest', 'ftp', 'rclone', 
+                       'mega', 'dropbox', 'transfer.sh'],
+        'event_ids': ['4688', '1', '3'],
+    },
+}
+
+
+# =============================================================================
+# ATTACK CHAIN DEFINITIONS - Common attack sequences
+# =============================================================================
+
+ATTACK_CHAINS = {
+    'credential_theft': {
+        'name': 'Credential Theft Campaign',
+        'stages': ['Execution', 'Credential Access', 'Lateral Movement'],
+        'techniques': ['T1059.001', 'T1003.001', 'T1110', 'T1550.002', 'T1021.002'],
+    },
+    'ransomware': {
+        'name': 'Ransomware Attack',
+        'stages': ['Execution', 'Defense Evasion', 'Lateral Movement', 'Impact'],
+        'techniques': ['T1059.001', 'T1218', 'T1562.001', 'T1021.002', 'T1486'],
+    },
+    'apt_intrusion': {
+        'name': 'APT-Style Intrusion',
+        'stages': ['Execution', 'Persistence', 'Credential Access', 'Lateral Movement', 'Exfiltration'],
+        'techniques': ['T1059.001', 'T1053.005', 'T1543.003', 'T1003.001', 'T1021.002', 'T1048'],
+    },
+}
+
+
+# =============================================================================
+# MULTI-QUERY EXPANSION - Search same concept multiple ways
+# =============================================================================
+
+MULTI_QUERY_TEMPLATES = {
+    'lateral movement': [
+        "remote logon type 3 type 10 network authentication 4624",
+        "psexec wmic winrm remote execution admin$ c$",
+        "rdp mstsc 3389 remote desktop connection",
+    ],
+    'credential': [
+        "lsass mimikatz sekurlsa credential dump procdump",
+        "sam ntds.dit registry hive export",
+        "kerberoast tgs ticket service principal 4769",
+    ],
+    'malware': [
+        "powershell encodedcommand bypass hidden iex",
+        "certutil bitsadmin urlcache decode download",
+        "regsvr32 rundll32 mshta scrobj javascript",
+    ],
+    'persistence': [
+        "schtasks scheduled task create 4698 4699",
+        "service install sc create 7045 4697",
+        "registry run key autorun startup",
+    ],
+    'pass the hash': [
+        "4624 logon type 3 ntlm network",
+        "4648 explicit credentials runas",
+        "4672 special privileges admin logon",
+    ],
+    'password spray': [
+        "4625 failed logon multiple accounts",
+        "4771 kerberos pre-authentication failure",
+        "authentication failure same source different users",
+    ],
+}
+
+
+# =============================================================================
+# STEP-BACK PROMPTS - Abstract questions for broader context
+# =============================================================================
+
+STEP_BACK_PROMPTS = {
+    r'was there .*(malware|virus|infection)': 
+        "What suspicious process executions with unusual command lines occurred?",
+    r'did .*(attacker|adversary).*(lateral|move|spread)':
+        "What remote authentication and share access events occurred?",
+    r'any .*(persist|backdoor)':
+        "What scheduled tasks, services, or registry modifications were made?",
+    r'credential.*(theft|dump|steal|compromise)':
+        "What processes accessed LSASS or sensitive registry hives?",
+    r'(pass the hash|pth|ntlm)':
+        "What network logons (type 3) with special privileges (4672) occurred?",
+    r'(password spray|brute force)':
+        "What patterns of failed authentication attempts exist?",
+    r'(exfil|data theft)':
+        "What archive creation and network transfer activity occurred?",
+    r'account.*(compromise|takeover)':
+        "What authentication anomalies and privilege changes occurred?",
+}
+
+
 def expand_query_for_dfir(question: str) -> List[str]:
     """
     Expand a natural language question into DFIR-relevant search terms.
@@ -187,6 +384,118 @@ def expand_query_for_dfir(question: str) -> List[str]:
         logger.info(f"[AI_SEARCH] Expanded to {len(unique_terms)} DFIR terms")
     
     return unique_terms[:30]
+
+
+def expand_to_multi_query(question: str) -> List[str]:
+    """
+    Generate multiple query variations for the same question.
+    Based on RAG Survey paper (arXiv:2312.10997v5) multi-query technique.
+    """
+    queries = [question]
+    question_lower = question.lower()
+    
+    for pattern, variations in MULTI_QUERY_TEMPLATES.items():
+        if pattern in question_lower or any(word in question_lower for word in pattern.split()):
+            queries.extend(variations)
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for q in queries:
+        if q.lower() not in seen:
+            seen.add(q.lower())
+            unique.append(q)
+    
+    return unique[:5]  # Limit to 5 variations
+
+
+def get_step_back_question(question: str) -> Optional[str]:
+    """
+    Generate a higher-level question to retrieve broader context.
+    Based on RAG Survey paper step-back prompting technique.
+    """
+    question_lower = question.lower()
+    
+    for pattern, step_back in STEP_BACK_PROMPTS.items():
+        if re.search(pattern, question_lower):
+            logger.info(f"[AI_SEARCH] Step-back question: {step_back}")
+            return step_back
+    
+    return None
+
+
+def identify_attack_techniques(events: List[Dict]) -> Dict[str, List[Dict]]:
+    """
+    Analyze events and identify potential MITRE ATT&CK techniques.
+    Returns dict mapping technique IDs to matching events.
+    """
+    technique_matches = defaultdict(list)
+    
+    for event in events:
+        source = event.get('_source', event)
+        search_blob = source.get('search_blob', '').lower()
+        event_id = str(source.get('normalized_event_id', ''))
+        
+        # Get command line if available
+        event_data = source.get('EventData', {})
+        command_line = ''
+        if isinstance(event_data, dict):
+            command_line = (event_data.get('CommandLine', '') or 
+                           event_data.get('command_line', '')).lower()
+        
+        for technique_id, pattern in MITRE_ATTACK_PATTERNS.items():
+            # Check event IDs
+            if event_id in pattern.get('event_ids', []):
+                # Check indicators
+                indicators = pattern.get('indicators', [])
+                matching = [ind for ind in indicators 
+                           if ind.lower() in search_blob or ind.lower() in command_line]
+                
+                if matching:
+                    technique_matches[technique_id].append({
+                        'event': event,
+                        'matching_indicators': matching,
+                        'technique_name': pattern['name'],
+                        'tactic': pattern['tactic'],
+                    })
+    
+    return dict(technique_matches)
+
+
+def generate_attack_analysis(events: List[Dict]) -> str:
+    """
+    Generate MITRE ATT&CK analysis summary for LLM context.
+    """
+    technique_matches = identify_attack_techniques(events)
+    
+    if not technique_matches:
+        return ""
+    
+    lines = ["## DETECTED ATTACK TECHNIQUES (MITRE ATT&CK)"]
+    
+    # Group by tactic
+    by_tactic = defaultdict(list)
+    for tid, matches in technique_matches.items():
+        tactic = MITRE_ATTACK_PATTERNS[tid]['tactic']
+        by_tactic[tactic].append((tid, matches))
+    
+    # Order tactics by kill chain
+    tactic_order = ['Execution', 'Persistence', 'Privilege Escalation', 'Defense Evasion',
+                    'Credential Access', 'Discovery', 'Lateral Movement', 'Collection', 
+                    'Command and Control', 'Exfiltration']
+    
+    for tactic in tactic_order:
+        if tactic in by_tactic:
+            lines.append(f"\n**{tactic}:**")
+            for tid, matches in by_tactic[tactic]:
+                name = MITRE_ATTACK_PATTERNS[tid]['name']
+                count = len(matches)
+                indicators = set()
+                for m in matches[:3]:
+                    indicators.update(m['matching_indicators'][:2])
+                lines.append(f"- {name} ({tid}): {count} events - indicators: {', '.join(list(indicators)[:4])}")
+    
+    return '\n'.join(lines)
 
 
 # =============================================================================
@@ -658,8 +967,32 @@ def semantic_search_events(
     include_terms, exclude_terms = extract_keywords_with_exclusions(question)
     dfir_terms = expand_query_for_dfir(question)
     
-    # Combine include terms (user keywords + DFIR expansion)
+    # Multi-query expansion (RAG Survey technique)
+    multi_queries = expand_to_multi_query(question)
+    if len(multi_queries) > 1:
+        logger.info(f"[AI_SEARCH] Multi-query expansion: {len(multi_queries)} variations")
+        # Extract keywords from additional queries
+        for mq in multi_queries[1:]:
+            mq_keywords = extract_keywords_from_question(mq)
+            dfir_terms.extend(mq_keywords)
+    
+    # Step-back prompting for broader context
+    step_back = get_step_back_question(question)
+    if step_back:
+        step_back_keywords = extract_keywords_from_question(step_back)
+        dfir_terms.extend(step_back_keywords)
+    
+    # Combine include terms (user keywords + DFIR expansion + multi-query)
     all_include = include_terms + [t for t in dfir_terms if t.lower() not in {k.lower() for k in include_terms}]
+    
+    # Deduplicate
+    seen = set()
+    unique_include = []
+    for t in all_include:
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            unique_include.append(t)
+    all_include = unique_include
     
     if not all_include:
         logger.warning("[AI_SEARCH] No search terms extracted")
@@ -931,7 +1264,7 @@ def generate_ai_answer(
     model: str = DEFAULT_LLM_MODEL,
     stream: bool = True
 ) -> Generator[str, None, None]:
-    """Generate AI answer with DFIR-aware prompt"""
+    """Generate AI answer with MITRE ATT&CK-aware prompt"""
     
     MAX_CONTEXT_TOKENS = 6000
     CHARS_PER_TOKEN = 4
@@ -960,8 +1293,11 @@ def generate_ai_answer(
     events_text = "\n\n".join(event_context)
     logger.info(f"[AI_SEARCH] LLM context: {events_included} events, ~{total_length} tokens")
     
-    # Enhanced DFIR-aware prompt
-    prompt = f"""You are a senior Digital Forensics and Incident Response (DFIR) analyst investigating a security incident.
+    # Generate attack technique analysis
+    attack_analysis = generate_attack_analysis(events)
+    
+    # Enhanced DFIR-aware prompt with MITRE ATT&CK
+    prompt = f"""You are a senior Digital Forensics and Incident Response (DFIR) analyst with expertise in the MITRE ATT&CK framework. You are investigating a security incident.
 
 ## CASE: {case_name}
 
@@ -974,15 +1310,33 @@ def generate_ai_answer(
 - {sigma_count} SIGMA detections (⚠️ = matches threat detection rule)
 - {ioc_count} IOC matches (🎯 = matches known bad indicator)
 
-## KEY INTERPRETATION GUIDANCE
-- **Event 4688** = Process created (look at CommandLine!)
-- **Event 4624** = Successful logon (LogonType: 2=interactive, 3=network, 10=RDP)
-- **Event 4625** = Failed logon (brute force indicator)
-- **Event 4648** = Explicit credential use (pass-the-hash indicator)
-- **Event 7045** = Service installed (persistence indicator)
-- **Event 4698** = Scheduled task created (persistence indicator)
+{attack_analysis}
+
+## MITRE ATT&CK QUICK REFERENCE
+| Technique | Event IDs | What to Look For |
+|-----------|-----------|------------------|
+| T1059.001 PowerShell | 4688, 4104, 1 | -enc, bypass, downloadstring, iex |
+| T1003.001 LSASS Dump | 10, 4688 | lsass access, procdump, mimikatz |
+| T1021.002 SMB Lateral | 5140, 5145, 4624 | admin$, c$, type 3 logon |
+| T1550.002 Pass the Hash | 4624, 4648, 4672 | type 3 + special privs |
+| T1053.005 Sched Task | 4698, 4699 | schtasks /create |
+| T1543.003 Service | 7045, 4697 | sc create, new-service |
+| T1070.001 Log Clear | 1102 | Security log cleared |
+| T1110 Password Spray | 4625, 4771 | Multiple failed logons |
+
+## WINDOWS EVENT ID CHEAT SHEET
+- **4624** = Successful logon (Type 2=Interactive, 3=Network, 10=RDP)
+- **4625** = Failed logon (brute force/spray indicator)
+- **4648** = Explicit credential logon (pass-the-hash indicator)
+- **4672** = Special privileges assigned (admin logon)
+- **4688** = Process created (look at CommandLine!)
+- **4698** = Scheduled task created
+- **5140/5145** = Network share accessed
+- **7045** = Service installed
+- **1102** = Security log cleared (CRITICAL - anti-forensics)
 - **Sysmon 1** = Process with full command line
 - **Sysmon 3** = Network connection
+- **Sysmon 10** = Process access (credential dumping)
 
 ## EVIDENCE EVENTS
 
@@ -990,13 +1344,21 @@ def generate_ai_answer(
 
 ## YOUR ANALYSIS
 
-Based on the evidence above, answer the analyst's question. Follow these rules:
-1. **Reference events by number**: "Event 3 shows..." or "[Event 3]"
-2. **Prioritize flagged events**: ⭐ tagged events are analyst-verified important
-3. **Look for chains**: Process spawning process, logon then lateral movement, etc.
-4. **Be specific**: Quote usernames, IPs, command lines, timestamps
-5. **Acknowledge gaps**: If evidence is insufficient, say what's missing
-6. **NO fabrication**: Only cite what's in the events above
+Based on the evidence above, answer the analyst's question. Follow these guidelines:
+
+1. **Map to MITRE ATT&CK**: Identify techniques you see (e.g., "This appears to be T1059.001 PowerShell execution")
+2. **Reference Events**: Cite specific events (e.g., "Event 3 shows...")
+3. **Identify Attack Chains**: Connect related events into a timeline/sequence
+4. **Highlight Gaps**: Note what evidence is missing to confirm suspicions
+5. **Prioritize Flagged Events**: ⭐ tagged events are analyst-verified important
+6. **Be Specific**: Quote usernames, IPs, command lines, timestamps
+7. **NO Fabrication**: Only cite what's in the events above
+
+If you identify a potential attack pattern, structure your response as:
+- **Attack Hypothesis**: What type of attack this might be
+- **Supporting Evidence**: Events that support this hypothesis  
+- **Missing Evidence**: What we'd need to confirm
+- **Recommended Actions**: What to investigate next
 
 YOUR ANALYSIS:
 """
@@ -1081,7 +1443,18 @@ def get_exclusion_suggestions() -> Dict[str, List[str]]:
     return COMMON_EXCLUSIONS
 
 
+def get_attack_techniques() -> Dict[str, Dict]:
+    """Return MITRE ATT&CK technique patterns for reference."""
+    return MITRE_ATTACK_PATTERNS
+
+
+def get_attack_chains() -> Dict[str, Dict]:
+    """Return attack chain definitions for reference."""
+    return ATTACK_CHAINS
+
+
 __all__ = [
+    # Core functions
     'check_embedding_model_available',
     'get_embedding',
     'get_embeddings_batch',
@@ -1089,11 +1462,29 @@ __all__ = [
     'generate_ai_answer',
     'ai_question_search',
     'create_event_summary',
+    
+    # Query expansion
     'expand_query_for_dfir',
+    'expand_to_multi_query',
+    'get_step_back_question',
     'extract_keywords_with_exclusions',
+    
+    # Attack pattern detection
+    'identify_attack_techniques',
+    'generate_attack_analysis',
+    'get_attack_techniques',
+    'get_attack_chains',
+    
+    # Helpers
     'get_exclusion_suggestions',
+    
+    # Constants
     'EMBEDDING_MODEL_NAME',
     'DEFAULT_LLM_MODEL',
     'DFIR_QUERY_EXPANSION',
     'COMMON_EXCLUSIONS',
+    'MITRE_ATTACK_PATTERNS',
+    'ATTACK_CHAINS',
+    'MULTI_QUERY_TEMPLATES',
+    'STEP_BACK_PROMPTS',
 ]
