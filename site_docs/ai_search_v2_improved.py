@@ -3,7 +3,7 @@
 CaseScope AI Search Module (RAG Implementation) - V2 IMPROVED
 Provides semantic search using embeddings + LLM-powered question answering
 
-Key improvements in V2:
+Key improvements over V1:
 - DFIR query expansion (malware -> powershell, encodedcommand, certutil, etc.)
 - Searches search_blob field (where all the data is!)
 - Result diversification (max 3 events per event type)
@@ -22,17 +22,17 @@ from logging_config import get_logger
 
 logger = get_logger('app')
 
-# Ollama API endpoints (for LLM generation)
+# Ollama API endpoints
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 
 # Embedding model configuration
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
-# LLM model for generating answers (uses your existing DFIR models on GPU)
+# LLM model
 DEFAULT_LLM_MODEL = "dfir-llama:latest"
 
-# Lazy-loaded embedding model (loaded on first use, not at import)
+# Lazy-loaded embedding model
 _embedding_model = None
 _embedding_model_load_attempted = False
 
@@ -73,7 +73,7 @@ DFIR_QUERY_EXPANSION = {
         'sam', 'ntds', 'ntds.dit', 'dcsync', 'drsuapi',
         'kerberos', 'krbtgt', 'golden ticket', 'silver ticket',
         'procdump', 'comsvcs', 'minidump',
-        '4768', '4769', '4776', '4672', '10',
+        '4768', '4769', '4776', '4672', '10',  # 10 = Sysmon process access
     ],
     
     'exfiltration': [
@@ -94,14 +94,14 @@ DFIR_QUERY_EXPANSION = {
         'disable', 'stop', 'tamper', 'defender', 'antivirus', 'av',
         'amsi', 'etw', 'clear-eventlog', 'wevtutil',
         'firewall', 'netsh advfirewall',
-        '1102',
+        '1102',  # Audit log cleared
     ],
     
     'execution': [
         'powershell', 'cmd.exe', 'wscript', 'cscript', 'mshta',
         'regsvr32', 'rundll32', 'msiexec', 'certutil',
         'wmic process', 'invoke-wmimethod',
-        '4688', '1',
+        '4688', '1',  # Process creation
     ],
 }
 
@@ -148,9 +148,8 @@ def expand_query_for_dfir(question: str) -> List[str]:
             seen.add(term.lower())
             unique_terms.append(term)
     
-    if matched_categories:
-        logger.info(f"[AI_SEARCH] Query expansion matched categories: {matched_categories}")
-        logger.info(f"[AI_SEARCH] Expanded to {len(unique_terms)} DFIR terms")
+    logger.info(f"[AI_SEARCH] Query expansion matched categories: {matched_categories}")
+    logger.info(f"[AI_SEARCH] Expanded to {len(unique_terms)} DFIR terms")
     
     return unique_terms[:30]
 
@@ -170,12 +169,10 @@ def _load_embedding_model():
     
     try:
         from sentence_transformers import SentenceTransformer
-        
         logger.info(f"[AI_SEARCH] Loading embedding model: {EMBEDDING_MODEL_NAME}")
         _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu')
-        logger.info(f"[AI_SEARCH] Embedding model loaded successfully (CPU mode)")
+        logger.info(f"[AI_SEARCH] Embedding model loaded (CPU)")
         return _embedding_model
-        
     except ImportError:
         logger.error("[AI_SEARCH] sentence-transformers not installed")
         return None
@@ -189,39 +186,18 @@ def check_embedding_model_available() -> Dict[str, Any]:
     try:
         import sentence_transformers
         model = _load_embedding_model()
-        
-        if model is not None:
-            return {
-                'available': True,
-                'model': EMBEDDING_MODEL_NAME,
-                'type': 'sentence-transformers',
-                'device': 'cpu',
-                'error': None
-            }
-        else:
-            return {
-                'available': False,
-                'model': EMBEDDING_MODEL_NAME,
-                'type': 'sentence-transformers',
-                'device': 'cpu',
-                'error': "Failed to load embedding model"
-            }
-            
+        return {
+            'available': model is not None,
+            'model': EMBEDDING_MODEL_NAME,
+            'type': 'sentence-transformers',
+            'device': 'cpu',
+            'error': None if model else "Failed to load"
+        }
     except ImportError:
         return {
             'available': False,
             'model': EMBEDDING_MODEL_NAME,
-            'type': 'sentence-transformers',
-            'device': 'cpu',
             'error': "sentence-transformers not installed"
-        }
-    except Exception as e:
-        return {
-            'available': False,
-            'model': EMBEDDING_MODEL_NAME,
-            'type': 'sentence-transformers',
-            'device': 'cpu',
-            'error': str(e)
         }
 
 
@@ -230,49 +206,32 @@ def get_embedding(text: str) -> Optional[np.ndarray]:
     model = _load_embedding_model()
     if model is None:
         return None
-    
     try:
         text = text[:2000] if len(text) > 2000 else text
-        embedding = model.encode(text, convert_to_numpy=True, show_progress_bar=False)
-        return embedding
-        
+        return model.encode(text, convert_to_numpy=True, show_progress_bar=False)
     except Exception as e:
-        logger.error(f"[AI_SEARCH] Error generating embedding: {e}")
+        logger.error(f"[AI_SEARCH] Embedding error: {e}")
         return None
 
 
 def get_embeddings_batch(texts: List[str]) -> Optional[np.ndarray]:
-    """Generate embeddings for multiple texts efficiently"""
+    """Generate embeddings for multiple texts"""
     model = _load_embedding_model()
     if model is None:
         return None
-    
     try:
-        texts = [t[:2000] if len(t) > 2000 else t for t in texts]
-        embeddings = model.encode(
-            texts, 
-            convert_to_numpy=True, 
-            show_progress_bar=False,
-            batch_size=32
-        )
-        return embeddings
-        
+        texts = [t[:2000] for t in texts]
+        return model.encode(texts, convert_to_numpy=True, show_progress_bar=False, batch_size=32)
     except Exception as e:
-        logger.error(f"[AI_SEARCH] Error generating batch embeddings: {e}")
+        logger.error(f"[AI_SEARCH] Batch embedding error: {e}")
         return None
-
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Calculate cosine similarity between two vectors"""
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 
 def cosine_similarity_batch(query_embedding: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
     """Calculate cosine similarity between query and multiple embeddings"""
     query_norm = query_embedding / np.linalg.norm(query_embedding)
     embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-    similarities = np.dot(embeddings_norm, query_norm)
-    return similarities
+    return np.dot(embeddings_norm, query_norm)
 
 
 # =============================================================================
@@ -286,7 +245,7 @@ def create_event_summary(event: Dict[str, Any]) -> str:
     Key improvements:
     - Shows SIGMA rule NAME (not just "detected")
     - Shows event_title (human readable)
-    - Structured key fields (process chain, command line)
+    - Structured key fields
     - Truncated intelligently
     """
     source = event.get('_source', event)
@@ -520,8 +479,7 @@ def semantic_search_events(
         return [], "Could not extract search terms from your question."
     
     logger.info(f"[AI_SEARCH] User keywords: {keywords}")
-    if dfir_terms:
-        logger.info(f"[AI_SEARCH] DFIR expansion: {dfir_terms[:10]}...")
+    logger.info(f"[AI_SEARCH] DFIR expansion: {dfir_terms[:10]}...")
     logger.info(f"[AI_SEARCH] Total search terms: {len(all_terms)}")
     
     # Step 2: Build query with search_blob included
@@ -577,11 +535,11 @@ def semantic_search_events(
         }
     }
     
-    # Step 3: Execute search with diversity (via collapse)
-    candidate_count = min(max_results * 8, 200)
+    # Step 3: Execute search with diversity (via collapse or aggs)
+    candidate_count = min(max_results * 8, 200)  # Get more candidates for diversity
     
     try:
-        # Query with collapse to diversify by event type
+        # First query: Get diverse results by collapsing on event_id
         response = opensearch_client.search(
             index=index_name,
             body={
@@ -637,7 +595,7 @@ def semantic_search_events(
         
     except Exception as e:
         logger.error(f"[AI_SEARCH] Search error: {e}")
-        # Fallback to simple search without collapse
+        # Fallback to simple search
         try:
             response = opensearch_client.search(
                 index=index_name,
@@ -652,9 +610,7 @@ def semantic_search_events(
                 for h in response['hits']['hits']
             ]
             total_hits = len(candidates)
-            event_ids_seen = {c['_id'] for c in candidates}
-        except Exception as e2:
-            logger.error(f"[AI_SEARCH] Fallback also failed: {e2}")
+        except:
             return [], f"Search error: {str(e)}"
     
     # Step 4: Fetch tagged events from database (they may not match keywords)
@@ -685,7 +641,7 @@ def semantic_search_events(
             logger.warning(f"[AI_SEARCH] Failed to fetch tagged events: {e}")
     
     if not candidates:
-        return [], "No events found matching your query."
+        return [], f"No events found matching your query."
     
     # Step 5: Semantic re-ranking
     embedding_available = _load_embedding_model() is not None
@@ -765,6 +721,7 @@ def generate_ai_answer(
     
     for i, event in enumerate(events[:15], 1):
         summary = create_event_summary(event)
+        event_id = event.get('_id', f'event_{i}')
         event_text = f"### Event {i}\n{summary}"
         
         est_tokens = len(event_text) // CHARS_PER_TOKEN
