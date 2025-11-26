@@ -148,79 +148,112 @@ def cosine_similarity_batch(query_embedding: np.ndarray, embeddings: np.ndarray)
 
 
 def create_event_summary(event: Dict[str, Any]) -> str:
-    """Create a text summary of an event for embedding/LLM context"""
+    """
+    Create a comprehensive event summary for LLM context.
+    Includes ALL relevant fields so AI can find patterns and connections.
+    Truncated to 2000 chars to fit in context window.
+    """
     source = event.get('_source', event)
     
     parts = []
     
-    # Timestamp
-    timestamp = source.get('normalized_timestamp') or source.get('@timestamp') or source.get('timestamp', 'Unknown time')
+    # === CORE IDENTIFIERS ===
+    timestamp = source.get('normalized_timestamp') or source.get('@timestamp') or source.get('timestamp', 'Unknown')
+    computer = source.get('normalized_computer') or source.get('Computer') or source.get('computer') or 'Unknown'
+    event_id = source.get('normalized_event_id') or source.get('EventID') or source.get('event_id') or 'Unknown'
+    
     parts.append(f"Time: {timestamp}")
-    
-    # Computer/Host
-    computer = (source.get('normalized_computer') or 
-                source.get('Computer') or 
-                source.get('computer') or
-                source.get('host', {}).get('name') if isinstance(source.get('host'), dict) else source.get('host', 'Unknown'))
     parts.append(f"Computer: {computer}")
+    parts.append(f"Event ID: {event_id}")
     
-    # Event ID
-    event_id = source.get('normalized_event_id') or source.get('EventID') or source.get('event_id')
-    if event_id:
-        parts.append(f"Event ID: {event_id}")
+    # === DETECTION FLAGS (CRITICAL - show first) ===
+    flags = []
+    if source.get('is_tagged'):
+        flags.append("⭐ ANALYST TAGGED")
+    if source.get('has_sigma'):
+        flags.append("⚠️ SIGMA VIOLATION")
+    if source.get('has_ioc'):
+        flags.append(f"🎯 IOC MATCH ({source.get('ioc_count', 1)})")
+    if flags:
+        parts.append(f"FLAGS: {' | '.join(flags)}")
     
-    # Extract key fields (including Windows Defender malware detection fields)
-    key_fields = [
-        'SubjectUserName', 'TargetUserName', 'User', 'user',
-        'SourceNetworkAddress', 'IpAddress', 'source_ip',
-        'ProcessName', 'Image', 'process_name',
-        'CommandLine', 'command_line',
-        'TargetFilename', 'ObjectName', 'file_path',
-        'LogonType', 'logon_type',
-        'Status', 'FailureReason',
-        'ServiceName', 'service_name',
-        'TaskName', 'ScheduledTaskName',
-        # Windows Defender / Antivirus fields (CRITICAL for malware detection)
-        'Threat Name', 'ThreatName',
-        'Severity Name', 'SeverityName', 
-        'Category Name', 'CategoryName',
-        'Action Name', 'ActionName',
-        'Detection User', 'DetectionUser',
-        'Path'  # Malware path/location
-    ]
+    # === WINDOWS DEFENDER / ANTIVIRUS (CRITICAL for malware) ===
+    threat_name = source.get('forensic_Threat Name')
+    if threat_name:
+        parts.append(f"🦠 MALWARE DETECTED: {threat_name}")
+        severity = source.get('forensic_Severity Name')
+        category = source.get('forensic_Category Name')
+        action = source.get('forensic_Action Name')
+        if severity:
+            parts.append(f"Severity: {severity}")
+        if category:
+            parts.append(f"Category: {category}")
+        if action:
+            parts.append(f"Action Taken: {action}")
+        malware_path = source.get('forensic_Path')
+        if malware_path:
+            parts.append(f"Location: {malware_path[:150]}")
     
-    # Check EventData
+    # === USER / AUTHENTICATION ===
     event_data = source.get('EventData', {})
     if isinstance(event_data, dict):
-        for field in key_fields:
-            if field in event_data and event_data[field]:
-                value = str(event_data[field])[:200]
-                parts.append(f"{field}: {value}")
+        subject_user = event_data.get('SubjectUserName') or source.get('SubjectUserName')
+        target_user = event_data.get('TargetUserName') or source.get('TargetUserName')
+        logon_type = event_data.get('LogonType') or source.get('LogonType')
+        
+        if subject_user and target_user and subject_user != target_user:
+            parts.append(f"User: {subject_user} → {target_user}")
+        elif target_user:
+            parts.append(f"User: {target_user}")
+        elif subject_user:
+            parts.append(f"User: {subject_user}")
+        
+        if logon_type:
+            parts.append(f"Logon Type: {logon_type}")
     
-    # Also check root level
-    for field in key_fields:
-        if field in source and source[field] and field not in str(parts):
-            value = str(source[field])[:200]
-            parts.append(f"{field}: {value}")
+    # === PROCESS / EXECUTION ===
+    process_name = event_data.get('NewProcessName') or event_data.get('Image') or source.get('process_name')
+    parent_process = event_data.get('ParentProcessName') or event_data.get('ParentImage')
+    command_line = event_data.get('CommandLine') or source.get('command_line')
     
-    # Check forensic_ prefixed fields (from our forensic field extraction)
-    forensic_fields = ['forensic_Threat Name', 'forensic_Severity Name', 'forensic_Category Name', 
-                      'forensic_Action Name', 'forensic_Path']
-    for field in forensic_fields:
-        if field in source and source[field]:
-            value = str(source[field])[:200]
-            # Remove 'forensic_' prefix for cleaner display
-            display_name = field.replace('forensic_', '')
-            parts.append(f"{display_name}: {value}")
+    if process_name:
+        if parent_process:
+            parts.append(f"Process: {parent_process} → {process_name}")
+        else:
+            parts.append(f"Process: {process_name}")
     
-    # SIGMA/IOC flags
-    if source.get('has_sigma'):
-        parts.append("⚠️ SIGMA rule violation detected")
-    if source.get('has_ioc'):
-        ioc_count = source.get('ioc_count', 1)
-        parts.append(f"🎯 Matches {ioc_count} IOC(s)")
+    if command_line:
+        # Truncate very long command lines but keep important parts
+        cmd_truncated = command_line[:300] + "..." if len(command_line) > 300 else command_line
+        parts.append(f"CommandLine: {cmd_truncated}")
     
-    return " | ".join(parts)
+    # === NETWORK ===
+    source_ip = event_data.get('IpAddress') or event_data.get('SourceNetworkAddress') or source.get('source_ip')
+    dest_ip = source.get('destination_ip')
+    if source_ip and source_ip not in ['-', '::1', '127.0.0.1', '']:
+        parts.append(f"Source IP: {source_ip}")
+    if dest_ip:
+        parts.append(f"Dest IP: {dest_ip}")
+    
+    # === FILE / OBJECT ===
+    target_file = event_data.get('TargetFilename') or event_data.get('ObjectName') or source.get('file_path')
+    if target_file:
+        parts.append(f"Target: {target_file[:150]}")
+    
+    # === SERVICE / TASK ===
+    service_name = event_data.get('ServiceName') or source.get('service_name')
+    task_name = event_data.get('TaskName') or event_data.get('ScheduledTaskName')
+    if service_name:
+        parts.append(f"Service: {service_name}")
+    if task_name:
+        parts.append(f"Task: {task_name}")
+    
+    # Combine and truncate to fit context window
+    summary = " | ".join(parts)
+    if len(summary) > 2000:
+        summary = summary[:2000] + "..."
+    
+    return summary
 
 
 def simple_keyword_search(
