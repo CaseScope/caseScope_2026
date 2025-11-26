@@ -413,8 +413,8 @@
                             <h4 style="margin: 0; font-size: 0.875rem; color: var(--color-text-secondary);">
                                 📋 Evidence Events (<span id="aiEventCount">0</span>)
                             </h4>
-                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="Opens in new tab so you can keep this analysis visible">
-                                Open Events in New Tab ↗
+                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="Shows events below with AI analysis pinned above">
+                                Show Events Below ↓
                             </button>
                         </div>
                         <div id="aiEventsPreview" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-sm); background: var(--color-background-tertiary); font-size: 0.875rem;">
@@ -3795,6 +3795,18 @@ function showAIEventsInSearchResults() {
     const caseId = {{ case.id }};
     const eventIds = window.aiRetrievedEvents.map(e => e._id);
     
+    // Save the AI analysis content to localStorage so it persists after page reload
+    const aiAnalysis = document.getElementById('aiResponseContent').innerHTML;
+    const aiQuestion = document.getElementById('aiQuestionInput').value;
+    const eventCount = window.aiRetrievedEvents.length;
+    
+    localStorage.setItem('casescope_ai_analysis', JSON.stringify({
+        question: aiQuestion,
+        analysis: aiAnalysis,
+        eventCount: eventCount,
+        timestamp: Date.now()
+    }));
+    
     // Store AI evidence event IDs in session via API
     fetch(`/case/${caseId}/ai-search/store-evidence`, {
         method: 'POST',
@@ -3804,8 +3816,9 @@ function showAIEventsInSearchResults() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Open in NEW TAB so RAG analysis stays visible in the modal
-            window.open(`/case/${caseId}/search?ai_evidence=true`, '_blank');
+            // Close modal and navigate to show evidence (same tab)
+            closeAIQuestionModal();
+            window.location.href = `/case/${caseId}/search?ai_evidence=true`;
         } else {
             alert('Failed to store AI evidence events');
         }
@@ -3951,9 +3964,57 @@ function showAIEventsInSearchResults_OLD() {
     }
 }
 
+// Restore AI analysis panel if we're in AI evidence mode
+function restoreAIAnalysisPanel() {
+    const savedData = localStorage.getItem('casescope_ai_analysis');
+    if (!savedData) return;
+    
+    try {
+        const data = JSON.parse(savedData);
+        
+        // Only restore if it's recent (within 10 minutes)
+        if (Date.now() - data.timestamp > 10 * 60 * 1000) {
+            localStorage.removeItem('casescope_ai_analysis');
+            return;
+        }
+        
+        // Check if we're in AI evidence mode
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.get('ai_evidence')) return;
+        
+        // Show the AI results panel with the saved analysis
+        const panel = document.getElementById('aiResultsPanel');
+        const content = document.getElementById('aiResultsContent');
+        const eventCount = document.getElementById('aiResultsEventCount');
+        
+        if (panel && content) {
+            content.innerHTML = data.analysis;
+            if (eventCount) {
+                eventCount.textContent = `${data.eventCount} evidence events • Question: "${data.question}"`;
+            }
+            panel.style.display = 'block';
+            
+            // Scroll to top to see the analysis
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            console.log('[AI] Restored AI analysis panel');
+        }
+        
+        // Clear the saved data after restoring (one-time use)
+        localStorage.removeItem('casescope_ai_analysis');
+        
+    } catch (e) {
+        console.error('[AI] Failed to restore analysis:', e);
+        localStorage.removeItem('casescope_ai_analysis');
+    }
+}
+
 // Check AI service status on page load
 document.addEventListener('DOMContentLoaded', function() {
     const caseId = {{ case.id }};
+    
+    // Restore AI analysis panel if coming from "Show Events Below"
+    restoreAIAnalysisPanel();
     
     fetch(`/case/${caseId}/ai-search/status`)
         .then(response => response.json())
