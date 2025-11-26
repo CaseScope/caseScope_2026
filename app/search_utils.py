@@ -148,8 +148,8 @@ def build_search_query(
                 ]
             }
         })
-    elif filter_type == "tagged":
-        # Filter to only show events that have timeline tags
+    elif filter_type == "tagged" or filter_type == "ai_evidence":
+        # Filter to only show events that have timeline tags or AI evidence IDs
         if tagged_event_ids and len(tagged_event_ids) > 0:
             query["bool"]["filter"].append({
                 "ids": {
