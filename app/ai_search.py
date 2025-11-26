@@ -1072,7 +1072,8 @@ def semantic_search_events(
         query["bool"]["must_not"] = must_not_clauses
     
     # Step 3: Execute search
-    candidate_count = min(max_results * 8, 200)
+    # Get 4x the requested amount for re-ranking, up to 2000 max
+    candidate_count = min(max_results * 4, 2000)
     
     try:
         response = opensearch_client.search(
