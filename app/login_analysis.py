@@ -817,15 +817,24 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 }
             }
         
-        # v1.17.4 FIX: Search for Event ID 6272 only (NPS granted access)
-        # NPS events don't have meaningful IP data - what matters is username, time, and auth server
-        # Note: firewall_ip parameter kept for backward compatibility but not used
+        # v1.32.0 FIX: Search for BOTH Event ID 4624 AND 6272 with firewall IP
+        # - 4624 = Windows logon event (has IpAddress field)
+        # - 6272 = NPS granted access (VPN/RDP Gateway)
         must_conditions = [
-            # Event ID 6272 (NPS granted access to VPN/RDP Gateway)
+            # Event ID 4624 OR 6272
             {
                 "bool": {
                     "should": [
+                        # Event ID 4624 (Windows logon)
+                        {"term": {"normalized_event_id": "4624"}},
+                        {"term": {"normalized_event_id": 4624}},
+                        {"term": {"System.EventID": 4624}},
+                        {"term": {"System.EventID.#text": "4624"}},
+                        {"term": {"Event.System.EventID": 4624}},
+                        {"term": {"Event.System.EventID.#text": "4624"}},
+                        # Event ID 6272 (NPS granted access)
                         {"term": {"normalized_event_id": "6272"}},
+                        {"term": {"normalized_event_id": 6272}},
                         {"term": {"System.EventID": 6272}},
                         {"term": {"System.EventID.#text": "6272"}},
                         {"term": {"Event.System.EventID": 6272}},
@@ -833,8 +842,26 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                     ],
                     "minimum_should_match": 1
                 }
+            },
+            # Filter by firewall IP address
+            # Note: EventData is stored as JSON string, forensic_IpAddress is extracted field
+            {
+                "bool": {
+                    "should": [
+                        # forensic_IpAddress field (extracted during indexing)
+                        {"term": {"forensic_IpAddress": firewall_ip}},
+                        {"term": {"forensic_IpAddress.keyword": firewall_ip}},
+                        # Search within Event.EventData JSON string
+                        {"match_phrase": {"Event.EventData": firewall_ip}},
+                        # Search within search_blob
+                        {"match_phrase": {"search_blob": firewall_ip}},
+                        # Fallback: nested EventData if it exists as object
+                        {"term": {"EventData.IpAddress": firewall_ip}},
+                        {"term": {"EventData.IpAddress.keyword": firewall_ip}},
+                    ],
+                    "minimum_should_match": 1
+                }
             }
-            # NO IP filtering - NPS events record username, time, and auth server, not source IP
         ]
         
         if date_filter:
@@ -846,7 +873,9 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 "normalized_timestamp",
                 "normalized_event_id",
                 "Event.EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
-                "EventData"  # v1.13.9: EventData is a JSON string, fetch entire field
+                "EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
+                "forensic_IpAddress",  # v1.32.0: Extracted IP field
+                "forensic_TargetUserName"  # v1.32.0: Extracted username field
             ],
             "query": {
                 "bool": {
@@ -856,7 +885,7 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
             "sort": [{"normalized_timestamp": {"order": "desc"}}]
         }
         
-        logger.info(f"[VPN_AUTHS] Searching for Event ID 4624 or 6272 with IP {firewall_ip} in case {case_id}")
+        logger.info(f"[VPN_AUTHS] Searching for Event ID 4624 or 6272 with IpAddress={firewall_ip} in case {case_id}")
         
         # Use scroll API to get all results
         scroll_id = None
@@ -1105,15 +1134,24 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 }
             }
         
-        # v1.17.4 FIX: Search for Event ID 6273 only (NPS denied access)
-        # NPS events don't have meaningful IP data - what matters is username, time, and auth server
-        # Note: firewall_ip parameter kept for backward compatibility but not used
+        # v1.32.0 FIX: Search for BOTH Event ID 4625 AND 6273 with firewall IP
+        # - 4625 = Windows failed logon event (has IpAddress field)
+        # - 6273 = NPS denied access (VPN/RDP Gateway)
         must_conditions = [
-            # Event ID 6273 (NPS denied access to VPN/RDP Gateway)
+            # Event ID 4625 OR 6273
             {
                 "bool": {
                     "should": [
+                        # Event ID 4625 (Windows failed logon)
+                        {"term": {"normalized_event_id": "4625"}},
+                        {"term": {"normalized_event_id": 4625}},
+                        {"term": {"System.EventID": 4625}},
+                        {"term": {"System.EventID.#text": "4625"}},
+                        {"term": {"Event.System.EventID": 4625}},
+                        {"term": {"Event.System.EventID.#text": "4625"}},
+                        # Event ID 6273 (NPS denied access)
                         {"term": {"normalized_event_id": "6273"}},
+                        {"term": {"normalized_event_id": 6273}},
                         {"term": {"System.EventID": 6273}},
                         {"term": {"System.EventID.#text": "6273"}},
                         {"term": {"Event.System.EventID": 6273}},
@@ -1121,8 +1159,26 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                     ],
                     "minimum_should_match": 1
                 }
+            },
+            # Filter by firewall IP address
+            # Note: EventData is stored as JSON string, forensic_IpAddress is extracted field
+            {
+                "bool": {
+                    "should": [
+                        # forensic_IpAddress field (extracted during indexing)
+                        {"term": {"forensic_IpAddress": firewall_ip}},
+                        {"term": {"forensic_IpAddress.keyword": firewall_ip}},
+                        # Search within Event.EventData JSON string
+                        {"match_phrase": {"Event.EventData": firewall_ip}},
+                        # Search within search_blob
+                        {"match_phrase": {"search_blob": firewall_ip}},
+                        # Fallback: nested EventData if it exists as object
+                        {"term": {"EventData.IpAddress": firewall_ip}},
+                        {"term": {"EventData.IpAddress.keyword": firewall_ip}},
+                    ],
+                    "minimum_should_match": 1
+                }
             }
-            # NO IP filtering - NPS events record username, time, and auth server, not source IP
         ]
         
         if date_filter:
@@ -1134,7 +1190,9 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 "normalized_timestamp",
                 "normalized_event_id",
                 "Event.EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
-                "EventData"  # v1.13.9: EventData is a JSON string, fetch entire field
+                "EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
+                "forensic_IpAddress",  # v1.32.0: Extracted IP field
+                "forensic_TargetUserName"  # v1.32.0: Extracted username field
             ],
             "query": {
                 "bool": {

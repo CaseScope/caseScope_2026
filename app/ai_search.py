@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-CaseScope AI Search Module (RAG Implementation) - V4 ATTACK PATTERNS
+CaseScope AI Search Module (RAG Implementation) - V5 INTELLIGENT SAMPLING
 Provides semantic search using embeddings + LLM-powered question answering
 
-Key features in V4:
-- MITRE ATT&CK technique detection and mapping
-- Attack chain analysis (find related events across kill chain)
-- Multi-query expansion (search same concept multiple ways)
-- Step-back prompting (abstract questions for broader context)
-- Gap analysis (identify missing evidence in attack chain)
-- All V3 features (exclusions, DFIR expansion, diversification)
+Key features in V5:
+- Three Query Modes: big_picture, focused (user-specific), pattern (aggregation)
+- IntelligentSampler: Tiered allocation (priority/pattern/medium/random)
+- Aggregation-based pattern detection (password spray, lateral movement)
+- Full Gap Analysis Engine with if_found/if_not_found guidance
+- Kill Chain Mapping (12 phases with progression tracking)
+- Enhanced Prompts (BIG_PICTURE_PROMPT, FOCUSED_PROMPT, PATTERN_PROMPT)
+- User-focused investigation support
+- All V4 features (MITRE ATT&CK, multi-query, step-back, exclusions)
 
 Based on:
 - MITRE ATT&CK Framework (https://attack.mitre.org/)
 - RAG Survey paper (arXiv:2312.10997v5) techniques
+- RAG_V3_V4_CONSOLIDATED_IMPLEMENTATION.md
 
-Version: 4.0 (November 2025)
+Version: 5.0 (November 2025)
 """
 
 import requests
@@ -85,6 +88,9 @@ DFIR_QUERY_EXPANSION = {
         'procdump', 'comsvcs', 'minidump', 'sqldumper',
         'credential manager', 'vault', 'dpapi',
         '4768', '4769', '4776', '4672', '10',
+        # VPN/NPS events
+        '6272', '6273', '6274', '6275', '6276', '6277', '6278', '6279',
+        'nps', 'radius', 'network policy server',
     ],
     
     'exfiltration': [
@@ -132,15 +138,1577 @@ DFIR_QUERY_EXPANSION = {
 # Question patterns to expansion categories
 QUESTION_PATTERNS = [
     (r'malware|virus|trojan|ransomware|infection|compromis|malicious|suspicious|bad', 'malware'),
-    (r'lateral|spread|pivot|move.*between|hop|remote\s+exec', 'lateral movement'),
+    (r'lateral|spread|pivot|move.*between|hop|remote\s+exec', 'lateral_movement'),
     (r'persist|backdoor|maintain.*access|survive.*reboot|autorun|startup', 'persistence'),
-    (r'credential|password|hash|ticket|authenticat|logon.*as|steal.*cred|dump|ntlm|brute|spray|failed.*logon|lockout', 'credential'),
+    (r'credential|password|hash|ticket|authenticat|logon.*as|steal.*cred|dump|ntlm|brute|spray|failed.*logon|lockout', 'credential_access'),
     (r'exfil|steal.*data|data.*theft|upload|send.*out|leak|extract', 'exfiltration'),
     (r'recon|discover|enumerat|scan|map.*network|survey|footprint', 'discovery'),
-    (r'evad|bypass|disable|hide|obfuscat|tamper|kill.*av|blind', 'defense evasion'),
+    (r'evad|bypass|disable|hide|obfuscat|tamper|kill.*av|blind', 'defense_evasion'),
     (r'execut|run|launch|spawn|start.*process|command|invoke', 'execution'),
-    (r'initial|entry|phish|deliver|land|foothold', 'initial access'),
+    (r'initial|entry|phish|deliver|land|foothold', 'initial_access'),
+    (r'brute\s*force|password\s*spray|spray|failed\s*logon|lockout|4625', 'brute_force'),
 ]
+
+
+# =============================================================================
+# QUERY MODE DETECTION - Determines how to search based on question type
+# =============================================================================
+
+def determine_query_mode(question: str, keywords: List[str]) -> str:
+    """
+    Determine the appropriate query mode based on the question.
+    
+    Returns:
+        'big_picture' - Broad analysis, need representative sample
+        'focused' - Specific user, time, or entity investigation
+        'pattern' - Looking for attack patterns
+    """
+    question_lower = question.lower()
+    
+    # First check if there's a username pattern in the question (indicates focused)
+    username_patterns = [
+        r'\b[a-zA-Z]+\.[a-zA-Z]+\b',  # john.doe format
+        r'\\[a-zA-Z][a-zA-Z0-9]+',     # DOMAIN\user format
+    ]
+    has_username = any(re.search(p, question) for p in username_patterns)
+    
+    # Focused mode indicators - user-specific investigation
+    focused_patterns = [
+        r'\buser\s+[a-zA-Z]',                          # "user john" or "user admin"
+        r'\baccount\s+[a-zA-Z]',                       # "account admin"
+        r'how\s+did\s+[a-zA-Z]+.*\s+get\s+compromised',  # "how did X get compromised"
+        r'what\s+happened\s+to\s+[a-zA-Z]',           # "what happened to X"
+        r'trace\s+[a-zA-Z]',                          # "trace X"
+        r'timeline\s+for\s+',                         # "timeline for X"
+        r'specifically\s+',
+        r'\bonly\s+',
+        r'what\s+did\s+[a-zA-Z]+.*\s+do',             # "what did X do"
+        r'investigate\s+[a-zA-Z]',                    # "investigate X"
+    ]
+    
+    # If has username AND matches a focused pattern, it's focused
+    if has_username:
+        for pattern in focused_patterns:
+            if re.search(pattern, question_lower):
+                return 'focused'
+        # Even without focused pattern, username with "compromised" suggests focused
+        if 'compromised' in question_lower or 'hacked' in question_lower:
+            return 'focused'
+    
+    for pattern in focused_patterns:
+        if re.search(pattern, question_lower):
+            return 'focused'
+    
+    # Pattern mode indicators - aggregation-first for attack patterns
+    pattern_patterns = [
+        r'password\s+spray',
+        r'brute\s+force',
+        r'failed\s+logins?',
+        r'lateral\s+movement\s+pattern',
+        r'how\s+many\s+systems',
+        r'spread\s+through',
+        r'attack\s+path',
+        r'all\s+logons?\s+from',
+        r'all\s+connections?\s+to',
+        r'cluster',
+        r'pattern',
+    ]
+    
+    for pattern in pattern_patterns:
+        if re.search(pattern, question_lower):
+            return 'pattern'
+    
+    # Default to big picture
+    return 'big_picture'
+
+
+def extract_target_user(question: str) -> Optional[str]:
+    """
+    Extract username from question for user-specific investigation.
+    
+    Examples:
+        "How did john.doe get compromised?" → "john.doe"
+        "What did user admin do?" → "admin"
+        "Trace DOMAIN\\jsmith activity" → "jsmith"
+    """
+    patterns = [
+        # "user john.doe" or "user jsmith"
+        (r'\buser\s+([a-zA-Z][a-zA-Z0-9._-]+)', 1),
+        # "account admin"
+        (r'\baccount\s+([a-zA-Z][a-zA-Z0-9._-]+)', 1),
+        # "john.doe got/was/get compromised"
+        (r'\b([a-zA-Z]+\.[a-zA-Z]+)\s+(?:got|was|get|became)\s+compromised', 1),
+        # "how did john.doe" or "what did john.doe"
+        (r'(?:how|what)\s+did\s+([a-zA-Z]+\.[a-zA-Z]+)', 1),
+        # "trace jsmith" or "investigate jsmith"
+        (r'(?:trace|investigate|follow|track)\s+([a-zA-Z][a-zA-Z0-9._-]+)', 1),
+        # "DOMAIN\username"
+        (r'\\([a-zA-Z][a-zA-Z0-9._-]+)', 1),
+        # "timeline for jsmith"
+        (r'timeline\s+(?:for\s+)?([a-zA-Z][a-zA-Z0-9._-]+)', 1),
+        # Username with domain prefix
+        (r'\b([a-zA-Z]+\.[a-zA-Z]+)\b', 1),
+    ]
+    
+    # Common false positives to filter out (but NOT admin - that's a valid username)
+    false_positives = {
+        'the', 'this', 'that', 'user', 'account', 'system', 'local', 
+        'domain', 'network', 'service', 'any', 'all', 'some', 'events', 'event',
+        'lateral', 'movement', 'password', 'spray', 'brute', 'force', 'malware',
+        'suspicious', 'activity', 'logon', 'logoff', 'failed', 'success',
+    }
+    
+    for pattern, group in patterns:
+        match = re.search(pattern, question, re.IGNORECASE)
+        if match:
+            username = match.group(group)
+            if username.lower() not in false_positives and len(username) >= 3:
+                logger.info(f"[AI_SEARCH] Extracted target user: {username}")
+                return username
+    
+    return None
+
+
+# =============================================================================
+# KILL CHAIN MAPPING - Track attack progression through phases
+# =============================================================================
+
+KILL_CHAIN_PHASES = {
+    'reconnaissance': {
+        'order': 1,
+        'name': 'Reconnaissance',
+        'description': 'Attacker gathering information about the target',
+        'mitre_tactic': 'TA0043',
+        'example_techniques': ['T1595', 'T1592', 'T1589'],
+        'typical_next': 'initial_access',
+        'typical_previous': None,
+    },
+    'initial_access': {
+        'order': 2,
+        'name': 'Initial Access',
+        'description': 'Attacker gaining first foothold in the environment',
+        'mitre_tactic': 'TA0001',
+        'example_techniques': ['T1566', 'T1190', 'T1133'],
+        'typical_next': 'execution',
+        'typical_previous': 'reconnaissance',
+    },
+    'execution': {
+        'order': 3,
+        'name': 'Execution',
+        'description': 'Attacker running malicious code',
+        'mitre_tactic': 'TA0002',
+        'example_techniques': ['T1059.001', 'T1059.003', 'T1204', 'T1047'],
+        'typical_next': 'persistence',
+        'typical_previous': 'initial_access',
+    },
+    'persistence': {
+        'order': 4,
+        'name': 'Persistence',
+        'description': 'Attacker maintaining access across reboots/credential changes',
+        'mitre_tactic': 'TA0003',
+        'example_techniques': ['T1053.005', 'T1543.003', 'T1547.001'],
+        'typical_next': 'privilege_escalation',
+        'typical_previous': 'execution',
+    },
+    'privilege_escalation': {
+        'order': 5,
+        'name': 'Privilege Escalation',
+        'description': 'Attacker gaining higher-level permissions',
+        'mitre_tactic': 'TA0004',
+        'example_techniques': ['T1134', 'T1068', 'T1548'],
+        'typical_next': 'defense_evasion',
+        'typical_previous': 'persistence',
+    },
+    'defense_evasion': {
+        'order': 6,
+        'name': 'Defense Evasion',
+        'description': 'Attacker avoiding detection',
+        'mitre_tactic': 'TA0005',
+        'example_techniques': ['T1070.001', 'T1562.001', 'T1027', 'T1055'],
+        'typical_next': 'credential_access',
+        'typical_previous': 'privilege_escalation',
+    },
+    'credential_access': {
+        'order': 7,
+        'name': 'Credential Access',
+        'description': 'Attacker stealing credentials',
+        'mitre_tactic': 'TA0006',
+        'example_techniques': ['T1003.001', 'T1550.002', 'T1558', 'T1110'],
+        'typical_next': 'discovery',
+        'typical_previous': 'defense_evasion',
+    },
+    'discovery': {
+        'order': 8,
+        'name': 'Discovery',
+        'description': 'Attacker learning about the environment',
+        'mitre_tactic': 'TA0007',
+        'example_techniques': ['T1087', 'T1082', 'T1018', 'T1083'],
+        'typical_next': 'lateral_movement',
+        'typical_previous': 'credential_access',
+    },
+    'lateral_movement': {
+        'order': 9,
+        'name': 'Lateral Movement',
+        'description': 'Attacker moving through the network',
+        'mitre_tactic': 'TA0008',
+        'example_techniques': ['T1021.001', 'T1021.002', 'T1021.006', 'T1570'],
+        'typical_next': 'collection',
+        'typical_previous': 'discovery',
+    },
+    'collection': {
+        'order': 10,
+        'name': 'Collection',
+        'description': 'Attacker gathering data to steal',
+        'mitre_tactic': 'TA0009',
+        'example_techniques': ['T1560', 'T1039', 'T1005', 'T1114'],
+        'typical_next': 'exfiltration',
+        'typical_previous': 'lateral_movement',
+    },
+    'exfiltration': {
+        'order': 11,
+        'name': 'Exfiltration',
+        'description': 'Attacker stealing data from the environment',
+        'mitre_tactic': 'TA0010',
+        'example_techniques': ['T1041', 'T1567', 'T1048'],
+        'typical_next': 'impact',
+        'typical_previous': 'collection',
+    },
+    'impact': {
+        'order': 12,
+        'name': 'Impact',
+        'description': 'Attacker achieving objective (ransomware, destruction)',
+        'mitre_tactic': 'TA0040',
+        'example_techniques': ['T1486', 'T1490', 'T1489'],
+        'typical_next': None,
+        'typical_previous': 'exfiltration',
+    },
+}
+
+# Mapping from MITRE tactic to kill chain phase
+TACTIC_TO_PHASE = {
+    'Reconnaissance': 'reconnaissance',
+    'Initial Access': 'initial_access',
+    'Execution': 'execution',
+    'Persistence': 'persistence',
+    'Privilege Escalation': 'privilege_escalation',
+    'Defense Evasion': 'defense_evasion',
+    'Credential Access': 'credential_access',
+    'Discovery': 'discovery',
+    'Lateral Movement': 'lateral_movement',
+    'Collection': 'collection',
+    'Command and Control': 'collection',  # Map to collection
+    'Exfiltration': 'exfiltration',
+    'Impact': 'impact',
+}
+
+
+def determine_kill_chain_phase(detected_techniques: Dict) -> Optional[Dict]:
+    """
+    Determine current kill chain phase based on detected techniques.
+    Returns dict with phase info or None if no techniques detected.
+    """
+    if not detected_techniques:
+        return None
+    
+    detected_phases = {}
+    
+    for tech_id, matches in detected_techniques.items():
+        if matches and len(matches) > 0:
+            # Get tactic from the match
+            tactic = matches[0].get('tactic', '')
+            phase = TACTIC_TO_PHASE.get(tactic)
+            if phase:
+                if phase not in detected_phases:
+                    detected_phases[phase] = []
+                detected_phases[phase].append(tech_id)
+    
+    if not detected_phases:
+        return None
+    
+    # Find the furthest phase in the kill chain
+    max_phase = max(detected_phases.keys(), 
+                    key=lambda p: KILL_CHAIN_PHASES[p]['order'])
+    
+    return {
+        'current_phase': max_phase,
+        'phase_name': KILL_CHAIN_PHASES[max_phase]['name'],
+        'phase_description': KILL_CHAIN_PHASES[max_phase]['description'],
+        'all_detected_phases': list(detected_phases.keys()),
+        'techniques_by_phase': detected_phases,
+        'typical_next': KILL_CHAIN_PHASES[max_phase].get('typical_next'),
+        'order': KILL_CHAIN_PHASES[max_phase]['order'],
+    }
+
+
+def get_kill_chain_context(kill_chain_result: Optional[Dict]) -> str:
+    """Generate kill chain context for LLM prompt."""
+    if not kill_chain_result:
+        return "Kill chain phase: Unable to determine from available events."
+    
+    lines = ["\n## KILL CHAIN POSITION"]
+    lines.append(f"")
+    lines.append(f"**Current Phase**: {kill_chain_result['phase_name']} (Phase {kill_chain_result['order']}/12)")
+    lines.append(f"**Description**: {kill_chain_result['phase_description']}")
+    
+    if len(kill_chain_result['all_detected_phases']) > 1:
+        phases = [KILL_CHAIN_PHASES[p]['name'] for p in sorted(
+            kill_chain_result['all_detected_phases'],
+            key=lambda p: KILL_CHAIN_PHASES[p]['order']
+        )]
+        lines.append(f"**All phases detected**: {' → '.join(phases)}")
+    
+    if kill_chain_result.get('typical_next'):
+        next_phase = KILL_CHAIN_PHASES[kill_chain_result['typical_next']]
+        lines.append(f"")
+        lines.append(f"**Typical next phase**: {next_phase['name']}")
+        lines.append(f"**What to look for**: {next_phase['description']}")
+    
+    return '\n'.join(lines)
+
+
+# =============================================================================
+# GAP ANALYSIS ENGINE - What to investigate next based on findings
+# =============================================================================
+
+GAP_ANALYSIS = {
+    'lateral_movement': {
+        'if_found': {
+            'summary': 'Lateral movement detected - attacker is spreading through the network',
+            'severity': 'high',
+            'critical_questions': [
+                'Which account(s) were used for lateral movement?',
+                'How did the attacker get credentials to move laterally?',
+                'What systems were accessed via lateral movement?',
+                'What activity occurred on the target systems?',
+            ],
+            'look_for_before': [
+                'Credential theft (LSASS dump, DCSync, Kerberoasting)',
+                'Initial access vector (phishing, exploitation)',
+                'Discovery activity (network enumeration)',
+            ],
+            'look_for_after': [
+                'Persistence mechanisms on target systems (scheduled tasks, services)',
+                'Further lateral movement to additional systems',
+                'Data collection and staging',
+                'Credential theft on target systems',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No lateral movement detected in retrieved events',
+            'possible_explanations': [
+                'Attacker may have stayed on the initially compromised system',
+                'Lateral movement occurred but via different technique not searched',
+                'Movement occurred via cloud services (Azure AD, O365) not in Windows logs',
+                'Network logon events (4624 Type 3/10) may not be logged or retained',
+            ],
+            'verification_steps': [
+                'Verify Event 4624 logging is enabled with logon types',
+                'Check Event 5140/5145 for share access (may indicate movement)',
+                'Review cloud authentication logs (Azure AD, Okta)',
+                'Check for RDP connections (Event 1149 in Terminal Services)',
+                'Look for PsExec service installations (Event 7045 with PSEXESVC)',
+            ],
+        },
+    },
+    'credential_access': {
+        'if_found': {
+            'summary': 'Credential theft detected - attacker has harvested credentials',
+            'severity': 'critical',
+            'critical_questions': [
+                'What type of credentials were stolen (local hashes, domain creds, tickets)?',
+                'Which accounts were compromised?',
+                'Were any privileged accounts (Domain Admin, etc.) affected?',
+                'What was the credential theft method?',
+            ],
+            'look_for_before': [
+                'Initial compromise (how did attacker get admin to dump creds?)',
+                'Privilege escalation (did they escalate before stealing creds?)',
+            ],
+            'look_for_after': [
+                'Lateral movement using stolen credentials',
+                'Access to sensitive systems (Domain Controllers, file servers)',
+                'Creation of new accounts or modification of existing',
+                'Golden Ticket or DCSync (if krbtgt was compromised)',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No credential theft detected in retrieved events',
+            'possible_explanations': [
+                'Attacker may have brought valid credentials (phishing, password reuse)',
+                'Credential theft occurred on a different system',
+                'Sysmon Event 10 (ProcessAccess to LSASS) may not be configured',
+                'Memory-only tools may have avoided detection',
+            ],
+            'verification_steps': [
+                'Check for password spray/brute force patterns (4625 clusters)',
+                'Review phishing indicators in email logs',
+                'Verify Sysmon Event 10 is configured for LSASS monitoring',
+                'Check for credential theft on Domain Controllers specifically',
+                'Look for Kerberoasting (4769 with RC4 encryption)',
+            ],
+        },
+    },
+    'persistence': {
+        'if_found': {
+            'summary': 'Persistence mechanism detected - attacker has established backdoor access',
+            'severity': 'high',
+            'critical_questions': [
+                'What is the persistence mechanism (scheduled task, service, registry)?',
+                'What does the persistence mechanism execute?',
+                'What account/privileges does it run as?',
+                'When/how often does it trigger?',
+            ],
+            'look_for_before': [
+                'Initial access and execution that led to persistence',
+                'Privilege escalation needed to create persistence',
+            ],
+            'look_for_after': [
+                'Execution events when persistence triggers',
+                'Defense evasion around the persistence (AV exclusions)',
+                'Additional persistence mechanisms for redundancy',
+                'Network callbacks when persistence executes',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No persistence mechanisms detected in retrieved events',
+            'possible_explanations': [
+                'May be a smash-and-grab attack (no need for persistence)',
+                'Attacker still in initial access phase',
+                'Persistence may be in unmonitored location (firmware, cloud)',
+                'Events for persistence may not be logged (registry, WMI)',
+            ],
+            'verification_steps': [
+                'Check scheduled task events (4698, 4699)',
+                'Verify service installation logging (7045)',
+                'Review Sysmon Event 13 (Registry modifications)',
+                'Check for WMI subscriptions (Sysmon 19-21)',
+                'Look for startup folder modifications',
+            ],
+        },
+    },
+    'exfiltration': {
+        'if_found': {
+            'summary': 'Data exfiltration detected - attacker is stealing data',
+            'severity': 'critical',
+            'critical_questions': [
+                'What data was exfiltrated?',
+                'How much data was taken (volume/count)?',
+                'Where was the data sent (destination)?',
+                'Is exfiltration ongoing or complete?',
+            ],
+            'look_for_before': [
+                'Data staging (archive creation, collection)',
+                'Discovery activity (finding data to steal)',
+                'Access to sensitive file shares or databases',
+            ],
+            'look_for_after': [
+                'Ransomware deployment (double extortion)',
+                'Cover tracks (log clearing, file deletion)',
+                'Continued access for future exfiltration',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No data exfiltration detected in retrieved events',
+            'possible_explanations': [
+                'Attacker still in collection/staging phase',
+                'Exfiltration via encrypted channel not visible in logs',
+                'Data may have been exfiltrated outside logging coverage',
+                'Attack objective may not be data theft (ransomware, BEC)',
+            ],
+            'verification_steps': [
+                'Look for archive creation (zip, rar, 7z)',
+                'Check network logs for large outbound transfers',
+                'Review web proxy logs for cloud upload services',
+                'Look for staging directories with collected files',
+                'Check DNS logs for data exfiltration via DNS',
+            ],
+        },
+    },
+    'brute_force': {
+        'if_found': {
+            'summary': 'Brute force or password spray attack detected',
+            'severity': 'high',
+            'critical_questions': [
+                'Did any attempts succeed? (4624/6272 after 4625/6273 cluster)',
+                'Which accounts were targeted?',
+                'Is the attack ongoing or historical?',
+                'What is the source of the attack (IP address)?',
+            ],
+            'look_for_before': [
+                'Reconnaissance that identified target accounts',
+                'Harvesting of username lists',
+            ],
+            'look_for_after': [
+                'Successful authentication from same source (4624 or 6272)',
+                'Activity using any compromised accounts',
+                'Lateral movement if account had network access',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No brute force or password spray detected',
+            'possible_explanations': [
+                'Attacker may have used valid credentials from another source',
+                'Attack may have targeted cloud authentication (Azure AD, Okta)',
+                'Failed logon logging may not be enabled',
+                'Attack may have occurred on different system/DC',
+            ],
+            'verification_steps': [
+                'Check Azure AD / Okta / cloud identity provider logs',
+                'Verify Event 4625 logging is enabled',
+                'Check VPN/NPS logs for Event 6273 (NPS denied access)',
+                'Review email for phishing that may have captured credentials',
+            ],
+        },
+    },
+    'malware': {
+        'if_found': {
+            'summary': 'Malicious execution detected',
+            'severity': 'high',
+            'critical_questions': [
+                'What malware/payload was executed?',
+                'What was the initial execution vector?',
+                'What is the parent process chain?',
+                'What network connections were made?',
+            ],
+            'look_for_before': [
+                'Delivery method (email attachment, download, exploit)',
+                'User interaction that triggered execution',
+            ],
+            'look_for_after': [
+                'Persistence mechanisms created',
+                'Network callbacks (C2 communication)',
+                'Child processes spawned',
+                'Defense evasion activity',
+                'Credential theft',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No obvious malicious execution detected',
+            'possible_explanations': [
+                'Attack may use living-off-the-land techniques (LOLBins)',
+                'Malware may be fileless (memory-only)',
+                'Execution may have been via legitimate tools',
+                'Process logging may be incomplete',
+            ],
+            'verification_steps': [
+                'Check for LOLBin abuse (certutil, mshta, regsvr32)',
+                'Review PowerShell logging (Event 4104)',
+                'Look for encoded commands',
+                'Check for script-based execution',
+            ],
+        },
+    },
+    'defense_evasion': {
+        'if_found': {
+            'summary': 'Defense evasion activity detected',
+            'severity': 'high',
+            'critical_questions': [
+                'What defensive measures were evaded/disabled?',
+                'What account performed the evasion?',
+                'What happened after defenses were weakened?',
+            ],
+            'look_for_before': [
+                'Initial compromise that required evasion',
+                'Privilege escalation to disable defenses',
+            ],
+            'look_for_after': [
+                'CRITICAL: Activity that occurred AFTER defenses disabled',
+                'This is likely the "real" attack hidden by the evasion',
+            ],
+        },
+        'if_not_found': {
+            'summary': 'No defense evasion detected',
+            'possible_explanations': [
+                'Attack may have avoided triggering security tools',
+                'Tools may have been disabled before logging started',
+                'Attacker may be using techniques that bypass detection',
+            ],
+            'verification_steps': [
+                'Check security tool status/health logs',
+                'Look for gaps in logging that might indicate tampering',
+                'Review any log cleared events (1102)',
+            ],
+        },
+    },
+}
+
+
+def get_gap_analysis(detected_attack_types: List[str], 
+                     detected_techniques: Dict) -> str:
+    """
+    Generate gap analysis guidance based on what was found/not found.
+    """
+    lines = ["\n## GAP ANALYSIS & INVESTIGATION GUIDANCE\n"]
+    
+    # Determine what attack types were actually detected
+    found_types = set()
+    not_found_types = set()
+    
+    # Map techniques to attack types based on tactic
+    tactic_to_type = {
+        'Lateral Movement': 'lateral_movement',
+        'Credential Access': 'credential_access',
+        'Persistence': 'persistence',
+        'Exfiltration': 'exfiltration',
+        'Execution': 'malware',
+        'Defense Evasion': 'defense_evasion',
+    }
+    
+    for tech_id, matches in detected_techniques.items():
+        if matches:
+            tactic = matches[0].get('tactic', '')
+            attack_type = tactic_to_type.get(tactic)
+            if attack_type:
+                found_types.add(attack_type)
+    
+    # Add types from query expansion that were searched for but not found
+    for attack_type in detected_attack_types:
+        if attack_type not in found_types and attack_type in GAP_ANALYSIS:
+            not_found_types.add(attack_type)
+    
+    # Generate guidance for found types
+    for attack_type in found_types:
+        if attack_type in GAP_ANALYSIS:
+            gap = GAP_ANALYSIS[attack_type]['if_found']
+            lines.append(f"### ✅ {attack_type.upper().replace('_', ' ')} DETECTED")
+            lines.append(f"**{gap['summary']}**")
+            lines.append(f"")
+            lines.append(f"**What to investigate next:**")
+            for item in gap.get('look_for_after', [])[:3]:
+                lines.append(f"- {item}")
+            lines.append("")
+    
+    # Generate guidance for not found types (only top 2)
+    for attack_type in list(not_found_types)[:2]:
+        if attack_type in GAP_ANALYSIS:
+            gap = GAP_ANALYSIS[attack_type]['if_not_found']
+            lines.append(f"### ❓ {attack_type.upper().replace('_', ' ')} NOT DETECTED")
+            lines.append(f"**{gap['summary']}**")
+            lines.append(f"")
+            lines.append(f"**Possible reasons:**")
+            for item in gap.get('possible_explanations', [])[:2]:
+                lines.append(f"- {item}")
+            lines.append(f"")
+            lines.append(f"**Verification steps:**")
+            for item in gap.get('verification_steps', [])[:2]:
+                lines.append(f"- {item}")
+            lines.append("")
+    
+    return '\n'.join(lines)
+
+
+# =============================================================================
+# INTELLIGENT SAMPLER - Tiered allocation for 3-20M event cases
+# =============================================================================
+
+class IntelligentSampler:
+    """
+    Intelligent event sampling for 3-20M event cases.
+    Uses tiered allocation to get the most relevant events for LLM analysis.
+    """
+    
+    # Maximum events to return to LLM
+    MAX_FINAL_EVENTS = 25
+    
+    # Allocation for different priority tiers
+    TIER_ALLOCATION = {
+        'priority': 10,      # Tagged, SIGMA critical/high, IOC
+        'pattern': 4,        # Events from aggregation detection
+        'medium': 8,         # SIGMA medium/low, interesting event types
+        'random': 3,         # Random sample for baseline coverage
+    }
+    
+    # Event types that are particularly interesting for DFIR
+    INTERESTING_EVENT_IDS = {
+        # Critical security events
+        4688, 4689,  # Process creation/termination
+        4624, 4625, 4648, 4672,  # Logon events
+        7045, 4697,  # Service installation
+        4698, 4699, 4700, 4701, 4702,  # Scheduled tasks
+        1102, 104,  # Log cleared
+        # Sysmon
+        1, 3, 7, 8, 10, 11, 12, 13, 22,
+        # PowerShell
+        4103, 4104,
+        # NPS/VPN events (v1.32.0)
+        6272, 6273, 6274, 6275, 6276, 6277, 6278, 6279,
+    }
+    
+    def __init__(self, opensearch_client, case_id: int):
+        self.client = opensearch_client
+        self.case_id = case_id
+        self.index_name = f"case_{case_id}"
+    
+    def sample_events(self, 
+                      question: str,
+                      keywords: List[str],
+                      dfir_terms: List[str],
+                      exclusions: List[Dict],
+                      mode: str = 'big_picture') -> Tuple[List[Dict], Dict]:
+        """
+        Intelligently sample events based on query mode.
+        
+        Args:
+            question: Original question
+            keywords: Extracted keywords
+            dfir_terms: DFIR expansion terms
+            exclusions: must_not clauses for exclusions
+            mode: 'big_picture', 'focused', or 'pattern'
+            
+        Returns:
+            (sampled_events, sampling_stats)
+        """
+        all_events = []
+        event_ids_seen = set()
+        stats = {
+            'total_events_in_case': 0,
+            'priority_events': 0,
+            'medium_events': 0,
+            'pattern_events': 0,
+            'random_events': 0,
+            'sampling_mode': mode,
+            'patterns_detected': [],
+        }
+        
+        # Get total event count
+        try:
+            count_response = self.client.count(index=self.index_name)
+            stats['total_events_in_case'] = count_response['count']
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Could not get count: {e}")
+            stats['total_events_in_case'] = 0
+        
+        # 1. Priority Tier: Tagged, SIGMA critical/high, IOC matches
+        priority_events = self._get_priority_events(
+            keywords, dfir_terms, exclusions, 
+            limit=self.TIER_ALLOCATION['priority']
+        )
+        for e in priority_events:
+            if e['_id'] not in event_ids_seen:
+                all_events.append(e)
+                event_ids_seen.add(e['_id'])
+        stats['priority_events'] = len(priority_events)
+        
+        # 2. Pattern Tier: Aggregation-based pattern detection
+        if mode in ['big_picture', 'pattern']:
+            pattern_events, patterns_found = self._get_pattern_events(
+                keywords, exclusions,
+                limit=self.TIER_ALLOCATION['pattern']
+            )
+            for e in pattern_events:
+                if e['_id'] not in event_ids_seen:
+                    all_events.append(e)
+                    event_ids_seen.add(e['_id'])
+            stats['pattern_events'] = len([e for e in pattern_events if e['_id'] not in event_ids_seen or True])
+            stats['patterns_detected'] = patterns_found
+        
+        # 3. Medium Tier: SIGMA medium/low, interesting event types
+        medium_events = self._get_medium_priority_events(
+            keywords, dfir_terms, exclusions,
+            limit=self.TIER_ALLOCATION['medium'],
+            existing_ids=event_ids_seen
+        )
+        for e in medium_events:
+            if e['_id'] not in event_ids_seen:
+                all_events.append(e)
+                event_ids_seen.add(e['_id'])
+        stats['medium_events'] = len(medium_events)
+        
+        # 4. Random Tier: Representative sample for coverage
+        if mode == 'big_picture':
+            random_events = self._get_stratified_random_sample(
+                exclusions,
+                limit=self.TIER_ALLOCATION['random'],
+                existing_ids=event_ids_seen
+            )
+            for e in random_events:
+                if e['_id'] not in event_ids_seen:
+                    all_events.append(e)
+                    event_ids_seen.add(e['_id'])
+            stats['random_events'] = len(random_events)
+        
+        # Limit to maximum
+        all_events = all_events[:self.MAX_FINAL_EVENTS]
+        
+        logger.info(f"[AI_SEARCH] IntelligentSampler: {len(all_events)} events "
+                   f"(priority={stats['priority_events']}, pattern={stats['pattern_events']}, "
+                   f"medium={stats['medium_events']}, random={stats['random_events']})")
+        
+        return all_events, stats
+    
+    def _get_priority_events(self, keywords: List[str], dfir_terms: List[str], 
+                            exclusions: List[Dict], limit: int) -> List[Dict]:
+        """Get highest priority events: tagged, SIGMA critical/high, IOC."""
+        try:
+            should_clauses = [
+                # Tagged events - highest priority
+                {"term": {"is_tagged": {"value": True, "boost": 100}}},
+                # SIGMA critical/high
+                {"bool": {
+                    "must": [
+                        {"term": {"has_sigma": True}},
+                        {"terms": {"sigma_level.keyword": ["critical", "high"]}}
+                    ],
+                    "boost": 50
+                }},
+                # IOC matches
+                {"term": {"has_ioc": {"value": True, "boost": 30}}},
+            ]
+            
+            # Add keyword matches
+            search_fields = ["search_blob^1.5", "event_title^3", "command_line^2"]
+            for kw in (keywords + dfir_terms)[:15]:
+                should_clauses.append({
+                    "multi_match": {
+                        "query": kw,
+                        "fields": search_fields,
+                        "boost": 10
+                    }
+                })
+            
+            query = {
+                "bool": {
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
+                }
+            }
+            if exclusions:
+                query["bool"]["must_not"] = exclusions
+            
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": query,
+                    "size": limit * 2,  # Get extra for deduplication
+                    "sort": [{"_score": "desc"}, {"normalized_timestamp": "desc"}],
+                    "_source": True,
+                },
+                request_timeout=15
+            )
+            
+            return self._hits_to_events(response)[:limit]
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Priority events query failed: {e}")
+            return []
+    
+    def _get_pattern_events(self, keywords: List[str], exclusions: List[Dict], 
+                           limit: int) -> Tuple[List[Dict], List[str]]:
+        """Get events representing attack patterns via aggregation."""
+        all_pattern_events = []
+        patterns_found = []
+        
+        # Pattern 1: Password spray detection
+        spray_events, spray_detected = self._detect_password_spray(exclusions, limit=2)
+        all_pattern_events.extend(spray_events)
+        if spray_detected:
+            patterns_found.append('password_spray')
+        
+        # Pattern 2: Lateral movement clusters
+        lateral_events, lateral_detected = self._detect_lateral_movement(exclusions, limit=2)
+        all_pattern_events.extend(lateral_events)
+        if lateral_detected:
+            patterns_found.append('lateral_movement')
+        
+        # Pattern 3: Suspicious process chains
+        process_events = self._detect_suspicious_processes(keywords, exclusions, limit=2)
+        all_pattern_events.extend(process_events)
+        if process_events:
+            patterns_found.append('suspicious_process')
+        
+        return all_pattern_events[:limit], patterns_found
+    
+    def _detect_password_spray(self, exclusions: List[Dict], limit: int) -> Tuple[List[Dict], bool]:
+        """Detect password spray patterns via aggregation (4625 Windows + 6273 NPS)."""
+        try:
+            # Search for both Windows failed logon (4625) AND NPS denied (6273)
+            query = {
+                "bool": {
+                    "filter": [{
+                        "bool": {
+                            "should": [
+                                {"term": {"normalized_event_id": 4625}},
+                                {"term": {"normalized_event_id": "4625"}},
+                                {"term": {"normalized_event_id": 6273}},
+                                {"term": {"normalized_event_id": "6273"}},
+                            ],
+                            "minimum_should_match": 1
+                        }
+                    }],
+                }
+            }
+            if exclusions:
+                query["bool"]["must_not"] = exclusions
+            
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": query,
+                    "size": 0,
+                    "aggs": {
+                        "by_source": {
+                            "terms": {"field": "IpAddress.keyword", "size": 10},
+                            "aggs": {
+                                "unique_targets": {
+                                    "cardinality": {"field": "TargetUserName.keyword"}
+                                },
+                                "sample_events": {
+                                    "top_hits": {"size": 2, "_source": True}
+                                }
+                            }
+                        }
+                    }
+                },
+                request_timeout=15
+            )
+            
+            events = []
+            spray_detected = False
+            for bucket in response.get('aggregations', {}).get('by_source', {}).get('buckets', []):
+                unique_targets = bucket.get('unique_targets', {}).get('value', 0)
+                if unique_targets >= 5:  # 5+ targets = likely spray
+                    spray_detected = True
+                    for hit in bucket.get('sample_events', {}).get('hits', {}).get('hits', []):
+                        event = self._hit_to_event(hit)
+                        event['_source']['_pattern'] = 'password_spray'
+                        event['_source']['_pattern_context'] = f"Source IP {bucket['key']} targeted {unique_targets} unique accounts"
+                        events.append(event)
+            
+            return events[:limit], spray_detected
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Password spray detection failed: {e}")
+            return [], False
+    
+    def _detect_lateral_movement(self, exclusions: List[Dict], limit: int) -> Tuple[List[Dict], bool]:
+        """Detect lateral movement patterns via aggregation."""
+        try:
+            query = {
+                "bool": {
+                    "filter": [
+                        {"term": {"normalized_event_id": 4624}},
+                        {"terms": {"LogonType.keyword": ["3", "10"]}}
+                    ],
+                }
+            }
+            if exclusions:
+                query["bool"]["must_not"] = exclusions
+            
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": query,
+                    "size": 0,
+                    "aggs": {
+                        "by_target": {
+                            "terms": {"field": "normalized_computer.keyword", "size": 10},
+                            "aggs": {
+                                "unique_sources": {
+                                    "cardinality": {"field": "IpAddress.keyword"}
+                                },
+                                "sample_events": {
+                                    "top_hits": {"size": 2, "_source": True}
+                                }
+                            }
+                        }
+                    }
+                },
+                request_timeout=15
+            )
+            
+            events = []
+            lateral_detected = False
+            for bucket in response.get('aggregations', {}).get('by_target', {}).get('buckets', []):
+                unique_sources = bucket.get('unique_sources', {}).get('value', 0)
+                if unique_sources >= 3:  # 3+ sources = interesting
+                    lateral_detected = True
+                    for hit in bucket.get('sample_events', {}).get('hits', {}).get('hits', []):
+                        event = self._hit_to_event(hit)
+                        event['_source']['_pattern'] = 'lateral_movement'
+                        event['_source']['_pattern_context'] = f"Target {bucket['key']} received logons from {unique_sources} unique sources"
+                        events.append(event)
+            
+            return events[:limit], lateral_detected
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Lateral movement detection failed: {e}")
+            return [], False
+    
+    def _detect_suspicious_processes(self, keywords: List[str], exclusions: List[Dict], 
+                                    limit: int) -> List[Dict]:
+        """Detect suspicious process execution patterns."""
+        suspicious_patterns = [
+            'powershell.*-enc', 'powershell.*downloadstring', 'powershell.*hidden',
+            'certutil.*-decode', 'certutil.*-urlcache',
+            'mshta.*http', 'mshta.*javascript',
+            'regsvr32.*/s.*/i',
+            'rundll32.*javascript',
+            'wmic.*process.*call',
+        ]
+        
+        try:
+            should_clauses = []
+            for pattern in suspicious_patterns:
+                should_clauses.append({
+                    "regexp": {"search_blob": {"value": pattern, "case_insensitive": True}}
+                })
+            
+            query = {
+                "bool": {
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
+                }
+            }
+            if exclusions:
+                query["bool"]["must_not"] = exclusions
+            
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": query,
+                    "size": limit,
+                    "sort": [{"normalized_timestamp": "desc"}],
+                    "_source": True,
+                },
+                request_timeout=15
+            )
+            
+            events = self._hits_to_events(response)
+            for e in events:
+                e['_source']['_pattern'] = 'suspicious_process'
+            return events
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Suspicious process detection failed: {e}")
+            return []
+    
+    def _get_medium_priority_events(self, keywords: List[str], dfir_terms: List[str],
+                                   exclusions: List[Dict], limit: int, 
+                                   existing_ids: Set[str]) -> List[Dict]:
+        """Get medium priority events: SIGMA medium/low, interesting event types."""
+        try:
+            should_clauses = [
+                # SIGMA medium/low
+                {"bool": {
+                    "must": [
+                        {"term": {"has_sigma": True}},
+                        {"terms": {"sigma_level.keyword": ["medium", "low"]}}
+                    ],
+                    "boost": 5
+                }},
+                # Interesting event types
+                {"terms": {"normalized_event_id": list(self.INTERESTING_EVENT_IDS), "boost": 3}},
+            ]
+            
+            # Add keyword matches
+            search_fields = ["search_blob", "command_line"]
+            for kw in (keywords + dfir_terms)[:10]:
+                should_clauses.append({
+                    "multi_match": {
+                        "query": kw,
+                        "fields": search_fields,
+                        "boost": 2
+                    }
+                })
+            
+            must_not = list(exclusions) if exclusions else []
+            if existing_ids:
+                must_not.append({"ids": {"values": list(existing_ids)[:1000]}})
+            
+            query = {
+                "bool": {
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
+                }
+            }
+            if must_not:
+                query["bool"]["must_not"] = must_not
+            
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": query,
+                    "size": limit * 3,  # Get extra for diversity
+                    "sort": [{"_score": "desc"}],
+                    "_source": True,
+                },
+                request_timeout=15
+            )
+            
+            # Manual diversity: max 2 per event type
+            events = []
+            type_counts = defaultdict(int)
+            for hit in response['hits']['hits']:
+                event_type = str(hit['_source'].get('normalized_event_id', 'unknown'))
+                if type_counts[event_type] < 2:
+                    events.append(self._hit_to_event(hit))
+                    type_counts[event_type] += 1
+                if len(events) >= limit:
+                    break
+            
+            return events
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Medium priority query failed: {e}")
+            return []
+    
+    def _get_stratified_random_sample(self, exclusions: List[Dict], limit: int,
+                                     existing_ids: Set[str]) -> List[Dict]:
+        """Get stratified random sample across time and event types."""
+        try:
+            must_not = list(exclusions) if exclusions else []
+            if existing_ids:
+                must_not.append({"ids": {"values": list(existing_ids)[:1000]}})
+            
+            query = {
+                "bool": {
+                    "must": [
+                        {"function_score": {
+                            "random_score": {"seed": 42, "field": "_seq_no"}
+                        }}
+                    ],
+                }
+            }
+            if must_not:
+                query["bool"]["must_not"] = must_not
+            
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": query,
+                    "size": limit,
+                    "_source": True,
+                },
+                request_timeout=15
+            )
+            
+            events = self._hits_to_events(response)
+            for e in events:
+                e['_source']['_sample_type'] = 'random_baseline'
+            return events
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] Random sampling failed: {e}")
+            return []
+    
+    def _hits_to_events(self, response: Dict) -> List[Dict]:
+        """Convert OpenSearch hits to event dicts."""
+        return [self._hit_to_event(hit) for hit in response.get('hits', {}).get('hits', [])]
+    
+    def _hit_to_event(self, hit: Dict) -> Dict:
+        """Convert single hit to event dict."""
+        return {
+            '_id': hit['_id'],
+            '_index': hit.get('_index', self.index_name),
+            '_score': hit.get('_score', 0),
+            '_source': hit.get('_source', {}),
+        }
+
+
+# =============================================================================
+# USER-FOCUSED INVESTIGATION - Timeline and analysis for specific users
+# =============================================================================
+
+def get_user_timeline(opensearch_client, case_id: int, username: str, 
+                      limit: int = 50) -> List[Dict]:
+    """
+    Build a timeline of events for a specific user.
+    """
+    index_name = f"case_{case_id}"
+    
+    query = {
+        "bool": {
+            "should": [
+                {"term": {"TargetUserName.keyword": username}},
+                {"term": {"SubjectUserName.keyword": username}},
+                {"wildcard": {"TargetUserName": f"*{username}*"}},
+                {"wildcard": {"SubjectUserName": f"*{username}*"}},
+                {"match_phrase": {"search_blob": username}},
+            ],
+            "minimum_should_match": 1
+        }
+    }
+    
+    try:
+        response = opensearch_client.search(
+            index=index_name,
+            body={
+                "query": query,
+                "size": limit,
+                "sort": [{"normalized_timestamp": "asc"}],  # Chronological
+                "_source": True,
+            },
+            request_timeout=20
+        )
+        
+        return [{
+            '_id': hit['_id'],
+            '_index': hit['_index'],
+            '_source': hit['_source'],
+            '_score': hit.get('_score', 0),
+        } for hit in response['hits']['hits']]
+        
+    except Exception as e:
+        logger.warning(f"[AI_SEARCH] User timeline query failed: {e}")
+        return []
+
+
+def analyze_user_compromise(events: List[Dict], username: str) -> Dict:
+    """
+    Analyze how a user may have been compromised.
+    """
+    analysis = {
+        'username': username,
+        'first_event': None,
+        'first_suspicious_event': None,
+        'event_count': len(events),
+        'logon_sources': set(),
+        'processes_run': [],
+        'possible_compromise_vector': None,
+        'timeline_summary': [],
+    }
+    
+    if not events:
+        return analysis
+    
+    analysis['first_event'] = events[0].get('_source', {}).get('normalized_timestamp')
+    
+    for event in events:
+        source = event.get('_source', {})
+        event_id = str(source.get('normalized_event_id', ''))
+        event_data = source.get('EventData', {})
+        if isinstance(event_data, str):
+            event_data = {}
+        
+        # Track logon sources
+        if event_id in ['4624', '4625']:
+            ip = event_data.get('IpAddress') if isinstance(event_data, dict) else None
+            if ip and ip not in ['-', '::1', '127.0.0.1', '', 'LOCAL']:
+                analysis['logon_sources'].add(ip)
+        
+        # Track processes
+        if event_id in ['4688', '1']:
+            proc = event_data.get('NewProcessName') or event_data.get('Image') if isinstance(event_data, dict) else None
+            if proc:
+                analysis['processes_run'].append(proc)
+        
+        # Find first suspicious event
+        if analysis['first_suspicious_event'] is None:
+            if source.get('has_sigma') or source.get('has_ioc'):
+                analysis['first_suspicious_event'] = {
+                    'timestamp': source.get('normalized_timestamp'),
+                    'event_id': event_id,
+                    'description': source.get('event_title', 'Suspicious activity'),
+                }
+    
+    analysis['logon_sources'] = list(analysis['logon_sources'])
+    
+    return analysis
+
+
+def format_user_analysis(user_analysis: Dict) -> str:
+    """Format user analysis for LLM prompt."""
+    if not user_analysis or not user_analysis.get('username'):
+        return ""
+    
+    lines = [f"\n## USER ANALYSIS: {user_analysis['username']}"]
+    lines.append(f"- Total events: {user_analysis.get('event_count', 0)}")
+    lines.append(f"- First event: {user_analysis.get('first_event', 'Unknown')}")
+    
+    if user_analysis.get('first_suspicious_event'):
+        fse = user_analysis['first_suspicious_event']
+        lines.append(f"- First suspicious event: {fse.get('timestamp')} - {fse.get('description')}")
+    
+    if user_analysis.get('logon_sources'):
+        lines.append(f"- Logon sources: {', '.join(user_analysis['logon_sources'][:5])}")
+    
+    return '\n'.join(lines)
+
+
+# =============================================================================
+# CASE OVERVIEW - Big picture context for LLM
+# =============================================================================
+
+def generate_case_overview(opensearch_client, case_id: int) -> Dict:
+    """
+    Generate a big-picture overview of the case for context.
+    """
+    index_name = f"case_{case_id}"
+    
+    overview = {
+        'total_events': 0,
+        'time_range': {'start': None, 'end': None},
+        'top_event_types': [],
+        'top_computers': [],
+        'top_users': [],
+        'sigma_summary': {'critical': 0, 'high': 0, 'medium': 0, 'low': 0},
+        'ioc_count': 0,
+        'tagged_count': 0,
+    }
+    
+    try:
+        response = opensearch_client.search(
+            index=index_name,
+            body={
+                "size": 0,
+                "aggs": {
+                    "min_time": {"min": {"field": "normalized_timestamp"}},
+                    "max_time": {"max": {"field": "normalized_timestamp"}},
+                    "event_types": {
+                        "terms": {"field": "normalized_event_id", "size": 10}
+                    },
+                    "computers": {
+                        "terms": {"field": "normalized_computer.keyword", "size": 10}
+                    },
+                    "users": {
+                        "terms": {"field": "username.keyword", "size": 10}
+                    },
+                    "sigma_levels": {
+                        "filter": {"term": {"has_sigma": True}},
+                        "aggs": {
+                            "levels": {
+                                "terms": {"field": "sigma_level.keyword", "size": 10}
+                            }
+                        }
+                    },
+                    "ioc_events": {
+                        "filter": {"term": {"has_ioc": True}}
+                    },
+                    "tagged_events": {
+                        "filter": {"term": {"is_tagged": True}}
+                    },
+                }
+            },
+            request_timeout=20
+        )
+        
+        aggs = response.get('aggregations', {})
+        total = response.get('hits', {}).get('total', {})
+        overview['total_events'] = total.get('value', 0) if isinstance(total, dict) else total
+        overview['time_range']['start'] = aggs.get('min_time', {}).get('value_as_string')
+        overview['time_range']['end'] = aggs.get('max_time', {}).get('value_as_string')
+        
+        overview['top_event_types'] = [
+            {'event_id': b['key'], 'count': b['doc_count']}
+            for b in aggs.get('event_types', {}).get('buckets', [])
+        ]
+        
+        overview['top_computers'] = [
+            {'computer': b['key'], 'count': b['doc_count']}
+            for b in aggs.get('computers', {}).get('buckets', [])
+        ]
+        
+        overview['top_users'] = [
+            {'user': b['key'], 'count': b['doc_count']}
+            for b in aggs.get('users', {}).get('buckets', [])
+        ]
+        
+        for level_bucket in aggs.get('sigma_levels', {}).get('levels', {}).get('buckets', []):
+            level = level_bucket['key'].lower()
+            if level in overview['sigma_summary']:
+                overview['sigma_summary'][level] = level_bucket['doc_count']
+        
+        overview['ioc_count'] = aggs.get('ioc_events', {}).get('doc_count', 0)
+        overview['tagged_count'] = aggs.get('tagged_events', {}).get('doc_count', 0)
+        
+    except Exception as e:
+        logger.error(f"[AI_SEARCH] Failed to generate case overview: {e}")
+    
+    return overview
+
+
+def get_case_context_for_prompt(overview: Dict) -> str:
+    """Generate case context for LLM prompt."""
+    lines = ["## CASE OVERVIEW"]
+    lines.append(f"- **Total events**: {overview.get('total_events', 0):,}")
+    
+    time_range = overview.get('time_range', {})
+    if time_range.get('start') and time_range.get('end'):
+        lines.append(f"- **Time range**: {time_range['start']} to {time_range['end']}")
+    
+    sigma = overview.get('sigma_summary', {})
+    sigma_total = sum(sigma.values())
+    if sigma_total > 0:
+        lines.append(f"- **SIGMA detections**: {sigma_total} total "
+                    f"(Critical: {sigma.get('critical', 0)}, High: {sigma.get('high', 0)})")
+    
+    if overview.get('ioc_count', 0) > 0:
+        lines.append(f"- **IOC matches**: {overview['ioc_count']}")
+    
+    if overview.get('tagged_count', 0) > 0:
+        lines.append(f"- **Analyst tagged**: {overview['tagged_count']}")
+    
+    if overview.get('top_computers'):
+        top_computers = ', '.join(c['computer'] for c in overview['top_computers'][:3])
+        lines.append(f"- **Top computers**: {top_computers}")
+    
+    return '\n'.join(lines)
+
+
+# =============================================================================
+# ENHANCED LLM PROMPTS - Specialized for different query modes
+# =============================================================================
+
+BIG_PICTURE_PROMPT = """You are a senior Digital Forensics and Incident Response (DFIR) analyst with expertise in the MITRE ATT&CK framework.
+
+## CASE: {case_name}
+
+{case_overview}
+
+## ANALYST'S QUESTION
+{question}
+
+## SAMPLING INFORMATION
+This case contains **{total_events:,}** events. To give you the best overview, we intelligently sampled:
+- {priority_events} high-priority events (tagged by analyst, SIGMA critical/high, IOC matches)
+- {pattern_events} events showing attack patterns (password spray, lateral movement clusters)
+- {medium_events} medium-priority events (SIGMA medium/low, interesting event types)
+- {random_events} random baseline events (for coverage)
+
+{patterns_detected}
+
+{technique_context}
+
+{kill_chain_context}
+
+{gap_analysis}
+
+## EVIDENCE EVENTS (showing {event_count} of {total_events:,})
+
+{events_text}
+
+## WINDOWS EVENT ID QUICK REFERENCE
+- **4624** = Successful logon (Type 2=Interactive, 3=Network, 10=RDP)
+- **4625** = Failed logon (brute force/spray indicator)
+- **6272** = NPS granted VPN/RDP access (successful VPN logon)
+- **6273** = NPS denied VPN/RDP access (failed VPN logon - brute force indicator!)
+- **4648** = Explicit credential logon (pass-the-hash indicator)
+- **4672** = Special privileges assigned (admin logon)
+- **4688** = Process created (look at CommandLine!)
+- **4698** = Scheduled task created
+- **5140/5145** = Network share accessed
+- **7045** = Service installed
+- **1102** = Security log cleared (CRITICAL - anti-forensics)
+
+## YOUR ANALYSIS
+
+Based on the sampled evidence above:
+
+1. **Answer the question** with specific evidence citations [Event N]
+2. **Identify attack patterns** visible in the sampled events
+3. **Note the kill chain phase** and what typically comes next
+4. **Flag critical findings** that need immediate attention
+5. **Acknowledge sampling limitations** - what might we be missing?
+6. **Suggest follow-up queries** for deeper investigation
+
+Be specific with usernames, IPs, timestamps, and commands. Reference events by number.
+
+YOUR ANALYSIS:
+"""
+
+FOCUSED_PROMPT = """You are a senior DFIR analyst investigating a specific user or entity.
+
+## CASE: {case_name}
+
+## INVESTIGATION TARGET
+**{target_type}**: {target_value}
+
+## ANALYST'S QUESTION
+{question}
+
+{user_analysis}
+
+{technique_context}
+
+## TIMELINE OF EVENTS FOR {target_value}
+
+{events_text}
+
+## WINDOWS EVENT ID QUICK REFERENCE
+- **4624** = Successful logon (Type 2=Interactive, 3=Network, 10=RDP)
+- **4625** = Failed logon
+- **4648** = Explicit credential logon
+- **4672** = Special privileges assigned
+- **4688** = Process created
+- **4698** = Scheduled task created
+
+## YOUR ANALYSIS
+
+Build a narrative of what happened to/by {target_value}:
+
+1. **Timeline reconstruction** - What sequence of events occurred?
+2. **Compromise vector** - How did the compromise start?
+3. **Attacker actions** - What did the attacker do after compromise?
+4. **Lateral movement** - Did the attack spread from this account?
+5. **Current status** - Is the compromise ongoing or contained?
+
+Reference specific events and timestamps.
+
+YOUR ANALYSIS:
+"""
+
+PATTERN_PROMPT = """You are a senior DFIR analyst analyzing attack patterns.
+
+## CASE: {case_name}
+
+## ANALYST'S QUESTION
+{question}
+
+## DETECTED PATTERNS
+
+{pattern_summary}
+
+{technique_context}
+
+{kill_chain_context}
+
+## PATTERN EVIDENCE
+
+{events_text}
+
+## YOUR ANALYSIS
+
+Analyze the detected patterns:
+
+1. **Pattern confirmation** - Is this a real attack or false positive?
+2. **Attack scope** - How widespread is the pattern?
+3. **Timeline** - When did the pattern start/stop?
+4. **Success rate** - Did the attack achieve its objective?
+5. **Recommendations** - What actions should be taken?
+
+YOUR ANALYSIS:
+"""
+
+
+def format_pattern_summary(patterns_detected: List[str], events: List[Dict]) -> str:
+    """Format detected patterns for the prompt."""
+    if not patterns_detected:
+        return "No specific attack patterns detected via aggregation."
+    
+    lines = []
+    for pattern in patterns_detected:
+        if pattern == 'password_spray':
+            lines.append("### 🔴 PASSWORD SPRAY DETECTED")
+            lines.append("Multiple failed logon attempts from single source to multiple accounts.")
+            # Find pattern context from events
+            for e in events:
+                ctx = e.get('_source', {}).get('_pattern_context')
+                if ctx and 'targeted' in ctx:
+                    lines.append(f"- {ctx}")
+                    break
+        elif pattern == 'lateral_movement':
+            lines.append("### 🔴 LATERAL MOVEMENT CLUSTER DETECTED")
+            lines.append("Multiple source systems connecting to same target.")
+            for e in events:
+                ctx = e.get('_source', {}).get('_pattern_context')
+                if ctx and 'logons from' in ctx:
+                    lines.append(f"- {ctx}")
+                    break
+        elif pattern == 'suspicious_process':
+            lines.append("### ⚠️ SUSPICIOUS PROCESS EXECUTION")
+            lines.append("Process execution matching known attack patterns (LOLBins, encoded commands).")
+    
+    return '\n'.join(lines) if lines else "No specific patterns detected."
 
 
 # =============================================================================
@@ -202,8 +1770,9 @@ MITRE_ATTACK_PATTERNS = {
     'T1110': {
         'name': 'Brute Force / Password Spray',
         'tactic': 'Credential Access',
-        'indicators': ['failed logon', 'bad password', 'account lockout'],
-        'event_ids': ['4625', '4771', '4776'],
+        'indicators': ['failed logon', 'bad password', 'account lockout', 'denied access', 
+                       'nps', 'radius', 'network policy server'],
+        'event_ids': ['4625', '4771', '4776', '6273', '6274'],  # Added NPS denied events
     },
     'T1558.003': {
         'name': 'Kerberoasting',
@@ -934,38 +2503,79 @@ def extract_keywords_from_question(question: str) -> List[str]:
 
 
 # =============================================================================
-# MAIN SEARCH FUNCTION
+# MAIN SEARCH FUNCTION - V5 with Intelligent Sampling
 # =============================================================================
 
 def semantic_search_events(
     opensearch_client,
     case_id: int,
     question: str,
-    max_results: int = 20,
+    max_results: int = 25,
     include_sigma: bool = True,
     include_ioc: bool = True,
     boost_tagged: bool = True
-) -> Tuple[List[Dict], str]:
+) -> Tuple[List[Dict], str, Dict]:
     """
-    Semantic search with DFIR query expansion, EXCLUSIONS, and diversification.
+    V5 Enhanced semantic search with intelligent sampling, exclusions, and MITRE ATT&CK.
     
-    Supports exclusion patterns:
-    - "malware excluding veeam and sentinelone"
-    - "suspicious activity but not defender"
-    - "processes ignore backup software"
-    
-    Key features:
-    1. Expands DFIR concepts (malware -> powershell, certutil, etc.)
-    2. Searches search_blob field
-    3. Diversifies results by event type
-    4. Guarantees tagged events appear
-    5. EXCLUDES user-specified noise (security tools, backup software, etc.)
+    Now returns (events, explanation, metadata) where metadata contains:
+    - sampling_stats: Tier allocation breakdown
+    - detected_techniques: MITRE ATT&CK techniques found
+    - kill_chain: Current kill chain phase
+    - detected_attack_types: Categories from question patterns
+    - target_user: Extracted username for focused queries
+    - query_mode: 'big_picture', 'focused', or 'pattern'
+    - patterns_detected: Aggregation-detected patterns
+    - case_overview: Case-level statistics
     """
     index_name = f"case_{case_id}"
+    
+    # Initialize metadata
+    metadata = {
+        'sampling_stats': {},
+        'detected_techniques': {},
+        'kill_chain': None,
+        'detected_attack_types': [],
+        'target_user': None,
+        'query_mode': 'big_picture',
+        'patterns_detected': [],
+        'case_overview': {},
+        'exclusions_applied': False,
+    }
     
     # Step 1: Extract keywords WITH exclusions
     include_terms, exclude_terms = extract_keywords_with_exclusions(question)
     dfir_terms = expand_query_for_dfir(question)
+    
+    # Track exclusions in metadata
+    if exclude_terms:
+        metadata['exclusions_applied'] = True
+        metadata['exclusions'] = exclude_terms
+    
+    # Step 2: Determine query mode and extract target user
+    query_mode = determine_query_mode(question, include_terms)
+    target_user = extract_target_user(question)
+    
+    if target_user:
+        query_mode = 'focused'
+        metadata['target_user'] = target_user
+        logger.info(f"[AI_SEARCH] User-focused query for: {target_user}")
+    
+    metadata['query_mode'] = query_mode
+    logger.info(f"[AI_SEARCH] Query mode: {query_mode}")
+    
+    # Step 3: Get detected attack types from question patterns
+    question_lower = question.lower()
+    for pattern, category in QUESTION_PATTERNS:
+        if re.search(pattern, question_lower):
+            metadata['detected_attack_types'].append(category)
+    
+    # Step 4: Generate case overview (for context)
+    try:
+        metadata['case_overview'] = generate_case_overview(opensearch_client, case_id)
+    except Exception as e:
+        logger.warning(f"[AI_SEARCH] Failed to generate case overview: {e}")
+        metadata['case_overview'] = {'total_events': 0}
     
     # Multi-query expansion (RAG Survey technique)
     multi_queries = expand_to_multi_query(question)
@@ -996,52 +2606,15 @@ def semantic_search_events(
     
     if not all_include:
         logger.warning("[AI_SEARCH] No search terms extracted")
-        return [], "Could not extract search terms from your question. Try being more specific."
+        return [], "Could not extract search terms from your question. Try being more specific.", metadata
     
     logger.info(f"[AI_SEARCH] Search terms: {all_include[:15]}...")
     if exclude_terms:
         logger.info(f"[AI_SEARCH] Excluding: {exclude_terms}")
     
-    # Step 2: Build query with MUST_NOT for exclusions
-    should_clauses = []
+    # Step 5: Build exclusion clauses for must_not
+    search_fields = ["search_blob^1.5", "event_title^3", "command_line^2", "process_name^1.5"]
     must_not_clauses = []
-    
-    # Search fields - INCLUDE search_blob!
-    search_fields = [
-        "search_blob^1.5",
-        "event_title^3",
-        "event_description^2",
-        "command_line^2",
-        "process_name^1.5",
-        "file_path",
-        "username",
-        "computer_name",
-    ]
-    
-    # User's original keywords get high boost
-    for term in include_terms[:10]:
-        should_clauses.append({
-            "multi_match": {
-                "query": term,
-                "fields": search_fields,
-                "type": "best_fields",
-                "fuzziness": "AUTO",
-                "boost": 3.0
-            }
-        })
-    
-    # DFIR expansion terms get moderate boost
-    for term in dfir_terms[:20]:
-        should_clauses.append({
-            "multi_match": {
-                "query": term,
-                "fields": search_fields,
-                "type": "phrase_prefix" if ' ' in term else "best_fields",
-                "boost": 1.5
-            }
-        })
-    
-    # EXCLUSIONS - must_not clauses
     for term in exclude_terms:
         must_not_clauses.append({
             "multi_match": {
@@ -1051,217 +2624,27 @@ def semantic_search_events(
             }
         })
     
-    # Boost flagged events
-    if boost_tagged:
-        should_clauses.append({"term": {"is_tagged": {"value": True, "boost": 15.0}}})
-    if include_sigma:
-        should_clauses.append({"term": {"has_sigma": {"value": True, "boost": 8.0}}})
-    if include_ioc:
-        should_clauses.append({"term": {"has_ioc": {"value": True, "boost": 6.0}}})
-    
-    # Build query with exclusions
-    query = {
-        "bool": {
-            "should": should_clauses,
-            "minimum_should_match": 1
-        }
-    }
-    
-    # Add must_not only if we have exclusions
-    if must_not_clauses:
-        query["bool"]["must_not"] = must_not_clauses
-    
-    # Step 3: Execute search with stratified sampling for large datasets
-    # Strategy: Get top matches + samples from different event types + flagged events
-    candidate_count = min(max_results * 4, 2000)
-    
+    # Step 6: Use IntelligentSampler for tiered event retrieval
     try:
-        # First: Get aggregation to understand what event types match
-        agg_response = opensearch_client.search(
-            index=index_name,
-            body={
-                "query": query,
-                "size": 0,
-                "aggs": {
-                    "event_types": {
-                        "terms": {
-                            "field": "normalized_event_id",
-                            "size": 50  # Top 50 event types
-                        }
-                    },
-                    "flagged_count": {
-                        "filter": {
-                            "bool": {
-                                "should": [
-                                    {"term": {"is_tagged": True}},
-                                    {"term": {"has_sigma": True}},
-                                    {"term": {"has_ioc": True}}
-                                ]
-                            }
-                        }
-                    }
-                },
-                "timeout": "10s"
-            },
-            request_timeout=15
+        sampler = IntelligentSampler(opensearch_client, case_id)
+        candidates, sampling_stats = sampler.sample_events(
+            question=question,
+            keywords=include_terms,
+            dfir_terms=dfir_terms,
+            exclusions=must_not_clauses,
+            mode=query_mode
         )
+        metadata['sampling_stats'] = sampling_stats
+        metadata['patterns_detected'] = sampling_stats.get('patterns_detected', [])
         
-        total_matching = agg_response['hits']['total']['value'] if isinstance(agg_response['hits']['total'], dict) else agg_response['hits']['total']
-        event_type_buckets = agg_response.get('aggregations', {}).get('event_types', {}).get('buckets', [])
-        flagged_count = agg_response.get('aggregations', {}).get('flagged_count', {}).get('doc_count', 0)
-        
-        logger.info(f"[AI_SEARCH] Total matching: {total_matching}, Event types: {len(event_type_buckets)}, Flagged: {flagged_count}")
-        
-        # Strategy for large datasets: sample across event types
-        all_candidates = []
-        event_ids_seen = set()
-        
-        # Part 1: Get ALL flagged events first (they're analyst-verified important)
-        if flagged_count > 0:
-            flagged_query = {
-                "bool": {
-                    "must": [query],
-                    "filter": {
-                        "bool": {
-                            "should": [
-                                {"term": {"is_tagged": True}},
-                                {"term": {"has_sigma": True}},
-                                {"term": {"has_ioc": True}}
-                            ]
-                        }
-                    }
-                }
-            }
-            flagged_response = opensearch_client.search(
-                index=index_name,
-                body={
-                    "query": flagged_query,
-                    "size": min(flagged_count, 500),  # Up to 500 flagged events
-                    "sort": [{"_score": {"order": "desc"}}],
-                    "_source": True
-                },
-                request_timeout=20
-            )
-            for hit in flagged_response['hits']['hits']:
-                if hit['_id'] not in event_ids_seen:
-                    all_candidates.append({
-                        '_id': hit['_id'],
-                        '_index': hit['_index'],
-                        '_score': hit.get('_score', 0) * 2,  # Boost flagged
-                        '_source': hit['_source']
-                    })
-                    event_ids_seen.add(hit['_id'])
-            logger.info(f"[AI_SEARCH] Retrieved {len(all_candidates)} flagged events")
-        
-        # Part 2: Sample from each event type for diversity
-        samples_per_type = max(10, candidate_count // max(len(event_type_buckets), 1))
-        for bucket in event_type_buckets[:30]:  # Top 30 event types
-            event_type = bucket['key']
-            type_query = {
-                "bool": {
-                    "must": [query],
-                    "filter": {"term": {"normalized_event_id": event_type}}
-                }
-            }
-            type_response = opensearch_client.search(
-                index=index_name,
-                body={
-                    "query": type_query,
-                    "size": samples_per_type,
-                    "sort": [{"_score": {"order": "desc"}}],
-                    "_source": True
-                },
-                request_timeout=10
-            )
-            for hit in type_response['hits']['hits']:
-                if hit['_id'] not in event_ids_seen:
-                    all_candidates.append({
-                        '_id': hit['_id'],
-                        '_index': hit['_index'],
-                        '_score': hit.get('_score', 0),
-                        '_source': hit['_source']
-                    })
-                    event_ids_seen.add(hit['_id'])
-        
-        logger.info(f"[AI_SEARCH] After stratified sampling: {len(all_candidates)} candidates")
-        
-        # Part 3: Fill remaining with top scoring (if needed)
-        remaining = candidate_count - len(all_candidates)
-        if remaining > 0:
-            response = opensearch_client.search(
-                index=index_name,
-                body={
-                    "query": query,
-                    "size": remaining + len(event_ids_seen),  # Get extra to account for dupes
-                    "sort": [{"_score": {"order": "desc"}}],
-                    "_source": True
-                },
-                request_timeout=30
-            )
-            for hit in response['hits']['hits']:
-                if hit['_id'] not in event_ids_seen and len(all_candidates) < candidate_count:
-                    all_candidates.append({
-                        '_id': hit['_id'],
-                        '_index': hit['_index'],
-                        '_score': hit.get('_score', 0),
-                        '_source': hit['_source']
-                    })
-                    event_ids_seen.add(hit['_id'])
-        
-        # Use all_candidates as our response
-        response = {'hits': {'hits': [{'_id': c['_id'], '_index': c['_index'], '_score': c['_score'], '_source': c['_source']} for c in all_candidates], 'total': {'value': total_matching}}}
-        
-        # Collect results with soft diversity (prefer variety but don't hard limit)
-        candidates = []
-        event_ids_seen = set()
-        event_type_counts = defaultdict(int)
-        
-        # Two-pass approach: first pass collects diverse events, second pass fills to max
-        first_pass = []
-        overflow = []
-        max_per_type_first_pass = 8  # Soft limit for diversity in first pass
-        
-        for hit in response['hits']['hits']:
-            event_id = hit['_id']
-            event_type = str(hit['_source'].get('normalized_event_id', 'unknown'))
-            
-            # Skip if we've seen this exact event
-            if event_id in event_ids_seen:
-                continue
-            
-            event_data = {
-                '_id': event_id,
-                '_index': hit['_index'],
-                '_score': hit.get('_score', 0),
-                '_source': hit['_source']
-            }
-            event_ids_seen.add(event_id)
-            
-            # Flagged events always go to first pass
-            is_flagged = (hit['_source'].get('is_tagged') or 
-                         hit['_source'].get('has_sigma') or 
-                         hit['_source'].get('has_ioc'))
-            
-            if is_flagged or event_type_counts[event_type] < max_per_type_first_pass:
-                first_pass.append(event_data)
-                event_type_counts[event_type] += 1
-            else:
-                overflow.append(event_data)
-        
-        # Combine: diverse events first, then overflow to fill up to candidate_count
-        candidates = first_pass + overflow
-        
-        total_hits = response['hits']['total']['value'] if isinstance(response['hits']['total'], dict) else response['hits']['total']
-        
-        excluded_msg = f" (excluding: {', '.join(exclude_terms[:3])})" if exclude_terms else ""
-        logger.info(f"[AI_SEARCH] Found {total_hits} total, diversified to {len(candidates)}{excluded_msg}")
+        total_hits = sampling_stats.get('total_events_in_case', len(candidates))
         
     except Exception as e:
-        logger.error(f"[AI_SEARCH] Search error: {e}")
+        logger.error(f"[AI_SEARCH] IntelligentSampler failed: {e}")
         import traceback
         logger.error(traceback.format_exc())
         
-        # Fallback to simple search with exclusions
+        # Fallback to simple search
         try:
             fallback_query = {
                 "bool": {
@@ -1276,7 +2659,7 @@ def semantic_search_events(
                 index=index_name,
                 body={
                     "query": fallback_query,
-                    "size": candidate_count,
+                    "size": max_results * 2,
                     "_source": True
                 }
             )
@@ -1285,12 +2668,28 @@ def semantic_search_events(
                 for h in response['hits']['hits']
             ]
             total_hits = len(candidates)
-            event_ids_seen = {c['_id'] for c in candidates}
         except Exception as e2:
             logger.error(f"[AI_SEARCH] Fallback also failed: {e2}")
-            return [], f"Search error: {str(e)}"
+            return [], f"Search error: {str(e)}", metadata
     
-    # Step 4: Fetch tagged events from database (they may not match keywords)
+    # Step 7: For focused queries, add user timeline events
+    if target_user:
+        try:
+            user_events = get_user_timeline(opensearch_client, case_id, target_user, limit=30)
+            existing_ids = {e['_id'] for e in candidates}
+            for ue in user_events:
+                if ue['_id'] not in existing_ids:
+                    candidates.append(ue)
+            
+            # Analyze user compromise
+            user_analysis = analyze_user_compromise(candidates, target_user)
+            metadata['user_analysis'] = user_analysis
+            
+        except Exception as e:
+            logger.warning(f"[AI_SEARCH] User timeline failed: {e}")
+    
+    # Step 8: Fetch tagged events from database (they may not match keywords)
+    event_ids_seen = {c['_id'] for c in candidates}
     if boost_tagged:
         try:
             from models import TimelineTag
@@ -1306,13 +2705,12 @@ def semantic_search_events(
                 tagged_response = opensearch_client.mget(index=index_name, body={"ids": new_tagged_ids})
                 for doc in tagged_response.get('docs', []):
                     if doc.get('found') and doc['_id'] not in event_ids_seen:
-                        # Check if tagged event matches exclusions
                         doc_source = doc.get('_source', {})
                         search_blob = doc_source.get('search_blob', '').lower()
                         excluded = any(ex.lower() in search_blob for ex in exclude_terms)
                         
                         if not excluded:
-                            candidates.insert(0, {  # Insert at front
+                            candidates.insert(0, {
                                 '_id': doc['_id'],
                                 '_index': doc['_index'],
                                 '_score': 100.0,
@@ -1324,9 +2722,9 @@ def semantic_search_events(
             logger.warning(f"[AI_SEARCH] Failed to fetch tagged events: {e}")
     
     if not candidates:
-        return [], f"No events found matching your query{' (after exclusions)' if exclude_terms else ''}."
+        return [], f"No events found matching your query{' (after exclusions)' if exclude_terms else ''}.", metadata
     
-    # Step 5: Semantic re-ranking
+    # Step 9: Semantic re-ranking
     embedding_available = _load_embedding_model() is not None
     
     if embedding_available and len(candidates) > 1:
@@ -1339,20 +2737,18 @@ def semantic_search_events(
                 if event_embeddings is not None:
                     similarities = cosine_similarity_batch(question_embedding, event_embeddings)
                     
-                    os_scores = np.array([c['_score'] for c in candidates])
+                    os_scores = np.array([c.get('_score', 0) for c in candidates])
                     os_scores_norm = os_scores / (os_scores.max() + 0.001)
                     
-                    # Base score: 50% keyword, 50% semantic
                     base_scores = 0.5 * os_scores_norm + 0.5 * similarities
                     
-                    # Apply multiplicative boosts
                     combined_scores = np.zeros(len(candidates))
                     for i, c in enumerate(candidates):
                         src = c.get('_source', {})
                         boost = 1.0
                         
                         if src.get('is_tagged'):
-                            boost *= 3.0  # Tagged = analyst verified important
+                            boost *= 3.0
                         if src.get('has_sigma'):
                             level = src.get('sigma_level', 'medium')
                             boost *= {'critical': 2.5, 'high': 2.0, 'medium': 1.5, 'low': 1.2}.get(level, 1.3)
@@ -1373,23 +2769,47 @@ def semantic_search_events(
         except Exception as e:
             logger.warning(f"[AI_SEARCH] Semantic re-ranking failed: {e}")
     
+    # Step 10: Detect MITRE ATT&CK techniques in results
+    detected_techniques = identify_attack_techniques(candidates[:max_results])
+    metadata['detected_techniques'] = detected_techniques
+    
+    # Step 11: Determine kill chain phase
+    kill_chain = determine_kill_chain_phase(detected_techniques)
+    metadata['kill_chain'] = kill_chain
+    
+    # Build explanation
+    sampling_stats = metadata.get('sampling_stats', {})
     excluded_msg = f", excluded: {', '.join(exclude_terms[:3])}" if exclude_terms else ""
-    explanation = f"Found {total_hits} events, showing top {min(len(candidates), max_results)} (diversified{excluded_msg})"
-    return candidates[:max_results], explanation
+    mode_msg = f", mode: {query_mode}"
+    patterns_msg = f", patterns: {metadata['patterns_detected']}" if metadata.get('patterns_detected') else ""
+    
+    explanation = f"Found {total_hits:,} events, showing {min(len(candidates), max_results)} via intelligent sampling ({query_mode}{excluded_msg}{patterns_msg})"
+    
+    return candidates[:max_results], explanation, metadata
 
 
 # =============================================================================
-# LLM ANSWER GENERATION
+# LLM ANSWER GENERATION - V5 with Enhanced Prompts
 # =============================================================================
 
 def generate_ai_answer(
     question: str,
     events: List[Dict],
     case_name: str,
+    metadata: Optional[Dict] = None,
     model: str = DEFAULT_LLM_MODEL,
     stream: bool = True
 ) -> Generator[str, None, None]:
-    """Generate AI answer with MITRE ATT&CK-aware prompt"""
+    """
+    Generate AI answer with V5 enhanced prompts based on query mode.
+    
+    Uses three specialized prompts:
+    - BIG_PICTURE_PROMPT: For broad overview questions
+    - FOCUSED_PROMPT: For user-specific investigations
+    - PATTERN_PROMPT: For attack pattern analysis
+    """
+    if metadata is None:
+        metadata = {}
     
     MAX_CONTEXT_TOKENS = 6000
     CHARS_PER_TOKEN = 4
@@ -1398,12 +2818,7 @@ def generate_ai_answer(
     total_length = 0
     events_included = 0
     
-    # Count flags for context
-    tagged_count = sum(1 for e in events if e.get('_source', {}).get('is_tagged'))
-    sigma_count = sum(1 for e in events if e.get('_source', {}).get('has_sigma'))
-    ioc_count = sum(1 for e in events if e.get('_source', {}).get('has_ioc'))
-    
-    for i, event in enumerate(events[:15], 1):
+    for i, event in enumerate(events[:20], 1):
         summary = create_event_summary(event)
         event_text = f"### Event {i}\n{summary}"
         
@@ -1418,75 +2833,63 @@ def generate_ai_answer(
     events_text = "\n\n".join(event_context)
     logger.info(f"[AI_SEARCH] LLM context: {events_included} events, ~{total_length} tokens")
     
-    # Generate attack technique analysis
-    attack_analysis = generate_attack_analysis(events)
+    # Get query mode and metadata
+    query_mode = metadata.get('query_mode', 'big_picture')
+    sampling_stats = metadata.get('sampling_stats', {})
+    detected_techniques = metadata.get('detected_techniques', {})
+    kill_chain = metadata.get('kill_chain')
+    detected_attack_types = metadata.get('detected_attack_types', [])
+    patterns_detected = metadata.get('patterns_detected', [])
+    target_user = metadata.get('target_user')
+    case_overview = metadata.get('case_overview', {})
+    user_analysis = metadata.get('user_analysis', {})
     
-    # Enhanced DFIR-aware prompt with MITRE ATT&CK
-    prompt = f"""You are a senior Digital Forensics and Incident Response (DFIR) analyst with expertise in the MITRE ATT&CK framework. You are investigating a security incident.
-
-## CASE: {case_name}
-
-## ANALYST'S QUESTION
-{question}
-
-## EVIDENCE SUMMARY
-- {events_included} events retrieved
-- {tagged_count} analyst-tagged (⭐ = manually verified as important)
-- {sigma_count} SIGMA detections (⚠️ = matches threat detection rule)
-- {ioc_count} IOC matches (🎯 = matches known bad indicator)
-
-{attack_analysis}
-
-## MITRE ATT&CK QUICK REFERENCE
-| Technique | Event IDs | What to Look For |
-|-----------|-----------|------------------|
-| T1059.001 PowerShell | 4688, 4104, 1 | -enc, bypass, downloadstring, iex |
-| T1003.001 LSASS Dump | 10, 4688 | lsass access, procdump, mimikatz |
-| T1021.002 SMB Lateral | 5140, 5145, 4624 | admin$, c$, type 3 logon |
-| T1550.002 Pass the Hash | 4624, 4648, 4672 | type 3 + special privs |
-| T1053.005 Sched Task | 4698, 4699 | schtasks /create |
-| T1543.003 Service | 7045, 4697 | sc create, new-service |
-| T1070.001 Log Clear | 1102 | Security log cleared |
-| T1110 Password Spray | 4625, 4771 | Multiple failed logons |
-
-## WINDOWS EVENT ID CHEAT SHEET
-- **4624** = Successful logon (Type 2=Interactive, 3=Network, 10=RDP)
-- **4625** = Failed logon (brute force/spray indicator)
-- **4648** = Explicit credential logon (pass-the-hash indicator)
-- **4672** = Special privileges assigned (admin logon)
-- **4688** = Process created (look at CommandLine!)
-- **4698** = Scheduled task created
-- **5140/5145** = Network share accessed
-- **7045** = Service installed
-- **1102** = Security log cleared (CRITICAL - anti-forensics)
-- **Sysmon 1** = Process with full command line
-- **Sysmon 3** = Network connection
-- **Sysmon 10** = Process access (credential dumping)
-
-## EVIDENCE EVENTS
-
-{events_text}
-
-## YOUR ANALYSIS
-
-Based on the evidence above, answer the analyst's question. Follow these guidelines:
-
-1. **Map to MITRE ATT&CK**: Identify techniques you see (e.g., "This appears to be T1059.001 PowerShell execution")
-2. **Reference Events**: Cite specific events (e.g., "Event 3 shows...")
-3. **Identify Attack Chains**: Connect related events into a timeline/sequence
-4. **Highlight Gaps**: Note what evidence is missing to confirm suspicions
-5. **Prioritize Flagged Events**: ⭐ tagged events are analyst-verified important
-6. **Be Specific**: Quote usernames, IPs, command lines, timestamps
-7. **NO Fabrication**: Only cite what's in the events above
-
-If you identify a potential attack pattern, structure your response as:
-- **Attack Hypothesis**: What type of attack this might be
-- **Supporting Evidence**: Events that support this hypothesis  
-- **Missing Evidence**: What we'd need to confirm
-- **Recommended Actions**: What to investigate next
-
-YOUR ANALYSIS:
-"""
+    # Generate context strings
+    technique_context = generate_attack_analysis(events)
+    kill_chain_context = get_kill_chain_context(kill_chain)
+    gap_analysis = get_gap_analysis(detected_attack_types, detected_techniques)
+    case_context = get_case_context_for_prompt(case_overview)
+    pattern_summary = format_pattern_summary(patterns_detected, events)
+    user_analysis_text = format_user_analysis(user_analysis) if user_analysis else ""
+    
+    # Select appropriate prompt based on query mode
+    if query_mode == 'focused' and target_user:
+        prompt = FOCUSED_PROMPT.format(
+            case_name=case_name,
+            target_type='User',
+            target_value=target_user,
+            question=question,
+            user_analysis=user_analysis_text,
+            technique_context=technique_context,
+            events_text=events_text,
+        )
+    elif query_mode == 'pattern':
+        prompt = PATTERN_PROMPT.format(
+            case_name=case_name,
+            question=question,
+            pattern_summary=pattern_summary,
+            technique_context=technique_context,
+            kill_chain_context=kill_chain_context,
+            events_text=events_text,
+        )
+    else:
+        # Default: big_picture
+        prompt = BIG_PICTURE_PROMPT.format(
+            case_name=case_name,
+            case_overview=case_context,
+            question=question,
+            total_events=sampling_stats.get('total_events_in_case', len(events)),
+            priority_events=sampling_stats.get('priority_events', 0),
+            pattern_events=sampling_stats.get('pattern_events', 0),
+            medium_events=sampling_stats.get('medium_events', 0),
+            random_events=sampling_stats.get('random_events', 0),
+            patterns_detected=pattern_summary,
+            technique_context=technique_context,
+            kill_chain_context=kill_chain_context,
+            gap_analysis=gap_analysis,
+            event_count=events_included,
+            events_text=events_text,
+        )
 
     try:
         response = requests.post(
@@ -1532,13 +2935,23 @@ def ai_question_search(
     case_name: str,
     question: str,
     model: str = DEFAULT_LLM_MODEL,
-    max_events: int = 20
+    max_events: int = 25
 ) -> Generator[Dict, None, None]:
-    """Main entry point for AI Question feature"""
+    """
+    Main entry point for AI Question feature - V5 with intelligent sampling.
     
-    yield {"type": "status", "data": "Analyzing question and searching for relevant events..."}
+    Yields:
+        status: Progress messages
+        info: Query mode and sampling information
+        events: Retrieved events
+        chunk: LLM response chunks
+        done: Completion signal
+    """
     
-    events, explanation = semantic_search_events(
+    yield {"type": "status", "data": "Analyzing question and determining query mode..."}
+    
+    # Get events with metadata
+    events, explanation, metadata = semantic_search_events(
         opensearch_client, case_id, question, max_results=max_events
     )
     
@@ -1546,10 +2959,23 @@ def ai_question_search(
         yield {"type": "error", "data": "No relevant events found. Try rephrasing or using DFIR terms like 'powershell', 'lateral movement', 'persistence'."}
         return
     
-    yield {"type": "status", "data": f"Found {len(events)} relevant events. Generating analysis..."}
+    # Send query mode and sampling info
+    query_mode = metadata.get('query_mode', 'big_picture')
+    sampling_stats = metadata.get('sampling_stats', {})
+    patterns_detected = metadata.get('patterns_detected', [])
+    
+    info_msg = f"Query mode: {query_mode}"
+    if patterns_detected:
+        info_msg += f" | Patterns detected: {', '.join(patterns_detected)}"
+    if metadata.get('target_user'):
+        info_msg += f" | Target user: {metadata['target_user']}"
+    
+    yield {"type": "info", "data": info_msg}
+    yield {"type": "status", "data": f"Found {len(events)} relevant events via intelligent sampling. Generating analysis..."}
     yield {"type": "events", "data": events}
     
-    for chunk in generate_ai_answer(question, events, case_name, model):
+    # Pass metadata to generate_ai_answer for enhanced prompts
+    for chunk in generate_ai_answer(question, events, case_name, metadata, model):
         yield {"type": "chunk", "data": chunk}
     
     yield {"type": "done", "data": "Analysis complete"}
@@ -1588,6 +3014,11 @@ __all__ = [
     'ai_question_search',
     'create_event_summary',
     
+    # V5 Query mode and sampling
+    'determine_query_mode',
+    'extract_target_user',
+    'IntelligentSampler',
+    
     # Query expansion
     'expand_query_for_dfir',
     'expand_to_multi_query',
@@ -1599,6 +3030,18 @@ __all__ = [
     'generate_attack_analysis',
     'get_attack_techniques',
     'get_attack_chains',
+    
+    # V5 Kill chain and gap analysis
+    'determine_kill_chain_phase',
+    'get_kill_chain_context',
+    'get_gap_analysis',
+    'KILL_CHAIN_PHASES',
+    'GAP_ANALYSIS',
+    
+    # V5 User-focused investigation
+    'get_user_timeline',
+    'analyze_user_compromise',
+    'generate_case_overview',
     
     # Helpers
     'get_exclusion_suggestions',
@@ -1612,4 +3055,9 @@ __all__ = [
     'ATTACK_CHAINS',
     'MULTI_QUERY_TEMPLATES',
     'STEP_BACK_PROMPTS',
+    
+    # V5 Enhanced prompts
+    'BIG_PICTURE_PROMPT',
+    'FOCUSED_PROMPT',
+    'PATTERN_PROMPT',
 ]
