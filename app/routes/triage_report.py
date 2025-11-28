@@ -83,23 +83,26 @@ SECURITY_EVENT_IDS = {
 # Sysmon event IDs (1-25) - only valid if channel contains "Sysmon"
 SYSMON_EVENT_IDS = {1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25}
 
-# Channels/sources that indicate security-relevant logs
+# Channels/sources that indicate security-relevant logs (checked in search_blob)
 SECURITY_CHANNELS = {
-    'security', 'microsoft-windows-security', 
-    'sysmon', 'microsoft-windows-sysmon',
-    'powershell', 'microsoft-windows-powershell',
+    'microsoft-windows-security',
+    'microsoft-windows-sysmon', 'sysmon/operational',
+    'microsoft-windows-powershell', 'powershell/operational',
     'windows defender', 'microsoft-windows-windows defender',
     'bits-client',
-    'terminalservices', 'microsoft-windows-terminalservices',
+    'microsoft-windows-terminalservices',
 }
 
-# Channels that are typically noise (routine operational logs)
-NOISE_CHANNELS = {
-    'cisco', 'anyconnect', 'vpn client',
-    'application', 'system',  # Generic Windows logs
-    'dns client', 'dhcp',
-    'wmi', 'com+',
-}
+# Specific noise channel patterns - must be exact/specific to avoid false matches
+# These are checked as substrings in search_blob
+NOISE_CHANNEL_PATTERNS = [
+    'cisco secure client',
+    'anyconnect',
+    'cisco vpn',
+    'dns client events',
+    'dhcp client events',
+    'wmi activity',
+]
 
 # Limits
 MAX_TOTAL_EVENTS = 5000  # Typical investigations find 300-5K events
@@ -614,39 +617,33 @@ def process_triage_report(case_id):
                             try:
                                 event_id_int = int(event_type) if event_type else None
                                 
-                                # Check if this is from a noise channel (Cisco VPN, etc.)
-                                is_noise_channel = any(noise in search_blob for noise in NOISE_CHANNELS)
+                                # Check if this is from a known noise channel (very specific patterns)
+                                is_noise_channel = any(noise in search_blob for noise in NOISE_CHANNEL_PATTERNS)
                                 
-                                # Check if this is from a security channel
-                                is_security_channel = any(sec in search_blob for sec in SECURITY_CHANNELS)
-                                
-                                if is_noise_channel and not is_security_channel:
-                                    # Noise channel (Cisco VPN, generic Application/System) - skip
+                                if is_noise_channel:
+                                    # Definitely noise (Cisco VPN debug, etc.) - skip
                                     skipped_single_ioc += 1
                                 elif event_id_int and event_id_int in SECURITY_EVENT_IDS:
-                                    # Known security event ID (4xxx range, etc.)
+                                    # Known security event ID (4xxx range, etc.) - always tag
                                     should_tag = True
                                 elif event_id_int and event_id_int in SYSMON_EVENT_IDS:
                                     # Sysmon event ID (1-25) - only if from Sysmon channel
                                     if 'sysmon' in search_blob:
                                         should_tag = True
                                     else:
+                                        # Low event ID but not Sysmon - could be noise, skip
                                         skipped_single_ioc += 1
                                 elif event_type is None or event_type == '':
-                                    # No event ID (EDR/CSV) - check if security channel
-                                    if is_security_channel or not is_noise_channel:
-                                        should_tag = True
-                                    else:
-                                        skipped_single_ioc += 1
-                                else:
-                                    skipped_single_ioc += 1
-                            except (ValueError, TypeError):
-                                # Non-numeric event ID (EDR/CSV) - tag if not noise
-                                is_noise_channel = any(noise in search_blob for noise in NOISE_CHANNELS)
-                                if not is_noise_channel:
+                                    # No event ID = EDR/JSON/CSV data - ALWAYS tag these
+                                    # EDR data is pre-filtered security data
                                     should_tag = True
                                 else:
-                                    skipped_single_ioc += 1
+                                    # Unknown event ID - tag it (might be important)
+                                    should_tag = True
+                            except (ValueError, TypeError):
+                                # Non-numeric event ID (EDR/CSV) - ALWAYS tag
+                                # EDR data uses string identifiers and is security-relevant
+                                should_tag = True
                         
                         if not should_tag:
                             continue
