@@ -584,7 +584,7 @@ def process_triage_report(case_id):
             ioc_summary = ", ".join([f"{k}: {v}" for k, v in sorted(ioc_match_counts.items(), key=lambda x: -x[1])[:5]])
             
             # Final summary
-            yield f"data: {json.dumps({'stage': 'complete', 'message': f'Triage complete! Tagged {tagged_count} security-relevant events.', 'tagged': tagged_count, 'skipped': skipped_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': filtered_matches, 'ioc_summary': ioc_summary})}\n\n"
+            yield f"data: {json.dumps({'stage': 'complete', 'message': f'Triage complete! Tagged {tagged_count} events.', 'tagged': tagged_count, 'skipped': skipped_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': total_matches, 'ioc_summary': ioc_summary})}\n\n"
             
             # Audit log
             from audit_logger import log_action
