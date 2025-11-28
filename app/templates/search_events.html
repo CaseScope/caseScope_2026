@@ -456,8 +456,9 @@
             
             <!-- Filtering Info -->
             <div style="background: rgba(240, 147, 251, 0.1); border: 1px solid rgba(240, 147, 251, 0.3); border-radius: var(--border-radius); padding: var(--spacing-sm) var(--spacing-md); margin-bottom: var(--spacing-md); font-size: 0.875rem;">
-                <strong>🎯 Smart Tagging:</strong> Searches ALL file types (EVTX, EDR, IIS, CSV). 
-                If timestamps are found, limits to ±24 hours. Max 5,000 events total.
+                <strong>🎯 Intelligent Matching:</strong> Events matching <strong>2+ IOCs</strong> = always tagged. 
+                Single-IOC matches only tagged for security events (logon, process, network, etc.).
+                Timestamps limit to ±24h. Works with all file types.
             </div>
             
             <div style="margin-bottom: var(--spacing-md);">
@@ -1343,7 +1344,7 @@ function bulkActionRequest(endpoint, actionName, events, confirmMsg) {
                 updateBulkButtons();
             } else {
                 // For hide/unhide operations, still reload (need to update visibility)
-                window.location.reload();
+            window.location.reload();
             }
         } else {
             alert(`❌ Error: ${data.error}`);

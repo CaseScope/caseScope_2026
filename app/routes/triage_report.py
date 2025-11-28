@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
-Triage Report Feature (v1.33.0, updated v1.33.2)
+Triage Report Feature (v1.33.0, updated v1.33.3)
 =================================================
 Allows analysts to paste EDR/MDR investigative summaries (Huntress, CrowdStrike, etc.)
 and automatically:
 1. Extract IOCs from the summary text using LLM
-2. Search events with INTELLIGENT FILTERING to avoid tagging routine events
+2. Search events with INTELLIGENT MATCHING to find forensically relevant events
 3. Tag matching events using existing tag system
 4. Add new IOCs if they don't exist
 5. Add new Systems if hostnames don't exist
 
-FILTERING STRATEGY (v1.33.2):
+INTELLIGENT MATCHING STRATEGY (v1.33.3):
+- Multi-IOC priority: Events matching 2+ IOCs are ALWAYS tagged (high confidence)
+- Single-IOC events: Only tagged if they're security-relevant event types
 - Time-window: ±24 hours from report timestamps (if found)
-- Multi-IOC priority: Events matching 2+ IOCs tagged first
-- NO per-IOC limits: All forensically relevant events are tagged
-- Total limit: Max 5000 events (typical investigations find 300-5K)
-- EDR/IIS/CSV support: Events without standard IDs are included via search_blob matching
+- Security event types: Logon, process, network, PowerShell, scheduled tasks, etc.
+- Total limit: Max 5000 events
+
+The key insight: An event matching MULTIPLE IOCs from the report (e.g., both the
+username AND the IP address) is almost certainly relevant. Single-IOC matches
+need additional filtering to avoid tagging routine events.
 
 Uses streaming SSE for progress updates on large cases.
 """
@@ -47,7 +51,37 @@ IOC_TYPE_MAP = {
     'commands': 'command'
 }
 
-# Limits (v1.33.2 - increased based on real investigation data)
+# Security-relevant event IDs - single-IOC matches only tagged for these
+SECURITY_EVENT_IDS = {
+    # Windows Security - Logon
+    4624, 4625, 4634, 4647, 4648, 4672, 4675,
+    # Windows Security - Process
+    4688, 4689,
+    # Windows Security - Services & Tasks
+    4697, 4698, 4699, 4700, 4701, 4702, 7045,
+    # Windows Security - Account Management
+    4720, 4722, 4723, 4724, 4725, 4726, 4738, 4740, 4767,
+    # Windows Security - Group Membership
+    4728, 4729, 4732, 4733, 4756, 4757,
+    # Windows Security - Kerberos
+    4768, 4769, 4771, 4776,
+    # Windows Security - File Share
+    5140, 5145,
+    # Windows Security - Audit Log
+    1102, 104,
+    # Sysmon
+    1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25,
+    # PowerShell
+    4103, 4104,
+    # NPS/VPN
+    6272, 6273, 6274, 6275,
+    # Defender
+    1116, 1117, 1118, 1119,
+    # RDP TerminalServices
+    21, 22, 23, 24, 25, 1149,
+}
+
+# Limits
 MAX_TOTAL_EVENTS = 5000  # Typical investigations find 300-5K events
 TIME_WINDOW_HOURS = 24   # ±24 hours from report timestamps
 
@@ -445,10 +479,10 @@ def process_triage_report(case_id):
             time_start, time_end = parse_timestamps_from_iocs(iocs)
             time_filter_msg = ""
             if time_start and time_end:
-                time_filter_msg = f" (time window: {time_start.strftime('%Y-%m-%d %H:%M')} to {time_end.strftime('%Y-%m-%d %H:%M')})"
+                time_filter_msg = f" (±24h window: {time_start.strftime('%Y-%m-%d %H:%M')} to {time_end.strftime('%Y-%m-%d %H:%M')})"
                 yield f"data: {json.dumps({'stage': 'searching', 'message': f'Using time window ±{TIME_WINDOW_HOURS}h from report timestamps'})}\n\n"
             else:
-                yield f"data: {json.dumps({'stage': 'searching', 'message': 'No timestamps found in report - searching all events'})}\n\n"
+                yield f"data: {json.dumps({'stage': 'searching', 'message': 'No timestamps found - will require 2+ IOC matches or security events'})}\n\n"
             
             # Build query (searches search_blob - works for ALL file types including EDR/IIS/CSV)
             query_body = build_opensearch_query(iocs, time_start, time_end)
@@ -458,7 +492,7 @@ def process_triage_report(case_id):
             
             index_name = f"case_{case_id}"
             
-            # Get total count
+            # Get total count (raw matches before intelligent filtering)
             try:
                 count_result = opensearch_client.count(index=index_name, body={"query": query_body})
                 total_matches = count_result.get('count', 0)
@@ -466,39 +500,47 @@ def process_triage_report(case_id):
                 logger.error(f"[TRIAGE] Count query failed: {e}")
                 total_matches = 0
             
-            yield f"data: {json.dumps({'stage': 'found_matches', 'message': f'Found {total_matches} matching events{time_filter_msg}', 'total_matches': total_matches})}\n\n"
+            yield f"data: {json.dumps({'stage': 'found_matches', 'message': f'Found {total_matches} raw matches{time_filter_msg} - applying intelligent filtering...', 'total_matches': total_matches})}\n\n"
             
             if total_matches == 0:
                 yield f"data: {json.dumps({'stage': 'complete', 'message': 'No matching events found', 'tagged': 0, 'iocs_added': iocs_added, 'systems_added': systems_added})}\n\n"
                 return
             
-            # Cap at MAX_TOTAL_EVENTS (5000)
-            total_to_process = min(total_matches, MAX_TOTAL_EVENTS)
+            # Explain intelligent matching
+            yield f"data: {json.dumps({'stage': 'filtering', 'message': 'Intelligent matching: 2+ IOCs = always tag, 1 IOC = only security events'})}\n\n"
             
-            if total_matches > MAX_TOTAL_EVENTS:
-                yield f"data: {json.dumps({'stage': 'searching', 'message': f'Limiting to {MAX_TOTAL_EVENTS} most recent events (of {total_matches} matches)'})}\n\n"
+            # Build list of IOC values for matching
+            ioc_values = []
+            for ioc_type, values in iocs.items():
+                if ioc_type == 'timestamps' or not values:
+                    continue
+                for value in values:
+                    if value and len(value) >= 2:
+                        ioc_values.append(value.lower())
             
-            # Search and tag - NO per-IOC limits, tag ALL matching events up to MAX_TOTAL_EVENTS
-            yield f"data: {json.dumps({'stage': 'tagging', 'message': 'Tagging matching events...', 'processed': 0, 'total': total_to_process})}\n\n"
+            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Analyzing events for {len(ioc_values)} IOCs...', 'processed': 0, 'total': min(total_matches, 50000)})}\n\n"
             
             tagged_count = 0
             skipped_count = 0
+            skipped_single_ioc = 0
             processed_count = 0
+            multi_ioc_count = 0
             batch_size = 1000
             
             # Get existing tags for this case
             existing_tags = {tag.event_id for tag in TimelineTag.query.filter_by(case_id=case_id).all()}
             
-            # Track IOC match counts for summary (no limits applied)
+            # Track IOC match counts for summary
             ioc_match_counts = {}
             
             try:
                 # Use scroll API to handle large result sets
+                # Include normalized_event_id for intelligent filtering
                 scroll_response = opensearch_client.search(
                     index=index_name,
                     body={
                         "query": query_body,
-                        "_source": ["search_blob"],
+                        "_source": ["search_blob", "normalized_event_id"],
                         "size": batch_size,
                         "sort": [{"normalized_timestamp": {"order": "desc"}}]
                     },
@@ -521,21 +563,51 @@ def process_triage_report(case_id):
                             skipped_count += 1
                             continue
                         
-                        # Count which IOCs matched (for summary, not for limiting)
-                        search_blob = hit.get('_source', {}).get('search_blob', '')
-                        matching_iocs = []
+                        # Get event data
+                        source = hit.get('_source', {})
+                        search_blob = source.get('search_blob', '').lower()
+                        event_type = source.get('normalized_event_id')
                         
-                        for ioc_type, values in iocs.items():
-                            if ioc_type == 'timestamps' or not values:
-                                continue
-                            for value in values:
-                                if value and len(value) >= 2 and value.lower() in search_blob.lower():
-                                    matching_iocs.append(value)
+                        # Count how many IOCs match this event
+                        matching_iocs = []
+                        for value in ioc_values:
+                            if value in search_blob:
+                                matching_iocs.append(value)
                         
                         if not matching_iocs:
                             continue
                         
-                        # Tag the event - NO per-IOC limits
+                        num_ioc_matches = len(set(matching_iocs))  # Unique IOCs matched
+                        
+                        # INTELLIGENT MATCHING LOGIC:
+                        # - 2+ IOCs matched = ALWAYS tag (high confidence)
+                        # - 1 IOC matched = only tag if security-relevant event type
+                        should_tag = False
+                        
+                        if num_ioc_matches >= 2:
+                            # Multiple IOCs = high confidence, always tag
+                            should_tag = True
+                            multi_ioc_count += 1
+                        else:
+                            # Single IOC - check if it's a security-relevant event
+                            try:
+                                event_id_int = int(event_type) if event_type else None
+                                if event_id_int and event_id_int in SECURITY_EVENT_IDS:
+                                    should_tag = True
+                                elif event_type is None or event_type == '':
+                                    # No event ID (EDR/CSV) - tag if it matches IOC
+                                    # These are usually already security-relevant
+                                    should_tag = True
+                                else:
+                                    skipped_single_ioc += 1
+                            except (ValueError, TypeError):
+                                # Non-numeric event ID (EDR/CSV) - tag it
+                                should_tag = True
+                        
+                        if not should_tag:
+                            continue
+                        
+                        # Tag the event
                         try:
                             tag = TimelineTag(
                                 case_id=case_id,
@@ -548,7 +620,7 @@ def process_triage_report(case_id):
                             tagged_count += 1
                             
                             # Update IOC counts for summary
-                            for ioc_val in matching_iocs:
+                            for ioc_val in set(matching_iocs):
                                 ioc_match_counts[ioc_val] = ioc_match_counts.get(ioc_val, 0) + 1
                                 
                         except Exception as e:
@@ -557,10 +629,10 @@ def process_triage_report(case_id):
                         # Commit and update progress every 100 events
                         if tagged_count % 100 == 0:
                             db.session.commit()
-                            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Tagged {tagged_count} events...', 'processed': processed_count, 'total': total_to_process, 'tagged': tagged_count})}\n\n"
+                            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Tagged {tagged_count} events ({multi_ioc_count} multi-IOC)...', 'processed': processed_count, 'total': min(total_matches, 50000), 'tagged': tagged_count})}\n\n"
                     
-                    # Get next batch
-                    if tagged_count < MAX_TOTAL_EVENTS:
+                    # Get next batch (process up to 50K events to find relevant ones)
+                    if tagged_count < MAX_TOTAL_EVENTS and processed_count < 50000:
                         scroll_response = opensearch_client.scroll(scroll_id=scroll_id, scroll='5m')
                         hits = scroll_response.get('hits', {}).get('hits', [])
                     else:
@@ -583,8 +655,14 @@ def process_triage_report(case_id):
             # Build summary of top IOCs that matched
             ioc_summary = ", ".join([f"{k}: {v}" for k, v in sorted(ioc_match_counts.items(), key=lambda x: -x[1])[:5]])
             
-            # Final summary
-            yield f"data: {json.dumps({'stage': 'complete', 'message': f'Triage complete! Tagged {tagged_count} events.', 'tagged': tagged_count, 'skipped': skipped_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': total_matches, 'ioc_summary': ioc_summary})}\n\n"
+            # Final summary with intelligent matching stats
+            filter_msg = f"Tagged {tagged_count} forensically relevant events"
+            if multi_ioc_count > 0:
+                filter_msg += f" ({multi_ioc_count} matched 2+ IOCs)"
+            if skipped_single_ioc > 0:
+                filter_msg += f". Skipped {skipped_single_ioc} single-IOC non-security events."
+            
+            yield f"data: {json.dumps({'stage': 'complete', 'message': filter_msg, 'tagged': tagged_count, 'skipped': skipped_count, 'skipped_single_ioc': skipped_single_ioc, 'multi_ioc_count': multi_ioc_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': total_matches, 'ioc_summary': ioc_summary})}\n\n"
             
             # Audit log
             from audit_logger import log_action

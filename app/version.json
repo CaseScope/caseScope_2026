@@ -1,5 +1,5 @@
 {
-  "version": "1.33.2",
+  "version": "1.33.3",
   "release_date": "2025-11-28",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2805,6 +2805,19 @@
     ]
   },
   "changelog": [
+    {
+      "version": "1.33.3",
+      "date": "2025-11-28",
+      "title": "Triage Report - Intelligent Multi-IOC Matching",
+      "changes": [
+        "INTELLIGENT MATCHING: Events matching 2+ IOCs = ALWAYS tagged (high confidence)",
+        "Single-IOC events only tagged if security-relevant event type",
+        "Security events: logon, process, network, PowerShell, Sysmon, Defender, etc.",
+        "EDR/IIS/CSV (no event ID) treated as security-relevant",
+        "Processes up to 50K events to find relevant ones",
+        "Shows multi-IOC count and skipped single-IOC stats in summary"
+      ]
+    },
     {
       "version": "1.33.2",
       "date": "2025-11-28",
