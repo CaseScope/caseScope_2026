@@ -155,6 +155,12 @@
                     <span>AI Question</span>
                 </button>
                 
+                <!-- Triage from Report Button -->
+                <button type="button" onclick="showTriageModal()" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;" title="Auto-tag events from EDR/MDR report">
+                    <span>📋</span>
+                    <span>Triage Report</span>
+                </button>
+                
                 <!-- Save Current Search -->
                 <button type="button" onclick="showSaveSearchModal()" class="btn btn-success" title="Save current search">
                     <span>💾</span>
@@ -430,6 +436,81 @@
             <button onclick="submitAIQuestion()" id="aiSubmitBtn" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                 <span>🔍</span>
                 <span>Ask AI</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Triage Report Modal -->
+<div id="triageModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px; max-height: 90vh;">
+        <div class="modal-header">
+            <h2 class="modal-title">📋 Triage from Report</h2>
+            <button class="modal-close" onclick="closeTriageModal()">×</button>
+        </div>
+        <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
+            <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
+                Paste an investigative summary from your EDR/MDR (Huntress, CrowdStrike, SentinelOne, etc.). 
+                The system will extract IOCs, search ALL events, and auto-tag matches.
+            </p>
+            
+            <div style="margin-bottom: var(--spacing-md);">
+                <label class="form-label">Investigative Summary</label>
+                <textarea id="triageReportInput" class="form-input" rows="10" placeholder="Paste your EDR/MDR investigative summary here...
+
+Example:
+At 2025-09-05 06:40:02 UTC, Huntress observed user 'tabadmin' executing a malicious process WinSCP.exe which is being used to exfiltrate data. This process is being run out of the 'C:\ProgramData\USOShared\' directory.
+
+The user was observed logging in via RDP from IP address '192.168.1.150'..."></textarea>
+            </div>
+            
+            <!-- Progress Area (hidden until processing) -->
+            <div id="triageProgressArea" style="display: none;">
+                <div style="border-top: 1px solid var(--color-border); padding-top: var(--spacing-md); margin-top: var(--spacing-md);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm);">
+                        <h3 style="margin: 0; font-size: 1rem;">Processing</h3>
+                        <span id="triageStatus" style="font-size: 0.875rem; color: var(--color-text-secondary);"></span>
+                    </div>
+                    
+                    <!-- Progress Bar -->
+                    <div style="background: var(--color-background-tertiary); border-radius: var(--border-radius); height: 24px; overflow: hidden; margin-bottom: var(--spacing-md);">
+                        <div id="triageProgressBar" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;">
+                        </div>
+                    </div>
+                    
+                    <!-- Stage Messages -->
+                    <div id="triageMessages" style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); min-height: 100px; max-height: 200px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.875rem;">
+                    </div>
+                </div>
+                
+                <!-- Results Summary -->
+                <div id="triageResults" style="display: none; margin-top: var(--spacing-md);">
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-md);">
+                        <div style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-success);" id="triageTaggedCount">0</div>
+                            <div style="font-size: 0.75rem; color: var(--color-text-secondary);">Events Tagged</div>
+                        </div>
+                        <div style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-warning);" id="triageIOCsCount">0</div>
+                            <div style="font-size: 0.75rem; color: var(--color-text-secondary);">IOCs Added</div>
+                        </div>
+                        <div style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-info);" id="triageSystemsCount">0</div>
+                            <div style="font-size: 0.75rem; color: var(--color-text-secondary);">Systems Added</div>
+                        </div>
+                        <div style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-secondary);" id="triageSkippedCount">0</div>
+                            <div style="font-size: 0.75rem; color: var(--color-text-secondary);">Already Tagged</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closeTriageModal()" class="btn btn-secondary">Close</button>
+            <button onclick="processTriageReport()" id="triageSubmitBtn" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
+                <span>🔍</span>
+                <span>Process Report</span>
             </button>
         </div>
     </div>
@@ -4034,6 +4115,221 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Could not check AI status:', error);
         });
 });
+
+// ============================================
+// TRIAGE REPORT FUNCTIONS (v1.33.0)
+// ============================================
+
+// Show Triage Modal
+function showTriageModal() {
+    const modal = document.getElementById('triageModal');
+    modal.style.display = 'block';
+    document.getElementById('triageReportInput').focus();
+    
+    // Reset state
+    document.getElementById('triageProgressArea').style.display = 'none';
+    document.getElementById('triageResults').style.display = 'none';
+    document.getElementById('triageMessages').innerHTML = '';
+    document.getElementById('triageProgressBar').style.width = '0%';
+    document.getElementById('triageSubmitBtn').disabled = false;
+    document.getElementById('triageSubmitBtn').innerHTML = '<span>🔍</span><span>Process Report</span>';
+}
+
+// Close Triage Modal
+function closeTriageModal() {
+    document.getElementById('triageModal').style.display = 'none';
+}
+
+// Process Triage Report
+function processTriageReport() {
+    const reportText = document.getElementById('triageReportInput').value.trim();
+    if (!reportText) {
+        alert('Please paste an investigative report');
+        return;
+    }
+    
+    const caseId = {{ case.id }};
+    
+    // Show progress area
+    const progressArea = document.getElementById('triageProgressArea');
+    const messagesEl = document.getElementById('triageMessages');
+    const progressBar = document.getElementById('triageProgressBar');
+    const statusEl = document.getElementById('triageStatus');
+    const submitBtn = document.getElementById('triageSubmitBtn');
+    const resultsEl = document.getElementById('triageResults');
+    
+    progressArea.style.display = 'block';
+    messagesEl.innerHTML = '';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '';
+    resultsEl.style.display = 'none';
+    statusEl.textContent = 'Starting...';
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>⏳</span><span>Processing...</span>';
+    
+    // Add message helper
+    function addMessage(msg, type = 'info') {
+        const color = type === 'error' ? 'var(--color-error)' : 
+                     type === 'success' ? 'var(--color-success)' : 
+                     'var(--color-text-secondary)';
+        messagesEl.innerHTML += `<div style="color: ${color}; margin-bottom: 4px;">${msg}</div>`;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    
+    // Use Server-Sent Events for streaming progress
+    fetch(`/case/${caseId}/triage-report/process`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            report_text: reportText
+        }),
+        credentials: 'same-origin'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        function processStream() {
+            return reader.read().then(({ done, value }) => {
+                if (done) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<span>🔍</span><span>Process Report</span>';
+                    return;
+                }
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            handleTriageStreamData(data, addMessage, progressBar, statusEl, resultsEl);
+                        } catch (e) {
+                            console.error('Error parsing SSE data:', e);
+                        }
+                    }
+                }
+                
+                return processStream();
+            });
+        }
+        
+        return processStream();
+    })
+    .catch(error => {
+        console.error('Triage error:', error);
+        addMessage('❌ Error: ' + error.message, 'error');
+        statusEl.textContent = 'Error';
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>🔍</span><span>Process Report</span>';
+    });
+}
+
+// Handle streaming data from triage
+function handleTriageStreamData(data, addMessage, progressBar, statusEl, resultsEl) {
+    switch (data.stage) {
+        case 'extracting':
+            statusEl.textContent = 'Extracting IOCs...';
+            progressBar.style.width = '10%';
+            progressBar.textContent = '10%';
+            addMessage('🔍 ' + data.message);
+            break;
+            
+        case 'extracted':
+            progressBar.style.width = '20%';
+            progressBar.textContent = '20%';
+            addMessage('✅ ' + data.message, 'success');
+            // Show extracted IOCs summary
+            if (data.iocs) {
+                const iocSummary = Object.entries(data.iocs)
+                    .filter(([k, v]) => v && v.length > 0)
+                    .map(([k, v]) => `${k}: ${v.length}`)
+                    .join(', ');
+                if (iocSummary) {
+                    addMessage('   IOCs: ' + iocSummary);
+                }
+            }
+            break;
+            
+        case 'adding_iocs':
+            statusEl.textContent = 'Adding IOCs...';
+            progressBar.style.width = '30%';
+            progressBar.textContent = '30%';
+            addMessage('📌 ' + data.message);
+            break;
+            
+        case 'iocs_added':
+            progressBar.style.width = '40%';
+            progressBar.textContent = '40%';
+            addMessage('✅ ' + data.message, 'success');
+            break;
+            
+        case 'adding_systems':
+            statusEl.textContent = 'Adding systems...';
+            progressBar.style.width = '45%';
+            progressBar.textContent = '45%';
+            addMessage('🖥️ ' + data.message);
+            break;
+            
+        case 'systems_added':
+            progressBar.style.width = '50%';
+            progressBar.textContent = '50%';
+            addMessage('✅ ' + data.message, 'success');
+            break;
+            
+        case 'searching':
+            statusEl.textContent = 'Searching events...';
+            progressBar.style.width = '55%';
+            progressBar.textContent = '55%';
+            addMessage('🔎 ' + data.message);
+            break;
+            
+        case 'found_matches':
+            progressBar.style.width = '60%';
+            progressBar.textContent = '60%';
+            addMessage('📊 ' + data.message, 'success');
+            break;
+            
+        case 'tagging':
+            const pct = data.total > 0 ? Math.min(60 + (data.processed / data.total * 35), 95) : 60;
+            progressBar.style.width = pct + '%';
+            progressBar.textContent = Math.round(pct) + '%';
+            statusEl.textContent = `Tagging: ${data.processed.toLocaleString()} / ${data.total.toLocaleString()}`;
+            // Only add message every 5000 events to avoid spam
+            if (data.processed % 5000 === 0 || data.processed === data.total) {
+                addMessage(`🏷️ Tagged ${data.tagged.toLocaleString()} events (${data.processed.toLocaleString()} processed)`);
+            }
+            break;
+            
+        case 'complete':
+            progressBar.style.width = '100%';
+            progressBar.textContent = '100%';
+            statusEl.textContent = 'Complete!';
+            addMessage('✅ ' + data.message, 'success');
+            
+            // Show results summary
+            resultsEl.style.display = 'block';
+            document.getElementById('triageTaggedCount').textContent = (data.tagged || 0).toLocaleString();
+            document.getElementById('triageIOCsCount').textContent = (data.iocs_added || 0).toLocaleString();
+            document.getElementById('triageSystemsCount').textContent = (data.systems_added || 0).toLocaleString();
+            document.getElementById('triageSkippedCount').textContent = (data.skipped || 0).toLocaleString();
+            break;
+            
+        case 'error':
+            statusEl.textContent = 'Error';
+            addMessage('❌ ' + data.message, 'error');
+            break;
+    }
+}
 
 </script>
 {% endblock %}

@@ -136,6 +136,7 @@ from routes.admin import admin_bp
 from routes.timeline import timeline_bp
 from routes.archive import archive_bp
 from routes.ai_search import ai_search_bp
+from routes.triage_report import triage_report_bp
 app.register_blueprint(files_bp)
 app.register_blueprint(cases_bp)
 app.register_blueprint(api_stats_bp)
@@ -145,6 +146,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(timeline_bp)
 app.register_blueprint(archive_bp)
 app.register_blueprint(ai_search_bp)
+app.register_blueprint(triage_report_bp)
 
 # Apply rate limiting to AI search endpoint AFTER blueprint registration
 # Get the view function and wrap it with the rate limiter
