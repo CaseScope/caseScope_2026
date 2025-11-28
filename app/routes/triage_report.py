@@ -52,8 +52,9 @@ IOC_TYPE_MAP = {
 }
 
 # Security-relevant event IDs - single-IOC matches only tagged for these
+# NOTE: Low event IDs (1-25) are ambiguous across sources, so we check channel too
 SECURITY_EVENT_IDS = {
-    # Windows Security - Logon
+    # Windows Security - Logon (4xxx range is unique to Security log)
     4624, 4625, 4634, 4647, 4648, 4672, 4675,
     # Windows Security - Process
     4688, 4689,
@@ -69,16 +70,35 @@ SECURITY_EVENT_IDS = {
     5140, 5145,
     # Windows Security - Audit Log
     1102, 104,
-    # Sysmon
-    1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25,
     # PowerShell
     4103, 4104,
     # NPS/VPN
     6272, 6273, 6274, 6275,
     # Defender
     1116, 1117, 1118, 1119,
-    # RDP TerminalServices
-    21, 22, 23, 24, 25, 1149,
+    # RDP TerminalServices (1149 is unique)
+    1149,
+}
+
+# Sysmon event IDs (1-25) - only valid if channel contains "Sysmon"
+SYSMON_EVENT_IDS = {1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25}
+
+# Channels/sources that indicate security-relevant logs
+SECURITY_CHANNELS = {
+    'security', 'microsoft-windows-security', 
+    'sysmon', 'microsoft-windows-sysmon',
+    'powershell', 'microsoft-windows-powershell',
+    'windows defender', 'microsoft-windows-windows defender',
+    'bits-client',
+    'terminalservices', 'microsoft-windows-terminalservices',
+}
+
+# Channels that are typically noise (routine operational logs)
+NOISE_CHANNELS = {
+    'cisco', 'anyconnect', 'vpn client',
+    'application', 'system',  # Generic Windows logs
+    'dns client', 'dhcp',
+    'wmi', 'com+',
 }
 
 # Limits
@@ -581,7 +601,7 @@ def process_triage_report(case_id):
                         
                         # INTELLIGENT MATCHING LOGIC:
                         # - 2+ IOCs matched = ALWAYS tag (high confidence)
-                        # - 1 IOC matched = only tag if security-relevant event type
+                        # - 1 IOC matched = only tag if security-relevant event type AND channel
                         should_tag = False
                         
                         if num_ioc_matches >= 2:
@@ -590,19 +610,43 @@ def process_triage_report(case_id):
                             multi_ioc_count += 1
                         else:
                             # Single IOC - check if it's a security-relevant event
+                            # Must check BOTH event ID AND channel/source
                             try:
                                 event_id_int = int(event_type) if event_type else None
-                                if event_id_int and event_id_int in SECURITY_EVENT_IDS:
+                                
+                                # Check if this is from a noise channel (Cisco VPN, etc.)
+                                is_noise_channel = any(noise in search_blob for noise in NOISE_CHANNELS)
+                                
+                                # Check if this is from a security channel
+                                is_security_channel = any(sec in search_blob for sec in SECURITY_CHANNELS)
+                                
+                                if is_noise_channel and not is_security_channel:
+                                    # Noise channel (Cisco VPN, generic Application/System) - skip
+                                    skipped_single_ioc += 1
+                                elif event_id_int and event_id_int in SECURITY_EVENT_IDS:
+                                    # Known security event ID (4xxx range, etc.)
                                     should_tag = True
+                                elif event_id_int and event_id_int in SYSMON_EVENT_IDS:
+                                    # Sysmon event ID (1-25) - only if from Sysmon channel
+                                    if 'sysmon' in search_blob:
+                                        should_tag = True
+                                    else:
+                                        skipped_single_ioc += 1
                                 elif event_type is None or event_type == '':
-                                    # No event ID (EDR/CSV) - tag if it matches IOC
-                                    # These are usually already security-relevant
-                                    should_tag = True
+                                    # No event ID (EDR/CSV) - check if security channel
+                                    if is_security_channel or not is_noise_channel:
+                                        should_tag = True
+                                    else:
+                                        skipped_single_ioc += 1
                                 else:
                                     skipped_single_ioc += 1
                             except (ValueError, TypeError):
-                                # Non-numeric event ID (EDR/CSV) - tag it
-                                should_tag = True
+                                # Non-numeric event ID (EDR/CSV) - tag if not noise
+                                is_noise_channel = any(noise in search_blob for noise in NOISE_CHANNELS)
+                                if not is_noise_channel:
+                                    should_tag = True
+                                else:
+                                    skipped_single_ioc += 1
                         
                         if not should_tag:
                             continue

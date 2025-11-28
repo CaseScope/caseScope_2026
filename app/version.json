@@ -1,5 +1,5 @@
 {
-  "version": "1.33.3",
+  "version": "1.33.4",
   "release_date": "2025-11-28",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2805,6 +2805,19 @@
     ]
   },
   "changelog": [
+    {
+      "version": "1.33.4",
+      "date": "2025-11-28",
+      "title": "Triage Report - Channel-Aware Filtering",
+      "changes": [
+        "CRITICAL FIX: Event IDs are not unique across log sources",
+        "Now checks log channel/source in addition to event ID",
+        "Sysmon Event ID 1 (process) vs Cisco VPN Event ID 1 (thread) now distinguished",
+        "NOISE_CHANNELS: cisco, anyconnect, vpn client, dns client, dhcp, wmi",
+        "SECURITY_CHANNELS: security, sysmon, powershell, defender, terminalservices",
+        "Single-IOC events from noise channels are skipped"
+      ]
+    },
     {
       "version": "1.33.3",
       "date": "2025-11-28",
