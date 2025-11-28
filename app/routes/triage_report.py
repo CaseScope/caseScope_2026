@@ -33,7 +33,8 @@ IOC_TYPE_MAP = {
     'domains': 'domain',
     'urls': 'url',
     'registry_keys': 'registry',
-    'commands': 'command'
+    'commands': 'command',
+    'hostnames': 'hostname'  # Hostnames also go to IOCs (in addition to Systems)
 }
 
 
@@ -114,6 +115,12 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     """
     Fallback: Extract IOCs using regex patterns.
     Used if LLM fails or is unavailable.
+    
+    v1.35.1: Improved patterns for better extraction:
+    - Multiple username patterns (user "X", user account "X", user 'X', etc.)
+    - Multiple hostname patterns (machine "X", endpoint X, Host name: X, etc.)
+    - Commands: only full command lines, not generic process names
+    - Processes: only with paths, not standalone names like "PowerShell"
     """
     iocs = {
         'usernames': [],
@@ -132,6 +139,7 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     # IP addresses (validated format)
     ip_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
     iocs['ips'] = list(set(re.findall(ip_pattern, summary_text)))
+    ip_set = set(iocs['ips'])
     
     # SHA256 hashes (64 hex chars)
     sha256_pattern = r'\b[a-fA-F0-9]{64}\b'
@@ -150,30 +158,145 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     sid_pattern = r'S-1-5-21-[\d-]+'
     iocs['sids'] = list(set(re.findall(sid_pattern, summary_text)))
     
-    # Process names (*.exe)
-    exe_pattern = r'\b[\w\-\.]+\.exe\b'
-    iocs['processes'] = list(set(re.findall(exe_pattern, summary_text, re.IGNORECASE)))
+    # === USERNAMES - Multiple patterns ===
+    usernames = set()
     
-    # Windows paths (require at least 2 path components)
+    # Pattern 1: user "username" or user 'username'
+    for match in re.findall(r'user\s*["\']([^"\']+)["\']', summary_text, re.IGNORECASE):
+        usernames.add(match)
+    
+    # Pattern 2: user account "username"
+    for match in re.findall(r'user\s+account\s*["\']([^"\']+)["\']', summary_text, re.IGNORECASE):
+        usernames.add(match)
+    
+    # Pattern 3: account "username"
+    for match in re.findall(r'account\s*["\']([^"\']+)["\']', summary_text, re.IGNORECASE):
+        usernames.add(match)
+    
+    # Pattern 4: user 'username' (single quotes)
+    for match in re.findall(r"user\s+'([^']+)'", summary_text, re.IGNORECASE):
+        usernames.add(match)
+    
+    # Pattern 5: username before SID - "username (SID:" or "username (S-1-5-"
+    for match in re.findall(r"['\"]?([a-zA-Z0-9_\-\.]+)['\"]?\s*\((?:SID:|S-1-5-)", summary_text):
+        if match and len(match) > 2:
+            usernames.add(match)
+    
+    # Pattern 6: compromised user 'username'
+    for match in re.findall(r"compromised\s+user\s*['\"]([^'\"]+)['\"]", summary_text, re.IGNORECASE):
+        usernames.add(match)
+    
+    # Filter out generic/noise usernames
+    noise_users = {'system', 'administrator', 'admin', 'user', 'guest', 'default'}
+    iocs['usernames'] = [u for u in usernames if u.lower() not in noise_users and len(u) > 1]
+    
+    # === HOSTNAMES - Multiple patterns ===
+    hostnames = set()
+    
+    # Common words that should NEVER be hostnames
+    NOT_HOSTNAMES = {
+        'the', 'and', 'from', 'with', 'this', 'that', 'was', 'has', 'been', 'have', 'had',
+        'are', 'were', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+        'can', 'for', 'but', 'not', 'you', 'all', 'can', 'her', 'his', 'its', 'our', 'out',
+        'own', 'she', 'who', 'how', 'now', 'old', 'see', 'way', 'who', 'did', 'get', 'got',
+        'him', 'let', 'put', 'say', 'too', 'use', 'via', 'name', 'host', 'user', 'file',
+        'system', 'server', 'client', 'machine', 'computer', 'endpoint', 'device', 'network',
+        'domain', 'local', 'remote', 'internal', 'external', 'unknown', 'none', 'null', 'test'
+    }
+    
+    def is_valid_hostname(h):
+        """Check if a string looks like a valid hostname"""
+        if not h or len(h) < 3:
+            return False
+        if h.lower() in NOT_HOSTNAMES:
+            return False
+        if h in ip_set or re.match(ip_pattern, h):
+            return False
+        # Must have at least one letter (not just numbers/symbols)
+        if not re.search(r'[a-zA-Z]', h):
+            return False
+        return True
+    
+    # Pattern 1: host "hostname" or host 'hostname' - extract just the hostname part
+    for match in re.findall(r'host\s*["\']([^"\']+)["\']', summary_text, re.IGNORECASE):
+        # Take only the first word (hostname), not trailing text
+        hostname_part = match.split()[0] if match.split() else match
+        if is_valid_hostname(hostname_part):
+            hostnames.add(hostname_part)
+    
+    # Pattern 2: machine "hostname" - extract just the hostname part
+    for match in re.findall(r'machine\s*["\']([^"\']+)["\']', summary_text, re.IGNORECASE):
+        hostname_part = match.split()[0].strip() if match.split() else match.strip()
+        if is_valid_hostname(hostname_part):
+            hostnames.add(hostname_part)
+    
+    # Pattern 3: Host name: HOSTNAME or hostname: HOSTNAME
+    for match in re.findall(r'[Hh]ost\s*name[:\s]+([A-Za-z0-9\-_]+)', summary_text):
+        if is_valid_hostname(match):
+            hostnames.add(match)
+    
+    # Pattern 4: endpoint HOSTNAME (common in EDR reports)
+    for match in re.findall(r'endpoint\s+([A-Za-z0-9\-_]+)', summary_text, re.IGNORECASE):
+        if is_valid_hostname(match):
+            hostnames.add(match)
+    
+    # Pattern 5: to the host HOSTNAME or from the host HOSTNAME
+    for match in re.findall(r'(?:to|from)\s+the\s+host\s+([A-Za-z0-9\-_]+)', summary_text, re.IGNORECASE):
+        if is_valid_hostname(match):
+            hostnames.add(match)
+    
+    # Pattern 6: (Host name: HOSTNAME) - parenthetical format
+    for match in re.findall(r'\(Host\s*name:\s*([A-Za-z0-9\-_]+)\)', summary_text, re.IGNORECASE):
+        if is_valid_hostname(match):
+            hostnames.add(match)
+    
+    iocs['hostnames'] = list(hostnames)
+    
+    # === PATHS - Windows paths with at least 2 components ===
     path_pattern = r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)+[^\s\\/:*?"<>|]*'
     raw_paths = list(set(re.findall(path_pattern, summary_text)))
-    # Filter paths that are too short
     iocs['paths'] = [p for p in raw_paths if len(p) >= 10]
     
-    # Usernames in quotes (common in reports)
-    username_pattern = r'user\s*["\']([^"\']+)["\']'
-    iocs['usernames'] = list(set(re.findall(username_pattern, summary_text, re.IGNORECASE)))
+    # === PROCESSES - Only with full paths (not standalone exe names) ===
+    # We want "C:\path\to\malware.exe" not just "powershell.exe"
+    processes = set()
     
-    # Timestamps (ISO format)
+    # Pattern 1: Full path to executable
+    for match in re.findall(r'([A-Za-z]:\\[^\s]+\.exe)', summary_text, re.IGNORECASE):
+        processes.add(match)
+    
+    # Pattern 2: Process with specific suspicious context (e.g., "executed malware.exe")
+    for match in re.findall(r'(?:executed|ran|launched|spawned)\s+([a-zA-Z0-9_\-]+\.exe)', summary_text, re.IGNORECASE):
+        # Only add if it's a suspicious process name
+        suspicious = ['svhost', 'svchost', 'csrss', 'lsass', 'rundll', 'regsvr', 'mshta', 'wscript', 'cscript']
+        if any(s in match.lower() for s in suspicious) or match.lower() not in ['powershell.exe', 'cmd.exe', 'explorer.exe']:
+            processes.add(match)
+    
+    iocs['processes'] = list(processes)
+    
+    # === COMMANDS - Full command lines only ===
+    commands = set()
+    
+    # Pattern 1: PowerShell with arguments (not just "PowerShell")
+    ps_commands = re.findall(r'powershell(?:\.exe)?\s+[\-/][^\n]{10,}', summary_text, re.IGNORECASE)
+    for cmd in ps_commands:
+        commands.add(cmd.strip())
+    
+    # Pattern 2: cmd.exe with /c or /k
+    cmd_commands = re.findall(r'cmd(?:\.exe)?\s+/[ck]\s+[^\n]{5,}', summary_text, re.IGNORECASE)
+    for cmd in cmd_commands:
+        commands.add(cmd.strip())
+    
+    # Pattern 3: Encoded commands (-enc, -encodedcommand)
+    enc_commands = re.findall(r'[\-/](?:enc|encodedcommand)\s+[A-Za-z0-9+/=]{20,}', summary_text, re.IGNORECASE)
+    for cmd in enc_commands:
+        commands.add(cmd.strip())
+    
+    iocs['commands'] = list(commands)
+    
+    # === TIMESTAMPS ===
     timestamp_pattern = r'\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}'
     iocs['timestamps'] = list(set(re.findall(timestamp_pattern, summary_text)))
-    
-    # Hostnames in quotes (NOT IPs)
-    hostname_pattern = r'host\s*["\']([^"\']+)["\']'
-    raw_hostnames = re.findall(hostname_pattern, summary_text, re.IGNORECASE)
-    # Filter out IPs from hostnames
-    ip_set = set(iocs['ips'])
-    iocs['hostnames'] = [h for h in set(raw_hostnames) if h not in ip_set and not re.match(ip_pattern, h)]
     
     logger.info(f"[TRIAGE] Regex extracted IOCs: {sum(len(v) for v in iocs.values())} total")
     return iocs
@@ -211,8 +334,8 @@ def extract_from_report(case_id):
         logger.info("[TRIAGE] LLM extraction empty, using regex fallback")
         iocs = extract_iocs_with_regex(report_text)
     
-    # Count total IOCs (excluding timestamps and hostnames which go to Systems)
-    ioc_count = sum(len(v) for k, v in iocs.items() if isinstance(v, list) and k not in ['timestamps', 'hostnames'])
+    # Count total IOCs (excluding timestamps - hostnames now go to BOTH IOCs and Systems)
+    ioc_count = sum(len(v) for k, v in iocs.items() if isinstance(v, list) and k not in ['timestamps'])
     hostname_count = len(iocs.get('hostnames', []))
     
     return jsonify({
