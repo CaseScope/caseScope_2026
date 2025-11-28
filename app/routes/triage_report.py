@@ -1,36 +1,21 @@
 #!/usr/bin/env python3
 """
-Triage Report Feature (v1.33.0, updated v1.34.0)
-=================================================
+Triage Report Feature (v1.35.0)
+================================
 Allows analysts to paste EDR/MDR investigative summaries (Huntress, CrowdStrike, etc.)
-and automatically:
-1. Extract IOCs from the summary text using LLM
-2. Score events using MITRE ATT&CK patterns for attack relevance
-3. Tag high-scoring events using existing tag system
-4. Add new IOCs if they don't exist
-5. Add new Systems if hostnames don't exist
+and automatically extract and add:
+1. IOCs (IPs, hashes, usernames, SIDs, paths, processes, domains, registry keys, commands)
+2. Systems (hostnames only - NOT IPs)
 
-INTELLIGENT SCORING STRATEGY (v1.34.0):
-- Uses MITRE ATT&CK indicators to detect attack-relevant events
-- Multi-IOC matches score higher than single-IOC
-- Security event types (logon, process, etc.) score higher
-- EDR/CSV/IIS files are scored by content, not event ID
-- Time-window: ±24 hours from report timestamps (if found)
-- Only events scoring above threshold are tagged
-
-This approach handles ALL file types (EVTX, EDR JSON, CSV, IIS) uniformly
-by focusing on CONTENT rather than event IDs.
-
-Uses streaming SSE for progress updates on large cases.
+Simple flow: Paste report → Extract → Add to database
+No event tagging or searching.
 """
 
 import json
 import logging
 import re
-import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Set, Tuple, Optional
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from typing import Dict, List
+from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
 logger = logging.getLogger(__name__)
@@ -50,158 +35,6 @@ IOC_TYPE_MAP = {
     'registry_keys': 'registry',
     'commands': 'command'
 }
-
-# =============================================================================
-# MITRE ATT&CK INDICATORS - Used to score event relevance
-# =============================================================================
-
-# Attack indicators that boost event score (from ai_search.py MITRE patterns)
-ATTACK_INDICATORS = {
-    # Execution
-    'powershell', 'pwsh', 'encodedcommand', '-enc', 'bypass', 'hidden',
-    'downloadstring', 'iex', 'invoke-expression', 'frombase64string',
-    'certutil', 'bitsadmin', 'mshta', 'regsvr32', 'rundll32',
-    'msiexec', 'installutil', 'cmstp', 'msbuild', 'wmic',
-    'cmd.exe', 'command', 'script', 'vbscript', 'jscript',
-    
-    # Persistence
-    'schtasks', '/create', 'at.exe', 'taskschd', 'scheduled task',
-    'sc create', 'sc config', 'new-service', 'binpath',
-    'run key', 'runonce', 'startup', 'userinit', 'shell',
-    
-    # Credential Access
-    'lsass', 'mimikatz', 'sekurlsa', 'procdump', 'comsvcs', 'minidump',
-    'sam', 'ntds', 'dcsync', 'credentials', 'password', 'hash',
-    'kerberoast', 'golden ticket', 'silver ticket',
-    
-    # Lateral Movement
-    'admin$', 'c$', 'ipc$', 'net use', 'psexec', 'smbexec', 'wmiexec',
-    'remote desktop', 'rdp', '3389', 'mstsc', 'termsrv',
-    'winrm', 'enter-pssession', 'invoke-command',
-    'pass the hash', 'pth', 'pass the ticket',
-    
-    # Defense Evasion
-    'disable', 'defender', 'firewall', 'antivirus', 'tamper',
-    'clear-eventlog', 'wevtutil', 'del /f', 'remove-item',
-    'hidden', 'attrib +h', 'alternate data stream',
-    
-    # Exfiltration
-    'exfil', 'upload', 'transfer', 'rclone', 'mega', 'dropbox',
-    'compress', 'archive', 'zip', 'rar', '7z', 'tar',
-    'ftp', 'sftp', 'scp', 'curl', 'wget',
-    
-    # Discovery
-    'whoami', 'net user', 'net group', 'net localgroup',
-    'nltest', 'dsquery', 'ldapsearch', 'adfind',
-    'ipconfig', 'netstat', 'systeminfo', 'tasklist',
-    'dir /s', 'tree', 'findstr',
-}
-
-# High-value processes that indicate attack activity
-SUSPICIOUS_PROCESSES = {
-    'powershell.exe', 'pwsh.exe', 'cmd.exe', 'wscript.exe', 'cscript.exe',
-    'mshta.exe', 'regsvr32.exe', 'rundll32.exe', 'certutil.exe',
-    'bitsadmin.exe', 'msiexec.exe', 'wmic.exe', 'net.exe', 'net1.exe',
-    'psexec.exe', 'psexesvc.exe', 'winrm.exe', 'schtasks.exe',
-    'at.exe', 'sc.exe', 'reg.exe', 'taskkill.exe',
-    'procdump.exe', 'mimikatz.exe', 'lazagne.exe',
-    'rclone.exe', 'winscp.exe', 'putty.exe', 'plink.exe',
-}
-
-# Noise patterns to reduce score
-NOISE_PATTERNS = [
-    'cisco secure client', 'anyconnect', 'cisco vpn',
-    'dns client events', 'dhcp client events',
-    'wmi activity', 'windows update',
-    'antimalware', 'defender scan',
-]
-
-# Security-relevant event IDs (for EVTX files)
-SECURITY_EVENT_IDS = {
-    4624, 4625, 4634, 4647, 4648, 4672, 4675,  # Logon
-    4688, 4689,  # Process
-    4697, 4698, 4699, 4700, 4701, 4702, 7045,  # Service/Task
-    4720, 4722, 4723, 4724, 4725, 4726, 4738, 4740, 4767,  # Account
-    4728, 4729, 4732, 4733, 4756, 4757,  # Group
-    4768, 4769, 4771, 4776,  # Kerberos
-    5140, 5145,  # File Share
-    1102, 104,  # Log cleared
-    4103, 4104,  # PowerShell
-    6272, 6273, 6274, 6275,  # NPS/VPN
-    1116, 1117, 1118, 1119,  # Defender
-    1149,  # RDP
-}
-
-# Sysmon event IDs
-SYSMON_EVENT_IDS = {1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25}
-
-# Limits
-MAX_TOTAL_EVENTS = 5000
-TIME_WINDOW_HOURS = 24
-MIN_SCORE_THRESHOLD = 2  # Minimum score to tag an event
-
-
-def score_event(search_blob: str, matching_iocs: List[str], event_id: Optional[int]) -> Tuple[int, List[str]]:
-    """
-    Score an event based on attack relevance.
-    
-    Returns:
-        (score, reasons) - Higher score = more relevant
-        
-    Scoring:
-        - Multi-IOC match: +3 per additional IOC
-        - Security event ID: +2
-        - Attack indicator match: +2 per indicator
-        - Suspicious process: +3
-        - Noise pattern: -5
-        - EDR/CSV (no event ID): +1 base (already security-focused)
-    """
-    score = 0
-    reasons = []
-    blob_lower = search_blob.lower()
-    
-    # Multi-IOC matching (most important signal)
-    num_iocs = len(set(matching_iocs))
-    if num_iocs >= 2:
-        score += 3 * (num_iocs - 1)  # +3 for each IOC beyond the first
-        reasons.append(f"{num_iocs} IOCs matched")
-    
-    # Security event ID
-    if event_id and event_id in SECURITY_EVENT_IDS:
-        score += 2
-        reasons.append(f"Security event {event_id}")
-    elif event_id and event_id in SYSMON_EVENT_IDS and 'sysmon' in blob_lower:
-        score += 2
-        reasons.append(f"Sysmon event {event_id}")
-    elif event_id is None:
-        # EDR/CSV data - give base score since it's pre-filtered
-        score += 1
-        reasons.append("EDR/CSV data")
-    
-    # Attack indicators (MITRE patterns)
-    indicators_found = []
-    for indicator in ATTACK_INDICATORS:
-        if indicator in blob_lower:
-            indicators_found.append(indicator)
-    if indicators_found:
-        score += min(len(indicators_found) * 2, 6)  # Cap at +6
-        reasons.append(f"Attack indicators: {', '.join(indicators_found[:3])}")
-    
-    # Suspicious processes
-    for proc in SUSPICIOUS_PROCESSES:
-        if proc in blob_lower:
-            score += 3
-            reasons.append(f"Suspicious process: {proc}")
-            break  # Only count once
-    
-    # Noise penalty
-    for noise in NOISE_PATTERNS:
-        if noise in blob_lower:
-            score -= 5
-            reasons.append(f"Noise: {noise}")
-            break
-    
-    return max(0, score), reasons
 
 
 def extract_iocs_with_llm(summary_text: str) -> Dict:
@@ -236,54 +69,45 @@ Return ONLY valid JSON with these fields (use empty arrays if none found):
     "commands": ["powershell -enc ..."]
 }}
 
-IMPORTANT:
-- Extract EXACT values from the text, don't modify them
+IMPORTANT RULES:
+- Extract EXACT values from the text
+- IP addresses go in "ips" NOT "hostnames"
+- Hostnames are computer names like "SERVER01", "WORKSTATION", "DC1"
 - Include ALL usernames mentioned (e.g., "tabadmin")
-- Include ALL IP addresses (e.g., "192.168.1.150")
+- Include ALL IP addresses
 - Include ALL process names (e.g., "WinSCP.exe", "svhost.exe")
-- Include ALL file paths (e.g., "C:\\ProgramData\\USOShared\\")
-- Include ALL hashes (SHA256, MD5, SHA1)
-- Include ALL hostnames/computer names
-- Include ALL SIDs (Security Identifiers starting with S-1-5-)
-- Return ONLY the JSON, no explanation
+- Include ALL file paths mentioned
+- Include ALL SHA256/MD5/SHA1 hashes
+- Only return the JSON, no explanations
 
-Report:
+Report text:
 {summary_text}
 """
     
     try:
         response = requests.post(
             f"{host}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.1}  # Low temp for consistent extraction
-            },
+            json={"model": model, "prompt": prompt, "stream": False},
             timeout=60
         )
         
         if response.status_code == 200:
-            result = response.json()
-            response_text = result.get('response', '{}')
+            result = response.json().get('response', '')
             
-            # Try to extract JSON from response
-            # Sometimes LLM wraps it in markdown code blocks
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            # Try to parse JSON from response
+            json_match = re.search(r'\{[\s\S]*\}', result)
             if json_match:
-                extracted = json.loads(json_match.group())
-                logger.info(f"[TRIAGE] LLM extracted IOCs: {sum(len(v) for v in extracted.values() if isinstance(v, list))} total")
-                return extracted
-            else:
-                logger.warning(f"[TRIAGE] Could not parse LLM response as JSON")
-                return {}
-        else:
-            logger.error(f"[TRIAGE] Ollama error: {response.status_code}")
-            return {}
-            
+                try:
+                    iocs = json.loads(json_match.group())
+                    logger.info(f"[TRIAGE] LLM extracted IOCs: {sum(len(v) for v in iocs.values() if isinstance(v, list))} total")
+                    return iocs
+                except json.JSONDecodeError:
+                    logger.warning("[TRIAGE] LLM returned invalid JSON, falling back to regex")
+        
     except Exception as e:
-        logger.error(f"[TRIAGE] LLM extraction failed: {e}")
-        return {}
+        logger.warning(f"[TRIAGE] LLM extraction failed: {e}, falling back to regex")
+    
+    return {}
 
 
 def extract_iocs_with_regex(summary_text: str) -> Dict:
@@ -305,19 +129,19 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
         'commands': []
     }
     
-    # IP addresses
+    # IP addresses (validated format)
     ip_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
     iocs['ips'] = list(set(re.findall(ip_pattern, summary_text)))
     
-    # SHA256 hashes
+    # SHA256 hashes (64 hex chars)
     sha256_pattern = r'\b[a-fA-F0-9]{64}\b'
     iocs['hashes'].extend(re.findall(sha256_pattern, summary_text))
     
-    # MD5 hashes
+    # MD5 hashes (32 hex chars)
     md5_pattern = r'\b[a-fA-F0-9]{32}\b'
     iocs['hashes'].extend(re.findall(md5_pattern, summary_text))
     
-    # SHA1 hashes
+    # SHA1 hashes (40 hex chars)
     sha1_pattern = r'\b[a-fA-F0-9]{40}\b'
     iocs['hashes'].extend(re.findall(sha1_pattern, summary_text))
     iocs['hashes'] = list(set(iocs['hashes']))
@@ -330,9 +154,11 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     exe_pattern = r'\b[\w\-\.]+\.exe\b'
     iocs['processes'] = list(set(re.findall(exe_pattern, summary_text, re.IGNORECASE)))
     
-    # Windows paths
-    path_pattern = r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)*[^\s\\/:*?"<>|]*'
-    iocs['paths'] = list(set(re.findall(path_pattern, summary_text)))
+    # Windows paths (require at least 2 path components)
+    path_pattern = r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)+[^\s\\/:*?"<>|]*'
+    raw_paths = list(set(re.findall(path_pattern, summary_text)))
+    # Filter paths that are too short
+    iocs['paths'] = [p for p in raw_paths if len(p) >= 10]
     
     # Usernames in quotes (common in reports)
     username_pattern = r'user\s*["\']([^"\']+)["\']'
@@ -342,108 +168,23 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     timestamp_pattern = r'\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}'
     iocs['timestamps'] = list(set(re.findall(timestamp_pattern, summary_text)))
     
-    # Hostnames in quotes
+    # Hostnames in quotes (NOT IPs)
     hostname_pattern = r'host\s*["\']([^"\']+)["\']'
-    iocs['hostnames'].extend(re.findall(hostname_pattern, summary_text, re.IGNORECASE))
-    iocs['hostnames'] = list(set(iocs['hostnames']))
+    raw_hostnames = re.findall(hostname_pattern, summary_text, re.IGNORECASE)
+    # Filter out IPs from hostnames
+    ip_set = set(iocs['ips'])
+    iocs['hostnames'] = [h for h in set(raw_hostnames) if h not in ip_set and not re.match(ip_pattern, h)]
     
     logger.info(f"[TRIAGE] Regex extracted IOCs: {sum(len(v) for v in iocs.values())} total")
     return iocs
-
-
-def parse_timestamps_from_iocs(iocs: Dict) -> Tuple[Optional[datetime], Optional[datetime]]:
-    """
-    Parse timestamps from extracted IOCs to create time window.
-    Returns (earliest, latest) datetime tuple.
-    """
-    timestamps = iocs.get('timestamps', [])
-    if not timestamps:
-        return None, None
-    
-    parsed = []
-    for ts in timestamps:
-        try:
-            # Try various formats
-            for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%d %H:%M:%S.%f']:
-                try:
-                    parsed.append(datetime.strptime(ts[:19], fmt[:len(ts)]))
-                    break
-                except:
-                    continue
-        except:
-            continue
-    
-    if not parsed:
-        return None, None
-    
-    earliest = min(parsed) - timedelta(hours=TIME_WINDOW_HOURS)
-    latest = max(parsed) + timedelta(hours=TIME_WINDOW_HOURS)
-    
-    return earliest, latest
-
-
-def build_opensearch_query(iocs: Dict, time_start: datetime = None, time_end: datetime = None) -> Dict:
-    """
-    Build OpenSearch query to find events matching extracted IOCs.
-    
-    v1.33.2: NO event type filtering - EDR/IIS/CSV files don't have standard event IDs.
-    We search the search_blob field which contains ALL event data regardless of source.
-    
-    Filtering:
-    - Time window (if timestamps extracted) - ±24 hours
-    - IOC matching via search_blob (works for ALL file types)
-    """
-    should_clauses = []
-    
-    # Build match_phrase queries for each IOC
-    all_values = []
-    
-    for ioc_type, values in iocs.items():
-        if not values or not isinstance(values, list):
-            continue
-        if ioc_type == 'timestamps':  # Don't search for timestamps as IOCs
-            continue
-        for value in values:
-            if not value or len(value) < 2:  # Skip very short values
-                continue
-            all_values.append(value)
-            # Use match_phrase for exact substring matching in search_blob
-            # This works for ALL file types: EVTX, EDR JSON, IIS logs, CSV, etc.
-            should_clauses.append({
-                "match_phrase": {"search_blob": str(value)}
-            })
-    
-    if not should_clauses:
-        return None
-    
-    # Build the query
-    query = {
-        "bool": {
-            "should": should_clauses,
-            "minimum_should_match": 1
-        }
-    }
-    
-    # Add time window filter if we have timestamps (±24 hours)
-    if time_start and time_end:
-        query["bool"]["filter"] = [{
-            "range": {
-                "normalized_timestamp": {
-                    "gte": time_start.isoformat(),
-                    "lte": time_end.isoformat()
-                }
-            }
-        }]
-    
-    return query
 
 
 @triage_report_bp.route('/case/<int:case_id>/triage-report/extract', methods=['POST'])
 @login_required
 def extract_from_report(case_id):
     """
-    Extract IOCs from pasted report text.
-    Returns extracted IOCs for preview before processing.
+    Extract IOCs and hostnames from pasted report text.
+    Returns extracted items for preview before processing.
     """
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot use triage'}), 403
@@ -470,13 +211,15 @@ def extract_from_report(case_id):
         logger.info("[TRIAGE] LLM extraction empty, using regex fallback")
         iocs = extract_iocs_with_regex(report_text)
     
-    # Count total IOCs
-    total_iocs = sum(len(v) for v in iocs.values() if isinstance(v, list))
+    # Count total IOCs (excluding timestamps and hostnames which go to Systems)
+    ioc_count = sum(len(v) for k, v in iocs.items() if isinstance(v, list) and k not in ['timestamps', 'hostnames'])
+    hostname_count = len(iocs.get('hostnames', []))
     
     return jsonify({
         'success': True,
         'iocs': iocs,
-        'total_count': total_iocs
+        'ioc_count': ioc_count,
+        'hostname_count': hostname_count
     })
 
 
@@ -484,14 +227,13 @@ def extract_from_report(case_id):
 @login_required
 def process_triage_report(case_id):
     """
-    Process triage report: search events, tag matches, add IOCs/systems.
-    Uses SSE streaming for progress updates.
+    Process triage report: add IOCs and systems to database.
     """
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot use triage'}), 403
     
-    from main import db, opensearch_client
-    from models import Case, IOC, System, TimelineTag
+    from main import db
+    from models import Case, IOC, System
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -501,334 +243,99 @@ def process_triage_report(case_id):
     if not report_text:
         return jsonify({'success': False, 'error': 'Report text is required'}), 400
     
-    def generate():
-        """Generator for SSE streaming progress updates."""
-        try:
-            # Step 1: Extract IOCs
-            yield f"data: {json.dumps({'stage': 'extracting', 'message': 'Extracting IOCs from report...'})}\n\n"
+    # Extract IOCs
+    iocs = extract_iocs_with_llm(report_text)
+    if not any(iocs.get(k) for k in iocs):
+        iocs = extract_iocs_with_regex(report_text)
+    
+    # Add IOCs to database
+    iocs_added = 0
+    iocs_skipped = 0
+    
+    for ioc_type_key, values in iocs.items():
+        if not values or ioc_type_key not in IOC_TYPE_MAP:
+            continue
             
-            iocs = extract_iocs_with_llm(report_text)
-            if not any(iocs.get(k) for k in iocs):
-                iocs = extract_iocs_with_regex(report_text)
+        db_ioc_type = IOC_TYPE_MAP[ioc_type_key]
+        
+        for value in values:
+            if not value or len(value) < 2:
+                continue
             
-            total_iocs = sum(len(v) for v in iocs.values() if isinstance(v, list))
-            yield f"data: {json.dumps({'stage': 'extracted', 'message': f'Found {total_iocs} IOCs', 'iocs': iocs})}\n\n"
+            # Check if IOC exists
+            existing = IOC.query.filter_by(
+                case_id=case_id,
+                ioc_type=db_ioc_type,
+                ioc_value=value
+            ).first()
             
-            if total_iocs == 0:
-                yield f"data: {json.dumps({'stage': 'complete', 'message': 'No IOCs found in report', 'tagged': 0, 'iocs_added': 0, 'systems_added': 0})}\n\n"
-                return
+            if existing:
+                iocs_skipped += 1
+                continue
             
-            # Step 2: Add IOCs to database (if not exists)
-            yield f"data: {json.dumps({'stage': 'adding_iocs', 'message': 'Adding new IOCs...'})}\n\n"
-            
-            iocs_added = 0
-            for ioc_type_key, values in iocs.items():
-                if not values or ioc_type_key not in IOC_TYPE_MAP:
-                    continue
-                    
-                db_ioc_type = IOC_TYPE_MAP[ioc_type_key]
+            try:
+                # SIDs start disabled (generate too many hits initially)
+                is_active = False if db_ioc_type == 'user_sid' else True
                 
-                for value in values:
-                    if not value or len(value) < 2:
-                        continue
-                    
-                    # Check if IOC exists
-                    existing = IOC.query.filter_by(
-                        case_id=case_id,
-                        ioc_type=db_ioc_type,
-                        ioc_value=value
-                    ).first()
-                    
-                    if not existing:
-                        try:
-                            new_ioc = IOC(
-                                case_id=case_id,
-                                ioc_type=db_ioc_type,
-                                ioc_value=value,
-                                description=f"Auto-extracted from triage report",
-                                threat_level='medium',
-                                created_by=current_user.id,
-                                is_active=True
-                            )
-                            db.session.add(new_ioc)
-                            iocs_added += 1
-                        except Exception as e:
-                            logger.warning(f"[TRIAGE] Failed to add IOC {value}: {e}")
-            
-            db.session.commit()
-            yield f"data: {json.dumps({'stage': 'iocs_added', 'message': f'Added {iocs_added} new IOCs', 'iocs_added': iocs_added})}\n\n"
-            
-            # Step 3: Add Systems (hostnames) if not exists
-            yield f"data: {json.dumps({'stage': 'adding_systems', 'message': 'Adding new systems...'})}\n\n"
-            
-            systems_added = 0
-            hostnames = iocs.get('hostnames', [])
-            for hostname in hostnames:
-                if not hostname or len(hostname) < 2:
-                    continue
-                
-                # Check if system exists
-                existing = System.query.filter_by(
+                new_ioc = IOC(
                     case_id=case_id,
-                    system_name=hostname
-                ).first()
-                
-                if not existing:
-                    try:
-                        new_system = System(
-                            case_id=case_id,
-                            system_name=hostname,
-                            system_type='workstation',  # Default
-                            added_by=current_user.username,
-                            hidden=False
-                        )
-                        db.session.add(new_system)
-                        systems_added += 1
-                    except Exception as e:
-                        logger.warning(f"[TRIAGE] Failed to add system {hostname}: {e}")
-            
-            db.session.commit()
-            yield f"data: {json.dumps({'stage': 'systems_added', 'message': f'Added {systems_added} new systems', 'systems_added': systems_added})}\n\n"
-            
-            # Step 4: Search events matching IOCs
-            yield f"data: {json.dumps({'stage': 'searching', 'message': 'Searching events matching IOCs...'})}\n\n"
-            
-            # Parse timestamps for time window (±24 hours)
-            time_start, time_end = parse_timestamps_from_iocs(iocs)
-            time_filter_msg = ""
-            if time_start and time_end:
-                time_filter_msg = f" (±24h window: {time_start.strftime('%Y-%m-%d %H:%M')} to {time_end.strftime('%Y-%m-%d %H:%M')})"
-                yield f"data: {json.dumps({'stage': 'searching', 'message': f'Using time window ±{TIME_WINDOW_HOURS}h from report timestamps'})}\n\n"
-            else:
-                yield f"data: {json.dumps({'stage': 'searching', 'message': 'No timestamps found - will require 2+ IOC matches or security events'})}\n\n"
-            
-            # Build query (searches search_blob - works for ALL file types including EDR/IIS/CSV)
-            query_body = build_opensearch_query(iocs, time_start, time_end)
-            if not query_body:
-                yield f"data: {json.dumps({'stage': 'complete', 'message': 'No searchable IOCs', 'tagged': 0, 'iocs_added': iocs_added, 'systems_added': systems_added})}\n\n"
-                return
-            
-            index_name = f"case_{case_id}"
-            
-            # Get total count (raw matches before intelligent filtering)
-            try:
-                count_result = opensearch_client.count(index=index_name, body={"query": query_body})
-                total_matches = count_result.get('count', 0)
-            except Exception as e:
-                logger.error(f"[TRIAGE] Count query failed: {e}")
-                total_matches = 0
-            
-            yield f"data: {json.dumps({'stage': 'found_matches', 'message': f'Found {total_matches} raw matches{time_filter_msg} - applying intelligent filtering...', 'total_matches': total_matches})}\n\n"
-            
-            if total_matches == 0:
-                yield f"data: {json.dumps({'stage': 'complete', 'message': 'No matching events found', 'tagged': 0, 'iocs_added': iocs_added, 'systems_added': systems_added})}\n\n"
-                return
-            
-            # Explain intelligent matching
-            yield f"data: {json.dumps({'stage': 'filtering', 'message': 'Intelligent matching: 2+ IOCs = always tag, 1 IOC = only security events'})}\n\n"
-            
-            # Build list of IOC values for matching
-            ioc_values = []
-            for ioc_type, values in iocs.items():
-                if ioc_type == 'timestamps' or not values:
-                    continue
-                for value in values:
-                    if value and len(value) >= 2:
-                        ioc_values.append(value.lower())
-            
-            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Analyzing events for {len(ioc_values)} IOCs...', 'processed': 0, 'total': min(total_matches, 50000)})}\n\n"
-            
-            tagged_count = 0
-            skipped_count = 0
-            skipped_low_score = 0
-            processed_count = 0
-            high_score_count = 0
-            batch_size = 1000
-            
-            # Get existing tags for this case
-            existing_tags = {tag.event_id for tag in TimelineTag.query.filter_by(case_id=case_id).all()}
-            
-            # Track IOC match counts and score distribution
-            ioc_match_counts = {}
-            score_distribution = {'0-1': 0, '2-3': 0, '4-5': 0, '6+': 0}
-            
-            try:
-                # Use scroll API to handle large result sets
-                scroll_response = opensearch_client.search(
-                    index=index_name,
-                    body={
-                        "query": query_body,
-                        "_source": ["search_blob", "normalized_event_id"],
-                        "size": batch_size,
-                        "sort": [{"normalized_timestamp": {"order": "desc"}}]
-                    },
-                    scroll='5m'
+                    ioc_type=db_ioc_type,
+                    ioc_value=value,
+                    description=f"Auto-extracted from triage report",
+                    threat_level='medium',
+                    created_by=current_user.id,
+                    is_active=is_active
                 )
-                
-                scroll_id = scroll_response.get('_scroll_id')
-                hits = scroll_response.get('hits', {}).get('hits', [])
-                
-                while hits and tagged_count < MAX_TOTAL_EVENTS:
-                    for hit in hits:
-                        if tagged_count >= MAX_TOTAL_EVENTS:
-                            break
-                            
-                        event_id = hit['_id']
-                        processed_count += 1
-                        
-                        # Skip if already tagged
-                        if event_id in existing_tags:
-                            skipped_count += 1
-                            continue
-                        
-                        # Get event data
-                        source = hit.get('_source', {})
-                        search_blob = source.get('search_blob', '')
-                        event_type = source.get('normalized_event_id')
-                        
-                        # Count which IOCs match this event
-                        matching_iocs = []
-                        blob_lower = search_blob.lower()
-                        for value in ioc_values:
-                            if value in blob_lower:
-                                matching_iocs.append(value)
-                        
-                        if not matching_iocs:
-                            continue
-                        
-                        # Parse event ID
-                        try:
-                            event_id_int = int(event_type) if event_type else None
-                        except (ValueError, TypeError):
-                            event_id_int = None
-                        
-                        # SCORE-BASED MATCHING using MITRE patterns
-                        score, reasons = score_event(search_blob, matching_iocs, event_id_int)
-                        
-                        # Track score distribution
-                        if score <= 1:
-                            score_distribution['0-1'] += 1
-                        elif score <= 3:
-                            score_distribution['2-3'] += 1
-                        elif score <= 5:
-                            score_distribution['4-5'] += 1
-                        else:
-                            score_distribution['6+'] += 1
-                        
-                        # Only tag if score meets threshold
-                        if score < MIN_SCORE_THRESHOLD:
-                            skipped_low_score += 1
-                            continue
-                        
-                        if score >= 4:
-                            high_score_count += 1
-                        
-                        # Tag the event
-                        try:
-                            tag = TimelineTag(
-                                case_id=case_id,
-                                event_id=event_id,
-                                index_name=index_name,
-                                user_id=current_user.id
-                            )
-                            db.session.add(tag)
-                            existing_tags.add(event_id)
-                            tagged_count += 1
-                            
-                            # Update IOC counts for summary
-                            for ioc_val in set(matching_iocs):
-                                ioc_match_counts[ioc_val] = ioc_match_counts.get(ioc_val, 0) + 1
-                                
-                        except Exception as e:
-                            logger.warning(f"[TRIAGE] Failed to tag event {event_id}: {e}")
-                        
-                        # Commit and update progress every 100 events
-                        if tagged_count % 100 == 0:
-                            db.session.commit()
-                            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Tagged {tagged_count} events ({high_score_count} high-score)...', 'processed': processed_count, 'total': min(total_matches, 50000), 'tagged': tagged_count})}\n\n"
-                    
-                    # Get next batch (process up to 50K events to find relevant ones)
-                    if tagged_count < MAX_TOTAL_EVENTS and processed_count < 50000:
-                        scroll_response = opensearch_client.scroll(scroll_id=scroll_id, scroll='5m')
-                        hits = scroll_response.get('hits', {}).get('hits', [])
-                    else:
-                        break
-                
-                # Final commit
-                db.session.commit()
-                
-                # Clear scroll
-                try:
-                    opensearch_client.clear_scroll(scroll_id=scroll_id)
-                except:
-                    pass
-                    
+                db.session.add(new_ioc)
+                iocs_added += 1
             except Exception as e:
-                logger.error(f"[TRIAGE] Search failed: {e}")
-                yield f"data: {json.dumps({'stage': 'error', 'message': f'Search error: {str(e)}'})}\n\n"
-                return
-            
-            # Build summary of top IOCs that matched
-            ioc_summary = ", ".join([f"{k}: {v}" for k, v in sorted(ioc_match_counts.items(), key=lambda x: -x[1])[:5]])
-            
-            # Score distribution summary
-            score_summary = f"Scores: 0-1={score_distribution['0-1']}, 2-3={score_distribution['2-3']}, 4-5={score_distribution['4-5']}, 6+={score_distribution['6+']}"
-            
-            # Final summary with MITRE-based scoring stats
-            filter_msg = f"Tagged {tagged_count} attack-relevant events (score>={MIN_SCORE_THRESHOLD})"
-            if high_score_count > 0:
-                filter_msg += f", {high_score_count} high-confidence (score>=4)"
-            if skipped_low_score > 0:
-                filter_msg += f". Skipped {skipped_low_score} low-relevance events."
-            
-            yield f"data: {json.dumps({'stage': 'complete', 'message': filter_msg, 'tagged': tagged_count, 'skipped': skipped_count, 'skipped_low_score': skipped_low_score, 'high_score_count': high_score_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': total_matches, 'ioc_summary': ioc_summary, 'score_summary': score_summary})}\n\n"
-            
-            # Audit log
-            from audit_logger import log_action
-            log_action('triage_report', resource_type='case', resource_id=case_id,
-                      resource_name=case.name,
-                      details={
-                          'events_tagged': tagged_count,
-                          'events_skipped': skipped_count,
-                          'iocs_added': iocs_added,
-                          'systems_added': systems_added,
-                          'total_iocs_extracted': total_iocs
-                      })
-            
-            logger.info(f"[TRIAGE] Case {case_id}: Tagged {tagged_count} events, added {iocs_added} IOCs, {systems_added} systems")
-            
+                logger.warning(f"[TRIAGE] Failed to add IOC {value}: {e}")
+    
+    # Add Systems (hostnames only - NOT IPs)
+    systems_added = 0
+    systems_skipped = 0
+    hostnames = iocs.get('hostnames', [])
+    
+    for hostname in hostnames:
+        if not hostname or len(hostname) < 2:
+            continue
+        
+        # Double-check it's not an IP
+        if re.match(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', hostname):
+            continue
+        
+        # Check if system exists
+        existing = System.query.filter_by(
+            case_id=case_id,
+            system_name=hostname
+        ).first()
+        
+        if existing:
+            systems_skipped += 1
+            continue
+        
+        try:
+            new_system = System(
+                case_id=case_id,
+                system_name=hostname,
+                system_type='workstation',  # Default
+                added_by=current_user.username,
+                hidden=False
+            )
+            db.session.add(new_system)
+            systems_added += 1
         except Exception as e:
-            logger.error(f"[TRIAGE] Processing failed: {e}")
-            yield f"data: {json.dumps({'stage': 'error', 'message': f'Error: {str(e)}'})}\n\n"
+            logger.warning(f"[TRIAGE] Failed to add system {hostname}: {e}")
     
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
-    )
-
-
-@triage_report_bp.route('/case/<int:case_id>/triage-report/status', methods=['GET'])
-@login_required
-def triage_status(case_id):
-    """Check if triage feature is available (Ollama running)."""
-    import requests
-    from models import SystemSettings
+    db.session.commit()
     
-    ollama_host = SystemSettings.query.filter_by(setting_key='ollama_host').first()
-    host = ollama_host.setting_value if ollama_host else 'http://localhost:11434'
-    
-    try:
-        response = requests.get(f"{host}/api/tags", timeout=5)
-        available = response.status_code == 200
-    except:
-        available = False
+    logger.info(f"[TRIAGE] Case {case_id}: Added {iocs_added} IOCs (skipped {iocs_skipped}), {systems_added} systems (skipped {systems_skipped})")
     
     return jsonify({
-        'available': available,
-        'message': 'Triage feature ready' if available else 'Ollama not available (will use regex extraction)'
+        'success': True,
+        'iocs_added': iocs_added,
+        'iocs_skipped': iocs_skipped,
+        'systems_added': systems_added,
+        'systems_skipped': systems_skipped
     })
 
