@@ -1,5 +1,5 @@
 {
-  "version": "1.33.0",
+  "version": "1.33.1",
   "release_date": "2025-11-28",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2805,6 +2805,20 @@
     ]
   },
   "changelog": [
+    {
+      "version": "1.33.1",
+      "date": "2025-11-28",
+      "title": "Triage Report Intelligent Filtering",
+      "changes": [
+        "CRITICAL: Added intelligent filtering to prevent over-tagging",
+        "Only security-relevant event types tagged (logon, process, network, etc.)",
+        "Time-window filtering: ±2 hours from report timestamps",
+        "Per-IOC limit: Max 100 events per IOC",
+        "Total limit: Max 500 events per triage operation",
+        "Fallback to broader search if filtered query returns <5 events",
+        "UI shows filtering info before processing"
+      ]
+    },
     {
       "version": "1.33.0",
       "date": "2025-11-28",

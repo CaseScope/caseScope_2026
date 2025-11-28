@@ -451,12 +451,18 @@
         <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
             <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
                 Paste an investigative summary from your EDR/MDR (Huntress, CrowdStrike, SentinelOne, etc.). 
-                The system will extract IOCs, search ALL events, and auto-tag matches.
+                The system will extract IOCs, search events, and auto-tag matches.
             </p>
+            
+            <!-- Filtering Info -->
+            <div style="background: rgba(240, 147, 251, 0.1); border: 1px solid rgba(240, 147, 251, 0.3); border-radius: var(--border-radius); padding: var(--spacing-sm) var(--spacing-md); margin-bottom: var(--spacing-md); font-size: 0.875rem;">
+                <strong>🎯 Intelligent Filtering:</strong> Only security-relevant events (logon, process, network, etc.) will be tagged. 
+                If timestamps are found, only events within ±2 hours are included. Max 500 events, 100 per IOC.
+            </div>
             
             <div style="margin-bottom: var(--spacing-md);">
                 <label class="form-label">Investigative Summary</label>
-                <textarea id="triageReportInput" class="form-input" rows="10" placeholder="Paste your EDR/MDR investigative summary here...
+                <textarea id="triageReportInput" class="form-input" rows="8" placeholder="Paste your EDR/MDR investigative summary here...
 
 Example:
 At 2025-09-05 06:40:02 UTC, Huntress observed user 'tabadmin' executing a malicious process WinSCP.exe which is being used to exfiltrate data. This process is being run out of the 'C:\ProgramData\USOShared\' directory.
