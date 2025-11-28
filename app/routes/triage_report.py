@@ -613,7 +613,7 @@ def process_triage_report(case_id):
                             multi_ioc_count += 1
                         else:
                             # Single IOC - check if it's a security-relevant event
-                            # Must check BOTH event ID AND channel/source
+                            # Strategy: Only skip known noise, tag everything else
                             try:
                                 event_id_int = int(event_type) if event_type else None
                                 
@@ -624,25 +624,26 @@ def process_triage_report(case_id):
                                     # Definitely noise (Cisco VPN debug, etc.) - skip
                                     skipped_single_ioc += 1
                                 elif event_id_int and event_id_int in SECURITY_EVENT_IDS:
-                                    # Known security event ID (4xxx range, etc.) - always tag
+                                    # Known security event ID - always tag
                                     should_tag = True
                                 elif event_id_int and event_id_int in SYSMON_EVENT_IDS:
-                                    # Sysmon event ID (1-25) - only if from Sysmon channel
+                                    # Low event ID (1-25) - only tag if Sysmon
                                     if 'sysmon' in search_blob:
                                         should_tag = True
                                     else:
-                                        # Low event ID but not Sysmon - could be noise, skip
                                         skipped_single_ioc += 1
+                                elif event_id_int and event_id_int >= 100:
+                                    # High event ID (>=100) not in our list - probably still relevant
+                                    # Most noise is low IDs from various sources
+                                    should_tag = True
                                 elif event_type is None or event_type == '':
-                                    # No event ID = EDR/JSON/CSV data - ALWAYS tag these
-                                    # EDR data is pre-filtered security data
+                                    # No event ID = EDR/JSON/CSV - always tag
                                     should_tag = True
                                 else:
-                                    # Unknown event ID - tag it (might be important)
-                                    should_tag = True
+                                    # Low unknown event ID (1-99) - skip unless Sysmon
+                                    skipped_single_ioc += 1
                             except (ValueError, TypeError):
-                                # Non-numeric event ID (EDR/CSV) - ALWAYS tag
-                                # EDR data uses string identifiers and is security-relevant
+                                # Non-numeric event ID (EDR/CSV) - always tag
                                 should_tag = True
                         
                         if not should_tag:
