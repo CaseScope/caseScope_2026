@@ -1,5 +1,5 @@
 {
-  "version": "1.33.1",
+  "version": "1.33.2",
   "release_date": "2025-11-28",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2805,6 +2805,19 @@
     ]
   },
   "changelog": [
+    {
+      "version": "1.33.2",
+      "date": "2025-11-28",
+      "title": "Triage Report - Forensic-Safe Filtering",
+      "changes": [
+        "Time window extended to ±24 hours (was ±2 hours)",
+        "REMOVED per-IOC limits - all forensic events are tagged",
+        "REMOVED event type filtering - works with EDR/IIS/CSV files",
+        "Total limit increased to 5,000 events (typical investigations find 300-5K)",
+        "Uses scroll API for large result sets",
+        "Searches search_blob field which contains ALL event data"
+      ]
+    },
     {
       "version": "1.33.1",
       "date": "2025-11-28",
