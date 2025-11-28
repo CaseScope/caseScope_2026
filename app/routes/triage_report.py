@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Triage Report Feature (v1.33.0, updated v1.33.3)
+Triage Report Feature (v1.33.0, updated v1.34.0)
 =================================================
 Allows analysts to paste EDR/MDR investigative summaries (Huntress, CrowdStrike, etc.)
 and automatically:
 1. Extract IOCs from the summary text using LLM
-2. Search events with INTELLIGENT MATCHING to find forensically relevant events
-3. Tag matching events using existing tag system
+2. Score events using MITRE ATT&CK patterns for attack relevance
+3. Tag high-scoring events using existing tag system
 4. Add new IOCs if they don't exist
 5. Add new Systems if hostnames don't exist
 
-INTELLIGENT MATCHING STRATEGY (v1.33.3):
-- Multi-IOC priority: Events matching 2+ IOCs are ALWAYS tagged (high confidence)
-- Single-IOC events: Only tagged if they're security-relevant event types
+INTELLIGENT SCORING STRATEGY (v1.34.0):
+- Uses MITRE ATT&CK indicators to detect attack-relevant events
+- Multi-IOC matches score higher than single-IOC
+- Security event types (logon, process, etc.) score higher
+- EDR/CSV/IIS files are scored by content, not event ID
 - Time-window: ±24 hours from report timestamps (if found)
-- Security event types: Logon, process, network, PowerShell, scheduled tasks, etc.
-- Total limit: Max 5000 events
+- Only events scoring above threshold are tagged
 
-The key insight: An event matching MULTIPLE IOCs from the report (e.g., both the
-username AND the IP address) is almost certainly relevant. Single-IOC matches
-need additional filtering to avoid tagging routine events.
+This approach handles ALL file types (EVTX, EDR JSON, CSV, IIS) uniformly
+by focusing on CONTENT rather than event IDs.
 
 Uses streaming SSE for progress updates on large cases.
 """
@@ -51,62 +51,157 @@ IOC_TYPE_MAP = {
     'commands': 'command'
 }
 
-# Security-relevant event IDs - single-IOC matches only tagged for these
-# NOTE: Low event IDs (1-25) are ambiguous across sources, so we check channel too
-SECURITY_EVENT_IDS = {
-    # Windows Security - Logon (4xxx range is unique to Security log)
-    4624, 4625, 4634, 4647, 4648, 4672, 4675,
-    # Windows Security - Process
-    4688, 4689,
-    # Windows Security - Services & Tasks
-    4697, 4698, 4699, 4700, 4701, 4702, 7045,
-    # Windows Security - Account Management
-    4720, 4722, 4723, 4724, 4725, 4726, 4738, 4740, 4767,
-    # Windows Security - Group Membership
-    4728, 4729, 4732, 4733, 4756, 4757,
-    # Windows Security - Kerberos
-    4768, 4769, 4771, 4776,
-    # Windows Security - File Share
-    5140, 5145,
-    # Windows Security - Audit Log
-    1102, 104,
-    # PowerShell
-    4103, 4104,
-    # NPS/VPN
-    6272, 6273, 6274, 6275,
-    # Defender
-    1116, 1117, 1118, 1119,
-    # RDP TerminalServices (1149 is unique)
-    1149,
+# =============================================================================
+# MITRE ATT&CK INDICATORS - Used to score event relevance
+# =============================================================================
+
+# Attack indicators that boost event score (from ai_search.py MITRE patterns)
+ATTACK_INDICATORS = {
+    # Execution
+    'powershell', 'pwsh', 'encodedcommand', '-enc', 'bypass', 'hidden',
+    'downloadstring', 'iex', 'invoke-expression', 'frombase64string',
+    'certutil', 'bitsadmin', 'mshta', 'regsvr32', 'rundll32',
+    'msiexec', 'installutil', 'cmstp', 'msbuild', 'wmic',
+    'cmd.exe', 'command', 'script', 'vbscript', 'jscript',
+    
+    # Persistence
+    'schtasks', '/create', 'at.exe', 'taskschd', 'scheduled task',
+    'sc create', 'sc config', 'new-service', 'binpath',
+    'run key', 'runonce', 'startup', 'userinit', 'shell',
+    
+    # Credential Access
+    'lsass', 'mimikatz', 'sekurlsa', 'procdump', 'comsvcs', 'minidump',
+    'sam', 'ntds', 'dcsync', 'credentials', 'password', 'hash',
+    'kerberoast', 'golden ticket', 'silver ticket',
+    
+    # Lateral Movement
+    'admin$', 'c$', 'ipc$', 'net use', 'psexec', 'smbexec', 'wmiexec',
+    'remote desktop', 'rdp', '3389', 'mstsc', 'termsrv',
+    'winrm', 'enter-pssession', 'invoke-command',
+    'pass the hash', 'pth', 'pass the ticket',
+    
+    # Defense Evasion
+    'disable', 'defender', 'firewall', 'antivirus', 'tamper',
+    'clear-eventlog', 'wevtutil', 'del /f', 'remove-item',
+    'hidden', 'attrib +h', 'alternate data stream',
+    
+    # Exfiltration
+    'exfil', 'upload', 'transfer', 'rclone', 'mega', 'dropbox',
+    'compress', 'archive', 'zip', 'rar', '7z', 'tar',
+    'ftp', 'sftp', 'scp', 'curl', 'wget',
+    
+    # Discovery
+    'whoami', 'net user', 'net group', 'net localgroup',
+    'nltest', 'dsquery', 'ldapsearch', 'adfind',
+    'ipconfig', 'netstat', 'systeminfo', 'tasklist',
+    'dir /s', 'tree', 'findstr',
 }
 
-# Sysmon event IDs (1-25) - only valid if channel contains "Sysmon"
-SYSMON_EVENT_IDS = {1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25}
-
-# Channels/sources that indicate security-relevant logs (checked in search_blob)
-SECURITY_CHANNELS = {
-    'microsoft-windows-security',
-    'microsoft-windows-sysmon', 'sysmon/operational',
-    'microsoft-windows-powershell', 'powershell/operational',
-    'windows defender', 'microsoft-windows-windows defender',
-    'bits-client',
-    'microsoft-windows-terminalservices',
+# High-value processes that indicate attack activity
+SUSPICIOUS_PROCESSES = {
+    'powershell.exe', 'pwsh.exe', 'cmd.exe', 'wscript.exe', 'cscript.exe',
+    'mshta.exe', 'regsvr32.exe', 'rundll32.exe', 'certutil.exe',
+    'bitsadmin.exe', 'msiexec.exe', 'wmic.exe', 'net.exe', 'net1.exe',
+    'psexec.exe', 'psexesvc.exe', 'winrm.exe', 'schtasks.exe',
+    'at.exe', 'sc.exe', 'reg.exe', 'taskkill.exe',
+    'procdump.exe', 'mimikatz.exe', 'lazagne.exe',
+    'rclone.exe', 'winscp.exe', 'putty.exe', 'plink.exe',
 }
 
-# Specific noise channel patterns - must be exact/specific to avoid false matches
-# These are checked as substrings in search_blob
-NOISE_CHANNEL_PATTERNS = [
-    'cisco secure client',
-    'anyconnect',
-    'cisco vpn',
-    'dns client events',
-    'dhcp client events',
-    'wmi activity',
+# Noise patterns to reduce score
+NOISE_PATTERNS = [
+    'cisco secure client', 'anyconnect', 'cisco vpn',
+    'dns client events', 'dhcp client events',
+    'wmi activity', 'windows update',
+    'antimalware', 'defender scan',
 ]
 
+# Security-relevant event IDs (for EVTX files)
+SECURITY_EVENT_IDS = {
+    4624, 4625, 4634, 4647, 4648, 4672, 4675,  # Logon
+    4688, 4689,  # Process
+    4697, 4698, 4699, 4700, 4701, 4702, 7045,  # Service/Task
+    4720, 4722, 4723, 4724, 4725, 4726, 4738, 4740, 4767,  # Account
+    4728, 4729, 4732, 4733, 4756, 4757,  # Group
+    4768, 4769, 4771, 4776,  # Kerberos
+    5140, 5145,  # File Share
+    1102, 104,  # Log cleared
+    4103, 4104,  # PowerShell
+    6272, 6273, 6274, 6275,  # NPS/VPN
+    1116, 1117, 1118, 1119,  # Defender
+    1149,  # RDP
+}
+
+# Sysmon event IDs
+SYSMON_EVENT_IDS = {1, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 17, 18, 22, 23, 25}
+
 # Limits
-MAX_TOTAL_EVENTS = 5000  # Typical investigations find 300-5K events
-TIME_WINDOW_HOURS = 24   # ±24 hours from report timestamps
+MAX_TOTAL_EVENTS = 5000
+TIME_WINDOW_HOURS = 24
+MIN_SCORE_THRESHOLD = 2  # Minimum score to tag an event
+
+
+def score_event(search_blob: str, matching_iocs: List[str], event_id: Optional[int]) -> Tuple[int, List[str]]:
+    """
+    Score an event based on attack relevance.
+    
+    Returns:
+        (score, reasons) - Higher score = more relevant
+        
+    Scoring:
+        - Multi-IOC match: +3 per additional IOC
+        - Security event ID: +2
+        - Attack indicator match: +2 per indicator
+        - Suspicious process: +3
+        - Noise pattern: -5
+        - EDR/CSV (no event ID): +1 base (already security-focused)
+    """
+    score = 0
+    reasons = []
+    blob_lower = search_blob.lower()
+    
+    # Multi-IOC matching (most important signal)
+    num_iocs = len(set(matching_iocs))
+    if num_iocs >= 2:
+        score += 3 * (num_iocs - 1)  # +3 for each IOC beyond the first
+        reasons.append(f"{num_iocs} IOCs matched")
+    
+    # Security event ID
+    if event_id and event_id in SECURITY_EVENT_IDS:
+        score += 2
+        reasons.append(f"Security event {event_id}")
+    elif event_id and event_id in SYSMON_EVENT_IDS and 'sysmon' in blob_lower:
+        score += 2
+        reasons.append(f"Sysmon event {event_id}")
+    elif event_id is None:
+        # EDR/CSV data - give base score since it's pre-filtered
+        score += 1
+        reasons.append("EDR/CSV data")
+    
+    # Attack indicators (MITRE patterns)
+    indicators_found = []
+    for indicator in ATTACK_INDICATORS:
+        if indicator in blob_lower:
+            indicators_found.append(indicator)
+    if indicators_found:
+        score += min(len(indicators_found) * 2, 6)  # Cap at +6
+        reasons.append(f"Attack indicators: {', '.join(indicators_found[:3])}")
+    
+    # Suspicious processes
+    for proc in SUSPICIOUS_PROCESSES:
+        if proc in blob_lower:
+            score += 3
+            reasons.append(f"Suspicious process: {proc}")
+            break  # Only count once
+    
+    # Noise penalty
+    for noise in NOISE_PATTERNS:
+        if noise in blob_lower:
+            score -= 5
+            reasons.append(f"Noise: {noise}")
+            break
+    
+    return max(0, score), reasons
 
 
 def extract_iocs_with_llm(summary_text: str) -> Dict:
@@ -545,20 +640,20 @@ def process_triage_report(case_id):
             
             tagged_count = 0
             skipped_count = 0
-            skipped_single_ioc = 0
+            skipped_low_score = 0
             processed_count = 0
-            multi_ioc_count = 0
+            high_score_count = 0
             batch_size = 1000
             
             # Get existing tags for this case
             existing_tags = {tag.event_id for tag in TimelineTag.query.filter_by(case_id=case_id).all()}
             
-            # Track IOC match counts for summary
+            # Track IOC match counts and score distribution
             ioc_match_counts = {}
+            score_distribution = {'0-1': 0, '2-3': 0, '4-5': 0, '6+': 0}
             
             try:
                 # Use scroll API to handle large result sets
-                # Include normalized_event_id for intelligent filtering
                 scroll_response = opensearch_client.search(
                     index=index_name,
                     body={
@@ -588,66 +683,45 @@ def process_triage_report(case_id):
                         
                         # Get event data
                         source = hit.get('_source', {})
-                        search_blob = source.get('search_blob', '').lower()
+                        search_blob = source.get('search_blob', '')
                         event_type = source.get('normalized_event_id')
                         
-                        # Count how many IOCs match this event
+                        # Count which IOCs match this event
                         matching_iocs = []
+                        blob_lower = search_blob.lower()
                         for value in ioc_values:
-                            if value in search_blob:
+                            if value in blob_lower:
                                 matching_iocs.append(value)
                         
                         if not matching_iocs:
                             continue
                         
-                        num_ioc_matches = len(set(matching_iocs))  # Unique IOCs matched
+                        # Parse event ID
+                        try:
+                            event_id_int = int(event_type) if event_type else None
+                        except (ValueError, TypeError):
+                            event_id_int = None
                         
-                        # INTELLIGENT MATCHING LOGIC:
-                        # - 2+ IOCs matched = ALWAYS tag (high confidence)
-                        # - 1 IOC matched = only tag if security-relevant event type AND channel
-                        should_tag = False
+                        # SCORE-BASED MATCHING using MITRE patterns
+                        score, reasons = score_event(search_blob, matching_iocs, event_id_int)
                         
-                        if num_ioc_matches >= 2:
-                            # Multiple IOCs = high confidence, always tag
-                            should_tag = True
-                            multi_ioc_count += 1
+                        # Track score distribution
+                        if score <= 1:
+                            score_distribution['0-1'] += 1
+                        elif score <= 3:
+                            score_distribution['2-3'] += 1
+                        elif score <= 5:
+                            score_distribution['4-5'] += 1
                         else:
-                            # Single IOC - check if it's a security-relevant event
-                            # Strategy: Only skip known noise, tag everything else
-                            try:
-                                event_id_int = int(event_type) if event_type else None
-                                
-                                # Check if this is from a known noise channel (very specific patterns)
-                                is_noise_channel = any(noise in search_blob for noise in NOISE_CHANNEL_PATTERNS)
-                                
-                                if is_noise_channel:
-                                    # Definitely noise (Cisco VPN debug, etc.) - skip
-                                    skipped_single_ioc += 1
-                                elif event_id_int and event_id_int in SECURITY_EVENT_IDS:
-                                    # Known security event ID - always tag
-                                    should_tag = True
-                                elif event_id_int and event_id_int in SYSMON_EVENT_IDS:
-                                    # Low event ID (1-25) - only tag if Sysmon
-                                    if 'sysmon' in search_blob:
-                                        should_tag = True
-                                    else:
-                                        skipped_single_ioc += 1
-                                elif event_id_int and event_id_int >= 100:
-                                    # High event ID (>=100) not in our list - probably still relevant
-                                    # Most noise is low IDs from various sources
-                                    should_tag = True
-                                elif event_type is None or event_type == '':
-                                    # No event ID = EDR/JSON/CSV - always tag
-                                    should_tag = True
-                                else:
-                                    # Low unknown event ID (1-99) - skip unless Sysmon
-                                    skipped_single_ioc += 1
-                            except (ValueError, TypeError):
-                                # Non-numeric event ID (EDR/CSV) - always tag
-                                should_tag = True
+                            score_distribution['6+'] += 1
                         
-                        if not should_tag:
+                        # Only tag if score meets threshold
+                        if score < MIN_SCORE_THRESHOLD:
+                            skipped_low_score += 1
                             continue
+                        
+                        if score >= 4:
+                            high_score_count += 1
                         
                         # Tag the event
                         try:
@@ -671,7 +745,7 @@ def process_triage_report(case_id):
                         # Commit and update progress every 100 events
                         if tagged_count % 100 == 0:
                             db.session.commit()
-                            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Tagged {tagged_count} events ({multi_ioc_count} multi-IOC)...', 'processed': processed_count, 'total': min(total_matches, 50000), 'tagged': tagged_count})}\n\n"
+                            yield f"data: {json.dumps({'stage': 'tagging', 'message': f'Tagged {tagged_count} events ({high_score_count} high-score)...', 'processed': processed_count, 'total': min(total_matches, 50000), 'tagged': tagged_count})}\n\n"
                     
                     # Get next batch (process up to 50K events to find relevant ones)
                     if tagged_count < MAX_TOTAL_EVENTS and processed_count < 50000:
@@ -697,14 +771,17 @@ def process_triage_report(case_id):
             # Build summary of top IOCs that matched
             ioc_summary = ", ".join([f"{k}: {v}" for k, v in sorted(ioc_match_counts.items(), key=lambda x: -x[1])[:5]])
             
-            # Final summary with intelligent matching stats
-            filter_msg = f"Tagged {tagged_count} forensically relevant events"
-            if multi_ioc_count > 0:
-                filter_msg += f" ({multi_ioc_count} matched 2+ IOCs)"
-            if skipped_single_ioc > 0:
-                filter_msg += f". Skipped {skipped_single_ioc} single-IOC non-security events."
+            # Score distribution summary
+            score_summary = f"Scores: 0-1={score_distribution['0-1']}, 2-3={score_distribution['2-3']}, 4-5={score_distribution['4-5']}, 6+={score_distribution['6+']}"
             
-            yield f"data: {json.dumps({'stage': 'complete', 'message': filter_msg, 'tagged': tagged_count, 'skipped': skipped_count, 'skipped_single_ioc': skipped_single_ioc, 'multi_ioc_count': multi_ioc_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': total_matches, 'ioc_summary': ioc_summary})}\n\n"
+            # Final summary with MITRE-based scoring stats
+            filter_msg = f"Tagged {tagged_count} attack-relevant events (score>={MIN_SCORE_THRESHOLD})"
+            if high_score_count > 0:
+                filter_msg += f", {high_score_count} high-confidence (score>=4)"
+            if skipped_low_score > 0:
+                filter_msg += f". Skipped {skipped_low_score} low-relevance events."
+            
+            yield f"data: {json.dumps({'stage': 'complete', 'message': filter_msg, 'tagged': tagged_count, 'skipped': skipped_count, 'skipped_low_score': skipped_low_score, 'high_score_count': high_score_count, 'iocs_added': iocs_added, 'systems_added': systems_added, 'total_matches': total_matches, 'ioc_summary': ioc_summary, 'score_summary': score_summary})}\n\n"
             
             # Audit log
             from audit_logger import log_action
