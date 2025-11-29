@@ -462,28 +462,47 @@
 <div id="triageReportModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 800px; max-height: 90vh;">
         <div class="modal-header" style="background: linear-gradient(135deg, rgba(240,147,251,0.1) 0%, rgba(245,87,108,0.1) 100%);">
-            <h2 class="modal-title">📋 Triage from Report</h2>
+            <h2 class="modal-title">📋 Triage from EDR Report</h2>
             <button class="modal-close" onclick="closeTriageModal()">×</button>
         </div>
         <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
-            <!-- Input Phase -->
+            <!-- No Report Phase -->
+            <div id="triageNoReportPhase" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
+                    <h3 style="margin-bottom: var(--spacing-md); color: var(--color-text-primary);">No EDR Report Found</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                        This case doesn't have an EDR/MDR report attached yet.<br>
+                        Add a report to enable automated IOC extraction and hunting.
+                    </p>
+                    <div style="display: flex; gap: var(--spacing-md); justify-content: center;">
+                        <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" class="btn btn-primary">
+                            ✏️ Edit Case to Add Report
+                        </a>
+                        <button onclick="closeTriageModal()" class="btn btn-secondary">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Input Phase (shows EDR report preview) -->
             <div id="triageInputPhase">
                 <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
-                    Paste an investigative summary from your EDR/MDR (Huntress, CrowdStrike, SentinelOne, etc.). 
-                    The system will extract IOCs, hunt for related indicators, and add them to the case.
+                    The system will extract IOCs from the case's EDR/MDR report, hunt for related indicators, and add them to the case.
                 </p>
                 
                 <div style="margin-bottom: var(--spacing-md);">
-                    <label class="form-label">Investigative Summary</label>
-                    <textarea id="triageReportInput" class="form-input" rows="10" placeholder="Paste the EDR/MDR report here...
-
-Example:
-At 2025-09-05 06:40:02 UTC, Huntress observed user &quot;BButler&quot; executing commands for enumeration purposes. These commands are the following:
-- nltest.exe /dclist:
-- net.exe group &quot;domain computers&quot; /dom
-
-Investigation reveals this user authenticated with RDS from remote address &quot;91.236.230.136 / BlueVPS&quot;..."></textarea>
+                    <label class="form-label">EDR/MDR Report (from case)</label>
+                    <div id="triageReportPreview" style="background: var(--color-background-tertiary); border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; color: var(--color-text-secondary);">
+                    </div>
+                    <small style="color: var(--color-text-muted); margin-top: var(--spacing-xs); display: block;">
+                        <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" style="color: var(--color-info);">Edit case</a> to modify the EDR report.
+                    </small>
                 </div>
+                
+                <!-- Hidden textarea to store the report for processing -->
+                <textarea id="triageReportInput" style="display: none;"></textarea>
                 
                 <!-- Preview Area (hidden until extraction) -->
                 <div id="triagePreviewArea" style="display: none;">
@@ -3924,20 +3943,40 @@ function clearAIEvidence() {
 function showTriageModal() {
     const modal = document.getElementById('triageReportModal');
     modal.style.display = 'block';
-    document.getElementById('triageReportInput').focus();
+    
+    // Get EDR report from case (passed from backend)
+    const edrReport = {{ (case.edr_report | tojson) if case.edr_report else 'null' }};
     
     // Reset all phases
-    document.getElementById('triageInputPhase').style.display = 'block';
+    document.getElementById('triageNoReportPhase').style.display = 'none';
+    document.getElementById('triageInputPhase').style.display = 'none';
     document.getElementById('triageProgressPhase').style.display = 'none';
     document.getElementById('triageResultsPhase').style.display = 'none';
     document.getElementById('triagePreviewArea').style.display = 'none';
     document.getElementById('triagePreviewContent').innerHTML = '';
     document.getElementById('triageStatusArea').style.display = 'none';
-    document.getElementById('triageExtractBtn').style.display = 'inline-flex';
-    document.getElementById('triageExtractBtn').disabled = false;
-    document.getElementById('triageExtractBtn').innerHTML = '<span>🔍</span><span>Extract & Preview</span>';
+    document.getElementById('triageExtractBtn').style.display = 'none';
     document.getElementById('triageProcessBtn').style.display = 'none';
     document.getElementById('triageViewIOCsBtn').style.display = 'none';
+    
+    if (!edrReport || edrReport.trim() === '') {
+        // No EDR report - show prompt to add one
+        document.getElementById('triageNoReportPhase').style.display = 'block';
+    } else {
+        // Has EDR report - show preview and extract button
+        document.getElementById('triageInputPhase').style.display = 'block';
+        document.getElementById('triageReportInput').value = edrReport;
+        
+        // Show preview of the report (first 1000 chars)
+        const preview = edrReport.length > 1000 
+            ? edrReport.substring(0, 1000) + '\n\n... [' + (edrReport.length - 1000) + ' more characters]'
+            : edrReport;
+        document.getElementById('triageReportPreview').textContent = preview;
+        
+        document.getElementById('triageExtractBtn').style.display = 'inline-flex';
+        document.getElementById('triageExtractBtn').disabled = false;
+        document.getElementById('triageExtractBtn').innerHTML = '<span>🔍</span><span>Extract & Preview</span>';
+    }
 }
 
 function closeTriageModal() {

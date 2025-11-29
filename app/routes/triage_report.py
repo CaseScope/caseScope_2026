@@ -48,13 +48,26 @@ NOISE_USERS = {
 }
 
 NOT_HOSTNAMES = {
+    # Common words
     'the', 'and', 'from', 'with', 'this', 'that', 'was', 'has', 'been', 'have', 'had',
     'are', 'were', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall',
     'can', 'for', 'but', 'not', 'you', 'all', 'can', 'her', 'his', 'its', 'our', 'out',
     'own', 'she', 'who', 'how', 'now', 'old', 'see', 'way', 'who', 'did', 'get', 'got',
     'him', 'let', 'put', 'say', 'too', 'use', 'via', 'name', 'host', 'user', 'file',
+    # IT/Security terms that aren't hostnames
     'system', 'server', 'client', 'machine', 'computer', 'endpoint', 'device', 'network',
-    'domain', 'local', 'remote', 'internal', 'external', 'unknown', 'none', 'null', 'test'
+    'domain', 'local', 'remote', 'internal', 'external', 'unknown', 'none', 'null', 'test',
+    'logging', 'security', 'event', 'events', 'alert', 'alerts', 'incident', 'malware',
+    'threat', 'attack', 'attacker', 'victim', 'target', 'source', 'destination',
+    'process', 'service', 'application', 'software', 'hardware', 'firewall', 'router',
+    'gateway', 'proxy', 'dns', 'dhcp', 'vpn', 'rdp', 'ssh', 'http', 'https', 'ftp',
+    'admin', 'administrator', 'root', 'guest', 'default', 'public', 'private',
+    'enabled', 'disabled', 'active', 'inactive', 'running', 'stopped', 'failed',
+    'success', 'error', 'warning', 'info', 'debug', 'critical', 'high', 'medium', 'low',
+    'true', 'false', 'yes', 'no', 'on', 'off', 'new', 'old', 'first', 'last',
+    'powershell', 'cmd', 'command', 'script', 'executed', 'execution', 'lateral',
+    'movement', 'persistence', 'credential', 'access', 'privilege', 'escalation',
+    'enumeration', 'discovery', 'exfiltration', 'reconnaissance', 'initial'
 }
 
 # Recon search terms for Phase 3
@@ -238,16 +251,24 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     iocs['hostnames'] = list(hostnames)
     
     # === PATHS ===
-    path_pattern = r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)+[^\s\\/:*?"<>|]*'
+    # Match Windows paths, clean up trailing quotes/punctuation
+    path_pattern = r"[A-Za-z]:\\(?:[^\s\\/:*?\"<>|']+\\)+[^\s\\/:*?\"<>|']*"
     raw_paths = list(set(re.findall(path_pattern, summary_text)))
-    iocs['paths'] = [p for p in raw_paths if len(p) >= 10]
+    # Clean trailing quotes and punctuation, filter short paths
+    cleaned_paths = []
+    for p in raw_paths:
+        p = p.rstrip("'\".,;:")  # Remove trailing quotes and punctuation
+        if len(p) >= 10:
+            cleaned_paths.append(p)
+    iocs['paths'] = cleaned_paths
     
     # === PROCESSES ===
+    # Only capture standalone exe names (not full paths - those go in paths)
     processes = set()
-    for match in re.findall(r'([A-Za-z]:\\[^\s]+\.exe)', summary_text, re.IGNORECASE):
+    # Standalone exe names mentioned in context
+    for match in re.findall(r'(?:executed|ran|launched|spawned|running|process)\s+["\']?([a-zA-Z0-9_\-]+\.exe)["\']?', summary_text, re.IGNORECASE):
         processes.add(match)
-    for match in re.findall(r'(?:executed|ran|launched|spawned)\s+([a-zA-Z0-9_\-]+\.exe)', summary_text, re.IGNORECASE):
-        processes.add(match)
+    # Exe names at end of paths are already captured in paths, don't duplicate
     iocs['processes'] = list(processes)
     
     # === COMMANDS ===
@@ -676,68 +697,80 @@ def process_triage_report(case_id):
     # =========================================================================
     log_progress('Phase 4', 'Adding IOCs to database...')
     
-    # Build complete IOC list
+    # Build complete IOC list with deduplication
+    # Track seen values to avoid duplicates (same value with different types)
+    seen_values = set()
     all_iocs = []
+    
+    def add_ioc(ioc_type, value, is_active, description):
+        """Add IOC if not already seen (case-insensitive dedup)."""
+        if not value or len(str(value)) < 2:
+            return
+        value_lower = str(value).lower().strip()
+        if value_lower in seen_values:
+            return
+        seen_values.add(value_lower)
+        all_iocs.append((ioc_type, str(value).strip(), is_active, description))
     
     # From report - IPs
     for ip in iocs.get('ips', []):
-        all_iocs.append(('ip', ip, True, 'Extracted from report'))
+        add_ioc('ip', ip, True, 'Extracted from report')
     
     # From report - Hostnames
     for hostname in iocs.get('hostnames', []):
-        all_iocs.append(('hostname', hostname, True, 'Extracted from report'))
+        add_ioc('hostname', hostname, True, 'Extracted from report')
     
     # From report - Usernames
     for username in iocs.get('usernames', []):
-        all_iocs.append(('username', username, True, 'Extracted from report'))
+        add_ioc('username', username, True, 'Extracted from report')
     
     # From report - SIDs (inactive by default)
     for sid in iocs.get('sids', []):
-        all_iocs.append(('user_sid', sid, False, 'Extracted from report'))
+        add_ioc('user_sid', sid, False, 'Extracted from report')
     
-    # From report - Paths
+    # From report - Paths (add these BEFORE processes to prioritize full paths)
     for path in iocs.get('paths', []):
-        all_iocs.append(('filepath', path, True, 'Extracted from report'))
+        add_ioc('filepath', path, True, 'Extracted from report')
     
-    # From report - Processes
+    # From report - Processes (standalone exe names only, full paths already in paths)
     for proc in iocs.get('processes', []):
-        all_iocs.append(('filename', proc, True, 'Extracted from report'))
+        add_ioc('filename', proc, True, 'Extracted from report')
     
     # From report - Hashes
     for h in iocs.get('hashes', []):
-        all_iocs.append(('hash', h, True, 'Extracted from report'))
+        add_ioc('hash', h, True, 'Extracted from report')
     
     # From report - Commands (inactive by default)
     for cmd in iocs.get('commands', []):
-        all_iocs.append(('command', cmd[:500], False, 'Extracted from report'))
+        add_ioc('command', cmd[:500], False, 'Extracted from report')
     
     # From report - Tools (inactive by default)
     for tool in iocs.get('tools', []):
-        all_iocs.append(('tool', tool, False, 'Extracted from report'))
+        add_ioc('tool', tool, False, 'Extracted from report')
     
     # Discovered - IPs
     for ip in discovered_ips:
-        all_iocs.append(('ip', ip, True, 'Discovered via hunting'))
+        add_ioc('ip', ip, True, 'Discovered via hunting')
     
     # Discovered - Hostnames
     for hostname in discovered_hostnames:
-        all_iocs.append(('hostname', hostname, True, 'Discovered via hunting'))
+        add_ioc('hostname', hostname, True, 'Discovered via hunting')
     
     # Discovered - Usernames
     for username in discovered_usernames:
-        all_iocs.append(('username', username, True, 'Discovered via hunting'))
+        add_ioc('username', username, True, 'Discovered via hunting')
     
     # Discovered - Commands (inactive by default)
     for cmd in discovered_commands:
-        all_iocs.append(('command', cmd[:500], False, 'Discovered via recon hunting'))
+        add_ioc('command', cmd[:500], False, 'Discovered via recon hunting')
     
     # Discovered - Filenames
     for filename in discovered_filenames:
-        all_iocs.append(('filepath', filename, True, 'Discovered via recon hunting'))
+        add_ioc('filepath', filename, True, 'Discovered via recon hunting')
     
     # Discovered - Threats (inactive by default)
     for threat in discovered_threats:
-        all_iocs.append(('threat', threat, False, 'Defender threat detection'))
+        add_ioc('threat', threat, False, 'Defender threat detection')
     
     # Add IOCs to database
     iocs_added = 0
@@ -969,40 +1002,52 @@ def process_triage_report_stream(case_id):
         # Phase 4: Add to database
         yield from send_update('Phase 4', 'Adding IOCs to database...')
         
-        # Build IOC list
+        # Build IOC list with deduplication
+        seen_values = set()
         all_iocs = []
         
+        def add_ioc(ioc_type, value, is_active, description):
+            """Add IOC if not already seen (case-insensitive dedup)."""
+            if not value or len(str(value)) < 2:
+                return
+            value_lower = str(value).lower().strip()
+            if value_lower in seen_values:
+                return
+            seen_values.add(value_lower)
+            all_iocs.append((ioc_type, str(value).strip(), is_active, description))
+        
         for ip in iocs.get('ips', []):
-            all_iocs.append(('ip', ip, True, 'Extracted from report'))
+            add_ioc('ip', ip, True, 'Extracted from report')
         for hostname in iocs.get('hostnames', []):
-            all_iocs.append(('hostname', hostname, True, 'Extracted from report'))
+            add_ioc('hostname', hostname, True, 'Extracted from report')
         for username in iocs.get('usernames', []):
-            all_iocs.append(('username', username, True, 'Extracted from report'))
+            add_ioc('username', username, True, 'Extracted from report')
         for sid in iocs.get('sids', []):
-            all_iocs.append(('user_sid', sid, False, 'Extracted from report'))
+            add_ioc('user_sid', sid, False, 'Extracted from report')
+        # Paths first (full paths), then processes (standalone exe names)
         for path in iocs.get('paths', []):
-            all_iocs.append(('filepath', path, True, 'Extracted from report'))
+            add_ioc('filepath', path, True, 'Extracted from report')
         for proc in iocs.get('processes', []):
-            all_iocs.append(('filename', proc, True, 'Extracted from report'))
+            add_ioc('filename', proc, True, 'Extracted from report')
         for h in iocs.get('hashes', []):
-            all_iocs.append(('hash', h, True, 'Extracted from report'))
+            add_ioc('hash', h, True, 'Extracted from report')
         for cmd in iocs.get('commands', []):
-            all_iocs.append(('command', cmd[:500], False, 'Extracted from report'))
+            add_ioc('command', cmd[:500], False, 'Extracted from report')
         for tool in iocs.get('tools', []):
-            all_iocs.append(('tool', tool, False, 'Extracted from report'))
+            add_ioc('tool', tool, False, 'Extracted from report')
         
         for ip in discovered_ips:
-            all_iocs.append(('ip', ip, True, 'Discovered via hunting'))
+            add_ioc('ip', ip, True, 'Discovered via hunting')
         for hostname in discovered_hostnames:
-            all_iocs.append(('hostname', hostname, True, 'Discovered via hunting'))
+            add_ioc('hostname', hostname, True, 'Discovered via hunting')
         for username in discovered_usernames:
-            all_iocs.append(('username', username, True, 'Discovered via hunting'))
+            add_ioc('username', username, True, 'Discovered via hunting')
         for cmd in discovered_commands:
-            all_iocs.append(('command', cmd[:500], False, 'Discovered via recon hunting'))
+            add_ioc('command', cmd[:500], False, 'Discovered via recon hunting')
         for filename in discovered_filenames:
-            all_iocs.append(('filepath', filename, True, 'Discovered via recon hunting'))
+            add_ioc('filepath', filename, True, 'Discovered via recon hunting')
         for threat in discovered_threats:
-            all_iocs.append(('threat', threat, False, 'Defender threat detection'))
+            add_ioc('threat', threat, False, 'Defender threat detection')
         
         iocs_added = 0
         iocs_skipped = 0
