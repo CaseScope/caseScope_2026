@@ -502,7 +502,7 @@ def has_exclusions():
 # BULK HIDE KNOWN-GOOD EVENTS
 # ============================================================================
 
-@system_tools_bp.route('/case/<int:case_id>/hide-known-good', methods=['POST'])
+@system_tools_bp.route('/case/<int:case_id>/hide-known-good')
 @login_required
 def hide_known_good_events(case_id):
     """
