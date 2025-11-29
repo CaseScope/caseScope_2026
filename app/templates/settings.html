@@ -340,6 +340,49 @@
             </div>
         </div>
 
+        <!-- System Tools Settings (v1.38.0) -->
+        <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h2 class="card-title">🔧 System Tools</h2>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                        Define known-good tools and networks to exclude from AI hunting and auto-tagging
+                    </p>
+                </div>
+                <a href="{{ url_for('system_tools.index') }}" class="btn btn-primary" style="padding: var(--spacing-sm) var(--spacing-lg);">
+                    ⚙️ Configure System Tools
+                </a>
+            </div>
+            
+            <div class="card-body">
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        🛡️ Exclusion Categories
+                    </h3>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-sm);">
+                        <div style="padding: var(--spacing-sm); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">🖥️ RMM Tools</strong>
+                            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: var(--spacing-xs) 0 0 0;">
+                                LabTech, Datto, Kaseya, NinjaRMM, etc.
+                            </p>
+                        </div>
+                        <div style="padding: var(--spacing-sm); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">🔗 Remote Tools</strong>
+                            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: var(--spacing-xs) 0 0 0;">
+                                ScreenConnect, TeamViewer, AnyDesk with known-good IDs
+                            </p>
+                        </div>
+                        <div style="padding: var(--spacing-sm); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">🌐 Known-Good IPs</strong>
+                            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: var(--spacing-xs) 0 0 0;">
+                                Internal networks, VPN ranges, analyst workstations
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- AI Configuration -->
         <div class="card" style="margin-bottom: var(--spacing-lg);">
             <div class="card-header">

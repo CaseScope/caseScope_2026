@@ -1,0 +1,667 @@
+{% extends "base.html" %}
+
+{% block title %}System Tools Settings{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h1 class="content-title">🔧 System Tools Settings</h1>
+            <p style="color: var(--color-text-muted); margin: 0;">
+                Define known-good tools and networks to exclude from AI hunting and auto-tagging
+            </p>
+        </div>
+        <a href="{{ url_for('settings.index') }}" class="btn" style="background: var(--color-secondary);">
+            ← Back to Settings
+        </a>
+    </div>
+</div>
+
+<div style="max-width: 1200px; margin: 0 auto;">
+    
+    <!-- Info Banner -->
+    <div class="card" style="margin-bottom: var(--spacing-lg); background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border-left: 4px solid var(--color-info);">
+        <div class="card-body" style="padding: var(--spacing-md);">
+            <h3 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">💡 How Exclusions Work</h3>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.6;">
+                When AI Triage Search hunts for suspicious activity, it can match legitimate tools used by your IT team.
+                Configure exclusions here to prevent false positives:
+            </p>
+            <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
+                <li><strong>RMM Tools:</strong> Events spawned by these processes (e.g., LabTech running <code>whoami</code>) are excluded</li>
+                <li><strong>Remote Tools:</strong> Sessions with known-good IDs are excluded; unknown IDs are still flagged</li>
+                <li><strong>Known-Good IPs:</strong> Events from internal networks or analyst IPs are excluded</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- RMM Tools Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                    <span style="font-size: 1.5rem;">🖥️</span>
+                    RMM Tools
+                </h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                    Remote Monitoring & Management tools (LabTech, Datto, Kaseya, etc.)
+                </p>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="showAddRMMModal()">
+                + Add RMM Tool
+            </button>
+        </div>
+        
+        <div class="card-body">
+            {% if rmm_settings %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tool Name</th>
+                        <th>Executable Patterns</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th style="width: 120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for setting in rmm_settings %}
+                    <tr>
+                        <td><strong>{{ setting.tool_name }}</strong></td>
+                        <td><code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.executable_pattern }}</code></td>
+                        <td style="color: var(--color-text-muted);">{{ setting.description or '-' }}</td>
+                        <td>
+                            {% if setting.is_active %}
+                            <span class="badge" style="background: var(--color-success);">Active</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--color-text-muted);">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm" onclick="toggleSetting({{ setting.id }})" title="Toggle">
+                                {{ '⏸️' if setting.is_active else '▶️' }}
+                            </button>
+                            <button class="btn btn-sm" style="background: var(--color-danger);" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+                <p style="font-size: 1.1rem; margin-bottom: var(--spacing-sm);">No RMM tools configured</p>
+                <p style="font-size: 0.9rem;">Add tools like ConnectWise Automate, Datto RMM, or Kaseya to exclude their activity from hunting</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Remote Connectivity Tools Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                    <span style="font-size: 1.5rem;">🔗</span>
+                    Remote Connectivity Tools
+                </h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                    ScreenConnect, TeamViewer, AnyDesk, etc. with known-good session IDs
+                </p>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="showAddRemoteModal()">
+                + Add Remote Tool
+            </button>
+        </div>
+        
+        <div class="card-body">
+            {% if remote_settings %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tool Name</th>
+                        <th>Executable Patterns</th>
+                        <th>Known-Good IDs</th>
+                        <th>Status</th>
+                        <th style="width: 150px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for setting in remote_settings %}
+                    <tr>
+                        <td><strong>{{ setting.tool_name }}</strong></td>
+                        <td><code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.executable_pattern }}</code></td>
+                        <td>
+                            {% set ids = setting.known_good_ids | tojson | safe %}
+                            {% if ids and ids != 'null' %}
+                                {% set id_list = ids | replace('[', '') | replace(']', '') | replace('"', '') | replace("'", "") %}
+                                <span style="color: var(--color-success);">{{ id_list.split(',') | length }} IDs configured</span>
+                            {% else %}
+                                <span style="color: var(--color-warning);">No IDs (all flagged)</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if setting.is_active %}
+                            <span class="badge" style="background: var(--color-success);">Active</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--color-text-muted);">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm" onclick="editRemoteTool({{ setting.id }}, '{{ setting.tool_name }}', '{{ setting.known_good_ids | default('[]', true) | e }}')" title="Edit IDs">
+                                ✏️
+                            </button>
+                            <button class="btn btn-sm" onclick="toggleSetting({{ setting.id }})" title="Toggle">
+                                {{ '⏸️' if setting.is_active else '▶️' }}
+                            </button>
+                            <button class="btn btn-sm" style="background: var(--color-danger);" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+                <p style="font-size: 1.1rem; margin-bottom: var(--spacing-sm);">No remote tools configured</p>
+                <p style="font-size: 0.9rem;">Add tools like ScreenConnect with known-good session IDs to distinguish legitimate IT support from attackers</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Known-Good IPs Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header">
+            <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                <span style="font-size: 1.5rem;">🌐</span>
+                Known-Good IP Addresses / Networks
+            </h2>
+            <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                Internal networks, VPN ranges, and analyst workstation IPs to exclude from hunting
+            </p>
+        </div>
+        
+        <div class="card-body">
+            <form id="ipForm" onsubmit="saveIPExclusions(event)">
+                <div class="form-group">
+                    <label for="ip_list">Enter IPs or CIDR ranges (one per line)</label>
+                    <textarea id="ip_list" 
+                              name="ip_list" 
+                              rows="10" 
+                              style="width: 100%; font-family: monospace; font-size: 0.9rem;"
+                              placeholder="# Example entries:
+192.168.1.0/24
+10.0.0.0/8
+172.16.0.0/12
+203.0.113.50
+
+# Lines starting with # are ignored">{% for setting in ip_settings %}{{ setting.ip_or_cidr }}
+{% endfor %}</textarea>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        Supports single IPs (192.168.1.50) and CIDR notation (10.0.0.0/8). Comments start with #
+                    </p>
+                </div>
+                
+                <div style="display: flex; gap: var(--spacing-md); align-items: center;">
+                    <button type="submit" class="btn btn-primary">
+                        💾 Save IP Exclusions
+                    </button>
+                    <span id="ipSaveStatus" style="color: var(--color-text-muted);"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<!-- Add RMM Tool Modal -->
+<div id="addRMMModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Add RMM Tool Exclusion</h3>
+            <button type="button" class="modal-close" onclick="closeModal('addRMMModal')">&times;</button>
+        </div>
+        <form id="addRMMForm" onsubmit="submitRMMForm(event)">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="rmm_tool_key">Select RMM Tool</label>
+                    <select id="rmm_tool_key" name="tool_key" onchange="updateRMMFields()" required>
+                        <option value="">-- Select Tool --</option>
+                        {% for key, tool in rmm_tools.items() %}
+                        <option value="{{ key }}" data-executables="{{ tool.executables }}" data-description="{{ tool.description }}">
+                            {{ tool.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div id="rmmCustomFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="rmm_custom_name">Custom Tool Name</label>
+                        <input type="text" id="rmm_custom_name" name="custom_name" placeholder="My Custom RMM">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rmm_executables">Executable Patterns</label>
+                    <input type="text" id="rmm_executables" name="custom_executables" 
+                           placeholder="process1.exe,process2.exe,Tool*.exe"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Wildcards (*) supported.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rmm_description">Description (optional)</label>
+                    <input type="text" id="rmm_description" name="description" placeholder="Why this tool is excluded">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn" onclick="closeModal('addRMMModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add RMM Tool</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Remote Tool Modal -->
+<div id="addRemoteModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Add Remote Connectivity Tool</h3>
+            <button type="button" class="modal-close" onclick="closeModal('addRemoteModal')">&times;</button>
+        </div>
+        <form id="addRemoteForm" onsubmit="submitRemoteForm(event)">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="remote_tool_key">Select Remote Tool</label>
+                    <select id="remote_tool_key" name="tool_key" onchange="updateRemoteFields()" required>
+                        <option value="">-- Select Tool --</option>
+                        {% for key, tool in remote_tools.items() %}
+                        <option value="{{ key }}" data-executables="{{ tool.executables }}" data-idfield="{{ tool.id_field }}" data-description="{{ tool.description }}">
+                            {{ tool.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div id="remoteCustomFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="remote_custom_name">Custom Tool Name</label>
+                        <input type="text" id="remote_custom_name" name="custom_name" placeholder="My Remote Tool">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="remote_executables">Executable Patterns</label>
+                    <input type="text" id="remote_executables" name="custom_executables" 
+                           placeholder="tool.exe,Tool*.exe"
+                           style="font-family: monospace;">
+                </div>
+                
+                <div class="form-group">
+                    <label for="remote_known_ids">Known-Good <span id="idFieldLabel">Session IDs</span> (one per line)</label>
+                    <textarea id="remote_known_ids" name="known_good_ids" rows="5" 
+                              style="font-family: monospace;"
+                              placeholder="24a22b9fc261d141
+98f7c3a2b1e45678
+abc123def456"></textarea>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Sessions with these IDs will be excluded. Unknown IDs are still flagged as suspicious.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="remote_description">Description (optional)</label>
+                    <input type="text" id="remote_description" name="description" placeholder="IT support sessions, etc.">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn" onclick="closeModal('addRemoteModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Remote Tool</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Remote Tool Modal -->
+<div id="editRemoteModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Edit Known-Good IDs: <span id="editRemoteToolName"></span></h3>
+            <button type="button" class="modal-close" onclick="closeModal('editRemoteModal')">&times;</button>
+        </div>
+        <form id="editRemoteForm" onsubmit="submitEditRemoteForm(event)">
+            <input type="hidden" id="edit_setting_id" name="setting_id">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_known_ids">Known-Good IDs (one per line)</label>
+                    <textarea id="edit_known_ids" name="known_good_ids" rows="8" 
+                              style="font-family: monospace;"
+                              placeholder="24a22b9fc261d141
+98f7c3a2b1e45678"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn" onclick="closeModal('editRemoteModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--color-background);
+    border-radius: var(--border-radius-lg);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h3 {
+    margin: 0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--color-text-muted);
+}
+
+.modal-close:hover {
+    color: var(--color-text);
+}
+
+.modal-body {
+    padding: var(--spacing-lg);
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: white;
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 0.85rem;
+}
+</style>
+
+<script>
+function showAddRMMModal() {
+    document.getElementById('addRMMForm').reset();
+    document.getElementById('rmmCustomFields').style.display = 'none';
+    document.getElementById('rmm_executables').value = '';
+    document.getElementById('addRMMModal').style.display = 'flex';
+}
+
+function showAddRemoteModal() {
+    document.getElementById('addRemoteForm').reset();
+    document.getElementById('remoteCustomFields').style.display = 'none';
+    document.getElementById('remote_executables').value = '';
+    document.getElementById('addRemoteModal').style.display = 'flex';
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).style.display = 'none';
+}
+
+function updateRMMFields() {
+    const select = document.getElementById('rmm_tool_key');
+    const option = select.options[select.selectedIndex];
+    const customFields = document.getElementById('rmmCustomFields');
+    const executablesField = document.getElementById('rmm_executables');
+    const descField = document.getElementById('rmm_description');
+    
+    if (select.value === 'other') {
+        customFields.style.display = 'block';
+        executablesField.value = '';
+        executablesField.required = true;
+    } else {
+        customFields.style.display = 'none';
+        executablesField.value = option.dataset.executables || '';
+        descField.value = option.dataset.description || '';
+        executablesField.required = false;
+    }
+}
+
+function updateRemoteFields() {
+    const select = document.getElementById('remote_tool_key');
+    const option = select.options[select.selectedIndex];
+    const customFields = document.getElementById('remoteCustomFields');
+    const executablesField = document.getElementById('remote_executables');
+    const descField = document.getElementById('remote_description');
+    const idFieldLabel = document.getElementById('idFieldLabel');
+    
+    if (select.value === 'other') {
+        customFields.style.display = 'block';
+        executablesField.value = '';
+        executablesField.required = true;
+        idFieldLabel.textContent = 'IDs';
+    } else {
+        customFields.style.display = 'none';
+        executablesField.value = option.dataset.executables || '';
+        descField.value = option.dataset.description || '';
+        idFieldLabel.textContent = option.dataset.idfield || 'IDs';
+        executablesField.required = false;
+    }
+}
+
+async function submitRMMForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.add_rmm_tool") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('addRMMModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function submitRemoteForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.add_remote_tool") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('addRemoteModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function editRemoteTool(settingId, toolName, knownGoodIds) {
+    document.getElementById('edit_setting_id').value = settingId;
+    document.getElementById('editRemoteToolName').textContent = toolName;
+    
+    // Parse JSON and display as newline-separated
+    try {
+        const ids = JSON.parse(knownGoodIds || '[]');
+        document.getElementById('edit_known_ids').value = ids.join('\n');
+    } catch (e) {
+        document.getElementById('edit_known_ids').value = '';
+    }
+    
+    document.getElementById('editRemoteModal').style.display = 'flex';
+}
+
+async function submitEditRemoteForm(event) {
+    event.preventDefault();
+    const settingId = document.getElementById('edit_setting_id').value;
+    const formData = new FormData(event.target);
+    
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/edit`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('editRemoteModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function toggleSetting(settingId) {
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/toggle`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function deleteSetting(settingId, name) {
+    if (!confirm(`Delete exclusion for "${name}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/delete`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function saveIPExclusions(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const statusEl = document.getElementById('ipSaveStatus');
+    
+    statusEl.textContent = 'Saving...';
+    statusEl.style.color = 'var(--color-info)';
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.save_ip_exclusions") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            statusEl.textContent = `✅ Saved ${result.count} IP exclusions`;
+            statusEl.style.color = 'var(--color-success)';
+        } else {
+            statusEl.textContent = '❌ ' + result.error;
+            statusEl.style.color = 'var(--color-danger)';
+        }
+    } catch (error) {
+        statusEl.textContent = '❌ ' + error.message;
+        statusEl.style.color = 'var(--color-danger)';
+    }
+}
+
+// Close modals on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.style.display = 'none';
+        });
+    }
+});
+
+// Close modals on backdrop click
+document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', function(e) {
+        if (e.target === this) {
+            this.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}
+

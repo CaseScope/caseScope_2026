@@ -236,6 +236,232 @@ Auto-tagging 400K+ events would flood the timeline. Instead, we use aggregations
 
 ---
 
+## Known Good Exclusions (System Tools Settings)
+
+### The Problem
+
+Many events that match suspicious patterns are actually **legitimate**:
+- RMM tools (LabTech, Datto, Kaseya) running health checks (`whoami`, `systeminfo`)
+- Analyst tools (ScreenConnect with known-good IDs)
+- Internal IP ranges (office networks, VPN pools)
+
+Without exclusions, we'd auto-tag thousands of false positives.
+
+### Solution: System Tools Settings
+
+A new settings area allows administrators to define "known good" items that should be **excluded from auto-tagging**.
+
+#### Database Model: `SystemToolsSetting`
+
+```python
+class SystemToolsSetting(db.Model):
+    """Known-good tools and IPs to exclude from hunting/tagging"""
+    __tablename__ = 'system_tools_setting'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    setting_type = db.Column(db.String(50), nullable=False, index=True)
+    # Types: 'rmm_tool', 'remote_tool', 'known_good_ip'
+    
+    # For RMM/Remote tools
+    tool_name = db.Column(db.String(100))  # 'ConnectWise Automate', 'ScreenConnect', etc.
+    executable_pattern = db.Column(db.String(200))  # 'LTSVC.exe', 'ScreenConnect*.exe'
+    
+    # For Remote tools with IDs (e.g., ScreenConnect session IDs)
+    known_good_ids = db.Column(db.Text)  # JSON list of known-good session IDs
+    
+    # For IP exclusions
+    ip_or_cidr = db.Column(db.String(50))  # '192.168.1.0/24' or '10.0.0.50'
+    
+    # Metadata
+    description = db.Column(db.String(500))
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
+```
+
+#### Settings Categories
+
+##### 1. RMM Tools (Legitimate Management Software)
+
+| Tool | Executable Pattern | Notes |
+|------|-------------------|-------|
+| ConnectWise Automate | `LTSVC.exe`, `LTSvcMon.exe`, `LabTech*.exe` | MSP management |
+| Datto RMM | `AEMAgent.exe`, `Datto*.exe` | MSP management |
+| Kaseya VSA | `AgentMon.exe`, `Kaseya*.exe` | MSP management |
+| NinjaRMM | `NinjaRMMAgent.exe` | MSP management |
+| Syncro | `Syncro*.exe` | MSP management |
+| Atera | `AteraAgent.exe` | MSP management |
+| N-able | `N-central*.exe`, `BASupSrvc*.exe` | MSP management |
+| **Other** | User-defined | Custom executable pattern |
+
+**Exclusion Logic**: Events where `process.parent.name` matches an RMM executable are excluded from auto-tagging.
+
+##### 2. Remote Connectivity Tools (Dual-Use)
+
+These tools can be legitimate OR malicious. We allow defining "known good" instances:
+
+| Tool | Identifier Field | Example |
+|------|-----------------|---------|
+| ScreenConnect | Session ID | `24a22b9fc261d141` (legitimate IT support) |
+| TeamViewer | Partner ID | `123456789` |
+| AnyDesk | Address | `123 456 789` |
+| GoTo Assist | Session ID | Custom |
+| **Other** | User-defined | Custom pattern |
+
+**Exclusion Logic**: Events matching the tool BUT with a known-good ID are excluded. Events with unknown IDs are still flagged.
+
+##### 3. Known Good IPs/Networks
+
+| Format | Example | Notes |
+|--------|---------|-------|
+| Single IP | `192.168.1.50` | Specific host |
+| CIDR Range | `10.0.0.0/8` | Internal network |
+| CIDR Range | `172.16.0.0/12` | Internal network |
+
+**Exclusion Logic**: Events with source/destination IP in known-good ranges are excluded from auto-tagging.
+
+#### UI Design: System Tools Settings Page
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  ⚙️ System Tools Settings                                                │
+│  Define known-good tools and networks to exclude from hunting            │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  🔧 RMM TOOLS (Remote Monitoring & Management)                           │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │ ┌──────────────────────────┐  ┌──────────────────────────────────┐ │  │
+│  │ │ Select RMM Tool ▼        │  │ Executable Pattern               │ │  │
+│  │ │ ○ ConnectWise Automate   │  │ LTSVC.exe, LTSvcMon.exe          │ │  │
+│  │ │ ○ Datto RMM              │  │ (auto-filled based on selection) │ │  │
+│  │ │ ○ Kaseya VSA             │  └──────────────────────────────────┘ │  │
+│  │ │ ○ NinjaRMM               │                                      │  │
+│  │ │ ○ Other (custom)         │  [+ Add RMM Tool]                    │  │
+│  │ └──────────────────────────┘                                      │  │
+│  │                                                                    │  │
+│  │ Current RMM Exclusions:                                           │  │
+│  │ • ConnectWise Automate (LTSVC.exe, LTSvcMon.exe) ✓ Active [🗑️]   │  │
+│  │ • Custom: MyRMM.exe ✓ Active [🗑️]                                │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  🖥️ REMOTE CONNECTIVITY TOOLS                                           │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │ ┌──────────────────────────┐  ┌──────────────────────────────────┐ │  │
+│  │ │ Select Tool ▼            │  │ Known Good IDs (one per line)    │ │  │
+│  │ │ ○ ScreenConnect          │  │ 24a22b9fc261d141                 │ │  │
+│  │ │ ○ TeamViewer             │  │ 98f7c3a2b1e45678                 │ │  │
+│  │ │ ○ AnyDesk                │  │                                  │ │  │
+│  │ │ ○ GoTo Assist            │  └──────────────────────────────────┘ │  │
+│  │ │ ○ Other (custom)         │                                      │  │
+│  │ └──────────────────────────┘  [+ Add Remote Tool]                 │  │
+│  │                                                                    │  │
+│  │ Current Remote Tool Exclusions:                                   │  │
+│  │ • ScreenConnect IDs: 24a22b9fc261d141, 98f7c3a2... ✓ Active [🗑️] │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  🌐 KNOWN GOOD IP ADDRESSES/NETWORKS                                     │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │ Enter IPs or CIDR ranges (one per line):                          │  │
+│  │ ┌──────────────────────────────────────────────────────────────┐  │  │
+│  │ │ 192.168.1.0/24                                               │  │  │
+│  │ │ 10.0.0.0/8                                                   │  │  │
+│  │ │ 172.16.0.0/12                                                │  │  │
+│  │ │ 203.0.113.50                                                 │  │  │
+│  │ └──────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                    │  │
+│  │ [Save IP Exclusions]                                              │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+#### How Exclusions Are Applied
+
+During AI Triage Search, before auto-tagging an event:
+
+```python
+def should_exclude_event(event: Dict, exclusions: Dict) -> bool:
+    """
+    Check if event should be excluded from auto-tagging.
+    
+    Args:
+        event: Event dict from OpenSearch
+        exclusions: Dict with 'rmm_executables', 'remote_tool_ids', 'known_good_ips'
+    
+    Returns:
+        True if event should be excluded (known good)
+    """
+    src = event.get('_source', event)
+    proc = src.get('process', {})
+    parent = proc.get('parent', {})
+    
+    # Check 1: Parent process is a known RMM tool
+    parent_name = (parent.get('name') or '').lower()
+    for rmm_pattern in exclusions.get('rmm_executables', []):
+        if fnmatch.fnmatch(parent_name, rmm_pattern.lower()):
+            return True  # Exclude - spawned by legitimate RMM
+    
+    # Check 2: Process is a remote tool with known-good ID
+    proc_name = (proc.get('name') or '').lower()
+    cmd_line = (proc.get('command_line') or '').lower()
+    for tool_config in exclusions.get('remote_tools', []):
+        if tool_config['pattern'].lower() in proc_name:
+            # Check if session ID is in known-good list
+            for known_id in tool_config.get('known_good_ids', []):
+                if known_id.lower() in cmd_line:
+                    return True  # Exclude - known good session
+    
+    # Check 3: Source/destination IP is in known-good range
+    source_ip = src.get('source', {}).get('ip') or src.get('host', {}).get('ip')
+    if source_ip:
+        if isinstance(source_ip, list):
+            source_ip = source_ip[0]
+        for ip_range in exclusions.get('known_good_ips', []):
+            if ip_in_range(source_ip, ip_range):
+                return True  # Exclude - known good IP
+    
+    return False  # Don't exclude - potentially suspicious
+```
+
+#### Loading Exclusions
+
+```python
+def get_system_tools_exclusions() -> Dict:
+    """Load all active exclusions from database."""
+    from models import SystemToolsSetting
+    
+    exclusions = {
+        'rmm_executables': [],
+        'remote_tools': [],
+        'known_good_ips': []
+    }
+    
+    settings = SystemToolsSetting.query.filter_by(is_active=True).all()
+    
+    for s in settings:
+        if s.setting_type == 'rmm_tool':
+            if s.executable_pattern:
+                exclusions['rmm_executables'].extend(
+                    s.executable_pattern.split(',')
+                )
+        
+        elif s.setting_type == 'remote_tool':
+            ids = json.loads(s.known_good_ids) if s.known_good_ids else []
+            exclusions['remote_tools'].append({
+                'name': s.tool_name,
+                'pattern': s.executable_pattern,
+                'known_good_ids': ids
+            })
+        
+        elif s.setting_type == 'known_good_ip':
+            if s.ip_or_cidr:
+                exclusions['known_good_ips'].append(s.ip_or_cidr)
+    
+    return exclusions
+```
+
+---
+
 ## Anchor Event Sources
 
 Anchor events are the starting points for investigation. We use TWO sources:

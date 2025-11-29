@@ -540,3 +540,47 @@ class AITrainingSession(db.Model):
     # Relationship
     user = db.relationship('User', backref='training_sessions')
 
+
+class SystemToolsSetting(db.Model):
+    """
+    Known-good tools and IPs to exclude from hunting/tagging.
+    
+    Allows administrators to define:
+    - RMM tools (LabTech, Datto, etc.) - events spawned by these are excluded
+    - Remote tools with known-good IDs (ScreenConnect sessions, TeamViewer IDs)
+    - Known-good IP ranges (internal networks, analyst IPs)
+    
+    Added in v1.38.0
+    """
+    __tablename__ = 'system_tools_setting'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Type of setting: 'rmm_tool', 'remote_tool', 'known_good_ip'
+    setting_type = db.Column(db.String(50), nullable=False, index=True)
+    
+    # For RMM and Remote tools
+    tool_name = db.Column(db.String(100))  # 'ConnectWise Automate', 'ScreenConnect', etc.
+    executable_pattern = db.Column(db.String(500))  # 'LTSVC.exe,LTSvcMon.exe' or 'ScreenConnect*.exe'
+    
+    # For Remote tools with session IDs (e.g., ScreenConnect)
+    known_good_ids = db.Column(db.Text)  # JSON list: ["id1", "id2"]
+    
+    # For IP exclusions
+    ip_or_cidr = db.Column(db.String(50))  # '192.168.1.0/24' or '10.0.0.50'
+    
+    # Description for documentation
+    description = db.Column(db.String(500))
+    
+    # Metadata
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    
+    # Relationship
+    creator = db.relationship('User', backref='system_tools_settings')
+    
+    def __repr__(self):
+        return f'<SystemToolsSetting {self.setting_type}: {self.tool_name or self.ip_or_cidr}>'
+
