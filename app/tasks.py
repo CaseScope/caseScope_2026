@@ -2894,8 +2894,20 @@ def run_ai_triage_search(self, search_id):
                 for value in values:
                     if not value:
                         continue
+                    
+                    # For paths, extract just the filename for better search results
+                    # Full paths with backslashes don't search well in OpenSearch
+                    search_value = value
+                    if ioc_type == 'paths' and ('\\' in value or '/' in value):
+                        # Extract filename from path
+                        filename = value.replace('/', '\\').split('\\')[-1]
+                        if filename and len(filename) > 3:  # Avoid searching for very short names
+                            search_value = filename
+                            logger.info(f"[AI_TRIAGE] Path search: using filename '{filename}' from '{value}'")
+                    
                     try:
-                        results, total = search_ioc(opensearch_client, search.case_id, value)
+                        results, total = search_ioc(opensearch_client, search.case_id, search_value)
+                        logger.info(f"[AI_TRIAGE] Phase 5: {ioc_type}='{search_value}' found {total} results")
                         if total > 0:
                             for hit in results[:100]:  # Limit per IOC
                                 specific_anchors.append({
