@@ -209,7 +209,7 @@
                         <th>Executable Patterns</th>
                         <th>Behavior</th>
                         <th>Status</th>
-                        <th style="width: 120px;">Actions</th>
+                        <th style="width: 150px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -233,6 +233,9 @@
                             {% endif %}
                         </td>
                         <td>
+                            <button class="btn btn-sm" onclick="editEDRTool({{ setting.id }}, '{{ setting.tool_name }}', '{{ setting.executable_pattern | e }}', '{{ setting.routine_commands | default('[]', true) | e }}', '{{ setting.response_patterns | default('[]', true) | e }}', {{ 'true' if setting.exclude_routine else 'false' }}, {{ 'true' if setting.keep_responses else 'false' }}, '{{ setting.description | default('', true) | e }}')" title="Edit">
+                                ✏️
+                            </button>
                             <button class="btn btn-sm" onclick="toggleSetting({{ setting.id }})" title="Toggle">
                                 {{ '⏸️' if setting.is_active else '▶️' }}
                             </button>
@@ -529,6 +532,75 @@ abc123def456"></textarea>
     </div>
 </div>
 
+<!-- Edit EDR Tool Modal -->
+<div id="editEDRModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Edit EDR Tool: <span id="editEDRToolName"></span></h2>
+            <button type="button" class="modal-close" onclick="closeModal('editEDRModal')">✕</button>
+        </div>
+        <form id="editEDRForm" onsubmit="submitEditEDRForm(event)">
+            <input type="hidden" id="edit_edr_setting_id" name="setting_id">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_edr_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="edit_edr_executables" name="executable_pattern" class="form-input"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Events spawned by these processes will be evaluated.
+                    </p>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md);">
+                    <div class="form-group">
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <input type="checkbox" id="edit_edr_exclude_routine" name="exclude_routine" value="true">
+                            Exclude Routine Health Checks
+                        </label>
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                            Excludes whoami, systeminfo, ipconfig, etc.
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <input type="checkbox" id="edit_edr_keep_responses" name="keep_responses" value="true">
+                            Keep Response Actions
+                        </label>
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                            Always keeps isolation, quarantine, block actions
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_edr_routine" class="form-label">Routine Commands to Exclude (comma-separated)</label>
+                    <input type="text" id="edit_edr_routine" name="routine_commands" class="form-input"
+                           style="font-family: monospace;">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_edr_responses" class="form-label">Response Patterns to KEEP (comma-separated)</label>
+                    <input type="text" id="edit_edr_responses" name="response_patterns" class="form-input"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        If command line contains any of these patterns, the event is <strong>KEPT</strong> even if parent is the EDR agent.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_edr_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="edit_edr_description" name="description" class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editEDRModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <style>
 /* Page-specific styles - modal styles inherited from theme.css */
 .badge {
@@ -752,6 +824,64 @@ async function submitEditRemoteForm(event) {
         
         if (result.success) {
             closeModal('editRemoteModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function editEDRTool(settingId, toolName, executables, routineCommands, responsePatterns, excludeRoutine, keepResponses, description) {
+    document.getElementById('edit_edr_setting_id').value = settingId;
+    document.getElementById('editEDRToolName').textContent = toolName;
+    document.getElementById('edit_edr_executables').value = executables || '';
+    document.getElementById('edit_edr_description').value = description || '';
+    document.getElementById('edit_edr_exclude_routine').checked = excludeRoutine;
+    document.getElementById('edit_edr_keep_responses').checked = keepResponses;
+    
+    // Parse JSON arrays and convert to comma-separated strings
+    try {
+        const routine = JSON.parse(routineCommands || '[]');
+        document.getElementById('edit_edr_routine').value = routine.join(',');
+    } catch (e) {
+        document.getElementById('edit_edr_routine').value = '';
+    }
+    
+    try {
+        const responses = JSON.parse(responsePatterns || '[]');
+        document.getElementById('edit_edr_responses').value = responses.join(',');
+    } catch (e) {
+        document.getElementById('edit_edr_responses').value = '';
+    }
+    
+    document.getElementById('editEDRModal').style.display = 'flex';
+}
+
+async function submitEditEDRForm(event) {
+    event.preventDefault();
+    const settingId = document.getElementById('edit_edr_setting_id').value;
+    const formData = new FormData(event.target);
+    
+    // Handle checkboxes - they're not sent if unchecked
+    if (!document.getElementById('edit_edr_exclude_routine').checked) {
+        formData.set('exclude_routine', 'false');
+    }
+    if (!document.getElementById('edit_edr_keep_responses').checked) {
+        formData.set('keep_responses', 'false');
+    }
+    
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/edit`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('editEDRModal');
             location.reload();
         } else {
             alert('Error: ' + result.error);

@@ -548,7 +548,7 @@ def delete_setting(setting_id):
 @login_required
 @admin_required
 def edit_setting(setting_id):
-    """Edit a setting (primarily for updating known-good IDs)"""
+    """Edit a setting (for remote tools, EDR tools, etc.)"""
     from main import db
     from models import SystemToolsSetting
     
@@ -563,6 +563,25 @@ def edit_setting(setting_id):
             ids_list = [id.strip() for id in known_good_ids.split('\n') if id.strip()]
             setting.known_good_ids = json.dumps(ids_list) if ids_list else None
         
+        elif setting.setting_type == 'edr_tool':
+            # Update EDR-specific fields
+            if 'routine_commands' in request.form:
+                routine_str = request.form.get('routine_commands', '').strip()
+                routine_list = [cmd.strip().lower() for cmd in routine_str.split(',') if cmd.strip()]
+                setting.routine_commands = json.dumps(routine_list) if routine_list else None
+            
+            if 'response_patterns' in request.form:
+                responses_str = request.form.get('response_patterns', '').strip()
+                response_list = [pat.strip().lower() for pat in responses_str.split(',') if pat.strip()]
+                setting.response_patterns = json.dumps(response_list) if response_list else None
+            
+            if 'exclude_routine' in request.form:
+                setting.exclude_routine = request.form.get('exclude_routine', 'true').lower() == 'true'
+            
+            if 'keep_responses' in request.form:
+                setting.keep_responses = request.form.get('keep_responses', 'true').lower() == 'true'
+        
+        # Common fields for all types
         if 'description' in request.form:
             setting.description = request.form.get('description', '').strip()
         
