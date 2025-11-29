@@ -1,6 +1,7 @@
 # AI Triage Search - Implementation Plan
 
 **Created**: 2025-11-29  
+**Last Updated**: 2025-11-29  
 **Purpose**: Blueprint for implementing the fully automated AI Triage Search feature by reusing existing code.
 
 ---
@@ -9,12 +10,79 @@
 
 The AI Triage Search combines:
 1. **Triage IOC Discovery** (exists in `triage_report.py`)
-2. **MITRE Pattern Matching** (exists in `ai_search.py`)
-3. **Time Window Analysis** (NEW - ~10 lines)
-4. **Process Tree Building** (NEW - ~10 lines)
-5. **Orchestration** (NEW - ties it together)
+2. **Tagged Events as Anchors** (exists in `TimelineTag` model)
+3. **MITRE Pattern Matching** (exists in `ai_search.py`)
+4. **Time Window Analysis** (NEW - ~10 lines)
+5. **Process Tree Building** (NEW - ~10 lines)
+6. **Orchestration** (NEW - ties it together)
 
-**Goal**: User clicks "AI Search" button → enters date → system automatically finds IOCs, hunts related activity, builds process trees, identifies MITRE techniques, and generates attack narrative.
+**Goal**: User clicks "AI Search" button → system automatically finds anchor events (from IOCs + analyst-tagged events), hunts related activity, builds process trees, identifies MITRE techniques, and generates attack narrative.
+
+---
+
+## Critical Design Decisions (Updated 2025-11-29)
+
+### Auto-Tagging Strategy
+
+After testing on Case 18 (10M+ events), we established these rules:
+
+| Rule | Decision | Rationale |
+|------|----------|-----------|
+| **Auto-tag SPECIFIC IOCs** | ✅ YES | Malware, hashes, suspicious commands = low count, high value |
+| **Auto-tag BROAD IOCs** | ❌ NO | Usernames, hostnames = too many events (40K+), use aggregations |
+| **Time constraint** | ❌ NO | Attacks can span days/weeks, don't limit |
+| **Max auto-tag limit** | ❌ NO | Might miss key events |
+| **Use scroll API** | ✅ YES | Needed for >10K results |
+
+### IOC Classification
+
+**SPECIFIC IOCs** (auto-tag all matches):
+- `process` - Malware executables (e.g., statements546.exe)
+- `hash` - File hashes (SHA256, MD5)
+- `filepath` - Suspicious file paths
+- `command` - Encoded PowerShell, suspicious commands
+- `threat` - Defender threat names
+
+**BROAD IOCs** (discovery via aggregations only, NO auto-tag):
+- `username` - User accounts (can match 40K+ events)
+- `hostname` - Computer names (can match 380K+ events)
+- `ip` - IP addresses (variable)
+- `sid` - Windows SIDs
+
+### Why This Split?
+
+From Case 18 dry run:
+```
+SPECIFIC IOCs:
+  - statements546.exe: 2 events ✅ AUTO-TAG
+  - SHA256 hash: 1 event ✅ AUTO-TAG
+  - Encoded PowerShell: 1 event ✅ AUTO-TAG
+  TOTAL: 4 events
+
+BROAD IOCs:
+  - jwilliams (username): 41,784 events ❌ AGGREGATION ONLY
+  - ATN81960 (hostname): 381,151 events ❌ AGGREGATION ONLY
+```
+
+Auto-tagging 400K+ events would flood the timeline. Instead, we use aggregations to **discover** related IOCs without tagging every match.
+
+---
+
+## Anchor Event Sources
+
+Anchor events are the starting points for investigation. We use TWO sources:
+
+### 1. Auto-Discovered Anchors (from Triage)
+- Events matching **SPECIFIC IOCs** extracted from EDR report
+- Events matching discovered IOCs (snowball hunting)
+- Events matching malware/recon indicators
+
+### 2. Analyst-Tagged Anchors (from TimelineTag)
+- Events the analyst has manually tagged as important
+- These are HIGH CONFIDENCE anchors - analyst has already reviewed them
+- Stored in `timeline_tag` table with `event_id`, `event_data`, `notes`
+
+**Priority**: Tagged events should be processed FIRST since they're analyst-confirmed.
 
 ---
 
@@ -89,11 +157,241 @@ from app.search_utils import (
 )
 ```
 
+### From `app/models.py`
+
+```python
+from app.models import (
+    TimelineTag,                     # Analyst-tagged events
+    Case,                            # Case with edr_report
+    IOC,                             # IOCs for the case
+    System,                          # Systems/hostnames
+)
+```
+
 ---
 
-## New Code to Add (~50 lines total)
+## New Code to Add (~350 lines total)
 
-### 1. Time Window Search Function
+### 1. Classify IOCs as Specific vs Broad
+
+```python
+def classify_iocs(iocs: Dict) -> Tuple[Dict, Dict]:
+    """
+    Split IOCs into SPECIFIC (auto-tag) and BROAD (aggregation only).
+    
+    Returns:
+        (specific_iocs, broad_iocs) - both are dicts with ioc_type: [values]
+    """
+    specific_iocs = {
+        'processes': iocs.get('processes', []),
+        'paths': iocs.get('paths', []),
+        'hashes': iocs.get('hashes', []),
+        'commands': iocs.get('commands', []),
+        'threats': iocs.get('threats', [])
+    }
+    
+    broad_iocs = {
+        'usernames': iocs.get('usernames', []),
+        'hostnames': iocs.get('hostnames', []),
+        'ips': iocs.get('ips', []),
+        'sids': iocs.get('sids', [])
+    }
+    
+    return specific_iocs, broad_iocs
+```
+
+### 2. Get Tagged Events as Anchors
+
+```python
+def get_tagged_event_anchors(case_id: int) -> List[Dict]:
+    """
+    Get all analyst-tagged events as anchor points.
+    These are HIGH CONFIDENCE anchors - analyst has already reviewed them.
+    
+    Args:
+        case_id: Case ID
+    
+    Returns:
+        List of anchor dicts with event data, timestamp, hostname, notes
+    """
+    from app.models import TimelineTag
+    import json
+    
+    tags = TimelineTag.query.filter_by(case_id=case_id).order_by(TimelineTag.created_at).all()
+    
+    anchors = []
+    for tag in tags:
+        try:
+            event_data = json.loads(tag.event_data) if tag.event_data else {}
+            
+            # Extract key fields from the stored event snapshot
+            timestamp = event_data.get('@timestamp')
+            hostname = (event_data.get('normalized_computer') or 
+                       event_data.get('host', {}).get('hostname') or
+                       event_data.get('computer_name'))
+            
+            anchors.append({
+                'event_id': tag.event_id,
+                'event': event_data,
+                'timestamp': timestamp,
+                'hostname': hostname,
+                'notes': tag.notes,
+                'tag_color': tag.tag_color,
+                'source': 'analyst_tagged',
+                'confidence': 'high'  # Analyst-confirmed
+            })
+        except Exception as e:
+            logger.warning(f"Failed to parse tagged event {tag.event_id}: {e}")
+    
+    return anchors
+```
+
+### 3. Search SPECIFIC IOCs and Get Events (for auto-tagging)
+
+```python
+def search_specific_iocs(opensearch_client, case_id: int, 
+                         specific_iocs: Dict) -> Tuple[List[Dict], int]:
+    """
+    Search for SPECIFIC IOCs and return matching events for auto-tagging.
+    
+    Args:
+        opensearch_client: OpenSearch client
+        case_id: Case ID
+        specific_iocs: Dict of specific IOC types to values
+    
+    Returns:
+        (list of anchor events, total count)
+    """
+    anchors = []
+    total_count = 0
+    
+    for ioc_type, values in specific_iocs.items():
+        for ioc_value in values:
+            if not ioc_value:
+                continue
+            
+            query_dsl = build_search_query(search_text=ioc_value)
+            
+            # Get count first
+            count_response = opensearch_client.count(
+                index=f"case_{case_id}", 
+                body={"query": query_dsl.get("query", {})}
+            )
+            count = count_response['count']
+            
+            if count == 0:
+                continue
+            
+            total_count += count
+            
+            # Fetch events (use scroll for >10K)
+            if count <= 10000:
+                response = opensearch_client.search(
+                    index=f"case_{case_id}", 
+                    body=query_dsl, 
+                    size=min(count, 1000)
+                )
+                for hit in response['hits']['hits']:
+                    anchors.append({
+                        'event_id': hit['_id'],
+                        'event': hit,
+                        'ioc_type': ioc_type,
+                        'matched_ioc': ioc_value,
+                        'timestamp': hit['_source'].get('@timestamp'),
+                        'hostname': (hit['_source'].get('normalized_computer') or
+                                   hit['_source'].get('host', {}).get('hostname')),
+                        'source': 'specific_ioc_match',
+                        'confidence': 'medium'
+                    })
+            else:
+                # Use scroll API for large result sets
+                anchors.extend(scroll_search_ioc(opensearch_client, case_id, 
+                                                  ioc_value, ioc_type))
+    
+    return anchors, total_count
+```
+
+### 4. Discover IOCs via Aggregations (for BROAD IOCs)
+
+```python
+def discover_iocs_via_aggregations(opensearch_client, case_id: int,
+                                    broad_iocs: Dict) -> Dict:
+    """
+    Use aggregations to discover related IOCs from BROAD IOC searches.
+    Does NOT return events - just discovers new IOCs.
+    
+    Args:
+        opensearch_client: OpenSearch client
+        case_id: Case ID
+        broad_iocs: Dict of broad IOC types to values
+    
+    Returns:
+        Dict of discovered IOCs: {hostnames: set, usernames: set, ips: set}
+    """
+    discovered = {
+        'hostnames': set(),
+        'usernames': set(),
+        'ips': set()
+    }
+    
+    for ioc_type, values in broad_iocs.items():
+        for ioc_value in values:
+            if not ioc_value:
+                continue
+            
+            agg_query = {
+                "size": 0,
+                "query": build_search_query(search_text=ioc_value).get("query", {}),
+                "aggs": {
+                    "unique_hosts": {
+                        "terms": {"field": "host.hostname.keyword", "size": 50}
+                    },
+                    "unique_computers": {
+                        "terms": {"field": "normalized_computer.keyword", "size": 50}
+                    },
+                    "unique_users": {
+                        "terms": {"field": "process.user.name.keyword", "size": 50}
+                    },
+                    "unique_ips": {
+                        "terms": {"field": "host.ip.keyword", "size": 50}
+                    }
+                }
+            }
+            
+            try:
+                response = opensearch_client.search(
+                    index=f"case_{case_id}", 
+                    body=agg_query
+                )
+                
+                aggs = response.get('aggregations', {})
+                
+                # Extract discovered values
+                for bucket in aggs.get('unique_hosts', {}).get('buckets', []):
+                    if bucket['key'] and bucket['key'] not in ['', '-']:
+                        discovered['hostnames'].add(bucket['key'])
+                
+                for bucket in aggs.get('unique_computers', {}).get('buckets', []):
+                    if bucket['key'] and bucket['key'] not in ['', '-']:
+                        discovered['hostnames'].add(bucket['key'])
+                
+                for bucket in aggs.get('unique_users', {}).get('buckets', []):
+                    key = bucket['key']
+                    if key and key not in ['', '-', 'SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE']:
+                        discovered['usernames'].add(key)
+                
+                for bucket in aggs.get('unique_ips', {}).get('buckets', []):
+                    ip = bucket['key']
+                    if ip and not ip.startswith('127.') and not ip.startswith('::'):
+                        discovered['ips'].add(ip)
+                        
+            except Exception as e:
+                logger.warning(f"Aggregation failed for {ioc_type}={ioc_value}: {e}")
+    
+    return discovered
+```
+
+### 5. Time Window Search Function
 
 ```python
 from datetime import datetime, timedelta
@@ -137,7 +435,7 @@ def search_time_window(opensearch_client, case_id: int, hostname: str,
     return [hit['_source'] for hit in result['hits']['hits']]
 ```
 
-### 2. Process Tree Builder Function
+### 6. Process Tree Builder Function
 
 ```python
 def build_process_tree(opensearch_client, case_id: int, parent_pid: str, 
@@ -173,97 +471,142 @@ def build_process_tree(opensearch_client, case_id: int, parent_pid: str,
     
     result = opensearch_client.search(index=f"case_{case_id}", body=query)
     return [hit['_source'] for hit in result['hits']['hits']]
-
-
-def get_process_siblings(opensearch_client, case_id: int, parent_pid: str,
-                         hostname: str) -> List[Dict]:
-    """Find all processes with the same parent (siblings)."""
-    return build_process_tree(opensearch_client, case_id, parent_pid, hostname)
 ```
 
-### 3. Anchor Event Finder
+### 7. Auto-Tag Anchor Events (SPECIFIC IOCs only)
 
 ```python
-def find_anchor_events(opensearch_client, case_id: int, iocs: Dict,
-                       start_date: str, end_date: str) -> List[Dict]:
+def auto_tag_anchor_events_batch(case_id: int, user_id: int, 
+                                  anchors: List[Dict]) -> Dict[str, int]:
     """
-    Find events that match extracted IOCs - these are our anchor points.
+    Batch auto-tag anchor events from SPECIFIC IOC matches.
     
     Args:
-        opensearch_client: OpenSearch client
         case_id: Case ID
-        iocs: Dict with keys: ips, hostnames, usernames, file_paths, hashes
-        start_date: Search window start
-        end_date: Search window end
+        user_id: User who initiated the search
+        anchors: List of anchor dicts with 'event', 'matched_ioc', 'ioc_type'
     
     Returns:
-        List of anchor events with timestamps and matched IOC info
+        Dict with counts: {tagged: N, skipped: N, errors: N}
     """
-    anchors = []
+    from app.models import TimelineTag
+    from main import db
+    import json
     
-    # Search each IOC type
-    for ioc_type, ioc_list in iocs.items():
-        for ioc_value in ioc_list:
-            results, total = search_ioc(opensearch_client, case_id, ioc_value)
-            for event in results:
-                anchors.append({
-                    'event': event,
-                    'matched_ioc': ioc_value,
-                    'ioc_type': ioc_type,
-                    'timestamp': event.get('@timestamp')
-                })
+    index_name = f"case_{case_id}"
+    counts = {'tagged': 0, 'skipped': 0, 'errors': 0}
     
-    # Deduplicate by event ID and sort by timestamp
-    seen = set()
-    unique_anchors = []
-    for a in sorted(anchors, key=lambda x: x['timestamp'] or ''):
-        event_id = a['event'].get('_id')
-        if event_id not in seen:
-            seen.add(event_id)
-            unique_anchors.append(a)
+    # Get existing tags for this case to avoid duplicates
+    existing_event_ids = set(
+        t.event_id for t in TimelineTag.query.filter_by(
+            case_id=case_id, index_name=index_name
+        ).all()
+    )
     
-    return unique_anchors
+    tags_to_add = []
+    for anchor in anchors:
+        try:
+            event = anchor.get('event', {})
+            event_id = anchor.get('event_id') or event.get('_id')
+            
+            if not event_id:
+                counts['errors'] += 1
+                continue
+            
+            if event_id in existing_event_ids:
+                counts['skipped'] += 1
+                continue
+            
+            # Build reason string
+            ioc_value = anchor.get('matched_ioc', '')
+            ioc_type = anchor.get('ioc_type', 'unknown')
+            reason = f"{ioc_type} match: {ioc_value}" if ioc_value else "AI Triage anchor"
+            
+            notes = f"[AI Triage Auto-Tagged]\nReason: {reason}"
+            if ioc_value:
+                notes += f"\nIOC Type: {ioc_type}\nIOC Value: {ioc_value}"
+            
+            tag = TimelineTag(
+                case_id=case_id,
+                user_id=user_id,
+                event_id=event_id,
+                index_name=index_name,
+                event_data=json.dumps(event.get('_source', event)),
+                tag_color='purple',  # AI-discovered = purple
+                notes=notes
+            )
+            tags_to_add.append(tag)
+            existing_event_ids.add(event_id)  # Prevent duplicates in same batch
+            counts['tagged'] += 1
+            
+        except Exception as e:
+            logger.warning(f"[AI_TRIAGE] Failed to prepare tag for anchor: {e}")
+            counts['errors'] += 1
+    
+    # Bulk insert
+    if tags_to_add:
+        db.session.add_all(tags_to_add)
+        db.session.commit()
+        logger.info(f"[AI_TRIAGE] Batch auto-tagged {len(tags_to_add)} events")
+    
+    return counts
 ```
 
-### 4. Main Orchestrator Function
+### Tag Colors Convention
+
+| Color | Meaning |
+|-------|---------|
+| `blue` | Default - analyst manually tagged |
+| `red` | Critical - analyst marked as high priority |
+| `yellow` | Warning - needs review |
+| `green` | Benign - confirmed not malicious |
+| `purple` | **AI Triage Auto-Tagged** - discovered by automated search |
+| `orange` | Suspicious - analyst flagged for follow-up |
+
+### 8. Main Orchestrator Function
 
 ```python
-def ai_triage_search(case_id: int, report_text: str, search_date: datetime,
-                     window_hours: int = 24) -> Dict:
+def ai_triage_search(case_id: int, user_id: int) -> Dict:
     """
     Full automated AI Triage Search.
     
     Phases:
-    1. Extract IOCs from report (reuse triage_report.py)
-    2. Hunt IOCs to discover new ones (reuse triage_report.py)
-    3. Hunt malware/recon indicators (reuse triage_report.py)
-    4. Find anchor events (NEW)
-    5. Search time windows around anchors (NEW)
-    6. Build process trees (NEW)
-    7. Apply MITRE pattern matching (reuse ai_search.py)
-    8. Generate attack narrative (reuse ai_search.py)
+    1. Get analyst-tagged events as anchors (HIGH PRIORITY)
+    2. Extract IOCs from case EDR report
+    3. Classify IOCs as SPECIFIC vs BROAD
+    4. Search SPECIFIC IOCs → get events for auto-tagging
+    5. Discover via aggregations for BROAD IOCs
+    6. Auto-tag SPECIFIC IOC matches (purple tags)
+    7. Search time windows around ALL anchors
+    8. Build process trees
+    9. Apply MITRE pattern matching
+    10. Generate attack narrative
     
     Returns:
-        Dict with iocs, timeline, process_trees, mitre_techniques, narrative
+        Dict with iocs, anchors, timeline, process_trees, mitre_techniques, narrative
     """
     from app.ai_search import (
         identify_attack_techniques,
         determine_kill_chain_phase,
-        generate_attack_analysis,
-        get_gap_analysis
+        generate_attack_analysis
     )
     from app.routes.triage_report import (
         extract_iocs_with_llm,
-        extract_iocs_with_regex,
-        search_ioc,
-        extract_from_search_results,
-        extract_recon_from_results,
-        RECON_SEARCH_TERMS
+        extract_iocs_with_regex
     )
+    from app.models import Case
+    
+    # Get case and EDR report
+    case = Case.query.get(case_id)
+    report_text = case.edr_report or case.description or ''
     
     results = {
-        'iocs': {},
-        'anchors': [],
+        'iocs': {'from_report': {}, 'discovered': {}},
+        'anchors': {
+            'tagged': [],      # Analyst-tagged (high confidence)
+            'discovered': []   # SPECIFIC IOC matches (auto-discovered)
+        },
+        'auto_tag_counts': {},
         'time_windows': [],
         'process_trees': [],
         'mitre_techniques': {},
@@ -273,82 +616,97 @@ def ai_triage_search(case_id: int, report_text: str, search_date: datetime,
     }
     
     # =========================================================================
-    # PHASE 1-3: IOC Extraction & Hunting (REUSE EXISTING)
+    # PHASE 1: GET ANALYST-TAGGED ANCHORS (High Confidence)
     # =========================================================================
     
-    # Extract IOCs from report
-    iocs = extract_iocs_with_llm(report_text)
-    if not iocs or not any(iocs.values()):
-        iocs = extract_iocs_with_regex(report_text)
+    tagged_anchors = get_tagged_event_anchors(case_id)
+    results['anchors']['tagged'] = tagged_anchors
+    
+    # =========================================================================
+    # PHASE 2: EXTRACT IOCs FROM EDR REPORT
+    # =========================================================================
+    
+    iocs = {}
+    if report_text:
+        iocs = extract_iocs_with_llm(report_text)
+        if not iocs or not any(iocs.values()):
+            iocs = extract_iocs_with_regex(report_text)
     
     results['iocs']['from_report'] = iocs
     
-    # Calculate search window
-    start_date = (search_date - timedelta(hours=window_hours)).isoformat()
-    end_date = (search_date + timedelta(hours=window_hours)).isoformat()
+    # =========================================================================
+    # PHASE 3: CLASSIFY IOCs AS SPECIFIC VS BROAD
+    # =========================================================================
     
-    # Hunt IOCs (snowball discovery)
-    discovered_ips = set()
-    discovered_hostnames = set()
-    discovered_usernames = set()
+    specific_iocs, broad_iocs = classify_iocs(iocs)
     
-    for ip in iocs.get('ips', []):
-        search_results, _ = search_ioc(opensearch_client, case_id, ip)
-        new_ips, new_hosts, new_users = extract_from_search_results(search_results)
-        discovered_ips.update(new_ips)
-        discovered_hostnames.update(new_hosts)
-        discovered_usernames.update(new_users)
+    # =========================================================================
+    # PHASE 4: SEARCH SPECIFIC IOCs → GET EVENTS FOR AUTO-TAGGING
+    # =========================================================================
     
-    # ... (repeat for hostnames, usernames - same as triage_report.py)
+    specific_anchors, specific_count = search_specific_iocs(
+        opensearch_client, case_id, specific_iocs
+    )
+    results['anchors']['discovered'] = specific_anchors
     
+    # =========================================================================
+    # PHASE 5: DISCOVER VIA AGGREGATIONS FOR BROAD IOCs
+    # =========================================================================
+    
+    discovered = discover_iocs_via_aggregations(
+        opensearch_client, case_id, broad_iocs
+    )
     results['iocs']['discovered'] = {
-        'ips': list(discovered_ips),
-        'hostnames': list(discovered_hostnames),
-        'usernames': list(discovered_usernames)
+        'hostnames': list(discovered['hostnames']),
+        'usernames': list(discovered['usernames']),
+        'ips': list(discovered['ips'])
     }
     
     # =========================================================================
-    # PHASE 4: Find Anchor Events (NEW)
+    # PHASE 6: AUTO-TAG SPECIFIC IOC MATCHES
     # =========================================================================
     
-    all_iocs = {
-        'ips': list(set(iocs.get('ips', []) + list(discovered_ips))),
-        'hostnames': list(set(iocs.get('hostnames', []) + list(discovered_hostnames))),
-        'usernames': list(set(iocs.get('usernames', []) + list(discovered_usernames))),
-        'file_paths': iocs.get('file_paths', []),
-        'hashes': iocs.get('hashes', [])
-    }
-    
-    anchors = find_anchor_events(opensearch_client, case_id, all_iocs, 
-                                  start_date, end_date)
-    results['anchors'] = anchors
+    if specific_anchors:
+        tag_counts = auto_tag_anchor_events_batch(
+            case_id=case_id,
+            user_id=user_id,
+            anchors=specific_anchors
+        )
+        results['auto_tag_counts'] = tag_counts
     
     # =========================================================================
-    # PHASE 5: Time Window Analysis (NEW)
+    # PHASE 7: TIME WINDOW ANALYSIS
     # =========================================================================
     
+    all_anchors = tagged_anchors + specific_anchors
     all_window_events = []
-    for anchor in anchors[:20]:  # Limit to top 20 anchors
-        hostname = anchor['event'].get('normalized_computer') or \
-                   anchor['event'].get('host', {}).get('hostname')
-        if not hostname:
-            continue
-            
-        anchor_time = datetime.fromisoformat(anchor['timestamp'].replace('Z', '+00:00'))
-        window_events = search_time_window(opensearch_client, case_id, 
-                                           hostname, anchor_time, minutes=5)
-        all_window_events.extend(window_events)
+    processed_windows = set()
+    
+    for anchor in all_anchors[:30]:  # Limit to top 30 anchors
+        hostname = anchor.get('hostname')
+        timestamp = anchor.get('timestamp')
         
-        results['time_windows'].append({
-            'anchor': anchor,
-            'events': window_events
-        })
+        if not hostname or not timestamp:
+            continue
+        
+        window_key = f"{hostname}|{timestamp[:16]}"
+        if window_key in processed_windows:
+            continue
+        processed_windows.add(window_key)
+        
+        try:
+            anchor_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            window_events = search_time_window(opensearch_client, case_id, 
+                                               hostname, anchor_time, minutes=5)
+            all_window_events.extend(window_events)
+        except Exception as e:
+            logger.warning(f"Failed to search window: {e}")
     
     # =========================================================================
-    # PHASE 6: Process Tree Building (NEW)
+    # PHASE 8: PROCESS TREE BUILDING
     # =========================================================================
     
-    # Find suspicious parent PIDs to investigate
+    # Find suspicious parent PIDs
     suspicious_parents = set()
     for event in all_window_events:
         proc = event.get('process', {})
@@ -356,12 +714,6 @@ def ai_triage_search(case_id: int, report_text: str, search_date: datetime,
         parent_name = (parent.get('name') or '').lower()
         proc_name = (proc.get('name') or '').lower()
         
-        # Browser spawning executable = suspicious
-        if parent_name in ['firefox.exe', 'chrome.exe', 'msedge.exe', 'iexplore.exe']:
-            if proc_name.endswith('.exe') and proc_name not in [parent_name]:
-                suspicious_parents.add((parent.get('pid'), event.get('normalized_computer')))
-        
-        # cmd.exe or powershell spawning recon tools
         if parent_name in ['cmd.exe', 'powershell.exe']:
             if proc_name in ['nltest.exe', 'whoami.exe', 'net.exe', 'ipconfig.exe']:
                 suspicious_parents.add((parent.get('pid'), event.get('normalized_computer')))
@@ -377,44 +729,30 @@ def ai_triage_search(case_id: int, report_text: str, search_date: datetime,
                 })
     
     # =========================================================================
-    # PHASE 7: MITRE Pattern Matching (REUSE EXISTING)
+    # PHASE 9: MITRE PATTERN MATCHING
     # =========================================================================
     
-    # Convert events to format expected by identify_attack_techniques
-    formatted_events = []
-    for event in all_window_events:
-        formatted_events.append({
-            '_source': event,
-            '_id': event.get('_id', str(hash(str(event))))
-        })
-    
+    formatted_events = [{'_source': e, '_id': str(hash(str(e)))} for e in all_window_events]
     techniques = identify_attack_techniques(formatted_events)
     results['mitre_techniques'] = techniques
-    
-    kill_chain = determine_kill_chain_phase(techniques)
-    results['kill_chain_phase'] = kill_chain
+    results['kill_chain_phase'] = determine_kill_chain_phase(techniques)
     
     # =========================================================================
-    # PHASE 8: Generate Narrative (REUSE EXISTING)
+    # PHASE 10: GENERATE NARRATIVE
     # =========================================================================
     
-    narrative = generate_attack_analysis(formatted_events)
-    results['narrative'] = narrative
+    results['narrative'] = generate_attack_analysis(formatted_events)
     
     # Build timeline
-    timeline = []
     for event in sorted(all_window_events, key=lambda x: x.get('@timestamp', '')):
         proc = event.get('process', {})
-        timeline.append({
+        results['timeline'].append({
             'timestamp': event.get('@timestamp'),
             'process': proc.get('name'),
             'command': proc.get('command_line'),
             'user': f"{proc.get('user', {}).get('domain', '')}\\{proc.get('user', {}).get('name', '')}",
-            'parent': proc.get('parent', {}).get('name'),
-            'techniques': [t for t, evts in techniques.items() 
-                          if any(e.get('_id') == event.get('_id') for e in evts)]
+            'parent': proc.get('parent', {}).get('name')
         })
-    results['timeline'] = timeline
     
     return results
 ```
@@ -435,110 +773,90 @@ app/
 
 ---
 
-## Frontend Changes
+## Database Model: `AITriageSearch`
 
-### Add to `search_events.html`
-
-1. **New Button** (next to existing Triage Report button):
-```html
-<button onclick="showAITriageSearchModal()" class="btn btn-primary">
-    🔍 AI Search
-</button>
-```
-
-2. **Modal** (similar to existing triage modal):
-```html
-<div id="aiTriageSearchModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container">
-        <div class="modal-header">
-            <h3>🔍 AI Triage Search</h3>
-            <button onclick="closeAITriageSearchModal()" class="modal-close">×</button>
-        </div>
-        <div class="modal-body">
-            <!-- Phase 1: Date Input -->
-            <div id="aiSearchDatePhase">
-                <label>Enter investigation date:</label>
-                <input type="datetime-local" id="aiSearchDate">
-                <button onclick="startAITriageSearch()">Start Analysis</button>
-            </div>
-            
-            <!-- Phase 2: Progress -->
-            <div id="aiSearchProgressPhase" style="display: none;">
-                <div class="progress-log" id="aiSearchProgressLog"></div>
-            </div>
-            
-            <!-- Phase 3: Results -->
-            <div id="aiSearchResultsPhase" style="display: none;">
-                <div id="aiSearchResults"></div>
-            </div>
-        </div>
-    </div>
-</div>
-```
-
-3. **JavaScript**:
-```javascript
-async function startAITriageSearch() {
-    const date = document.getElementById('aiSearchDate').value;
-    const caseId = {{ case_id }};
+```python
+class AITriageSearch(db.Model):
+    """AI Triage Search results - stored for analyst review"""
+    __tablename__ = 'ai_triage_search'
     
-    // Show progress phase
-    document.getElementById('aiSearchDatePhase').style.display = 'none';
-    document.getElementById('aiSearchProgressPhase').style.display = 'block';
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending', index=True)
     
-    // Stream results via SSE
-    const eventSource = new EventSource(`/case/${caseId}/ai-triage-search/stream?date=${date}`);
+    # Results summary (JSON)
+    summary_json = db.Column(db.Text)
+    results_json = db.Column(db.Text)
     
-    eventSource.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        if (data.type === 'progress') {
-            appendProgress(data.message);
-        } else if (data.type === 'complete') {
-            showResults(data.results);
-            eventSource.close();
-        }
-    };
-}
+    # Counts for quick display
+    tagged_anchors_count = db.Column(db.Integer, default=0)      # Pre-existing analyst tags
+    ioc_anchors_count = db.Column(db.Integer, default=0)         # SPECIFIC IOC matches
+    auto_tagged_count = db.Column(db.Integer, default=0)         # Events auto-tagged this run
+    total_events_analyzed = db.Column(db.Integer, default=0)
+    techniques_found = db.Column(db.Integer, default=0)
+    
+    # Timing
+    generation_time_seconds = db.Column(db.Float)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    case = db.relationship('Case', backref='ai_triage_searches')
+    generator = db.relationship('User', backref='triage_searches')
 ```
 
 ---
 
 ## API Endpoints
 
-### New Route: `/case/<case_id>/ai-triage-search/stream`
+### New Blueprint: `app/routes/ai_triage_search.py`
 
 ```python
-@ai_triage_search_bp.route('/case/<int:case_id>/ai-triage-search/stream')
-@login_required
-def ai_triage_search_stream(case_id):
-    """Stream AI Triage Search results via SSE."""
-    date_str = request.args.get('date')
-    search_date = datetime.fromisoformat(date_str)
-    
-    def generate():
-        # Get case description as report
-        case = Case.query.get(case_id)
-        report_text = case.description or ''
-        
-        yield f"data: {json.dumps({'type': 'progress', 'message': 'Starting analysis...'})}\n\n"
-        
-        # Run the analysis
-        results = ai_triage_search(case_id, report_text, search_date)
-        
-        yield f"data: {json.dumps({'type': 'complete', 'results': results})}\n\n"
-    
-    return Response(generate(), mimetype='text/event-stream')
+@ai_triage_search_bp.route('/case/<int:case_id>/ai-triage-searches')
+def list_triage_searches(case_id):
+    """List all AI Triage Searches for the AI Analysis section."""
+
+@ai_triage_search_bp.route('/case/<int:case_id>/ai-triage-search/run', methods=['POST'])
+def run_triage_search(case_id):
+    """Start a new AI Triage Search for the case."""
+
+@ai_triage_search_bp.route('/ai-triage-search/<int:search_id>')
+def view_triage_search(search_id):
+    """View AI Triage Search results page."""
+
+@ai_triage_search_bp.route('/ai-triage-search/<int:search_id>/api')
+def get_triage_search(search_id):
+    """Get triage search status/results as JSON."""
 ```
 
 ---
 
-## Testing Checklist
+## Celery Task
 
-1. [ ] Test on Case 17 (JELLY) - RDP compromise + recon
-2. [ ] Test on Case 18 (JHD) - Phishing + malicious RMM
-3. [ ] Test on Case 22 (SERVU) - Phishing + ScreenConnect
-4. [ ] Test on Case 11 (DEPCO) - Lateral movement + Cobalt Strike
-5. [ ] Test on Case 8 (CM) - VPN compromise + domain enum
+```python
+@celery_app.task(bind=True, name='tasks.run_ai_triage_search')
+def run_ai_triage_search(self, search_id):
+    """Run AI Triage Search and store results."""
+    search = AITriageSearch.query.get(search_id)
+    search.status = 'running'
+    db.session.commit()
+    
+    try:
+        results = ai_triage_search(search.case_id, search.generated_by)
+        
+        search.results_json = json.dumps(results)
+        search.tagged_anchors_count = len(results['anchors']['tagged'])
+        search.ioc_anchors_count = len(results['anchors']['discovered'])
+        search.auto_tagged_count = results.get('auto_tag_counts', {}).get('tagged', 0)
+        search.status = 'completed'
+        
+    except Exception as e:
+        search.status = 'failed'
+        search.error_message = str(e)
+    
+    db.session.commit()
+```
 
 ---
 
@@ -551,14 +869,56 @@ def ai_triage_search_stream(case_id):
 | Attack Narrative | 0 | Reuse `ai_search.py` |
 | IOC Extraction | 0 | Reuse `triage_report.py` |
 | Snowball Hunting | 0 | Reuse `triage_report.py` |
-| Recon Detection | 0 | Reuse `triage_report.py` |
-| Time Window Search | ~20 | NEW |
+| IOC Classification | ~20 | NEW |
+| Tagged Event Anchors | ~40 | NEW |
+| SPECIFIC IOC Search | ~50 | NEW |
+| BROAD IOC Aggregations | ~60 | NEW |
+| Auto-Tag Anchors | ~60 | NEW |
+| Time Window Search | ~25 | NEW |
 | Process Tree Builder | ~20 | NEW |
-| Anchor Event Finder | ~30 | NEW |
 | Orchestrator | ~100 | NEW |
-| Frontend Modal | ~50 | NEW |
-| API Endpoint | ~30 | NEW |
-| **TOTAL NEW CODE** | **~250 lines** | |
+| API Endpoints | ~80 | NEW |
+| Celery Task | ~30 | NEW |
+| **TOTAL NEW CODE** | **~485 lines** |
 
-**90% reuse of existing code. Only ~250 lines of new code needed.**
+**75% reuse of existing code. Only ~485 lines of new code needed.**
 
+---
+
+## Testing Checklist
+
+1. [ ] Test on Case 17 (JELLY) - RDP compromise + recon
+2. [ ] Test on Case 18 (JHD) - Phishing + malicious RMM (10M+ events)
+3. [ ] Test on Case 22 (SERVU) - Phishing + ScreenConnect
+4. [ ] Test on Case 11 (DEPCO) - Lateral movement + Cobalt Strike
+5. [ ] Test on Case 8 (CM) - VPN compromise + domain enum
+
+---
+
+## How to Rebuild This Feature
+
+If starting from scratch:
+
+1. **Read the existing code**:
+   - `app/ai_search.py` - MITRE patterns, attack analysis functions
+   - `app/routes/triage_report.py` - IOC extraction, hunting functions
+   - `app/search_utils.py` - OpenSearch query building
+
+2. **Understand the IOC classification**:
+   - SPECIFIC = low count, high value → auto-tag
+   - BROAD = high count, use aggregations only
+
+3. **Implement in order**:
+   - `classify_iocs()` - split IOCs
+   - `get_tagged_event_anchors()` - get analyst tags
+   - `search_specific_iocs()` - find events to auto-tag
+   - `discover_iocs_via_aggregations()` - discover without tagging
+   - `auto_tag_anchor_events_batch()` - create purple tags
+   - `search_time_window()` - context around anchors
+   - `build_process_tree()` - parent/child relationships
+   - `ai_triage_search()` - orchestrator
+
+4. **Test on a large case** (10M+ events) to verify:
+   - BROAD IOCs don't flood with auto-tags
+   - Aggregations work for discovery
+   - SPECIFIC IOCs get tagged correctly

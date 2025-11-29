@@ -10,11 +10,12 @@
 
 This document describes a comprehensive methodology for automated incident analysis that combines:
 1. **Report IOC Extraction** - Parse EDR/MDR reports for initial IOCs using LLM + regex
-2. **Iterative Snowball Hunting** - Discover new IOCs by searching existing ones
-3. **Malware/Recon Hunting** - Search for malware indicators and reconnaissance patterns
-4. **Time Window Analysis** - Capture surrounding context (±5 minutes)
-5. **Process Tree Building** - Show parent/child relationships from EDR data
-6. **MITRE ATT&CK Pattern Matching** - Identify attack techniques
+2. **IOC Classification** - Split IOCs into SPECIFIC (auto-tag) vs BROAD (aggregation only)
+3. **Iterative Snowball Hunting** - Discover new IOCs by searching existing ones
+4. **Malware/Recon Hunting** - Search for malware indicators and reconnaissance patterns
+5. **Time Window Analysis** - Capture surrounding context (±5 minutes)
+6. **Process Tree Building** - Show parent/child relationships from EDR data
+7. **MITRE ATT&CK Pattern Matching** - Identify attack techniques
 
 The goal is to automate what analysts do manually: extract IOCs from a report, hunt for related activity, build a timeline, and identify attack techniques.
 
@@ -34,7 +35,63 @@ This is time-consuming (hours) and requires expertise. We want to automate it.
 
 ---
 
-## The 6-Phase Methodology
+## Critical Design Decision: IOC Classification
+
+**Problem discovered during testing on Case 18 (10M+ events):**
+
+Searching for usernames and hostnames can match 40K-400K+ events. Auto-tagging all of these would:
+- Flood the timeline with tags
+- Make the system unusable
+- Hit OpenSearch's 10K result limit
+
+**Solution: Split IOCs into two categories:**
+
+### SPECIFIC IOCs (Auto-Tag All Matches)
+
+These have LOW event counts and HIGH value:
+
+| IOC Type | Example | Typical Count |
+|----------|---------|---------------|
+| `process` | statements546.exe | 1-10 |
+| `hash` | SHA256 hash | 1-5 |
+| `filepath` | C:\Users\Public\malware.dll | 1-10 |
+| `command` | powershell -enc ... | 1-50 |
+| `threat` | Trojan:MSIL/BadJoke | 1-20 |
+
+**Action**: Search, get events, auto-tag with purple color.
+
+### BROAD IOCs (Aggregation Only)
+
+These have HIGH event counts:
+
+| IOC Type | Example | Typical Count |
+|----------|---------|---------------|
+| `username` | jwilliams | 40,000+ |
+| `hostname` | ATN81960 | 380,000+ |
+| `ip` | 192.168.1.50 | 1,000-50,000 |
+| `sid` | S-1-5-21-... | 10,000+ |
+
+**Action**: Use aggregations to DISCOVER related IOCs, but do NOT auto-tag events.
+
+### Why This Works
+
+From Case 18 dry run:
+```
+SPECIFIC IOCs:
+  - statements546.exe: 2 events → AUTO-TAG ✅
+  - SHA256 hash: 1 event → AUTO-TAG ✅
+  - Encoded PowerShell: 1 event → AUTO-TAG ✅
+  TOTAL AUTO-TAGS: 4
+
+BROAD IOCs:
+  - jwilliams: 41,784 events → AGGREGATION ONLY (discovered: tabadmin, 4 hosts, 1 IP)
+  - ATN81960: 381,151 events → AGGREGATION ONLY
+  TOTAL AUTO-TAGS: 0 (discovery via aggregations instead)
+```
+
+---
+
+## The 7-Phase Methodology
 
 ### Phase 1: Report IOC Extraction
 
@@ -86,7 +143,32 @@ r'(?:powershell\.exe|cmd\.exe)[^\n]*(?:-[Ee](?:nc|ncodedcommand)\s+[A-Za-z0-9+/=
 - Usernames cannot be generic terms (SYSTEM, Administrator, etc.)
 - Machine accounts (ending in $) are filtered out
 
-### Phase 2: Iterative Snowball Hunting
+### Phase 2: IOC Classification
+
+**Goal**: Split extracted IOCs into SPECIFIC (auto-tag) vs BROAD (aggregation only).
+
+**Method**:
+```python
+def classify_iocs(iocs):
+    specific_iocs = {
+        'processes': iocs.get('processes', []),
+        'paths': iocs.get('paths', []),
+        'hashes': iocs.get('hashes', []),
+        'commands': iocs.get('commands', []),
+        'threats': iocs.get('threats', [])
+    }
+    
+    broad_iocs = {
+        'usernames': iocs.get('usernames', []),
+        'hostnames': iocs.get('hostnames', []),
+        'ips': iocs.get('ips', []),
+        'sids': iocs.get('sids', [])
+    }
+    
+    return specific_iocs, broad_iocs
+```
+
+### Phase 3: Iterative Snowball Hunting
 
 **Goal**: Discover new IOCs by searching for existing ones.
 
@@ -112,11 +194,8 @@ Round 2:
 **Search Function Used**: `build_search_query()` from `search_utils.py`
 ```python
 query_dsl = build_search_query(
-    case_id=case_id,
     search_text=ip_address,
-    file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS'],
-    start_date=start_date,  # 24h before report timestamp
-    end_date=end_date       # 24h after report timestamp
+    file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
 )
 results = execute_search(query_dsl, case_id)
 ```
@@ -146,45 +225,66 @@ process.get('user', {}).get('name')
 # Filter out: machine accounts ($), SYSTEM, generic terms
 ```
 
-### Phase 3: Malware/Recon Hunting
+### Phase 4: SPECIFIC IOC Search + Auto-Tagging
 
-**Goal**: Find malware indicators and reconnaissance activity.
+**Goal**: Find events matching SPECIFIC IOCs and auto-tag them.
 
-**Trigger**: Only if the report mentions malware (Cobalt Strike, Trojan, etc.)
-
-**Search Terms**:
+**Method**:
 ```python
-MALWARE_INDICATORS = [
-    # Remote execution tools
-    'PSEXEC', 'psexec.exe', 'PsExec',
-    
-    # C2 frameworks
-    'Cobalt', 'beacon', 'cobaltstrike',
-    
-    # Defender evasion
-    'DisableRealtimeMonitoring', 'Set-MpPreference',
-    
-    # Reconnaissance (LOLBins)
-    'nltest', 'net user', 'net group', 'whoami /all',
-    'ipconfig /all', 'systeminfo', 'netstat',
-    
-    # Malicious RMM
-    'ScreenConnect', 'AnyDesk', 'TeamViewer'
-]
+for ioc_type, values in specific_iocs.items():
+    for ioc_value in values:
+        query_dsl = build_search_query(search_text=ioc_value)
+        count = opensearch_client.count(index=index_name, body={"query": query_dsl.get("query", {})})
+        
+        if count > 0:
+            # Fetch events
+            response = opensearch_client.search(index=index_name, body=query_dsl, size=1000)
+            
+            # Auto-tag each event
+            for hit in response['hits']['hits']:
+                tag = TimelineTag(
+                    case_id=case_id,
+                    event_id=hit['_id'],
+                    tag_color='purple',  # AI-discovered = purple
+                    notes=f"[AI Triage Auto-Tagged]\nIOC: {ioc_type}={ioc_value}"
+                )
 ```
 
-**What We Extract**:
-- Full command lines (as IOC type: command)
-- Defender threat names (as IOC type: threat)
-- Tool names (as IOC type: tool)
-- File paths (as IOC type: path)
+### Phase 5: BROAD IOC Discovery via Aggregations
 
-### Phase 4: Time Window Analysis
+**Goal**: Discover related IOCs from BROAD IOC searches WITHOUT auto-tagging.
+
+**Method**:
+```python
+agg_query = {
+    "size": 0,  # Don't return events, just aggregations
+    "query": build_search_query(search_text=username).get("query", {}),
+    "aggs": {
+        "unique_hosts": {"terms": {"field": "host.hostname.keyword", "size": 50}},
+        "unique_users": {"terms": {"field": "process.user.name.keyword", "size": 50}},
+        "unique_ips": {"terms": {"field": "host.ip.keyword", "size": 50}}
+    }
+}
+
+response = opensearch_client.search(index=index_name, body=agg_query)
+
+# Extract discovered values from aggregations
+for bucket in response['aggregations']['unique_hosts']['buckets']:
+    discovered_hostnames.add(bucket['key'])
+```
+
+**Why Aggregations?**
+- Returns unique values without fetching all events
+- Works even when there are 400K+ matches
+- Fast and efficient
+- Provides discovery without flooding the timeline
+
+### Phase 6: Time Window Analysis
 
 **Goal**: Capture the context around each anchor event.
 
 **Method**:
-1. For each anchor event (IOC match), get its timestamp
+1. For each anchor event (IOC match or analyst-tagged), get its timestamp
 2. Search for ALL events in a ±5 minute window
 3. This captures:
    - What happened before (how did we get here?)
@@ -211,7 +311,7 @@ MALWARE_INDICATORS = [
 }
 ```
 
-### Phase 5: Process Tree Building
+### Phase 7: Process Tree Building
 
 **Goal**: Understand the relationships between processes.
 
@@ -270,7 +370,7 @@ Explorer.EXE (PID: 6932) - User: JJLAW\Tracy
     └── ipconfig.exe
 ```
 
-### Phase 6: MITRE ATT&CK Pattern Matching
+### Phase 8: MITRE ATT&CK Pattern Matching
 
 **Goal**: Identify what attack techniques are being used.
 
@@ -328,6 +428,30 @@ MITRE_PATTERNS = {
 ---
 
 ## Test Cases
+
+### Case 18 (JHD) - Phishing + Malware (10M+ Events)
+
+**Report Summary**: User jwilliams clicked phishing link, downloaded statements546.exe malware.
+
+**IOCs Extracted**:
+- SPECIFIC: statements546.exe, SHA256 hash, C:\Users\Jwilliams\Downloads\statements546.exe
+- BROAD: jwilliams (username), ATN81960 (hostname), SID
+
+**Auto-Tag Results**:
+```
+SPECIFIC IOCs (auto-tagged):
+  - statements546.exe: 2 events ✅
+  - SHA256 hash: 1 event ✅
+  - Encoded PowerShell: 1 event ✅
+  TOTAL: 4 events auto-tagged
+
+BROAD IOCs (aggregation only):
+  - jwilliams: 41,784 events → discovered: tabadmin, 4 hosts, 1 IP
+  - ATN81960: 381,151 events → discovered via aggregations
+  TOTAL: 0 events auto-tagged (used for discovery only)
+```
+
+**Key Learning**: This case proved the IOC classification strategy works for large cases.
 
 ### Case 17 (JELLY) - RDP Compromise + Hands-on-Keyboard
 
@@ -524,6 +648,7 @@ PHASE 4: Response
 
 **`extract_iocs_with_llm(report_text)`**: Uses Ollama to extract structured IOCs
 **`extract_iocs_with_regex(report_text)`**: Fallback regex extraction
+**`classify_iocs(iocs)`**: Split into SPECIFIC vs BROAD
 **`process_triage_report()`**: Main route that orchestrates all phases
 **`build_search_query()`**: Builds OpenSearch queries with proper field handling
 **`execute_search()`**: Executes queries and returns results
@@ -533,12 +658,22 @@ PHASE 4: Response
 **Search by IOC (using existing search infrastructure)**:
 ```python
 query_dsl = build_search_query(
-    case_id=case_id,
     search_text="192.168.10.50",
-    file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS'],
-    start_date="2025-08-21T00:00:00Z",
-    end_date="2025-08-23T00:00:00Z"
+    file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
 )
+```
+
+**Aggregation for discovery (BROAD IOCs)**:
+```json
+{
+  "size": 0,
+  "query": {"query_string": {"query": "jwilliams"}},
+  "aggs": {
+    "unique_hosts": {"terms": {"field": "host.hostname.keyword", "size": 50}},
+    "unique_users": {"terms": {"field": "process.user.name.keyword", "size": 50}},
+    "unique_ips": {"terms": {"field": "host.ip.keyword", "size": 50}}
+  }
+}
 ```
 
 **Time window search (direct OpenSearch)**:
@@ -569,29 +704,35 @@ query_dsl = build_search_query(
 
 ---
 
-## How to Rebuild This
+## How to Rebuild This (Step by Step)
 
 If starting from scratch:
 
 1. **Start with a known-bad case** (like Case 17 with the Huntress report)
 
-2. **Extract IOCs from the report** - Use LLM or regex to get IPs, hostnames, usernames
+2. **Extract IOCs from the report** - Use LLM or regex to get IPs, hostnames, usernames, hashes, paths
 
-3. **Search for each IOC** - Use `build_search_query()` to find events
+3. **Classify IOCs**:
+   - SPECIFIC (processes, hashes, paths, commands, threats) → will auto-tag
+   - BROAD (usernames, hostnames, IPs, SIDs) → aggregation only
 
-4. **Snowball discovery** - For each result, extract new IOCs and search again
+4. **Search SPECIFIC IOCs** - Use `build_search_query()` to find events, auto-tag matches
 
-5. **If malware mentioned** - Search for malware indicators (PSEXEC, Cobalt, Defender events)
+5. **Aggregate BROAD IOCs** - Use aggregations to discover related IOCs without tagging
 
-6. **Pick anchor events** - Events that match IOCs are your anchors
+6. **Snowball discovery** - For each result, extract new IOCs and search again
 
-7. **Expand time window** - Search ±5 minutes around each anchor
+7. **If malware mentioned** - Search for malware indicators (PSEXEC, Cobalt, Defender events)
 
-8. **Build process trees** - Use parent.pid to link events
+8. **Pick anchor events** - Events that match SPECIFIC IOCs + analyst-tagged events
 
-9. **Apply MITRE patterns** - Match processes and commands to techniques
+9. **Expand time window** - Search ±5 minutes around each anchor
 
-10. **Build the narrative** - Sort by time, group by session, identify phases
+10. **Build process trees** - Use parent.pid to link events
+
+11. **Apply MITRE patterns** - Match processes and commands to techniques
+
+12. **Build the narrative** - Sort by time, group by session, identify phases
 
 ---
 
@@ -611,11 +752,14 @@ If starting from scratch:
 
 The key insight is that **attacks are chains, not single events**. By:
 1. Extracting IOCs from reports (LLM + regex)
-2. Hunting iteratively (snowball discovery)
-3. Looking at surrounding time (±5 minutes)
-4. Building process trees (parent/child from EDR)
-5. Matching known patterns (MITRE ATT&CK)
+2. Classifying IOCs (SPECIFIC = auto-tag, BROAD = aggregation)
+3. Hunting iteratively (snowball discovery)
+4. Looking at surrounding time (±5 minutes)
+5. Building process trees (parent/child from EDR)
+6. Matching known patterns (MITRE ATT&CK)
 
 ...we can automatically reconstruct what an analyst would manually piece together.
 
 The EDR data structure with embedded parent/grandparent information makes process tree building particularly effective. The combination of the triage extraction with time-window analysis catches both the "what" (IOCs) and the "how" (attack chain).
+
+**Critical for large cases (10M+ events)**: Use aggregations for BROAD IOCs instead of auto-tagging all matches.

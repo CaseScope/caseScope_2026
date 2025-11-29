@@ -4,10 +4,11 @@
 
 A multi-phase automated IOC discovery system that:
 1. Extracts IOCs from analyst-pasted EDR/MDR reports
-2. Hunts those IOCs to discover NEW related IOCs
-3. If malware is indicated, hunts malware indicators for additional IOCs
-4. Extracts recon commands and tools as IOCs
-5. Adds all discovered IOCs to the database with appropriate types
+2. Classifies IOCs as SPECIFIC (auto-tag) vs BROAD (aggregation only)
+3. Hunts those IOCs to discover NEW related IOCs
+4. If malware is indicated, hunts malware indicators for additional IOCs
+5. Extracts recon commands and tools as IOCs
+6. Adds all discovered IOCs to the database with appropriate types
 
 ---
 
@@ -30,17 +31,26 @@ A multi-phase automated IOC discovery system that:
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                 PHASE 2: STANDARD IOC HUNTING                       │
+│                    PHASE 2: IOC CLASSIFICATION                      │
+│  Split IOCs into SPECIFIC vs BROAD categories                       │
+│  - SPECIFIC: processes, hashes, paths, commands, threats            │
+│    → Will auto-tag matching events                                  │
+│  - BROAD: usernames, hostnames, IPs, SIDs                          │
+│    → Use aggregations for discovery only (no auto-tag)              │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 PHASE 3: STANDARD IOC HUNTING                       │
 │  For each extracted IOC, search OpenSearch and extract NEW IOCs     │
-│  - IPs → discover hostnames, usernames                              │
-│  - Hostnames → discover IPs, usernames                              │
-│  - Usernames → discover IPs, hostnames                              │
+│  - SPECIFIC IOCs → search, get events, auto-tag with purple color   │
+│  - BROAD IOCs → use aggregations to discover related IOCs           │
 │  Iterate until no new discoveries (or max iterations)               │
 └─────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│              PHASE 3: MALWARE/RECON HUNTING                         │
+│              PHASE 4: MALWARE/RECON HUNTING                         │
 │  Search for malware and recon indicators, extract IOCs              │
 │  - Malware: filenames, paths, Defender threats                      │
 │  - Recon: commands (nltest, net group, whoami), tool executables    │
@@ -49,12 +59,64 @@ A multi-phase automated IOC discovery system that:
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    PHASE 4: ADD TO DATABASE                         │
+│                    PHASE 5: ADD TO DATABASE                         │
 │  Add all discovered IOCs with appropriate types and status          │
 │  - Active IOCs: hunted by IOC hunting engine                        │
 │  - Inactive IOCs: not hunted (SIDs, commands - too noisy/specific)  │
 │  - Ignored IOCs: informational only, never hunted                   │
 └─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Critical Design Decision: IOC Classification
+
+**Problem discovered during testing on Case 18 (10M+ events):**
+
+Searching for usernames and hostnames can match 40K-400K+ events. Auto-tagging all of these would:
+- Flood the timeline with tags
+- Make the system unusable
+- Hit OpenSearch's 10K result limit
+
+**Solution: Split IOCs into two categories:**
+
+### SPECIFIC IOCs (Auto-Tag All Matches)
+
+These have LOW event counts and HIGH value:
+
+| IOC Type | Example | Typical Count | Action |
+|----------|---------|---------------|--------|
+| `process` | statements546.exe | 1-10 | AUTO-TAG |
+| `hash` | SHA256 hash | 1-5 | AUTO-TAG |
+| `filepath` | C:\Users\Public\malware.dll | 1-10 | AUTO-TAG |
+| `command` | powershell -enc ... | 1-50 | AUTO-TAG |
+| `threat` | Trojan:MSIL/BadJoke | 1-20 | AUTO-TAG |
+
+### BROAD IOCs (Aggregation Only)
+
+These have HIGH event counts:
+
+| IOC Type | Example | Typical Count | Action |
+|----------|---------|---------------|--------|
+| `username` | jwilliams | 40,000+ | AGGREGATION |
+| `hostname` | ATN81960 | 380,000+ | AGGREGATION |
+| `ip` | 192.168.1.50 | 1,000-50,000 | AGGREGATION |
+| `sid` | S-1-5-21-... | 10,000+ | AGGREGATION |
+
+### Why This Works (Case 18 Example)
+
+```
+SPECIFIC IOCs:
+  - statements546.exe: 2 events → AUTO-TAG ✅
+  - SHA256 hash: 1 event → AUTO-TAG ✅
+  - Encoded PowerShell: 1 event → AUTO-TAG ✅
+  TOTAL AUTO-TAGS: 4
+
+BROAD IOCs:
+  - jwilliams: 41,784 events → AGGREGATION ONLY
+    → Discovered: tabadmin (user), 4 hosts, 1 IP
+  - ATN81960: 381,151 events → AGGREGATION ONLY
+  TOTAL AUTO-TAGS: 0 (used for discovery instead)
 ```
 
 ---
@@ -173,7 +235,35 @@ net_pattern = r'net\s+(?:group|user|localgroup)[^\r\n]+'
 
 ---
 
-## Phase 2: Standard IOC Hunting
+## Phase 2: IOC Classification
+
+**Split extracted IOCs before hunting:**
+
+```python
+def classify_iocs(iocs):
+    """Split IOCs into SPECIFIC (auto-tag) vs BROAD (aggregation only)."""
+    
+    specific_iocs = {
+        'processes': iocs.get('processes', []),
+        'paths': iocs.get('paths', []),
+        'hashes': iocs.get('hashes', []),
+        'commands': iocs.get('commands', []),
+        'threats': iocs.get('threats', [])
+    }
+    
+    broad_iocs = {
+        'usernames': iocs.get('usernames', []),
+        'hostnames': iocs.get('hostnames', []),
+        'ips': iocs.get('ips', []),
+        'sids': iocs.get('sids', [])
+    }
+    
+    return specific_iocs, broad_iocs
+```
+
+---
+
+## Phase 3: Standard IOC Hunting
 
 ### Search Method
 **ALWAYS use `build_search_query` and `execute_search` from `search_utils.py`**
@@ -201,6 +291,36 @@ def search_ioc(opensearch_client, case_id, search_term, time_start=None, time_en
         per_page=500
     )
     return results, total
+```
+
+### Aggregation for BROAD IOCs
+
+```python
+def discover_via_aggregations(opensearch_client, case_id, broad_iocs):
+    """Use aggregations to discover related IOCs without fetching all events."""
+    
+    discovered = {'hostnames': set(), 'usernames': set(), 'ips': set()}
+    
+    for ioc_type, values in broad_iocs.items():
+        for ioc_value in values:
+            agg_query = {
+                "size": 0,  # Don't return events
+                "query": build_search_query(search_text=ioc_value).get("query", {}),
+                "aggs": {
+                    "unique_hosts": {"terms": {"field": "host.hostname.keyword", "size": 50}},
+                    "unique_users": {"terms": {"field": "process.user.name.keyword", "size": 50}},
+                    "unique_ips": {"terms": {"field": "host.ip.keyword", "size": 50}}
+                }
+            }
+            
+            response = opensearch_client.search(index=f"case_{case_id}", body=agg_query)
+            
+            # Extract from aggregations
+            for bucket in response['aggregations']['unique_hosts']['buckets']:
+                discovered['hostnames'].add(bucket['key'])
+            # ... etc
+    
+    return discovered
 ```
 
 ### Extraction Logic
@@ -286,7 +406,7 @@ def extract_from_results(results):
 
 ---
 
-## Phase 3: Malware & Recon Hunting
+## Phase 4: Malware & Recon Hunting
 
 ### When to Run
 - **Malware hunting**: If Phase 1 determines MALWARE = TRUE
@@ -402,6 +522,28 @@ def extract_defender_threats(opensearch_client, case_id, malware_filename):
 ---
 
 ## Test Results
+
+### Case 18 (JHD) - Phishing + Malware (10M+ Events)
+
+**Starting IOCs (from report):**
+- SPECIFIC: statements546.exe, SHA256 hash, filepath
+- BROAD: jwilliams (username), ATN81960 (hostname), SID
+
+**Auto-Tag Results:**
+```
+SPECIFIC IOCs (auto-tagged):
+  - statements546.exe: 2 events ✅
+  - SHA256 hash: 1 event ✅
+  - Encoded PowerShell: 1 event ✅
+  TOTAL: 4 events auto-tagged
+
+BROAD IOCs (aggregation only):
+  - jwilliams: 41,784 events → discovered: tabadmin, 4 hosts, 1 IP
+  - ATN81960: 381,151 events → discovered via aggregations
+  TOTAL: 0 events auto-tagged
+```
+
+**Key Learning**: This case proved the IOC classification strategy works for large cases.
 
 ### Case 15 (RDS Compromise with Exfiltration)
 
@@ -538,15 +680,15 @@ def extract_defender_threats(opensearch_client, case_id, malware_filename):
 
 ## Key Differences Between Cases
 
-| Aspect | Case 8 (CM) | Case 11 (DEPCO) | Case 15 | Case 17 (JJLAW) |
-|--------|-------------|-----------------|---------|-----------------|
-| Attack Type | Recon & enumeration | Lateral movement | Exfiltration | Single host compromise |
-| Initial Access | SonicWall VPN | SonicWall VPN | RDP (BlueVPS) | RDP/RDS |
-| Malware | Recon tools | Cobalt Strike | WinSCP | WQTLib.dll (Trojan) |
-| Hosts Affected | Multiple (3+) | Multiple (5+) | 1 | Single (JELLY-RDS01) |
-| New IOCs Discovered | 7 | 11 | 2 | 1 |
-| Defender Action | N/A | Failed to block | N/A | Quarantined |
-| Key IOC Types | Commands, tools | IPs, hostnames | IP, hostname | Threat name |
+| Aspect | Case 8 (CM) | Case 11 (DEPCO) | Case 15 | Case 17 (JJLAW) | Case 18 (JHD) |
+|--------|-------------|-----------------|---------|-----------------|---------------|
+| Attack Type | Recon & enum | Lateral movement | Exfiltration | Single host | Phishing |
+| Initial Access | SonicWall VPN | SonicWall VPN | RDP (BlueVPS) | RDP/RDS | Phishing link |
+| Malware | Recon tools | Cobalt Strike | WinSCP | WQTLib.dll | statements546.exe |
+| Hosts Affected | Multiple (3+) | Multiple (5+) | 1 | Single | 1 |
+| New IOCs Discovered | 7 | 11 | 2 | 1 | 4 (via aggregation) |
+| Event Count | ~500K | ~1M | ~2M | ~500K | **10M+** |
+| Strategy Used | Standard | Standard | Standard | Standard | **IOC Classification** |
 
 ---
 
