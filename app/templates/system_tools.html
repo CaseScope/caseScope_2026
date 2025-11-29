@@ -299,17 +299,17 @@
 </div>
 
 <!-- Add RMM Tool Modal -->
-<div id="addRMMModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 600px;">
+<div id="addRMMModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
         <div class="modal-header">
-            <h3>Add RMM Tool Exclusion</h3>
-            <button type="button" class="modal-close" onclick="closeModal('addRMMModal')">&times;</button>
+            <h2 class="modal-title">🖥️ Add RMM Tool Exclusion</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addRMMModal')">✕</button>
         </div>
         <form id="addRMMForm" onsubmit="submitRMMForm(event)">
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="rmm_tool_key">Select RMM Tool</label>
-                    <select id="rmm_tool_key" name="tool_key" onchange="updateRMMFields()" required>
+                    <label for="rmm_tool_key" class="form-label">Select RMM Tool</label>
+                    <select id="rmm_tool_key" name="tool_key" class="form-input" onchange="updateRMMFields()" required>
                         <option value="">-- Select Tool --</option>
                         {% for key, tool in rmm_tools.items() %}
                         <option value="{{ key }}" data-executables="{{ tool.executables }}" data-description="{{ tool.description }}">
@@ -321,14 +321,14 @@
                 
                 <div id="rmmCustomFields" style="display: none;">
                     <div class="form-group">
-                        <label for="rmm_custom_name">Custom Tool Name</label>
-                        <input type="text" id="rmm_custom_name" name="custom_name" placeholder="My Custom RMM">
+                        <label for="rmm_custom_name" class="form-label">Custom Tool Name</label>
+                        <input type="text" id="rmm_custom_name" name="custom_name" class="form-input" placeholder="My Custom RMM">
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="rmm_executables">Executable Patterns</label>
-                    <input type="text" id="rmm_executables" name="custom_executables" 
+                    <label for="rmm_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="rmm_executables" name="custom_executables" class="form-input"
                            placeholder="process1.exe,process2.exe,Tool*.exe"
                            style="font-family: monospace;">
                     <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
@@ -337,12 +337,12 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="rmm_description">Description (optional)</label>
-                    <input type="text" id="rmm_description" name="description" placeholder="Why this tool is excluded">
+                    <label for="rmm_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="rmm_description" name="description" class="form-input" placeholder="Why this tool is excluded">
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn" onclick="closeModal('addRMMModal')">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addRMMModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Add RMM Tool</button>
             </div>
         </form>
@@ -350,17 +350,17 @@
 </div>
 
 <!-- Add Remote Tool Modal -->
-<div id="addRemoteModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 600px;">
+<div id="addRemoteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
         <div class="modal-header">
-            <h3>Add Remote Connectivity Tool</h3>
-            <button type="button" class="modal-close" onclick="closeModal('addRemoteModal')">&times;</button>
+            <h2 class="modal-title">🔗 Add Remote Connectivity Tool</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addRemoteModal')">✕</button>
         </div>
         <form id="addRemoteForm" onsubmit="submitRemoteForm(event)">
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="remote_tool_key">Select Remote Tool</label>
-                    <select id="remote_tool_key" name="tool_key" onchange="updateRemoteFields()" required>
+                    <label for="remote_tool_key" class="form-label">Select Remote Tool</label>
+                    <select id="remote_tool_key" name="tool_key" class="form-input" onchange="updateRemoteFields()" required>
                         <option value="">-- Select Tool --</option>
                         {% for key, tool in remote_tools.items() %}
                         <option value="{{ key }}" data-executables="{{ tool.executables }}" data-idfield="{{ tool.id_field }}" data-description="{{ tool.description }}">
@@ -372,21 +372,21 @@
                 
                 <div id="remoteCustomFields" style="display: none;">
                     <div class="form-group">
-                        <label for="remote_custom_name">Custom Tool Name</label>
-                        <input type="text" id="remote_custom_name" name="custom_name" placeholder="My Remote Tool">
+                        <label for="remote_custom_name" class="form-label">Custom Tool Name</label>
+                        <input type="text" id="remote_custom_name" name="custom_name" class="form-input" placeholder="My Remote Tool">
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="remote_executables">Executable Patterns</label>
-                    <input type="text" id="remote_executables" name="custom_executables" 
+                    <label for="remote_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="remote_executables" name="custom_executables" class="form-input"
                            placeholder="tool.exe,Tool*.exe"
                            style="font-family: monospace;">
                 </div>
                 
                 <div class="form-group">
-                    <label for="remote_known_ids">Known-Good <span id="idFieldLabel">Session IDs</span> (one per line)</label>
-                    <textarea id="remote_known_ids" name="known_good_ids" rows="5" 
+                    <label for="remote_known_ids" class="form-label">Known-Good <span id="idFieldLabel">Session IDs</span> (one per line)</label>
+                    <textarea id="remote_known_ids" name="known_good_ids" class="form-textarea" rows="5" 
                               style="font-family: monospace;"
                               placeholder="24a22b9fc261d141
 98f7c3a2b1e45678
@@ -397,12 +397,12 @@ abc123def456"></textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label for="remote_description">Description (optional)</label>
-                    <input type="text" id="remote_description" name="description" placeholder="IT support sessions, etc.">
+                    <label for="remote_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="remote_description" name="description" class="form-input" placeholder="IT support sessions, etc.">
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn" onclick="closeModal('addRemoteModal')">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addRemoteModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Add Remote Tool</button>
             </div>
         </form>
@@ -410,17 +410,17 @@ abc123def456"></textarea>
 </div>
 
 <!-- Add EDR Tool Modal -->
-<div id="addEDRModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 700px;">
+<div id="addEDRModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
         <div class="modal-header">
-            <h3>Add EDR / Security Tool</h3>
-            <button type="button" class="modal-close" onclick="closeModal('addEDRModal')">&times;</button>
+            <h2 class="modal-title">🛡️ Add EDR / Security Tool</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addEDRModal')">✕</button>
         </div>
         <form id="addEDRForm" onsubmit="submitEDRForm(event)">
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="edr_tool_key">Select EDR Tool</label>
-                    <select id="edr_tool_key" name="tool_key" onchange="updateEDRFields()" required>
+                    <label for="edr_tool_key" class="form-label">Select EDR Tool</label>
+                    <select id="edr_tool_key" name="tool_key" class="form-input" onchange="updateEDRFields()" required>
                         <option value="">-- Select Tool --</option>
                         {% for key, tool in edr_tools.items() %}
                         <option value="{{ key }}" 
@@ -436,14 +436,14 @@ abc123def456"></textarea>
                 
                 <div id="edrCustomFields" style="display: none;">
                     <div class="form-group">
-                        <label for="edr_custom_name">Custom Tool Name</label>
-                        <input type="text" id="edr_custom_name" name="custom_name" placeholder="My EDR Tool">
+                        <label for="edr_custom_name" class="form-label">Custom Tool Name</label>
+                        <input type="text" id="edr_custom_name" name="custom_name" class="form-input" placeholder="My EDR Tool">
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="edr_executables">Executable Patterns</label>
-                    <input type="text" id="edr_executables" name="custom_executables" 
+                    <label for="edr_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="edr_executables" name="custom_executables" class="form-input"
                            placeholder="Agent.exe,Service.exe"
                            style="font-family: monospace;">
                     <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
@@ -453,7 +453,7 @@ abc123def456"></textarea>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md);">
                     <div class="form-group">
-                        <label>
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
                             <input type="checkbox" id="edr_exclude_routine" name="exclude_routine" value="true" checked>
                             Exclude Routine Health Checks
                         </label>
@@ -463,7 +463,7 @@ abc123def456"></textarea>
                     </div>
                     
                     <div class="form-group">
-                        <label>
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
                             <input type="checkbox" id="edr_keep_responses" name="keep_responses" value="true" checked>
                             Keep Response Actions
                         </label>
@@ -474,15 +474,15 @@ abc123def456"></textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label for="edr_routine">Routine Commands to Exclude (comma-separated)</label>
-                    <input type="text" id="edr_routine" name="custom_routine" 
+                    <label for="edr_routine" class="form-label">Routine Commands to Exclude (comma-separated)</label>
+                    <input type="text" id="edr_routine" name="custom_routine" class="form-input"
                            placeholder="whoami,systeminfo,ipconfig,hostname"
                            style="font-family: monospace;">
                 </div>
                 
                 <div class="form-group">
-                    <label for="edr_responses">Response Patterns to KEEP (comma-separated)</label>
-                    <input type="text" id="edr_responses" name="custom_responses" 
+                    <label for="edr_responses" class="form-label">Response Patterns to KEEP (comma-separated)</label>
+                    <input type="text" id="edr_responses" name="custom_responses" class="form-input"
                            placeholder="isolat,quarantin,block,remediat"
                            style="font-family: monospace;">
                     <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
@@ -491,12 +491,12 @@ abc123def456"></textarea>
                 </div>
                 
                 <div class="form-group">
-                    <label for="edr_description">Description (optional)</label>
-                    <input type="text" id="edr_description" name="description" placeholder="Why this tool is configured">
+                    <label for="edr_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="edr_description" name="description" class="form-input" placeholder="Why this tool is configured">
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn" onclick="closeModal('addEDRModal')">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addEDRModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Add EDR Tool</button>
             </div>
         </form>
@@ -504,25 +504,25 @@ abc123def456"></textarea>
 </div>
 
 <!-- Edit Remote Tool Modal -->
-<div id="editRemoteModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 600px;">
+<div id="editRemoteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
         <div class="modal-header">
-            <h3>Edit Known-Good IDs: <span id="editRemoteToolName"></span></h3>
-            <button type="button" class="modal-close" onclick="closeModal('editRemoteModal')">&times;</button>
+            <h2 class="modal-title">✏️ Edit Known-Good IDs: <span id="editRemoteToolName"></span></h2>
+            <button type="button" class="modal-close" onclick="closeModal('editRemoteModal')">✕</button>
         </div>
         <form id="editRemoteForm" onsubmit="submitEditRemoteForm(event)">
             <input type="hidden" id="edit_setting_id" name="setting_id">
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="edit_known_ids">Known-Good IDs (one per line)</label>
-                    <textarea id="edit_known_ids" name="known_good_ids" rows="8" 
+                    <label for="edit_known_ids" class="form-label">Known-Good IDs (one per line)</label>
+                    <textarea id="edit_known_ids" name="known_good_ids" class="form-textarea" rows="8" 
                               style="font-family: monospace;"
                               placeholder="24a22b9fc261d141
 98f7c3a2b1e45678"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn" onclick="closeModal('editRemoteModal')">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editRemoteModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save Changes</button>
             </div>
         </form>
@@ -530,7 +530,8 @@ abc123def456"></textarea>
 </div>
 
 <style>
-.modal {
+/* Use standard modal-overlay/modal-container pattern */
+.modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -543,7 +544,7 @@ abc123def456"></textarea>
     z-index: 1000;
 }
 
-.modal-content {
+.modal-container {
     background: var(--color-background);
     border-radius: var(--border-radius-lg);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
@@ -560,8 +561,9 @@ abc123def456"></textarea>
     border-bottom: 1px solid var(--color-border);
 }
 
-.modal-header h3 {
+.modal-title {
     margin: 0;
+    font-size: 1.25rem;
 }
 
 .modal-close {
@@ -570,10 +572,18 @@ abc123def456"></textarea>
     font-size: 1.5rem;
     cursor: pointer;
     color: var(--color-text-muted);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius);
+    transition: all 0.2s ease;
 }
 
 .modal-close:hover {
     color: var(--color-text);
+    background: var(--color-background-secondary);
 }
 
 .modal-body {
@@ -891,14 +901,14 @@ async function saveIPExclusions(event) {
 // Close modals on Escape key
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
-        document.querySelectorAll('.modal').forEach(modal => {
+        document.querySelectorAll('.modal-overlay').forEach(modal => {
             modal.style.display = 'none';
         });
     }
 });
 
 // Close modals on backdrop click
-document.querySelectorAll('.modal').forEach(modal => {
+document.querySelectorAll('.modal-overlay').forEach(modal => {
     modal.addEventListener('click', function(e) {
         if (e.target === this) {
             this.style.display = 'none';
