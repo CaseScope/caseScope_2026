@@ -486,3 +486,277 @@ def get_exclusions():
     
     return jsonify(exclusions)
 
+
+@system_tools_bp.route('/api/has-exclusions')
+@login_required
+def has_exclusions():
+    """Check if any exclusions are defined"""
+    from main import db
+    from models import SystemToolsSetting
+    
+    count = SystemToolsSetting.query.filter_by(is_active=True).count()
+    return jsonify({'has_exclusions': count > 0, 'count': count})
+
+
+# ============================================================================
+# BULK HIDE KNOWN-GOOD EVENTS
+# ============================================================================
+
+@system_tools_bp.route('/case/<int:case_id>/hide-known-good', methods=['POST'])
+@login_required
+def hide_known_good_events(case_id):
+    """
+    Hide events that match known-good exclusion patterns.
+    Uses streaming response to provide progress updates.
+    
+    Matches events where:
+    - Parent process matches RMM tool patterns (LTSVC.exe, etc.)
+    - Process matches remote tool with known-good session ID
+    - Source IP is in known-good IP ranges
+    """
+    from flask import Response, stream_with_context
+    from main import db, opensearch_client
+    from models import Case, SystemToolsSetting
+    from datetime import datetime
+    import fnmatch
+    
+    # Permission check
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot hide events'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Load exclusions
+    exclusions = _get_exclusions_dict()
+    
+    if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['known_good_ips']]):
+        return jsonify({'error': 'No exclusions defined. Please configure System Tools settings first.'}), 400
+    
+    def generate():
+        """Generator for streaming progress updates"""
+        index_name = f"case_{case_id}"
+        hidden_count = 0
+        processed_count = 0
+        
+        try:
+            # First, count total events
+            count_response = opensearch_client.count(index=index_name)
+            total_events = count_response.get('count', 0)
+            
+            yield f"data: {json.dumps({'status': 'starting', 'total': total_events, 'message': f'Scanning {total_events:,} events...'})}\n\n"
+            
+            if total_events == 0:
+                yield f"data: {json.dumps({'status': 'complete', 'hidden': 0, 'processed': 0, 'message': 'No events in case'})}\n\n"
+                return
+            
+            # Use scroll API for large datasets
+            scroll_size = 1000
+            scroll_time = '5m'
+            
+            # Query for events that are NOT already hidden
+            query = {
+                "query": {
+                    "bool": {
+                        "must_not": [
+                            {"term": {"is_hidden": True}}
+                        ]
+                    }
+                },
+                "_source": ["process", "parent", "host", "source", "@timestamp", "search_blob"]
+            }
+            
+            response = opensearch_client.search(
+                index=index_name,
+                body=query,
+                scroll=scroll_time,
+                size=scroll_size
+            )
+            
+            scroll_id = response.get('_scroll_id')
+            hits = response['hits']['hits']
+            total_to_scan = response['hits']['total']['value']
+            
+            yield f"data: {json.dumps({'status': 'scanning', 'total': total_to_scan, 'message': f'Found {total_to_scan:,} non-hidden events to scan'})}\n\n"
+            
+            events_to_hide = []
+            
+            while hits:
+                for hit in hits:
+                    processed_count += 1
+                    
+                    if _should_hide_event(hit, exclusions):
+                        events_to_hide.append({
+                            '_id': hit['_id'],
+                            '_index': hit['_index']
+                        })
+                    
+                    # Progress update every 500 events
+                    if processed_count % 500 == 0:
+                        pct = int((processed_count / total_to_scan) * 100)
+                        yield f"data: {json.dumps({'status': 'scanning', 'processed': processed_count, 'total': total_to_scan, 'found': len(events_to_hide), 'percent': pct})}\n\n"
+                
+                # Get next batch
+                response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
+                scroll_id = response.get('_scroll_id')
+                hits = response['hits']['hits']
+            
+            # Clear scroll
+            try:
+                opensearch_client.clear_scroll(scroll_id=scroll_id)
+            except:
+                pass
+            
+            yield f"data: {json.dumps({'status': 'hiding', 'found': len(events_to_hide), 'message': f'Found {len(events_to_hide):,} events to hide. Applying...'})}\n\n"
+            
+            # Bulk update to hide events
+            if events_to_hide:
+                batch_size = 500
+                for i in range(0, len(events_to_hide), batch_size):
+                    batch = events_to_hide[i:i+batch_size]
+                    
+                    bulk_body = []
+                    for evt in batch:
+                        bulk_body.append({"update": {"_index": evt['_index'], "_id": evt['_id']}})
+                        bulk_body.append({
+                            "script": {
+                                "source": "ctx._source.is_hidden = true; ctx._source.hidden_by = params.user_id; ctx._source.hidden_at = params.timestamp; ctx._source.hidden_reason = params.reason",
+                                "lang": "painless",
+                                "params": {
+                                    "user_id": current_user.id,
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                    "reason": "known_good_exclusion"
+                                }
+                            }
+                        })
+                    
+                    try:
+                        opensearch_client.bulk(body=bulk_body, refresh=False)
+                        hidden_count += len(batch)
+                        
+                        pct = int((hidden_count / len(events_to_hide)) * 100)
+                        yield f"data: {json.dumps({'status': 'hiding', 'hidden': hidden_count, 'total_to_hide': len(events_to_hide), 'percent': pct})}\n\n"
+                    except Exception as e:
+                        yield f"data: {json.dumps({'status': 'error', 'message': f'Bulk update error: {str(e)}'})}\n\n"
+                
+                # Refresh index
+                opensearch_client.indices.refresh(index=index_name)
+            
+            # Audit log
+            from audit_logger import log_action
+            log_action('hide_known_good_events', resource_type='case', resource_id=case_id,
+                      resource_name=case.name,
+                      details={'hidden_count': hidden_count, 'processed_count': processed_count})
+            
+            yield f"data: {json.dumps({'status': 'complete', 'hidden': hidden_count, 'processed': processed_count, 'message': f'Hidden {hidden_count:,} known-good events'})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+    
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+
+def _get_exclusions_dict():
+    """Get exclusions as a structured dict"""
+    from models import SystemToolsSetting
+    
+    exclusions = {
+        'rmm_executables': [],
+        'remote_tools': [],
+        'known_good_ips': []
+    }
+    
+    settings = SystemToolsSetting.query.filter_by(is_active=True).all()
+    
+    for s in settings:
+        if s.setting_type == 'rmm_tool':
+            if s.executable_pattern:
+                patterns = [p.strip().lower() for p in s.executable_pattern.split(',') if p.strip()]
+                exclusions['rmm_executables'].extend(patterns)
+        
+        elif s.setting_type == 'remote_tool':
+            ids = json.loads(s.known_good_ids) if s.known_good_ids else []
+            exclusions['remote_tools'].append({
+                'name': s.tool_name,
+                'pattern': s.executable_pattern.lower() if s.executable_pattern else '',
+                'known_good_ids': [id.lower() for id in ids]
+            })
+        
+        elif s.setting_type == 'known_good_ip':
+            if s.ip_or_cidr:
+                exclusions['known_good_ips'].append(s.ip_or_cidr)
+    
+    return exclusions
+
+
+def _should_hide_event(hit, exclusions):
+    """
+    Check if an event should be hidden based on exclusion rules.
+    
+    Returns True if event matches any known-good pattern.
+    """
+    import fnmatch
+    
+    src = hit.get('_source', {})
+    proc = src.get('process', {})
+    parent = proc.get('parent', {}) or src.get('parent', {})
+    
+    # Check 1: Parent process is a known RMM tool
+    parent_name = (parent.get('name') or parent.get('executable') or '').lower()
+    parent_name_only = parent_name.split('\\')[-1] if parent_name else ''
+    
+    for rmm_pattern in exclusions.get('rmm_executables', []):
+        if fnmatch.fnmatch(parent_name_only, rmm_pattern):
+            return True
+        if fnmatch.fnmatch(parent_name, f'*{rmm_pattern}'):
+            return True
+    
+    # Check 2: Process is a remote tool with known-good ID
+    proc_name = (proc.get('name') or proc.get('executable') or '').lower()
+    cmd_line = (proc.get('command_line') or '').lower()
+    search_blob = (src.get('search_blob') or '').lower()
+    
+    for tool_config in exclusions.get('remote_tools', []):
+        pattern = tool_config.get('pattern', '')
+        if pattern and (pattern in proc_name or pattern in search_blob):
+            # Check if session ID is in known-good list
+            for known_id in tool_config.get('known_good_ids', []):
+                if known_id and (known_id in cmd_line or known_id in search_blob):
+                    return True
+    
+    # Check 3: Source IP is in known-good range
+    source_ip = None
+    
+    # Try various IP fields
+    if src.get('source', {}).get('ip'):
+        source_ip = src['source']['ip']
+    elif src.get('host', {}).get('ip'):
+        source_ip = src['host']['ip']
+    elif proc.get('user_logon', {}).get('ip'):
+        source_ip = proc['user_logon']['ip']
+    
+    if source_ip:
+        if isinstance(source_ip, list):
+            source_ip = source_ip[0]
+        
+        for ip_range in exclusions.get('known_good_ips', []):
+            if _ip_in_range(source_ip, ip_range):
+                return True
+    
+    return False
+
+
+def _ip_in_range(ip_str, cidr_or_ip):
+    """Check if IP is in a CIDR range or matches exactly"""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        
+        if '/' in cidr_or_ip:
+            network = ipaddress.ip_network(cidr_or_ip, strict=False)
+            return ip in network
+        else:
+            return ip == ipaddress.ip_address(cidr_or_ip)
+    except (ValueError, TypeError):
+        return False
+

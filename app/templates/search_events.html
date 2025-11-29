@@ -161,6 +161,12 @@
                     <span>Triage Report</span>
                 </button>
                 
+                <!-- Hide Known Good Button -->
+                <button type="button" onclick="showHideKnownGoodModal()" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;" title="Hide events from known-good sources (RMM tools, internal IPs)">
+                    <span>🛡️</span>
+                    <span>Hide Known Good</span>
+                </button>
+                
                 <!-- Save Current Search -->
                 <button type="button" onclick="showSaveSearchModal()" class="btn btn-success" title="Save current search">
                     <span>💾</span>
@@ -550,6 +556,109 @@
                 <span>📋</span>
                 <span>View IOCs</span>
             </a>
+        </div>
+    </div>
+</div>
+
+<!-- Hide Known Good Modal -->
+<div id="hideKnownGoodModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+            <h3 style="margin: 0;">🛡️ Hide Known Good Events</h3>
+            <button onclick="closeHideKnownGoodModal()" class="modal-close" style="color: white;">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: var(--spacing-lg);">
+            
+            <!-- No Exclusions Phase -->
+            <div id="hideKGNoExclusionsPhase" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">⚠️</div>
+                    <h4 style="margin-bottom: var(--spacing-md);">No Exclusions Defined</h4>
+                    <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                        You need to configure known-good tools and IPs before hiding events.
+                        <br><br>
+                        Go to <strong>Settings → System Tools</strong> to define:
+                    </p>
+                    <ul style="text-align: left; display: inline-block; color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                        <li><strong>RMM Tools:</strong> LabTech, Datto, Kaseya, etc.</li>
+                        <li><strong>Remote Tools:</strong> ScreenConnect, TeamViewer with known-good session IDs</li>
+                        <li><strong>Known-Good IPs:</strong> Internal networks, analyst workstations</li>
+                    </ul>
+                    <div>
+                        <a href="{{ url_for('system_tools.index') }}" class="btn btn-primary">
+                            ⚙️ Configure System Tools
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Confirm Phase -->
+            <div id="hideKGConfirmPhase">
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-info);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">What This Does</h4>
+                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                        This will scan all events in the case and hide any that match your configured exclusions:
+                    </p>
+                    <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
+                        <li>Events spawned by RMM tools (parent process matches)</li>
+                        <li>Remote tool sessions with known-good IDs</li>
+                        <li>Events from known-good IP addresses</li>
+                    </ul>
+                </div>
+                
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">📊 Current Exclusions</h4>
+                    <div id="hideKGExclusionsSummary" style="color: var(--color-text-muted); font-size: 0.9rem;">
+                        Loading...
+                    </div>
+                </div>
+                
+                <div style="background: rgba(255, 193, 7, 0.1); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 4px solid var(--color-warning);">
+                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                        ⚠️ <strong>Note:</strong> Hidden events can be viewed by changing the "Hidden Events" filter to "Show" or "Only Hidden".
+                        You can unhide events individually or in bulk if needed.
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Progress Phase -->
+            <div id="hideKGProgressPhase" style="display: none;">
+                <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                    <div class="spinner" style="margin: 0 auto var(--spacing-md) auto;"></div>
+                    <h4 id="hideKGProgressTitle" style="margin-bottom: var(--spacing-sm);">Scanning Events...</h4>
+                    <p id="hideKGProgressMessage" style="color: var(--color-text-muted); margin: 0;">
+                        Initializing...
+                    </p>
+                </div>
+                
+                <div style="background: var(--color-background-secondary); border-radius: var(--border-radius); padding: var(--spacing-md);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
+                        <span id="hideKGProgressLabel">Progress</span>
+                        <span id="hideKGProgressPercent">0%</span>
+                    </div>
+                    <div style="background: var(--color-background-tertiary); border-radius: 4px; height: 20px; overflow: hidden;">
+                        <div id="hideKGProgressBar" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.85rem;">
+                        <span id="hideKGProgressProcessed">0 events processed</span>
+                        <span id="hideKGProgressFound">0 matches found</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results Phase -->
+            <div id="hideKGResultsPhase" style="display: none;">
+                <div id="hideKGResultsContent" style="text-align: center;">
+                    <!-- Filled by JavaScript -->
+                </div>
+            </div>
+            
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--spacing-md); padding: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <button onclick="closeHideKnownGoodModal()" class="btn btn-secondary" id="hideKGCloseBtn">Cancel</button>
+            <button onclick="startHideKnownGood()" id="hideKGStartBtn" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+                🛡️ Start Hiding
+            </button>
         </div>
     </div>
 </div>
@@ -3981,6 +4090,231 @@ function showTriageModal() {
 
 function closeTriageModal() {
     document.getElementById('triageReportModal').style.display = 'none';
+}
+
+// ============================================================================
+// HIDE KNOWN GOOD FUNCTIONS
+// ============================================================================
+
+function showHideKnownGoodModal() {
+    const modal = document.getElementById('hideKnownGoodModal');
+    const noExclusionsPhase = document.getElementById('hideKGNoExclusionsPhase');
+    const confirmPhase = document.getElementById('hideKGConfirmPhase');
+    const progressPhase = document.getElementById('hideKGProgressPhase');
+    const resultsPhase = document.getElementById('hideKGResultsPhase');
+    const startBtn = document.getElementById('hideKGStartBtn');
+    const closeBtn = document.getElementById('hideKGCloseBtn');
+    
+    // Reset phases
+    noExclusionsPhase.style.display = 'none';
+    confirmPhase.style.display = 'none';
+    progressPhase.style.display = 'none';
+    resultsPhase.style.display = 'none';
+    startBtn.style.display = 'inline-block';
+    startBtn.disabled = false;
+    closeBtn.textContent = 'Cancel';
+    
+    modal.style.display = 'flex';
+    
+    // Check if exclusions are defined
+    fetch('/settings/system-tools/api/has-exclusions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.has_exclusions) {
+                confirmPhase.style.display = 'block';
+                loadExclusionsSummary();
+            } else {
+                noExclusionsPhase.style.display = 'block';
+                startBtn.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('Error checking exclusions:', error);
+            noExclusionsPhase.style.display = 'block';
+            startBtn.style.display = 'none';
+        });
+}
+
+function loadExclusionsSummary() {
+    const summaryDiv = document.getElementById('hideKGExclusionsSummary');
+    
+    fetch('/settings/system-tools/api/exclusions')
+        .then(response => response.json())
+        .then(data => {
+            let html = '<ul style="margin: 0; padding-left: var(--spacing-lg);">';
+            
+            if (data.rmm_executables && data.rmm_executables.length > 0) {
+                html += `<li><strong>RMM Tools:</strong> ${data.rmm_executables.slice(0, 5).join(', ')}`;
+                if (data.rmm_executables.length > 5) {
+                    html += ` (+${data.rmm_executables.length - 5} more)`;
+                }
+                html += '</li>';
+            }
+            
+            if (data.remote_tools && data.remote_tools.length > 0) {
+                const toolNames = data.remote_tools.map(t => t.name).join(', ');
+                const totalIds = data.remote_tools.reduce((sum, t) => sum + (t.known_good_ids ? t.known_good_ids.length : 0), 0);
+                html += `<li><strong>Remote Tools:</strong> ${toolNames} (${totalIds} known-good IDs)</li>`;
+            }
+            
+            if (data.known_good_ips && data.known_good_ips.length > 0) {
+                html += `<li><strong>Known-Good IPs:</strong> ${data.known_good_ips.slice(0, 3).join(', ')}`;
+                if (data.known_good_ips.length > 3) {
+                    html += ` (+${data.known_good_ips.length - 3} more)`;
+                }
+                html += '</li>';
+            }
+            
+            if (!data.rmm_executables?.length && !data.remote_tools?.length && !data.known_good_ips?.length) {
+                html = '<p style="margin: 0;">No exclusions configured</p>';
+            } else {
+                html += '</ul>';
+            }
+            
+            summaryDiv.innerHTML = html;
+        })
+        .catch(error => {
+            summaryDiv.innerHTML = '<p style="color: var(--color-error);">Error loading exclusions</p>';
+        });
+}
+
+function closeHideKnownGoodModal() {
+    document.getElementById('hideKnownGoodModal').style.display = 'none';
+}
+
+function startHideKnownGood() {
+    const caseId = {{ case.id }};
+    const confirmPhase = document.getElementById('hideKGConfirmPhase');
+    const progressPhase = document.getElementById('hideKGProgressPhase');
+    const resultsPhase = document.getElementById('hideKGResultsPhase');
+    const startBtn = document.getElementById('hideKGStartBtn');
+    const closeBtn = document.getElementById('hideKGCloseBtn');
+    
+    // Switch to progress phase
+    confirmPhase.style.display = 'none';
+    progressPhase.style.display = 'block';
+    startBtn.style.display = 'none';
+    closeBtn.textContent = 'Close';
+    
+    // Start the hide operation using Server-Sent Events
+    const eventSource = new EventSource(`/settings/system-tools/case/${caseId}/hide-known-good`);
+    
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        const progressTitle = document.getElementById('hideKGProgressTitle');
+        const progressMessage = document.getElementById('hideKGProgressMessage');
+        const progressBar = document.getElementById('hideKGProgressBar');
+        const progressPercent = document.getElementById('hideKGProgressPercent');
+        const progressLabel = document.getElementById('hideKGProgressLabel');
+        const progressProcessed = document.getElementById('hideKGProgressProcessed');
+        const progressFound = document.getElementById('hideKGProgressFound');
+        
+        switch (data.status) {
+            case 'starting':
+                progressTitle.textContent = 'Starting...';
+                progressMessage.textContent = data.message;
+                break;
+                
+            case 'scanning':
+                progressTitle.textContent = 'Scanning Events...';
+                progressMessage.textContent = `Checking events for known-good patterns`;
+                progressBar.style.width = (data.percent || 0) + '%';
+                progressPercent.textContent = (data.percent || 0) + '%';
+                progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
+                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
+                break;
+                
+            case 'hiding':
+                progressTitle.textContent = 'Hiding Events...';
+                progressMessage.textContent = data.message || 'Applying hidden flag to matching events';
+                progressBar.style.width = (data.percent || 0) + '%';
+                progressPercent.textContent = (data.percent || 0) + '%';
+                progressLabel.textContent = 'Hiding Progress';
+                if (data.hidden !== undefined) {
+                    progressProcessed.textContent = `${data.hidden.toLocaleString()} events hidden`;
+                    progressFound.textContent = `of ${(data.total_to_hide || 0).toLocaleString()} total`;
+                }
+                break;
+                
+            case 'complete':
+                eventSource.close();
+                showHideKnownGoodResults(data);
+                break;
+                
+            case 'error':
+                eventSource.close();
+                showHideKnownGoodError(data.message);
+                break;
+        }
+    };
+    
+    eventSource.onerror = function(error) {
+        eventSource.close();
+        showHideKnownGoodError('Connection lost. Please try again.');
+    };
+}
+
+function showHideKnownGoodResults(data) {
+    const progressPhase = document.getElementById('hideKGProgressPhase');
+    const resultsPhase = document.getElementById('hideKGResultsPhase');
+    const resultsContent = document.getElementById('hideKGResultsContent');
+    
+    progressPhase.style.display = 'none';
+    resultsPhase.style.display = 'block';
+    
+    let html = '';
+    
+    if (data.hidden > 0) {
+        html = `
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">✅</div>
+            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-success);">Successfully Hidden</h4>
+            <p style="font-size: 1.5rem; font-weight: bold; margin-bottom: var(--spacing-sm);">
+                ${data.hidden.toLocaleString()} events
+            </p>
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                Scanned ${data.processed.toLocaleString()} events total
+            </p>
+            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
+                    💡 <strong>Tip:</strong> To view hidden events, change the "Hidden Events" filter above to "Show" or "Only Hidden".
+                </p>
+            </div>
+        `;
+    } else {
+        html = `
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">ℹ️</div>
+            <h4 style="margin-bottom: var(--spacing-md);">No Events to Hide</h4>
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                Scanned ${data.processed.toLocaleString()} events but none matched your exclusion patterns.
+            </p>
+            <p style="color: var(--color-text-muted); font-size: 0.9rem;">
+                This could mean:
+            </p>
+            <ul style="text-align: left; display: inline-block; color: var(--color-text-muted); font-size: 0.9rem;">
+                <li>All known-good events are already hidden</li>
+                <li>No events match your configured patterns</li>
+                <li>You may need to add more exclusion patterns</li>
+            </ul>
+        `;
+    }
+    
+    resultsContent.innerHTML = html;
+}
+
+function showHideKnownGoodError(message) {
+    const progressPhase = document.getElementById('hideKGProgressPhase');
+    const resultsPhase = document.getElementById('hideKGResultsPhase');
+    const resultsContent = document.getElementById('hideKGResultsContent');
+    
+    progressPhase.style.display = 'none';
+    resultsPhase.style.display = 'block';
+    
+    resultsContent.innerHTML = `
+        <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">❌</div>
+        <h4 style="margin-bottom: var(--spacing-md); color: var(--color-error);">Error</h4>
+        <p style="color: var(--color-text-muted);">${message}</p>
+    `;
 }
 
 function extractTriageIOCs() {

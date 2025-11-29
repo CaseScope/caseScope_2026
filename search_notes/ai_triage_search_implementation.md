@@ -460,6 +460,78 @@ def get_system_tools_exclusions() -> Dict:
     return exclusions
 ```
 
+### "Hide Known Good" Button (v1.38.0)
+
+In addition to excluding events during AI Triage Search, analysts can **pre-hide** known-good events using the "Hide Known Good" button on the search page.
+
+#### How It Works
+
+1. **Button Location**: Search page, next to "Triage Report" button
+2. **Pre-check**: Verifies exclusions are configured (prompts to configure if not)
+3. **Scanning**: Uses scroll API to check ALL events in the case
+4. **Matching**: Same logic as `should_exclude_event()` - checks parent process, remote tool IDs, source IPs
+5. **Hiding**: Sets `is_hidden=true`, `hidden_reason='known_good_exclusion'` on matching events
+6. **Progress**: Real-time progress updates via Server-Sent Events
+
+#### Benefits
+
+- **Pre-filter noise**: Run once after case setup to hide RMM/analyst activity
+- **Cleaner searches**: Hidden events excluded by default from search results
+- **AI Triage Integration**: Hidden events automatically excluded from AI Triage Search
+- **Reversible**: Events can be viewed/unhidden using "Hidden Events" filter
+
+#### Code Location
+
+- Button: `app/templates/search_events.html` (line ~160)
+- Modal: `app/templates/search_events.html` (after Triage modal)
+- Route: `app/routes/system_tools.py` → `hide_known_good_events()`
+- JavaScript: `showHideKnownGoodModal()`, `startHideKnownGood()`
+
+---
+
+## AI Triage Search: Exclusion Integration
+
+The AI Triage Search uses **two layers** of exclusion:
+
+### Layer 1: Hidden Events Filter
+
+When searching OpenSearch, exclude events where `is_hidden=true`:
+
+```python
+query = {
+    "bool": {
+        "must": [...],
+        "must_not": [
+            {"term": {"is_hidden": True}}  # Exclude pre-hidden events
+        ]
+    }
+}
+```
+
+### Layer 2: Real-Time Exclusion Check
+
+For events that aren't pre-hidden, check against exclusion rules before auto-tagging:
+
+```python
+def should_auto_tag_event(event, exclusions):
+    """Check if event should be auto-tagged (not excluded)."""
+    
+    # If already hidden, skip
+    if event.get('_source', {}).get('is_hidden'):
+        return False
+    
+    # Check against real-time exclusion rules
+    if should_exclude_event(event, exclusions):
+        return False
+    
+    return True
+```
+
+### Why Two Layers?
+
+1. **Hidden Events**: Pre-filtered, reduces query load, analyst has already reviewed
+2. **Real-Time Exclusions**: Catches new patterns, allows immediate exclusion updates without re-hiding
+
 ---
 
 ## Anchor Event Sources

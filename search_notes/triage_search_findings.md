@@ -69,6 +69,70 @@ A multi-phase automated IOC discovery system that:
 
 ---
 
+## Known Good Exclusions (v1.38.0)
+
+### The Problem
+
+Many events matching suspicious patterns are actually **legitimate**:
+- RMM tools (LabTech, Datto, Kaseya) running health checks (`whoami`, `systeminfo`)
+- Analyst tools (ScreenConnect with known-good session IDs)
+- Internal IP ranges (office networks, VPN pools)
+
+Without exclusions, we'd auto-tag thousands of false positives.
+
+### Solution: Two-Layer Exclusion
+
+#### Layer 1: "Hide Known Good" Button
+
+On the search page, analysts can click **"Hide Known Good"** to:
+1. Scan ALL events in the case
+2. Match against configured exclusion patterns
+3. Set `is_hidden=true` on matching events (with `hidden_reason='known_good_exclusion'`)
+
+**Benefits:**
+- Run once after case setup to pre-filter noise
+- Hidden events excluded from search by default
+- Reduces query load on subsequent searches
+
+#### Layer 2: Real-Time Exclusion Check
+
+During AI Triage Search, events are checked against exclusion rules before auto-tagging:
+- If `is_hidden=true` → skip (already filtered)
+- If parent process matches RMM pattern → skip
+- If remote tool with known-good session ID → skip
+- If source IP in known-good range → skip
+
+### Configuration: System Tools Settings
+
+Administrators configure exclusions at **Settings → System Tools**:
+
+| Category | Examples | Matching Logic |
+|----------|----------|----------------|
+| **RMM Tools** | LTSVC.exe, AEMAgent.exe, AgentMon.exe | Parent process name matches |
+| **Remote Tools** | ScreenConnect with session IDs | Tool + known-good ID in command line |
+| **Known-Good IPs** | 192.168.1.0/24, 10.0.0.0/8 | Source IP in CIDR range |
+
+### Predefined RMM Tools
+
+| Tool | Executable Patterns |
+|------|---------------------|
+| ConnectWise Automate (LabTech) | LTSVC.exe, LTSvcMon.exe, LTTray.exe |
+| Datto RMM | AEMAgent.exe, CagService.exe |
+| Kaseya VSA | AgentMon.exe, KaseyaD.exe |
+| NinjaRMM | NinjaRMMAgent.exe |
+| Syncro | SyncroLive.exe |
+| Atera | AteraAgent.exe |
+| N-able | BASupSrvc*.exe |
+
+### Code Locations
+
+- **Settings UI**: `app/templates/system_tools.html`
+- **Routes**: `app/routes/system_tools.py`
+- **Hide Button**: `app/templates/search_events.html` (line ~160)
+- **API Endpoint**: `/settings/system-tools/api/exclusions`
+
+---
+
 ## Critical Design Decision: IOC Classification
 
 **Problem discovered during testing on Case 18 (10M+ events):**
