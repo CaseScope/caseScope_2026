@@ -1150,3 +1150,132 @@ def process_triage_report_stream(case_id):
             'X-Accel-Buffering': 'no'
         }
     )
+
+
+# ============================================================================
+# AI TRIAGE SEARCH ROUTES (v1.39.0)
+# Full 9-phase automated attack chain analysis
+# ============================================================================
+
+@triage_report_bp.route('/case/<int:case_id>/ai-triage-search/run', methods=['POST'])
+@login_required
+def run_ai_triage_search(case_id):
+    """
+    Start a new AI Triage Search for a case.
+    Creates an AITriageSearch record and kicks off the Celery task.
+    """
+    from main import db
+    from models import Case, AITriageSearch
+    from tasks import run_ai_triage_search as run_triage_task
+    
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot run AI Triage Search'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    try:
+        # Create the search record
+        search = AITriageSearch(
+            case_id=case_id,
+            generated_by=current_user.id,
+            status='pending'
+        )
+        db.session.add(search)
+        db.session.commit()
+        
+        # Start the Celery task
+        task = run_triage_task.delay(search.id)
+        
+        # Store task ID
+        search.celery_task_id = task.id
+        db.session.commit()
+        
+        logger.info(f"[AI_TRIAGE] Started search {search.id} for case {case_id} (task: {task.id})")
+        
+        return jsonify({
+            'success': True,
+            'search_id': search.id,
+            'task_id': task.id
+        })
+        
+    except Exception as e:
+        logger.error(f"[AI_TRIAGE] Failed to start search: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@triage_report_bp.route('/case/<int:case_id>/ai-triage-search/<int:search_id>/status')
+@login_required
+def get_ai_triage_status(case_id, search_id):
+    """
+    Get the current status of an AI Triage Search.
+    Used for polling during the search process.
+    """
+    from main import db
+    from models import AITriageSearch
+    import json
+    
+    search = db.session.get(AITriageSearch, search_id)
+    if not search or search.case_id != case_id:
+        return jsonify({'error': 'Search not found'}), 404
+    
+    response = {
+        'status': search.status,
+        'phase': search.current_phase or 0,
+        'phase_name': search.current_phase_name or 'Starting',
+        'message': search.progress_message or 'Initializing...',
+        'percent': search.progress_percent or 0,
+        'error_message': search.error_message
+    }
+    
+    # Add counts if completed
+    if search.status == 'completed':
+        response.update({
+            'iocs_extracted': search.iocs_extracted_count,
+            'iocs_discovered': search.iocs_discovered_count,
+            'events_analyzed': search.events_analyzed_count,
+            'timeline_events': search.timeline_events_count,
+            'auto_tagged': search.auto_tagged_count,
+            'techniques_found': search.techniques_found_count,
+            'process_trees': search.process_trees_count,
+            'generation_time': search.generation_time_seconds
+        })
+    
+    return jsonify(response)
+
+
+@triage_report_bp.route('/case/<int:case_id>/ai-triage-searches')
+@login_required
+def list_ai_triage_searches(case_id):
+    """
+    List all AI Triage Searches for a case.
+    Used by the case dashboard to display in AI Analysis section.
+    """
+    from main import db
+    from models import AITriageSearch, User
+    
+    searches = AITriageSearch.query.filter_by(case_id=case_id).order_by(
+        AITriageSearch.created_at.desc()
+    ).all()
+    
+    result = []
+    for s in searches:
+        user = db.session.get(User, s.generated_by)
+        result.append({
+            'id': s.id,
+            'status': s.status,
+            'entry_point': s.entry_point,
+            'iocs_extracted': s.iocs_extracted_count,
+            'iocs_discovered': s.iocs_discovered_count,
+            'auto_tagged': s.auto_tagged_count,
+            'techniques_found': s.techniques_found_count,
+            'timeline_events': s.timeline_events_count,
+            'generation_time': s.generation_time_seconds,
+            'created_at': s.created_at.isoformat() if s.created_at else None,
+            'completed_at': s.completed_at.isoformat() if s.completed_at else None,
+            'generated_by': user.username if user else 'Unknown',
+            'error_message': s.error_message
+        })
+    
+    return jsonify(result)

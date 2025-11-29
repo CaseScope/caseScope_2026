@@ -584,3 +584,72 @@ class SystemToolsSetting(db.Model):
     def __repr__(self):
         return f'<SystemToolsSetting {self.setting_type}: {self.tool_name or self.ip_or_cidr}>'
 
+
+class AITriageSearch(db.Model):
+    """
+    AI Triage Search results - automated attack chain analysis.
+    
+    Stores the results of the 9-phase AI Triage Search:
+    1. IOC Extraction from report
+    2. IOC Classification (SPECIFIC vs BROAD)
+    3. Snowball Hunting (discover new IOCs)
+    4. Malware/Recon Hunting
+    5. SPECIFIC IOC Search (auto-tag candidates)
+    6. BROAD IOC Aggregation (discovery only)
+    7. Time Window Analysis (±5 min around anchors)
+    8. Process Tree Building
+    9. MITRE Pattern Matching + Timeline Auto-Tagging
+    
+    Added in v1.39.0
+    """
+    __tablename__ = 'ai_triage_search'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # Task tracking
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, running, completed, failed
+    celery_task_id = db.Column(db.String(255), index=True)
+    
+    # Entry point used
+    entry_point = db.Column(db.String(50))  # 'full_triage', 'ioc_hunt', 'tag_hunt'
+    search_date = db.Column(db.DateTime)  # Date used for IOC-based hunt
+    
+    # Results (JSON)
+    iocs_extracted_json = db.Column(db.Text)  # IOCs from report
+    iocs_discovered_json = db.Column(db.Text)  # IOCs discovered via hunting
+    timeline_json = db.Column(db.Text)  # Attack timeline events
+    process_trees_json = db.Column(db.Text)  # Process tree structures
+    mitre_techniques_json = db.Column(db.Text)  # MITRE techniques found
+    summary_json = db.Column(db.Text)  # Full summary for display
+    
+    # Counts for quick display
+    iocs_extracted_count = db.Column(db.Integer, default=0)
+    iocs_discovered_count = db.Column(db.Integer, default=0)
+    events_analyzed_count = db.Column(db.Integer, default=0)
+    timeline_events_count = db.Column(db.Integer, default=0)
+    auto_tagged_count = db.Column(db.Integer, default=0)
+    techniques_found_count = db.Column(db.Integer, default=0)
+    process_trees_count = db.Column(db.Integer, default=0)
+    
+    # Progress tracking
+    current_phase = db.Column(db.Integer, default=0)  # 1-9
+    current_phase_name = db.Column(db.String(100))
+    progress_message = db.Column(db.String(500))
+    progress_percent = db.Column(db.Integer, default=0)
+    
+    # Timing
+    generation_time_seconds = db.Column(db.Float)
+    error_message = db.Column(db.Text)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    case = db.relationship('Case', backref='ai_triage_searches')
+    user = db.relationship('User', backref='triage_searches_generated', foreign_keys=[generated_by])
+    
+    def __repr__(self):
+        return f'<AITriageSearch {self.id} case={self.case_id} status={self.status}>'
+

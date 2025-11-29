@@ -2664,3 +2664,552 @@ def _should_hide_event_task(hit, exclusions):
                 pass
     
     return False
+
+
+# ============================================================================
+# AI TRIAGE SEARCH (v1.39.0)
+# Full 9-phase automated attack chain analysis
+# ============================================================================
+
+# Timeline-worthy processes for Phase 9
+TIMELINE_PROCESSES = [
+    'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe',
+    'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
+    'quser.exe', 'query.exe', 'nslookup.exe', 'route.exe',
+    'cmd.exe', 'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
+    'mshta.exe', 'wscript.exe', 'cscript.exe',
+    'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
+    'notepad.exe', 'wordpad.exe'
+]
+
+# MITRE ATT&CK patterns for Phase 8
+MITRE_PATTERNS = {
+    'T1033': {'name': 'System Owner/User Discovery', 'processes': ['whoami.exe', 'quser.exe'], 'indicators': ['whoami', '/all']},
+    'T1482': {'name': 'Domain Trust Discovery', 'processes': ['nltest.exe'], 'indicators': ['domain_trusts', '/all_trusts']},
+    'T1018': {'name': 'Remote System Discovery', 'processes': ['nltest.exe', 'ping.exe', 'nslookup.exe'], 'indicators': ['dclist', 'ping', 'net view', 'advanced_ip_scanner']},
+    'T1016': {'name': 'System Network Config Discovery', 'processes': ['ipconfig.exe', 'netsh.exe', 'route.exe'], 'indicators': ['ipconfig', 'netsh', 'route']},
+    'T1087': {'name': 'Account Discovery', 'indicators': ['AdUsers', 'net user', 'net group', 'AdComp']},
+    'T1078': {'name': 'Valid Accounts', 'indicators': ['logon', 'authentication']},
+    'T1059.001': {'name': 'PowerShell', 'processes': ['powershell.exe'], 'indicators': ['-enc', '-encodedcommand']},
+    'T1218.011': {'name': 'Rundll32', 'processes': ['rundll32.exe'], 'indicators': ['rundll32', '.dll,']},
+}
+
+
+@celery_app.task(bind=True, name='tasks.run_ai_triage_search')
+def run_ai_triage_search(self, search_id):
+    """
+    Full 9-phase AI Triage Search.
+    
+    Phases:
+    1. IOC Extraction from report
+    2. IOC Classification (SPECIFIC vs BROAD)
+    3. Snowball Hunting (±24h window)
+    4. Malware/Recon Hunting
+    5. SPECIFIC IOC Search (auto-tag candidates)
+    6. BROAD IOC Aggregation (discovery only)
+    7. Time Window Analysis (±5 min around anchors)
+    8. Process Tree Building + MITRE Pattern Matching
+    9. Timeline Event Auto-Tagging
+    
+    Args:
+        search_id: AITriageSearch record ID
+    
+    Returns:
+        Dict with status and summary
+    """
+    from main import app, db, opensearch_client
+    from models import AITriageSearch, Case, IOC, System, TimelineTag
+    from routes.triage_report import (
+        extract_iocs_with_llm, extract_iocs_with_regex,
+        extract_from_search_results, extract_recon_from_results,
+        search_ioc, RECON_SEARCH_TERMS
+    )
+    from datetime import datetime, timedelta
+    import json
+    import re
+    
+    with app.app_context():
+        start_time = datetime.utcnow()
+        search = db.session.get(AITriageSearch, search_id)
+        
+        if not search:
+            return {'status': 'error', 'message': 'Search record not found'}
+        
+        case = db.session.get(Case, search.case_id)
+        if not case:
+            search.status = 'failed'
+            search.error_message = 'Case not found'
+            db.session.commit()
+            return {'status': 'error', 'message': 'Case not found'}
+        
+        def update_progress(phase: int, phase_name: str, message: str, percent: int = 0):
+            """Update search progress in database."""
+            search.current_phase = phase
+            search.current_phase_name = phase_name
+            search.progress_message = message
+            search.progress_percent = percent
+            db.session.commit()
+            
+            self.update_state(state='PROGRESS', meta={
+                'phase': phase,
+                'phase_name': phase_name,
+                'message': message,
+                'percent': percent
+            })
+        
+        try:
+            search.status = 'running'
+            db.session.commit()
+            
+            report_text = case.edr_report or ''
+            
+            # =========================================================
+            # PHASE 1: IOC EXTRACTION FROM REPORT
+            # =========================================================
+            update_progress(1, 'IOC Extraction', 'Extracting IOCs from EDR report...', 5)
+            
+            if report_text:
+                iocs = extract_iocs_with_llm(report_text)
+                if not any(iocs.get(k) for k in iocs if k != 'malware_indicated'):
+                    iocs = extract_iocs_with_regex(report_text)
+                search.entry_point = 'full_triage'
+            else:
+                # No report - use existing IOCs
+                existing_iocs = IOC.query.filter_by(case_id=search.case_id, is_active=True).all()
+                iocs = {'ips': [], 'hostnames': [], 'usernames': [], 'sids': [], 
+                       'paths': [], 'processes': [], 'commands': [], 'tools': [], 
+                       'hashes': [], 'malware_indicated': False}
+                for ioc in existing_iocs:
+                    if ioc.ioc_type == 'ip':
+                        iocs['ips'].append(ioc.ioc_value)
+                    elif ioc.ioc_type == 'hostname':
+                        iocs['hostnames'].append(ioc.ioc_value)
+                    elif ioc.ioc_type == 'username':
+                        iocs['usernames'].append(ioc.ioc_value)
+                    elif ioc.ioc_type in ['filepath', 'filename']:
+                        iocs['paths'].append(ioc.ioc_value)
+                search.entry_point = 'ioc_hunt'
+            
+            known_ips = set(iocs.get('ips', []))
+            known_hostnames = set(h.upper() for h in iocs.get('hostnames', []))
+            known_usernames = set(u.lower() for u in iocs.get('usernames', []))
+            malware_indicated = iocs.get('malware_indicated', False)
+            
+            search.iocs_extracted_count = sum(len(v) for k, v in iocs.items() if isinstance(v, list))
+            search.iocs_extracted_json = json.dumps(iocs)
+            
+            update_progress(1, 'IOC Extraction', 
+                f'Extracted {len(known_ips)} IPs, {len(known_hostnames)} hosts, {len(known_usernames)} users', 10)
+            
+            # Check event count
+            try:
+                result = opensearch_client.count(index=f"case_{search.case_id}")
+                total_events = result['count']
+            except:
+                total_events = 0
+            
+            # =========================================================
+            # PHASE 2: IOC CLASSIFICATION
+            # =========================================================
+            update_progress(2, 'IOC Classification', 'Classifying IOCs as SPECIFIC vs BROAD...', 12)
+            
+            specific_iocs = {
+                'processes': iocs.get('processes', []),
+                'paths': iocs.get('paths', []),
+                'hashes': iocs.get('hashes', []),
+                'commands': iocs.get('commands', []),
+                'tools': iocs.get('tools', [])
+            }
+            
+            broad_iocs = {
+                'usernames': list(known_usernames),
+                'hostnames': list(known_hostnames),
+                'ips': list(known_ips),
+                'sids': iocs.get('sids', [])
+            }
+            
+            update_progress(2, 'IOC Classification', 
+                f'SPECIFIC: {sum(len(v) for v in specific_iocs.values())} items, BROAD: {sum(len(v) for v in broad_iocs.values())} items', 15)
+            
+            # Initialize discovery sets
+            discovered_ips = set()
+            discovered_hostnames = set()
+            discovered_usernames = set()
+            discovered_commands = set()
+            discovered_filenames = set()
+            discovered_threats = set()
+            
+            # =========================================================
+            # PHASE 3: SNOWBALL HUNTING (±24h window)
+            # =========================================================
+            if total_events > 0:
+                update_progress(3, 'Snowball Hunting', 'Hunting IOCs to discover related indicators...', 20)
+                
+                # Hunt IPs
+                for i, ip in enumerate(list(known_ips)[:10]):
+                    update_progress(3, 'Snowball Hunting', f'Searching IP: {ip}', 20 + (i * 2))
+                    results, total = search_ioc(opensearch_client, search.case_id, ip)
+                    if total > 0:
+                        ips, hosts, users = extract_from_search_results(results)
+                        discovered_ips.update(ips - known_ips)
+                        discovered_hostnames.update(hosts - known_hostnames)
+                        discovered_usernames.update({u for u in users if u.lower() not in known_usernames})
+                
+                # Hunt hostnames
+                for i, hostname in enumerate(list(known_hostnames)[:10]):
+                    update_progress(3, 'Snowball Hunting', f'Searching hostname: {hostname}', 30 + (i * 2))
+                    results, total = search_ioc(opensearch_client, search.case_id, hostname)
+                    if total > 0:
+                        ips, hosts, users = extract_from_search_results(results)
+                        discovered_ips.update(ips - known_ips - discovered_ips)
+                        discovered_usernames.update({u for u in users if u.lower() not in known_usernames})
+                
+                update_progress(3, 'Snowball Hunting', 
+                    f'Discovered: +{len(discovered_ips)} IPs, +{len(discovered_hostnames)} hosts, +{len(discovered_usernames)} users', 40)
+            
+            # =========================================================
+            # PHASE 4: MALWARE/RECON HUNTING
+            # =========================================================
+            if total_events > 0:
+                update_progress(4, 'Malware/Recon Hunting', 'Searching for recon commands and malware...', 42)
+                
+                for i, term in enumerate(RECON_SEARCH_TERMS):
+                    update_progress(4, 'Malware/Recon Hunting', f'Searching: {term}', 42 + (i * 2))
+                    results, total = search_ioc(opensearch_client, search.case_id, term)
+                    if total > 0:
+                        commands, executables = extract_recon_from_results(results)
+                        discovered_commands.update(commands)
+                        discovered_filenames.update(executables)
+                
+                update_progress(4, 'Malware/Recon Hunting', 
+                    f'Found {len(discovered_commands)} commands, {len(discovered_filenames)} files', 50)
+            
+            # =========================================================
+            # PHASE 5: SPECIFIC IOC SEARCH (auto-tag candidates)
+            # =========================================================
+            update_progress(5, 'SPECIFIC IOC Search', 'Searching for specific IOC matches...', 52)
+            
+            specific_anchors = []
+            for ioc_type, values in specific_iocs.items():
+                for value in values:
+                    if not value:
+                        continue
+                    try:
+                        results, total = search_ioc(opensearch_client, search.case_id, value)
+                        if total > 0:
+                            for hit in results[:100]:  # Limit per IOC
+                                specific_anchors.append({
+                                    'event_id': hit['_id'],
+                                    'event': hit,
+                                    'ioc_type': ioc_type,
+                                    'matched_ioc': value,
+                                    'timestamp': hit['_source'].get('@timestamp'),
+                                    'hostname': hit['_source'].get('normalized_computer') or 
+                                               hit['_source'].get('host', {}).get('hostname')
+                                })
+                    except Exception as e:
+                        logger.warning(f"[AI_TRIAGE] Error searching {ioc_type}={value}: {e}")
+            
+            update_progress(5, 'SPECIFIC IOC Search', f'Found {len(specific_anchors)} specific IOC matches', 55)
+            
+            # =========================================================
+            # PHASE 6: BROAD IOC AGGREGATION (discovery only)
+            # =========================================================
+            update_progress(6, 'BROAD IOC Aggregation', 'Discovering related IOCs via aggregations...', 57)
+            
+            for ioc_type, values in broad_iocs.items():
+                for value in values:
+                    if not value:
+                        continue
+                    try:
+                        agg_query = {
+                            "size": 0,
+                            "query": {"query_string": {"query": f'"{value}"', "default_operator": "AND"}},
+                            "aggs": {
+                                "hosts": {"terms": {"field": "normalized_computer.keyword", "size": 50}},
+                                "users": {"terms": {"field": "process.user.name.keyword", "size": 50}},
+                                "ips": {"terms": {"field": "host.ip.keyword", "size": 50}}
+                            }
+                        }
+                        result = opensearch_client.search(index=f"case_{search.case_id}", body=agg_query)
+                        
+                        for bucket in result.get('aggregations', {}).get('hosts', {}).get('buckets', []):
+                            if bucket['key'] and bucket['key'] not in ['-', '']:
+                                discovered_hostnames.add(bucket['key'])
+                        for bucket in result.get('aggregations', {}).get('users', {}).get('buckets', []):
+                            if bucket['key'] and bucket['key'] not in ['-', '', 'SYSTEM', 'LOCAL SERVICE']:
+                                discovered_usernames.add(bucket['key'])
+                        for bucket in result.get('aggregations', {}).get('ips', {}).get('buckets', []):
+                            if bucket['key'] and not bucket['key'].startswith('127.'):
+                                discovered_ips.add(bucket['key'])
+                    except Exception as e:
+                        logger.warning(f"[AI_TRIAGE] Aggregation error for {ioc_type}={value}: {e}")
+            
+            search.iocs_discovered_count = len(discovered_ips) + len(discovered_hostnames) + len(discovered_usernames)
+            search.iocs_discovered_json = json.dumps({
+                'ips': list(discovered_ips),
+                'hostnames': list(discovered_hostnames),
+                'usernames': list(discovered_usernames),
+                'commands': list(discovered_commands),
+                'filenames': list(discovered_filenames),
+                'threats': list(discovered_threats)
+            })
+            
+            update_progress(6, 'BROAD IOC Aggregation', 
+                f'Discovered {len(discovered_hostnames)} hosts, {len(discovered_usernames)} users, {len(discovered_ips)} IPs', 60)
+            
+            # =========================================================
+            # PHASE 7: TIME WINDOW ANALYSIS (±5 min around anchors)
+            # =========================================================
+            update_progress(7, 'Time Window Analysis', 'Analyzing time windows around anchor events...', 62)
+            
+            all_window_events = []
+            processed_windows = set()
+            
+            # Use specific anchors or report timestamps
+            anchors_to_process = specific_anchors[:30]
+            
+            for i, anchor in enumerate(anchors_to_process):
+                hostname = anchor.get('hostname')
+                timestamp = anchor.get('timestamp')
+                
+                if not hostname or not timestamp:
+                    continue
+                
+                window_key = f"{hostname}|{timestamp[:16]}"
+                if window_key in processed_windows:
+                    continue
+                processed_windows.add(window_key)
+                
+                try:
+                    anchor_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00').replace('+00:00', ''))
+                    start = (anchor_time - timedelta(minutes=5)).isoformat() + "Z"
+                    end = (anchor_time + timedelta(minutes=5)).isoformat() + "Z"
+                    
+                    time_query = {
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"term": {"normalized_computer.keyword": hostname}},
+                                    {"range": {"@timestamp": {"gte": start, "lte": end}}}
+                                ]
+                            }
+                        },
+                        "sort": [{"@timestamp": "asc"}],
+                        "size": 500
+                    }
+                    
+                    result = opensearch_client.search(index=f"case_{search.case_id}", body=time_query)
+                    for hit in result['hits']['hits']:
+                        all_window_events.append(hit)
+                except Exception as e:
+                    logger.warning(f"[AI_TRIAGE] Time window error: {e}")
+                
+                update_progress(7, 'Time Window Analysis', 
+                    f'Processed {i+1}/{len(anchors_to_process)} windows, {len(all_window_events)} events', 
+                    62 + int((i / max(len(anchors_to_process), 1)) * 10))
+            
+            search.events_analyzed_count = len(all_window_events)
+            update_progress(7, 'Time Window Analysis', f'Analyzed {len(all_window_events)} events in time windows', 72)
+            
+            # =========================================================
+            # PHASE 8: PROCESS TREE BUILDING + MITRE PATTERN MATCHING
+            # =========================================================
+            update_progress(8, 'Process Trees & MITRE', 'Building process trees and matching MITRE patterns...', 75)
+            
+            # Find suspicious parent processes
+            suspicious_parents = {}
+            techniques_found = {}
+            
+            for event in all_window_events:
+                src = event.get('_source', {})
+                proc = src.get('process', {})
+                parent = proc.get('parent', {})
+                parent_name = (parent.get('name') or '').lower()
+                parent_pid = parent.get('pid')
+                proc_name = (proc.get('name') or '').lower()
+                hostname = src.get('normalized_computer')
+                cmd_line = (proc.get('command_line') or '').lower()
+                
+                # Build process trees
+                if parent_name in ['cmd.exe', 'powershell.exe'] and parent_pid and hostname:
+                    key = f"{hostname}|{parent_pid}"
+                    if key not in suspicious_parents:
+                        suspicious_parents[key] = {
+                            'parent_name': parent_name,
+                            'parent_pid': parent_pid,
+                            'hostname': hostname,
+                            'children': []
+                        }
+                    suspicious_parents[key]['children'].append({
+                        'name': proc_name,
+                        'command_line': proc.get('command_line', ''),
+                        'timestamp': src.get('@timestamp')
+                    })
+                
+                # MITRE pattern matching
+                for tech_id, pattern in MITRE_PATTERNS.items():
+                    matched = False
+                    for proc_pattern in pattern.get('processes', []):
+                        if proc_pattern.lower() in proc_name:
+                            matched = True
+                            break
+                    for indicator in pattern.get('indicators', []):
+                        if indicator.lower() in cmd_line:
+                            matched = True
+                            break
+                    
+                    if matched:
+                        if tech_id not in techniques_found:
+                            techniques_found[tech_id] = {'name': pattern['name'], 'count': 0, 'events': []}
+                        techniques_found[tech_id]['count'] += 1
+                        if len(techniques_found[tech_id]['events']) < 5:
+                            techniques_found[tech_id]['events'].append(event['_id'])
+            
+            search.process_trees_count = len(suspicious_parents)
+            search.techniques_found_count = len(techniques_found)
+            search.process_trees_json = json.dumps(list(suspicious_parents.values())[:20])
+            search.mitre_techniques_json = json.dumps({k: {'name': v['name'], 'count': v['count']} for k, v in techniques_found.items()})
+            
+            update_progress(8, 'Process Trees & MITRE', 
+                f'Built {len(suspicious_parents)} trees, found {len(techniques_found)} MITRE techniques', 85)
+            
+            # =========================================================
+            # PHASE 9: TIMELINE EVENT AUTO-TAGGING
+            # =========================================================
+            update_progress(9, 'Timeline Auto-Tagging', 'Filtering and auto-tagging timeline events...', 87)
+            
+            # Filter to timeline-worthy events
+            timeline_events = []
+            seen_keys = set()
+            
+            for event in all_window_events:
+                src = event.get('_source', {})
+                proc = src.get('process', {})
+                proc_name = (proc.get('name') or '').lower()
+                
+                # Check if timeline-worthy
+                if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
+                    continue
+                
+                # Deduplicate
+                cmd = proc.get('command_line') or ''
+                ts = src.get('@timestamp', '')
+                key = f"{ts}|{cmd}"
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                
+                timeline_events.append(event)
+            
+            timeline_events.sort(key=lambda x: x.get('_source', {}).get('@timestamp', ''))
+            
+            update_progress(9, 'Timeline Auto-Tagging', f'Filtered to {len(timeline_events)} timeline events', 90)
+            
+            # Auto-tag timeline events
+            index_name = f"case_{search.case_id}"
+            existing_tag_ids = set(
+                t.event_id for t in TimelineTag.query.filter_by(
+                    case_id=search.case_id, index_name=index_name
+                ).all()
+            )
+            
+            tags_added = 0
+            for event in timeline_events:
+                event_id = event.get('_id')
+                if not event_id or event_id in existing_tag_ids:
+                    continue
+                
+                src = event.get('_source', {})
+                proc = src.get('process', {})
+                proc_name = proc.get('name', 'Unknown')
+                cmd = (proc.get('command_line') or '')[:100]
+                ts = src.get('@timestamp', '')[:19]
+                
+                notes = f"[AI Triage Timeline Event]\n"
+                notes += f"Timestamp: {ts}\n"
+                notes += f"Process: {proc_name}\n"
+                if cmd:
+                    notes += f"Command: {cmd}\n"
+                notes += f"\nThis event is part of the reconstructed attack timeline."
+                
+                try:
+                    tag = TimelineTag(
+                        case_id=search.case_id,
+                        user_id=search.generated_by,
+                        event_id=event_id,
+                        index_name=index_name,
+                        event_data=json.dumps(src),
+                        tag_color='purple',
+                        notes=notes
+                    )
+                    db.session.add(tag)
+                    existing_tag_ids.add(event_id)
+                    tags_added += 1
+                except Exception as e:
+                    logger.warning(f"[AI_TRIAGE] Failed to tag event {event_id}: {e}")
+            
+            db.session.commit()
+            
+            search.timeline_events_count = len(timeline_events)
+            search.auto_tagged_count = tags_added
+            
+            # Build timeline JSON
+            timeline_data = []
+            for event in timeline_events[:50]:
+                src = event.get('_source', {})
+                proc = src.get('process', {})
+                timeline_data.append({
+                    'timestamp': src.get('@timestamp'),
+                    'process': proc.get('name'),
+                    'command': (proc.get('command_line') or '')[:200],
+                    'user': f"{proc.get('user', {}).get('domain', '')}\\{proc.get('user', {}).get('name', '')}",
+                    'parent': proc.get('parent', {}).get('name'),
+                    'hostname': src.get('normalized_computer'),
+                    'event_id': event.get('_id')
+                })
+            search.timeline_json = json.dumps(timeline_data)
+            
+            update_progress(9, 'Timeline Auto-Tagging', f'Auto-tagged {tags_added} timeline events', 95)
+            
+            # =========================================================
+            # COMPLETE
+            # =========================================================
+            search.status = 'completed'
+            search.completed_at = datetime.utcnow()
+            search.generation_time_seconds = (datetime.utcnow() - start_time).total_seconds()
+            
+            # Build summary
+            search.summary_json = json.dumps({
+                'entry_point': search.entry_point,
+                'iocs_extracted': search.iocs_extracted_count,
+                'iocs_discovered': search.iocs_discovered_count,
+                'events_analyzed': search.events_analyzed_count,
+                'timeline_events': search.timeline_events_count,
+                'auto_tagged': search.auto_tagged_count,
+                'techniques_found': search.techniques_found_count,
+                'process_trees': search.process_trees_count,
+                'generation_time': search.generation_time_seconds
+            })
+            
+            db.session.commit()
+            
+            update_progress(9, 'Complete', 
+                f'AI Triage Search complete! Tagged {tags_added} events, found {len(techniques_found)} MITRE techniques', 100)
+            
+            logger.info(f"[AI_TRIAGE] Case {search.case_id}: Complete - {tags_added} events tagged, {len(techniques_found)} techniques")
+            
+            return {
+                'status': 'success',
+                'search_id': search.id,
+                'auto_tagged': tags_added,
+                'techniques_found': len(techniques_found),
+                'timeline_events': len(timeline_events)
+            }
+            
+        except Exception as e:
+            logger.error(f"[AI_TRIAGE] Error: {e}", exc_info=True)
+            search.status = 'failed'
+            search.error_message = str(e)
+            db.session.commit()
+            return {'status': 'error', 'message': str(e)}
