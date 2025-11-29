@@ -3227,7 +3227,7 @@ def run_ai_triage_search(self, search_id):
                 for i in IOC.query.filter_by(case_id=search.case_id).all()
             )
             existing_systems = set(
-                s.hostname.upper() 
+                s.system_name.upper() 
                 for s in System.query.filter_by(case_id=search.case_id).all()
             )
             
@@ -3258,9 +3258,9 @@ def run_ai_triage_search(self, search_id):
                 try:
                     system = System(
                         case_id=search.case_id,
-                        hostname=hostname.upper(),
+                        system_name=hostname.upper(),  # Field is system_name, not hostname
                         system_type='workstation',
-                        notes='Discovered by AI Triage Search'
+                        added_by='AI Triage Search'
                     )
                     db.session.add(system)
                     existing_systems.add(hostname.upper())
