@@ -538,75 +538,173 @@ def hide_known_good_events(case_id):
         """Generator for streaming progress updates"""
         index_name = f"case_{case_id}"
         hidden_count = 0
-        processed_count = 0
+        total_found = 0
         
         try:
-            # First, count total events
-            count_response = opensearch_client.count(index=index_name)
-            total_events = count_response.get('count', 0)
-            
-            yield f"data: {json.dumps({'status': 'starting', 'total': total_events, 'message': f'Scanning {total_events:,} events...'})}\n\n"
-            
-            if total_events == 0:
-                yield f"data: {json.dumps({'status': 'complete', 'hidden': 0, 'processed': 0, 'message': 'No events in case'})}\n\n"
-                return
-            
-            # Use scroll API for large datasets
-            scroll_size = 1000
-            scroll_time = '5m'
-            
-            # Query for events that are NOT already hidden
-            query = {
-                "query": {
-                    "bool": {
-                        "must_not": [
-                            {"term": {"is_hidden": True}}
-                        ]
-                    }
-                },
-                "_source": ["process", "parent", "host", "source", "@timestamp", "search_blob"]
-            }
-            
-            response = opensearch_client.search(
-                index=index_name,
-                body=query,
-                scroll=scroll_time,
-                size=scroll_size
-            )
-            
-            scroll_id = response.get('_scroll_id')
-            hits = response['hits']['hits']
-            total_to_scan = response['hits']['total']['value']
-            
-            yield f"data: {json.dumps({'status': 'scanning', 'total': total_to_scan, 'message': f'Found {total_to_scan:,} non-hidden events to scan'})}\n\n"
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Building search queries for exclusion patterns...'})}\n\n"
             
             events_to_hide = []
             
-            while hits:
-                for hit in hits:
-                    processed_count += 1
-                    
-                    if _should_hide_event(hit, exclusions):
-                        events_to_hide.append({
-                            '_id': hit['_id'],
-                            '_index': hit['_index']
-                        })
-                    
-                    # Progress update every 500 events
-                    if processed_count % 500 == 0:
-                        pct = int((processed_count / total_to_scan) * 100)
-                        yield f"data: {json.dumps({'status': 'scanning', 'processed': processed_count, 'total': total_to_scan, 'found': len(events_to_hide), 'percent': pct})}\n\n"
-                
-                # Get next batch
-                response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
-                scroll_id = response.get('_scroll_id')
-                hits = response['hits']['hits']
+            # Instead of scanning ALL events, build targeted queries for each exclusion type
+            # This is MUCH faster than scanning 10M+ events
             
-            # Clear scroll
-            try:
-                opensearch_client.clear_scroll(scroll_id=scroll_id)
-            except:
-                pass
+            # 1. Search for RMM tool parent processes
+            rmm_patterns = exclusions.get('rmm_executables', [])
+            if rmm_patterns:
+                yield f"data: {json.dumps({'status': 'scanning', 'message': f'Searching for RMM tool events ({len(rmm_patterns)} patterns)...'})}\n\n"
+                
+                for pattern in rmm_patterns:
+                    # Search for events where parent process matches
+                    query = {
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"wildcard": {"process.parent.name.keyword": f"*{pattern}*"}}
+                                ],
+                                "must_not": [
+                                    {"term": {"is_hidden": True}}
+                                ]
+                            }
+                        },
+                        "_source": False
+                    }
+                    
+                    # Use scroll for this specific query
+                    try:
+                        response = opensearch_client.search(index=index_name, body=query, scroll='2m', size=1000)
+                        scroll_id = response.get('_scroll_id')
+                        hits = response['hits']['hits']
+                        pattern_count = 0
+                        
+                        while hits:
+                            for hit in hits:
+                                events_to_hide.append({'_id': hit['_id'], '_index': hit['_index']})
+                                pattern_count += 1
+                            
+                            response = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                            scroll_id = response.get('_scroll_id')
+                            hits = response['hits']['hits']
+                        
+                        try:
+                            opensearch_client.clear_scroll(scroll_id=scroll_id)
+                        except:
+                            pass
+                        
+                        if pattern_count > 0:
+                            total_found += pattern_count
+                            yield f"data: {json.dumps({'status': 'scanning', 'message': f'Found {pattern_count:,} events matching {pattern}', 'found': total_found})}\n\n"
+                    except Exception as e:
+                        yield f"data: {json.dumps({'status': 'scanning', 'message': f'Pattern {pattern}: {str(e)[:50]}'})}\n\n"
+            
+            # 2. Search for known-good IPs
+            known_ips = exclusions.get('known_good_ips', [])
+            if known_ips:
+                yield f"data: {json.dumps({'status': 'scanning', 'message': f'Searching for known-good IP events ({len(known_ips)} ranges)...'})}\n\n"
+                
+                for ip_range in known_ips:
+                    # For CIDR ranges, we need to search differently
+                    # For single IPs, direct match
+                    search_ip = ip_range.split('/')[0] if '/' in ip_range else ip_range
+                    
+                    query = {
+                        "query": {
+                            "bool": {
+                                "should": [
+                                    {"term": {"source.ip": search_ip}},
+                                    {"term": {"host.ip": search_ip}},
+                                    {"wildcard": {"search_blob": f"*{search_ip}*"}}
+                                ],
+                                "minimum_should_match": 1,
+                                "must_not": [
+                                    {"term": {"is_hidden": True}}
+                                ]
+                            }
+                        },
+                        "_source": False
+                    }
+                    
+                    try:
+                        response = opensearch_client.search(index=index_name, body=query, scroll='2m', size=1000)
+                        scroll_id = response.get('_scroll_id')
+                        hits = response['hits']['hits']
+                        ip_count = 0
+                        
+                        while hits:
+                            for hit in hits:
+                                # Check if already in list (dedup)
+                                if not any(e['_id'] == hit['_id'] for e in events_to_hide):
+                                    events_to_hide.append({'_id': hit['_id'], '_index': hit['_index']})
+                                    ip_count += 1
+                            
+                            response = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                            scroll_id = response.get('_scroll_id')
+                            hits = response['hits']['hits']
+                        
+                        try:
+                            opensearch_client.clear_scroll(scroll_id=scroll_id)
+                        except:
+                            pass
+                        
+                        if ip_count > 0:
+                            total_found += ip_count
+                            yield f"data: {json.dumps({'status': 'scanning', 'message': f'Found {ip_count:,} events from {ip_range}', 'found': total_found})}\n\n"
+                    except Exception as e:
+                        yield f"data: {json.dumps({'status': 'scanning', 'message': f'IP {ip_range}: {str(e)[:50]}'})}\n\n"
+            
+            # 3. Search for remote tools with known-good IDs
+            remote_tools = exclusions.get('remote_tools', [])
+            if remote_tools:
+                yield f"data: {json.dumps({'status': 'scanning', 'message': f'Searching for remote tool events ({len(remote_tools)} tools)...'})}\n\n"
+                
+                for tool in remote_tools:
+                    known_ids = tool.get('known_good_ids', [])
+                    if not known_ids:
+                        continue
+                    
+                    for known_id in known_ids:
+                        if not known_id:
+                            continue
+                        
+                        query = {
+                            "query": {
+                                "bool": {
+                                    "must": [
+                                        {"wildcard": {"search_blob": f"*{known_id}*"}}
+                                    ],
+                                    "must_not": [
+                                        {"term": {"is_hidden": True}}
+                                    ]
+                                }
+                            },
+                            "_source": False
+                        }
+                        
+                        try:
+                            response = opensearch_client.search(index=index_name, body=query, scroll='2m', size=1000)
+                            scroll_id = response.get('_scroll_id')
+                            hits = response['hits']['hits']
+                            tool_count = 0
+                            
+                            while hits:
+                                for hit in hits:
+                                    if not any(e['_id'] == hit['_id'] for e in events_to_hide):
+                                        events_to_hide.append({'_id': hit['_id'], '_index': hit['_index']})
+                                        tool_count += 1
+                                
+                                response = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                                scroll_id = response.get('_scroll_id')
+                                hits = response['hits']['hits']
+                            
+                            try:
+                                opensearch_client.clear_scroll(scroll_id=scroll_id)
+                            except:
+                                pass
+                            
+                            if tool_count > 0:
+                                total_found += tool_count
+                                yield f"data: {json.dumps({'status': 'scanning', 'message': f'Found {tool_count:,} events with ID {known_id[:20]}...', 'found': total_found})}\n\n"
+                        except Exception as e:
+                            pass
             
             yield f"data: {json.dumps({'status': 'hiding', 'found': len(events_to_hide), 'message': f'Found {len(events_to_hide):,} events to hide. Applying...'})}\n\n"
             
@@ -647,9 +745,9 @@ def hide_known_good_events(case_id):
             from audit_logger import log_action
             log_action('hide_known_good_events', resource_type='case', resource_id=case_id,
                       resource_name=case.name,
-                      details={'hidden_count': hidden_count, 'processed_count': processed_count})
+                      details={'hidden_count': hidden_count, 'total_found': total_found})
             
-            yield f"data: {json.dumps({'status': 'complete', 'hidden': hidden_count, 'processed': processed_count, 'message': f'Hidden {hidden_count:,} known-good events'})}\n\n"
+            yield f"data: {json.dumps({'status': 'complete', 'hidden': hidden_count, 'processed': total_found, 'message': f'Hidden {hidden_count:,} known-good events'})}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
