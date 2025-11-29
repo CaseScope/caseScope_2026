@@ -1,6 +1,6 @@
 # AI Triage Search - Complete Technical Documentation
 
-**Version:** 1.39.0  
+**Version:** 1.40.0  
 **Last Updated:** 2025-11-29  
 **Author:** CaseScope Development Team
 
@@ -11,17 +11,17 @@
 1. [Overview](#overview)
 2. [Architecture](#architecture)
 3. [The 9-Phase Methodology](#the-9-phase-methodology)
-4. [File Structure](#file-structure)
-5. [Database Schema](#database-schema)
-6. [API Endpoints](#api-endpoints)
-7. [Frontend Components](#frontend-components)
-8. [Celery Task Workflow](#celery-task-workflow)
-9. [Helper Functions](#helper-functions)
-10. [Configuration & Constants](#configuration--constants)
-11. [Error Handling](#error-handling)
-12. [Testing & Debugging](#testing--debugging)
-13. [Common Issues & Fixes](#common-issues--fixes)
-14. [Future Improvements](#future-improvements)
+4. [Exclusion System](#exclusion-system)
+5. [File Structure](#file-structure)
+6. [Database Schema](#database-schema)
+7. [API Endpoints](#api-endpoints)
+8. [Frontend Components](#frontend-components)
+9. [Celery Task Workflow](#celery-task-workflow)
+10. [Helper Functions](#helper-functions)
+11. [Configuration & Constants](#configuration--constants)
+12. [Error Handling](#error-handling)
+13. [Testing & Debugging](#testing--debugging)
+14. [Common Issues & Fixes](#common-issues--fixes)
 
 ---
 
@@ -31,17 +31,21 @@ The **AI Triage Search** is an automated attack chain analysis system that:
 
 1. Extracts IOCs (Indicators of Compromise) from EDR/MDR reports
 2. Hunts those IOCs across all case events to discover related indicators
-3. Builds process trees and matches MITRE ATT&CK patterns
-4. Auto-tags key timeline events for analyst review
+3. Creates IOCs and Systems in the database
+4. Builds process trees and matches MITRE ATT&CK patterns
+5. Auto-tags key timeline events for analyst review
 
 ### Key Features
 
 - **9-phase automated analysis** running as a background Celery task
 - **Real-time progress updates** via polling
 - **IOC classification** into SPECIFIC (auto-tag) vs BROAD (aggregation only)
+- **System Tools exclusions** for RMM, Remote Tools, EDR Tools, and Known-Good IPs
+- **EDR context-aware exclusion** - excludes routine health checks but KEEPS response actions
 - **MITRE ATT&CK pattern matching** for technique identification
 - **Process tree building** from EDR parent/child relationships
 - **Timeline auto-tagging** with purple color for AI-discovered events
+- **Automatic IOC and System creation** in the database
 
 ### Entry Points
 
@@ -87,11 +91,11 @@ The system supports three entry points:
 │  tasks.py - run_ai_triage_search()                                   │
 │  ┌─────────────────────────────────────────────────────────────────┐│
 │  │ Phase 1: IOC Extraction                                          ││
-│  │ Phase 2: IOC Classification                                      ││
+│  │ Phase 2: IOC Classification + Load Exclusions                    ││
 │  │ Phase 3: Snowball Hunting                                        ││
 │  │ Phase 4: Malware/Recon Hunting                                   ││
 │  │ Phase 5: SPECIFIC IOC Search                                     ││
-│  │ Phase 6: BROAD IOC Aggregation                                   ││
+│  │ Phase 6: BROAD IOC Aggregation + Create IOCs/Systems             ││
 │  │ Phase 7: Time Window Analysis                                    ││
 │  │ Phase 8: Process Trees + MITRE                                   ││
 │  │ Phase 9: Timeline Auto-Tagging                                   ││
@@ -104,7 +108,9 @@ The system supports three entry points:
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
 │  │ PostgreSQL  │    │ OpenSearch  │    │ Redis       │             │
 │  │ (AITriage   │    │ (Events)    │    │ (Celery)    │             │
-│  │  Search)    │    │             │    │             │             │
+│  │  Search,    │    │             │    │             │             │
+│  │  IOC,       │    │             │    │             │             │
+│  │  System)    │    │             │    │             │             │
 │  └─────────────┘    └─────────────┘    └─────────────┘             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -122,6 +128,7 @@ The system supports three entry points:
 - `extract_iocs_with_regex()` - Fallback if LLM fails
 
 **IOC Types Extracted:**
+
 | Type | Description | Example |
 |------|-------------|---------|
 | `ips` | IP addresses | `192.168.1.100` |
@@ -138,9 +145,9 @@ The system supports three entry points:
 
 ---
 
-### Phase 2: IOC Classification
+### Phase 2: IOC Classification + Load Exclusions
 
-**Purpose:** Classify IOCs as SPECIFIC (auto-tag) or BROAD (aggregation only).
+**Purpose:** Classify IOCs as SPECIFIC (auto-tag) or BROAD (aggregation only), and load System Tools exclusions.
 
 **Classification Logic:**
 
@@ -163,10 +170,11 @@ broad_iocs = {
 }
 ```
 
-**Why This Matters:**
-- SPECIFIC IOCs are rare and directly indicate malicious activity
-- BROAD IOCs (like usernames) may appear in thousands of events
-- Auto-tagging BROAD IOCs would flood the timeline with noise
+**Exclusions Loaded:**
+- RMM tool executables (full exclusion)
+- Remote tool session IDs (known-good exclusion)
+- EDR tools with context-aware exclusion (routine excluded, responses kept)
+- Known-good IP addresses/CIDR blocks
 
 **Progress Update:** 12-15%
 
@@ -205,9 +213,9 @@ FOR each hostname in known_hostnames (limit 10):
 **Recon Search Terms (RECON_SEARCH_TERMS):**
 ```python
 RECON_SEARCH_TERMS = [
-    'nltest', 'net group', 'net user', 'whoami',
-    'ipconfig', 'systeminfo', 'netstat', 'quser',
-    'tasklist', 'wmic', 'ping', 'nslookup', 'route'
+    'nltest', 'net group', 'net user', 'net localgroup',
+    'whoami', 'ipconfig', 'systeminfo', 'domain trust',
+    'quser', 'query user', 'dclist'
 ]
 ```
 
@@ -227,8 +235,13 @@ RECON_SEARCH_TERMS = [
 specific_anchors = []
 for ioc_type, values in specific_iocs.items():
     for value in values:
-        results = search_ioc(value)
+        # Extract filename from path for better matching
+        search_value = value.split('\\')[-1] if '\\' in value else value
+        results = search_ioc(search_value)
         for hit in results[:100]:  # Limit per IOC
+            # Filter out known-good events EARLY
+            if should_exclude_event(hit, exclusions):
+                continue
             specific_anchors.append({
                 'event_id': hit['_id'],
                 'event': hit,
@@ -243,9 +256,9 @@ for ioc_type, values in specific_iocs.items():
 
 ---
 
-### Phase 6: BROAD IOC Aggregation
+### Phase 6: BROAD IOC Aggregation + Create IOCs/Systems
 
-**Purpose:** Discover additional IOCs via OpenSearch aggregations.
+**Purpose:** Discover additional IOCs via OpenSearch aggregations and persist to database.
 
 **Aggregation Query:**
 ```python
@@ -260,12 +273,38 @@ agg_query = {
 }
 ```
 
-**Why Aggregations:**
-- Avoids retrieving thousands of individual events
-- Returns unique values with counts
-- Much faster than full event retrieval
+**Database Creation:**
+```python
+# Helper to add IOC if not exists
+def add_ioc_if_new(ioc_type, ioc_value, is_active=True):
+    if (ioc_type, ioc_value.lower()) not in existing_iocs:
+        ioc = IOC(
+            case_id=search.case_id,
+            ioc_type=ioc_type,
+            ioc_value=ioc_value,
+            is_active=is_active,
+            description='Created by AI Triage Search'
+        )
+        db.session.add(ioc)
 
-**Progress Update:** 57-60%
+# Helper to add System if not exists
+def add_system_if_new(hostname):
+    if hostname.upper() not in existing_systems:
+        system = System(
+            case_id=search.case_id,
+            system_name=hostname.upper(),  # Field is system_name
+            system_type='workstation',
+            added_by='AI Triage Search'
+        )
+        db.session.add(system)
+```
+
+**Noise Filtering Applied:**
+- `is_noise_user()` - Filters DWM-N, UMFD-N, SYSTEM, machine accounts ($)
+- `is_noise_hostname()` - Filters common words, short names
+- `normalize_hostname()` - Strips FQDN to hostname (e.g., `CM-DC01.domain.local` → `CM-DC01`)
+
+**Progress Update:** 57-61%
 
 ---
 
@@ -288,16 +327,21 @@ for anchor in specific_anchors[:30]:
             "bool": {
                 "must": [
                     {"term": {"normalized_computer.keyword": hostname}},
-                    {"range": {"@timestamp": {
-                        "gte": timestamp - 5min,
-                        "lte": timestamp + 5min
-                    }}}
+                    {"range": {"@timestamp": {"gte": start, "lte": end}}}
+                ],
+                "must_not": [
+                    {"term": {"is_hidden": True}}  # Exclude pre-hidden events
                 ]
             }
         }
     }
     
-    window_events.extend(results)
+    for hit in results:
+        # Filter out known-good events
+        if should_exclude_event(hit, exclusions):
+            excluded_early_count += 1
+            continue
+        window_events.append(hit)
 ```
 
 **Progress Update:** 62-72%
@@ -324,9 +368,31 @@ MITRE_PATTERNS = {
     'T1018': {
         'name': 'Remote System Discovery',
         'processes': ['nltest.exe', 'ping.exe', 'nslookup.exe'],
-        'indicators': ['dclist', 'ping', 'net view']
+        'indicators': ['dclist', 'ping', 'net view', 'advanced_ip_scanner']
     },
-    # ... more patterns
+    'T1016': {
+        'name': 'System Network Config Discovery',
+        'processes': ['ipconfig.exe', 'netsh.exe', 'route.exe'],
+        'indicators': ['ipconfig', 'netsh', 'route']
+    },
+    'T1087': {
+        'name': 'Account Discovery',
+        'indicators': ['AdUsers', 'net user', 'net group', 'AdComp']
+    },
+    'T1078': {
+        'name': 'Valid Accounts',
+        'indicators': ['logon', 'authentication']
+    },
+    'T1059.001': {
+        'name': 'PowerShell',
+        'processes': ['powershell.exe'],
+        'indicators': ['-enc', '-encodedcommand']
+    },
+    'T1218.011': {
+        'name': 'Rundll32',
+        'processes': ['rundll32.exe'],
+        'indicators': ['rundll32', '.dll,']
+    }
 }
 ```
 
@@ -357,30 +423,152 @@ TIMELINE_PROCESSES = [
     'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe',
     'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
     'quser.exe', 'query.exe', 'nslookup.exe', 'route.exe',
-    'cmd.exe', 'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
+    'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
     'mshta.exe', 'wscript.exe', 'cscript.exe',
     'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
     'notepad.exe', 'wordpad.exe'
 ]
 ```
 
+**Noise Processes Excluded (NOISE_PROCESSES):**
+```python
+NOISE_PROCESSES = [
+    'auditpol.exe',      # Windows audit policy - often run by RMM
+    'gpupdate.exe',      # Group policy update
+    'schtasks.exe',      # Task scheduler (when parent is RMM)
+    'wuauclt.exe',       # Windows Update
+    'msiexec.exe',       # Installer
+    'dism.exe',          # Deployment Image Service
+]
+```
+
+**RMM Path Patterns Excluded (RMM_PATH_PATTERNS):**
+```python
+RMM_PATH_PATTERNS = [
+    'ltsvc', 'labtech', 'automate',  # ConnectWise Automate/LabTech
+    'aem', 'datto',                   # Datto RMM
+    'kaseya', 'agentmon',             # Kaseya
+    'ninjarmmag',                     # NinjaRMM
+    'syncro',                         # Syncro
+    'atera',                          # Atera
+    'n-central', 'basupsrvc',         # N-able
+]
+```
+
 **Auto-Tagging Process:**
 ```python
 for event in timeline_events:
-    if event_id not in existing_tag_ids:
-        tag = TimelineTag(
-            case_id=case_id,
-            user_id=user_id,
-            event_id=event_id,
-            index_name=f"case_{case_id}",
-            event_data=json.dumps(event['_source']),
-            tag_color='purple',  # AI-tagged events are purple
-            notes=f"[AI Triage Timeline Event]\n..."
-        )
-        db.session.add(tag)
+    proc_name = event['_source']['process']['name'].lower()
+    
+    # Skip if not a timeline-worthy process
+    if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
+        continue
+    
+    # Skip if already tagged
+    if event_id in existing_tag_ids:
+        already_tagged += 1
+        continue
+    
+    # Create tag with purple color
+    tag = TimelineTag(
+        case_id=case_id,
+        user_id=user_id,
+        event_id=event_id,
+        index_name=f"case_{case_id}",
+        event_data=json.dumps(event['_source']),
+        tag_color='purple',  # AI-tagged events are purple
+        notes=f"[AI Triage Timeline Event]\n..."
+    )
+    db.session.add(tag)
 ```
 
+**Deduplication:**
+- Uses `cmd.lower()` for case-insensitive command deduplication
+- Key format: `f"{timestamp}|{cmd.lower()}"`
+
 **Progress Update:** 87-100%
+
+---
+
+## Exclusion System
+
+### Overview
+
+The exclusion system prevents known-good events from polluting the analysis:
+
+| Tool Type | Behavior | Example |
+|-----------|----------|---------|
+| **RMM Tools** | Full exclusion | LabTech running `whoami` |
+| **Remote Tools** | Exclude known-good session IDs | ScreenConnect with known GUID |
+| **EDR Tools** | Context-aware: exclude routine, KEEP responses | Huntress isolation kept |
+| **Known-Good IPs** | Full exclusion | Internal network ranges |
+
+### EDR Tools Context-Aware Exclusion
+
+Unlike RMM tools (fully excluded), EDR tools get intelligent filtering:
+
+```python
+for edr_config in exclusions.get('edr_tools', []):
+    parent_is_edr = any(exe in parent_name for exe in edr_config['executables'])
+    
+    if parent_is_edr:
+        # FIRST: Check if this is a response action - ALWAYS KEEP
+        if any(pattern in cmd_line for pattern in edr_config['response_patterns']):
+            return False  # DON'T exclude - this is important!
+        
+        # SECOND: Check if this is a routine health check - exclude
+        if any(routine in cmd_line for routine in edr_config['routine_commands']):
+            return True  # Exclude - just noise
+```
+
+**Predefined EDR Tools:**
+
+| Tool | Executables | Routine Commands | Response Patterns |
+|------|-------------|------------------|-------------------|
+| Huntress | `HuntressAgent.exe` | whoami, systeminfo, ipconfig | isolat, quarantin, block, mass isolation |
+| Blackpoint | `SnapAgent.exe` | whoami, systeminfo | isolat, snap, block |
+| SentinelOne | `SentinelAgent.exe` | whoami, systeminfo, tasklist | isolat, quarantin, mitigat, kill |
+| CrowdStrike | `CSAgent.exe` | whoami, systeminfo | contain, isolat, block |
+
+### should_exclude_event() Function
+
+```python
+def should_exclude_event(event, exclusions):
+    """Check if event should be excluded from tagging (known-good)."""
+    
+    # Check 0: Already hidden
+    if src.get('is_hidden'):
+        return True
+    
+    # Check 1: Noise processes (auditpol, gpupdate, etc.)
+    if proc_name in NOISE_PROCESSES:
+        return True
+    
+    # Check 2: Parent is RMM tool (full exclusion)
+    for rmm_pattern in exclusions['rmm_executables']:
+        if fnmatch.fnmatch(parent_name, rmm_pattern):
+            return True
+    
+    # Check 3: Command line contains RMM paths
+    for rmm_path in RMM_PATH_PATTERNS:
+        if rmm_path in cmd_line:
+            return True
+    
+    # Check 4: EDR tools - context-aware
+    for edr_config in exclusions['edr_tools']:
+        if parent_is_edr:
+            # Keep response actions
+            if any(pattern in cmd_line for pattern in edr_config['response_patterns']):
+                return False
+            # Exclude routine
+            if any(routine in cmd_line for routine in edr_config['routine_commands']):
+                return True
+    
+    # Check 5: Remote tool with known-good session ID
+    # Check 6: Known-good IP
+    
+    return False
+```
 
 ---
 
@@ -390,8 +578,15 @@ for event in timeline_events:
 /opt/casescope/app/
 ├── tasks.py                          # Celery task: run_ai_triage_search()
 │   ├── TIMELINE_PROCESSES            # List of timeline-worthy processes
+│   ├── NOISE_PROCESSES               # Processes to exclude
+│   ├── RMM_PATH_PATTERNS             # RMM path patterns to exclude
 │   ├── MITRE_PATTERNS                # MITRE ATT&CK pattern definitions
-│   └── run_ai_triage_search()        # Main 9-phase task
+│   ├── run_ai_triage_search()        # Main 9-phase task (line 2755)
+│   ├── is_noise_user()               # Filter noise usernames
+│   ├── is_noise_hostname()           # Filter noise hostnames
+│   ├── normalize_hostname()          # Strip FQDN to hostname
+│   ├── load_exclusions()             # Load from SystemToolsSetting
+│   └── should_exclude_event()        # Check if event is known-good
 │
 ├── routes/triage_report.py           # API routes + helper functions
 │   ├── IOC_TYPE_MAP                  # IOC type mappings
@@ -404,23 +599,30 @@ for event in timeline_events:
 │   ├── extract_recon_from_results()  # Extract commands/executables
 │   ├── search_ioc()                  # Search OpenSearch for IOC
 │   ├── is_valid_hostname()           # Hostname validation
-│   ├── is_machine_account()          # Check for machine accounts ($)
-│   ├── run_ai_triage_search()        # POST /run endpoint
-│   ├── get_ai_triage_status()        # GET /status endpoint
-│   └── list_ai_triage_searches()     # GET /list endpoint
+│   └── is_machine_account()          # Check for machine accounts ($)
+│
+├── routes/system_tools.py            # System Tools settings
+│   ├── RMM_TOOLS                     # Predefined RMM tools
+│   ├── REMOTE_TOOLS                  # Predefined remote tools
+│   ├── EDR_TOOLS                     # Predefined EDR tools
+│   └── add_edr_tool()                # Add EDR tool route
 │
 ├── models.py                         # Database models
-│   └── AITriageSearch                # Main model for search results
+│   ├── AITriageSearch                # Main model for search results
+│   ├── IOC                           # IOC storage
+│   ├── System                        # System storage (system_name field)
+│   ├── TimelineTag                   # Tagged events
+│   └── SystemToolsSetting            # Exclusion settings
 │
 ├── templates/search_events.html      # Frontend template
 │   ├── triageReportModal             # Modal HTML structure
 │   ├── showTriageModal()             # Open modal function
 │   ├── startAITriageSearch()         # Start search function
 │   ├── pollAITriageStatus()          # Poll for progress
-│   ├── showTriageResults()           # Display results
-│   └── showTriageError()             # Display errors
+│   └── showTriageResults()           # Display results
 │
-└── migrations/add_ai_triage_search.py # Database migration
+└── templates/system_tools.html       # System Tools settings page
+    └── EDR Tools section             # Add/manage EDR tools
 ```
 
 ---
@@ -431,28 +633,22 @@ for event in timeline_events:
 
 ```sql
 CREATE TABLE ai_triage_search (
-    -- Primary Key
     id SERIAL PRIMARY KEY,
-    
-    -- Foreign Keys
     case_id INTEGER NOT NULL REFERENCES "case"(id),
     generated_by INTEGER NOT NULL REFERENCES "user"(id),
     
-    -- Task Tracking
     status VARCHAR(20) DEFAULT 'pending',  -- pending, running, completed, failed
     celery_task_id VARCHAR(255),
-    
-    -- Entry Point
     entry_point VARCHAR(50),  -- full_triage, ioc_hunt, tag_hunt
     search_date TIMESTAMP,
     
     -- Results (JSON)
-    iocs_extracted_json TEXT,      -- IOCs from report
-    iocs_discovered_json TEXT,     -- IOCs discovered via hunting
-    timeline_json TEXT,            -- Attack timeline events
-    process_trees_json TEXT,       -- Process tree structures
-    mitre_techniques_json TEXT,    -- MITRE techniques found
-    summary_json TEXT,             -- Full summary for display
+    iocs_extracted_json TEXT,
+    iocs_discovered_json TEXT,
+    timeline_json TEXT,
+    process_trees_json TEXT,
+    mitre_techniques_json TEXT,
+    summary_json TEXT,
     
     -- Counts
     iocs_extracted_count INTEGER DEFAULT 0,
@@ -463,8 +659,8 @@ CREATE TABLE ai_triage_search (
     techniques_found_count INTEGER DEFAULT 0,
     process_trees_count INTEGER DEFAULT 0,
     
-    -- Progress Tracking
-    current_phase INTEGER DEFAULT 0,       -- 1-9
+    -- Progress
+    current_phase INTEGER DEFAULT 0,
     current_phase_name VARCHAR(100),
     progress_message VARCHAR(500),
     progress_percent INTEGER DEFAULT 0,
@@ -472,27 +668,52 @@ CREATE TABLE ai_triage_search (
     -- Timing
     generation_time_seconds FLOAT,
     error_message TEXT,
-    
-    -- Timestamps
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP
 );
-
--- Indexes
-CREATE INDEX idx_ai_triage_search_case_id ON ai_triage_search(case_id);
-CREATE INDEX idx_ai_triage_search_status ON ai_triage_search(status);
-CREATE INDEX idx_ai_triage_search_celery_task_id ON ai_triage_search(celery_task_id);
-CREATE INDEX idx_ai_triage_search_created_at ON ai_triage_search(created_at);
 ```
 
-### Related Tables
+### System Table (for hostname storage)
 
-| Table | Relationship | Description |
-|-------|--------------|-------------|
-| `case` | FK: case_id | Parent case for the search |
-| `user` | FK: generated_by | User who initiated the search |
-| `timeline_tag` | Created by Phase 9 | Auto-tagged events |
-| `ioc` | Referenced in extraction | Existing IOCs used for ioc_hunt |
+```sql
+CREATE TABLE system (
+    id SERIAL PRIMARY KEY,
+    case_id INTEGER NOT NULL REFERENCES "case"(id),
+    system_name VARCHAR(255) NOT NULL,  -- NOTE: Field is system_name, not hostname
+    ip_address VARCHAR(45),
+    system_type VARCHAR(50) DEFAULT 'workstation',
+    added_by VARCHAR(100) DEFAULT 'CaseScope',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    hidden BOOLEAN DEFAULT FALSE,
+    
+    UNIQUE(case_id, system_name)
+);
+```
+
+### SystemToolsSetting Table (for exclusions)
+
+```sql
+CREATE TABLE system_tools_setting (
+    id SERIAL PRIMARY KEY,
+    setting_type VARCHAR(50) NOT NULL,  -- rmm_tool, remote_tool, edr_tool, known_good_ip
+    tool_name VARCHAR(100),
+    executable_pattern VARCHAR(500),
+    known_good_ids TEXT,  -- JSON list for remote tools
+    ip_or_cidr VARCHAR(50),
+    
+    -- EDR-specific fields (v1.40.0)
+    exclude_routine BOOLEAN DEFAULT TRUE,
+    keep_responses BOOLEAN DEFAULT TRUE,
+    routine_commands TEXT,  -- JSON list: ["whoami", "systeminfo"]
+    response_patterns TEXT,  -- JSON list: ["isolat", "quarantin"]
+    
+    description VARCHAR(500),
+    created_by INTEGER REFERENCES "user"(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+```
 
 ---
 
@@ -504,8 +725,6 @@ CREATE INDEX idx_ai_triage_search_created_at ON ai_triage_search(created_at);
 POST /case/<case_id>/ai-triage-search/run
 ```
 
-**Request:** None (uses case's EDR report)
-
 **Response:**
 ```json
 {
@@ -514,15 +733,6 @@ POST /case/<case_id>/ai-triage-search/run
     "task_id": "abc123-def456-..."
 }
 ```
-
-**Error Response:**
-```json
-{
-    "error": "Case not found"
-}
-```
-
----
 
 ### Get Search Status
 
@@ -537,8 +747,7 @@ GET /case/<case_id>/ai-triage-search/<search_id>/status
     "phase": 3,
     "phase_name": "Snowball Hunting",
     "message": "Searching IP: 192.168.1.100",
-    "percent": 25,
-    "error_message": null
+    "percent": 25
 }
 ```
 
@@ -548,448 +757,121 @@ GET /case/<case_id>/ai-triage-search/<search_id>/status
     "status": "completed",
     "phase": 9,
     "phase_name": "Complete",
-    "message": "AI Triage Search complete! Tagged 15 events",
     "percent": 100,
     "iocs_extracted": 12,
     "iocs_discovered": 8,
     "events_analyzed": 1500,
-    "timeline_events": 25,
     "auto_tagged": 15,
     "techniques_found": 5,
-    "process_trees": 3,
     "generation_time": 45.2
 }
 ```
 
 ---
 
-### List All Searches
+## Common Issues & Fixes
 
-```
-GET /case/<case_id>/ai-triage-searches
-```
+### Issue: Systems not being created
 
-**Response:**
-```json
-[
-    {
-        "id": 123,
-        "status": "completed",
-        "entry_point": "full_triage",
-        "iocs_extracted": 12,
-        "iocs_discovered": 8,
-        "auto_tagged": 15,
-        "techniques_found": 5,
-        "timeline_events": 25,
-        "generation_time": 45.2,
-        "created_at": "2025-11-29T18:00:00",
-        "completed_at": "2025-11-29T18:00:45",
-        "generated_by": "admin",
-        "error_message": null
-    }
-]
-```
+**Cause:** Code was using `hostname` field but model uses `system_name`
 
----
-
-## Frontend Components
-
-### Modal Structure
-
-```html
-<div id="triageReportModal" class="modal-overlay">
-    <div class="modal-container">
-        <div class="modal-header">
-            <!-- Purple gradient header -->
-        </div>
-        <div class="modal-body">
-            <!-- No Report Phase -->
-            <div id="triageNoReportPhase">...</div>
-            
-            <!-- Input Phase (EDR report preview) -->
-            <div id="triageInputPhase">...</div>
-            
-            <!-- Progress Phase (9-phase display) -->
-            <div id="triageProgressPhase">
-                <!-- Progress bar -->
-                <div id="triageProgressBar">...</div>
-                
-                <!-- Phase indicators (9 bars) -->
-                <div id="phaseInd1">...</div>
-                ...
-                <div id="phaseInd9">...</div>
-                
-                <!-- Current status -->
-                <div id="triageProgressTitle">...</div>
-                <div id="triageProgressMessage">...</div>
-                
-                <!-- Progress log -->
-                <div id="triageProgressLog">...</div>
-            </div>
-            
-            <!-- Results Phase -->
-            <div id="triageResultsPhase">
-                <div id="triageResultsContent">...</div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button id="triageCloseBtn">Close</button>
-            <button id="triageStartBtn">Start AI Triage Search</button>
-            <a id="triageViewResultsBtn">View Results</a>
-        </div>
-    </div>
-</div>
-```
-
-### JavaScript Functions
-
-| Function | Purpose |
-|----------|---------|
-| `showTriageModal()` | Open modal, check for EDR report |
-| `closeTriageModal()` | Close modal |
-| `startAITriageSearch()` | POST to /run, start polling |
-| `pollAITriageStatus()` | GET /status every 1 second |
-| `getPhaseColor()` | Return color for phase number |
-| `showTriageResults()` | Display completion results |
-| `showTriageError()` | Display error message |
-
----
-
-## Celery Task Workflow
-
-### Task Registration
-
+**Fix (v1.40.0):**
 ```python
-# tasks.py
-@celery_app.task(bind=True, name='tasks.run_ai_triage_search')
-def run_ai_triage_search(self, search_id):
-    ...
+# WRONG
+system = System(case_id=id, hostname=name, notes='...')
+
+# CORRECT
+system = System(case_id=id, system_name=name, added_by='AI Triage Search')
 ```
 
-### State Updates
+### Issue: Duplicate hostnames with FQDNs
 
+**Cause:** `CM-DC01.domain.local` and `CM-DC01` treated as different
+
+**Fix:** Use `normalize_hostname()` to strip FQDN:
 ```python
-def update_progress(phase: int, phase_name: str, message: str, percent: int = 0):
-    """Update search progress in database."""
-    search.current_phase = phase
-    search.current_phase_name = phase_name
-    search.progress_message = message
-    search.progress_percent = percent
-    db.session.commit()
-    
-    # Also update Celery state for monitoring
-    self.update_state(state='PROGRESS', meta={
-        'phase': phase,
-        'phase_name': phase_name,
-        'message': message,
-        'percent': percent
-    })
+def normalize_hostname(hostname):
+    if '.' in hostname:
+        hostname = hostname.split('.')[0]
+    return hostname.upper()
 ```
 
-### Error Handling
+### Issue: Noise usernames being created as IOCs
 
+**Cause:** DWM-2, UMFD-1, NETWORK SERVICE not filtered
+
+**Fix:** Use `is_noise_user()` before creating IOCs:
 ```python
-try:
-    # ... 9 phases ...
-except Exception as e:
-    logger.error(f"[AI_TRIAGE] Error: {e}", exc_info=True)
-    search.status = 'failed'
-    search.error_message = str(e)
-    db.session.commit()
-    return {'status': 'error', 'message': str(e)}
+def is_noise_user(username):
+    if username.lower() in NOISE_USERS:
+        return True
+    if re.match(r'^(dwm|umfd)-\d+$', username.lower()):
+        return True
+    return False
 ```
 
----
+### Issue: RMM events polluting timeline
 
-## Helper Functions
+**Cause:** LabTech/Datto running `whoami` being tagged
 
-### extract_iocs_with_llm()
-
-**Location:** `routes/triage_report.py`
-
-**Purpose:** Extract IOCs using Ollama LLM
-
-**Parameters:**
-- `report_text: str` - The EDR/MDR report text
-
-**Returns:** `Dict` with IOC lists
-
-**Configuration:**
-- Uses `SystemSettings.ollama_host` (default: `http://localhost:11434`)
-- Uses `SystemSettings.ollama_model` (default: `mistral`)
-
----
-
-### extract_iocs_with_regex()
-
-**Location:** `routes/triage_report.py`
-
-**Purpose:** Fallback regex-based IOC extraction
-
-**Key Patterns:**
+**Fix:** Check `RMM_PATH_PATTERNS` in command line:
 ```python
-# IP addresses
-r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
-
-# Hostnames (quoted or standalone)
-r'["\']([A-Z][A-Z0-9_-]{2,14})["\']'
-r'\b([A-Z][A-Z0-9_-]{2,14})\b'
-
-# SIDs
-r'\bS-1-5-21-\d+-\d+-\d+-\d+\b'
-
-# File paths
-r'[A-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+'
-
-# Hashes
-r'\b[a-fA-F0-9]{32}\b'  # MD5
-r'\b[a-fA-F0-9]{40}\b'  # SHA1
-r'\b[a-fA-F0-9]{64}\b'  # SHA256
+for rmm_path in RMM_PATH_PATTERNS:
+    if rmm_path in cmd_line.lower():
+        return True  # Exclude
 ```
 
----
+### Issue: Huntress isolation events being hidden
 
-### search_ioc()
+**Cause:** EDR tools were fully excluded like RMM
 
-**Location:** `routes/triage_report.py`
-
-**Purpose:** Search OpenSearch for IOC matches
-
-**Parameters:**
-- `opensearch_client` - OpenSearch client instance
-- `case_id: int` - Case ID
-- `search_term: str` - IOC value to search
-- `max_results: int = 500` - Maximum results to return
-
-**Returns:** `Tuple[List[Dict], int]` - (results, total_count)
-
----
-
-### extract_from_search_results()
-
-**Location:** `routes/triage_report.py`
-
-**Purpose:** Extract IPs, hostnames, and usernames from search results
-
-**Returns:** `Tuple[Set[str], Set[str], Set[str]]` - (ips, hostnames, usernames)
-
-**Extraction Logic:**
-- **IPs:** From `host.ip`, `source.ip`, `process.user_logon.ip`
-- **Hostnames:** From `normalized_computer`, `host.hostname`, `host.name`
-- **Usernames:** From `process.user.name`, `user.name`, `winlog.event_data.TargetUserName`
-
----
-
-### is_valid_hostname()
-
-**Location:** `routes/triage_report.py`
-
-**Purpose:** Validate extracted hostname
-
-**Checks:**
-1. Not in `NOT_HOSTNAMES` blocklist
-2. Contains at least one letter
-3. Length between 3 and 15 characters
-4. Not all digits
-
----
-
-## Configuration & Constants
-
-### NOT_HOSTNAMES Blocklist
-
-Located in `routes/triage_report.py`:
-
+**Fix (v1.40.0):** Context-aware EDR exclusion - check response patterns FIRST:
 ```python
-NOT_HOSTNAMES = {
-    # Common words
-    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'was', 'are',
-    
-    # IT/Security terms
-    'admin', 'administrator', 'security', 'firewall', 'router', 'switch',
-    'server', 'client', 'domain', 'network', 'system', 'service',
-    
-    # Status words
-    'enabled', 'disabled', 'active', 'inactive', 'running', 'stopped',
-    
-    # Attack/MITRE terms
-    'powershell', 'cobalt', 'strike', 'malware', 'ransomware',
-    
-    # ... 100+ more terms
-}
+if any(pattern in cmd_line for pattern in edr_config['response_patterns']):
+    return False  # KEEP - this is a response action!
 ```
-
-### NOISE_USERS Blocklist
-
-```python
-NOISE_USERS = {
-    'system', 'network service', 'local service', 'anonymous logon',
-    'window manager', 'dwm-1', 'dwm-2', 'umfd-0', 'umfd-1', '-', 'n/a', '',
-    'font driver host', 'defaultaccount', 'guest', 'wdagutilityaccount'
-}
-```
-
-### RECON_SEARCH_TERMS
-
-```python
-RECON_SEARCH_TERMS = [
-    'nltest', 'net group', 'net user', 'whoami',
-    'ipconfig', 'systeminfo', 'netstat', 'quser',
-    'tasklist', 'wmic', 'ping', 'nslookup', 'route'
-]
-```
-
----
-
-## Error Handling
-
-### Common Errors
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `Case not found` | Invalid case_id | Check case exists in database |
-| `Search record not found` | Invalid search_id | Check AITriageSearch record |
-| `OpenSearch connection error` | OpenSearch down | Check OpenSearch service |
-| `LLM extraction failed` | Ollama not running | Falls back to regex extraction |
-
-### Logging
-
-All errors are logged with:
-```python
-logger.error(f"[AI_TRIAGE] Error: {e}", exc_info=True)
-```
-
-Log file: `/opt/casescope/logs/workers.log`
 
 ---
 
 ## Testing & Debugging
 
-### Manual Testing
+### Check Celery Worker
 
-1. **Check Celery Worker:**
-   ```bash
-   sudo systemctl status casescope-worker
-   ```
-
-2. **Watch Celery Logs:**
-   ```bash
-   sudo journalctl -u casescope-worker -f
-   ```
-
-3. **Check Database:**
-   ```sql
-   SELECT * FROM ai_triage_search ORDER BY created_at DESC LIMIT 5;
-   ```
-
-4. **Check Redis (Celery Broker):**
-   ```bash
-   redis-cli KEYS "celery*" | head -10
-   ```
-
-### Debug Mode
-
-Add to `tasks.py`:
-```python
-logger.setLevel(logging.DEBUG)
+```bash
+sudo systemctl status casescope-worker
+sudo journalctl -u casescope-worker -f
 ```
 
-### Test Script
+### Watch Triage Logs
 
-```python
-# test_triage.py
-from main import app, db
-from models import AITriageSearch, Case
-from tasks import run_ai_triage_search
-
-with app.app_context():
-    case = Case.query.filter_by(id=25).first()
-    print(f"Case: {case.name}")
-    print(f"EDR Report: {case.edr_report[:200] if case.edr_report else 'None'}...")
-    
-    # Create search record
-    search = AITriageSearch(case_id=25, generated_by=1, status='pending')
-    db.session.add(search)
-    db.session.commit()
-    
-    # Run synchronously for debugging
-    result = run_ai_triage_search(search.id)
-    print(f"Result: {result}")
+```bash
+tail -f /opt/casescope/logs/workers.log | grep -E "AI_TRIAGE|Phase"
 ```
 
----
+### Check Database
 
-## Common Issues & Fixes
+```sql
+SELECT id, status, current_phase, progress_message, iocs_extracted_count, 
+       auto_tagged_count, error_message 
+FROM ai_triage_search 
+ORDER BY created_at DESC LIMIT 5;
+```
 
-### Issue: Modal stuck on "Starting..."
+### Verify IOCs Created
 
-**Cause:** Celery worker not running or task failed silently
+```sql
+SELECT ioc_type, ioc_value, is_active, description 
+FROM ioc 
+WHERE case_id = 25 AND description LIKE '%AI Triage%';
+```
 
-**Fix:**
-1. Check worker: `sudo systemctl status casescope-worker`
-2. Check logs: `sudo journalctl -u casescope-worker -f`
-3. Restart worker: `sudo systemctl restart casescope-worker`
+### Verify Systems Created
 
----
-
-### Issue: No IOCs extracted
-
-**Cause:** LLM failed and regex patterns didn't match
-
-**Fix:**
-1. Check Ollama is running: `curl http://localhost:11434/api/tags`
-2. Review regex patterns in `extract_iocs_with_regex()`
-3. Add missing patterns for specific report format
-
----
-
-### Issue: Too many events tagged
-
-**Cause:** BROAD IOCs being auto-tagged
-
-**Fix:**
-1. Verify IOC classification in Phase 2
-2. Check `specific_iocs` vs `broad_iocs` logic
-3. Ensure only SPECIFIC IOCs create anchors in Phase 5
-
----
-
-### Issue: Process trees empty
-
-**Cause:** EDR events don't have parent process info
-
-**Fix:**
-1. Check event structure has `process.parent` field
-2. Verify `normalized_computer` field exists
-3. Check time window is finding events
-
----
-
-## Future Improvements
-
-1. **Configurable Thresholds**
-   - Max IOCs per type
-   - Time window size (currently ±5 min)
-   - Max events per window
-
-2. **Additional Entry Points**
-   - Start from specific timestamp
-   - Start from specific event ID
-
-3. **Enhanced MITRE Mapping**
-   - More technique patterns
-   - Sub-technique detection
-   - Kill chain phase identification
-
-4. **Export Options**
-   - Export timeline to CSV
-   - Export to STIX/TAXII
-   - Generate PDF report
-
-5. **Performance Optimization**
-   - Parallel phase execution
-   - Caching of aggregation results
-   - Incremental updates
+```sql
+SELECT system_name, system_type, added_by 
+FROM system 
+WHERE case_id = 25 AND added_by = 'AI Triage Search';
+```
 
 ---
 
@@ -997,12 +879,13 @@ with app.app_context():
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.40.0 | 2025-11-29 | EDR context-aware exclusion, fixed System creation (system_name field) |
 | 1.39.0 | 2025-11-29 | Initial 9-phase implementation |
-| 1.36.0 | 2025-11-28 | 4-phase triage (predecessor) |
+| 1.38.0 | 2025-11-28 | System Tools settings, Hide Known Good |
+| 1.36.0 | 2025-11-27 | 4-phase triage (predecessor) |
 
 ---
 
 ## Contact
 
 For issues or questions, contact the CaseScope development team or create an issue in the GitHub repository.
-
