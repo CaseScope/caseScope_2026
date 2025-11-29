@@ -460,31 +460,53 @@
 
 <!-- Triage Report Modal -->
 <div id="triageReportModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 700px; max-height: 90vh;">
+    <div class="modal-container" style="max-width: 800px; max-height: 90vh;">
         <div class="modal-header" style="background: linear-gradient(135deg, rgba(240,147,251,0.1) 0%, rgba(245,87,108,0.1) 100%);">
             <h2 class="modal-title">📋 Triage from Report</h2>
             <button class="modal-close" onclick="closeTriageModal()">×</button>
         </div>
         <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
-            <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
-                Paste an investigative summary from your EDR/MDR (Huntress, CrowdStrike, SentinelOne, etc.). 
-                The system will extract IOCs and hostnames and add them to the case.
-            </p>
-            
-            <div style="margin-bottom: var(--spacing-md);">
-                <label class="form-label">Investigative Summary</label>
-                <textarea id="triageReportInput" class="form-input" rows="10" placeholder="Paste the EDR/MDR report here...
+            <!-- Input Phase -->
+            <div id="triageInputPhase">
+                <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
+                    Paste an investigative summary from your EDR/MDR (Huntress, CrowdStrike, SentinelOne, etc.). 
+                    The system will extract IOCs, hunt for related indicators, and add them to the case.
+                </p>
+                
+                <div style="margin-bottom: var(--spacing-md);">
+                    <label class="form-label">Investigative Summary</label>
+                    <textarea id="triageReportInput" class="form-input" rows="10" placeholder="Paste the EDR/MDR report here...
 
 Example:
-At 2025-09-05 06:40:02 UTC, Huntress observed user &quot;tabadmin&quot; executing a malicious process WinSCP.exe from C:\ProgramData\USOShared\. The user logged in via RDP from IP 192.168.1.150 to host &quot;Receiving&quot;..."></textarea>
+At 2025-09-05 06:40:02 UTC, Huntress observed user &quot;BButler&quot; executing commands for enumeration purposes. These commands are the following:
+- nltest.exe /dclist:
+- net.exe group &quot;domain computers&quot; /dom
+
+Investigation reveals this user authenticated with RDS from remote address &quot;91.236.230.136 / BlueVPS&quot;..."></textarea>
+                </div>
+                
+                <!-- Preview Area (hidden until extraction) -->
+                <div id="triagePreviewArea" style="display: none;">
+                    <div style="border-top: 1px solid var(--color-border); padding-top: var(--spacing-md); margin-top: var(--spacing-md);">
+                        <h4 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.9rem;">📝 Extracted from Report</h4>
+                        <div id="triagePreviewContent" style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 200px; overflow-y: auto; font-size: 0.875rem;">
+                        </div>
+                    </div>
+                </div>
             </div>
             
-            <!-- Results Area (hidden until extraction) -->
-            <div id="triageResultsArea" style="display: none;">
-                <div style="border-top: 1px solid var(--color-border); padding-top: var(--spacing-md); margin-top: var(--spacing-md);">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.9rem;">Extracted Items</h4>
-                    <div id="triageResultsContent" style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 200px; overflow-y: auto; font-size: 0.875rem;">
+            <!-- Progress Phase (hidden until processing starts) -->
+            <div id="triageProgressPhase" style="display: none;">
+                <div style="margin-bottom: var(--spacing-md);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">🔄 Processing...</h4>
+                    <div id="triageProgressLog" style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.8rem;">
                     </div>
+                </div>
+            </div>
+            
+            <!-- Results Phase (hidden until complete) -->
+            <div id="triageResultsPhase" style="display: none;">
+                <div id="triageResultsContent" style="font-size: 0.875rem;">
                 </div>
             </div>
             
@@ -496,15 +518,19 @@ At 2025-09-05 06:40:02 UTC, Huntress observed user &quot;tabadmin&quot; executin
             </div>
         </div>
         <div class="modal-footer">
-            <button onclick="closeTriageModal()" class="btn btn-secondary">Close</button>
+            <button onclick="closeTriageModal()" class="btn btn-secondary" id="triageCloseBtn">Close</button>
             <button onclick="extractTriageIOCs()" id="triageExtractBtn" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
                 <span>🔍</span>
-                <span>Extract IOCs</span>
+                <span>Extract & Preview</span>
             </button>
             <button onclick="processTriageReport()" id="triageProcessBtn" class="btn btn-success" style="display: none;">
-                <span>✅</span>
-                <span>Add to Case</span>
+                <span>🎯</span>
+                <span>Hunt & Add IOCs</span>
             </button>
+            <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" id="triageViewIOCsBtn" class="btn btn-primary" style="display: none;">
+                <span>📋</span>
+                <span>View IOCs</span>
+            </a>
         </div>
     </div>
 </div>
@@ -3900,12 +3926,18 @@ function showTriageModal() {
     modal.style.display = 'block';
     document.getElementById('triageReportInput').focus();
     
-    // Reset state
-    document.getElementById('triageResultsArea').style.display = 'none';
-    document.getElementById('triageResultsContent').innerHTML = '';
+    // Reset all phases
+    document.getElementById('triageInputPhase').style.display = 'block';
+    document.getElementById('triageProgressPhase').style.display = 'none';
+    document.getElementById('triageResultsPhase').style.display = 'none';
+    document.getElementById('triagePreviewArea').style.display = 'none';
+    document.getElementById('triagePreviewContent').innerHTML = '';
     document.getElementById('triageStatusArea').style.display = 'none';
     document.getElementById('triageExtractBtn').style.display = 'inline-flex';
+    document.getElementById('triageExtractBtn').disabled = false;
+    document.getElementById('triageExtractBtn').innerHTML = '<span>🔍</span><span>Extract & Preview</span>';
     document.getElementById('triageProcessBtn').style.display = 'none';
+    document.getElementById('triageViewIOCsBtn').style.display = 'none';
 }
 
 function closeTriageModal() {
@@ -3938,13 +3970,13 @@ function extractTriageIOCs() {
     .then(response => response.json())
     .then(data => {
         extractBtn.disabled = false;
-        extractBtn.innerHTML = '<span>🔍</span><span>Extract IOCs</span>';
+        extractBtn.innerHTML = '<span>🔍</span><span>Extract & Preview</span>';
         
         if (data.success) {
-            // Show results
-            const resultsArea = document.getElementById('triageResultsArea');
-            const resultsContent = document.getElementById('triageResultsContent');
-            resultsArea.style.display = 'block';
+            // Show preview
+            const previewArea = document.getElementById('triagePreviewArea');
+            const previewContent = document.getElementById('triagePreviewContent');
+            previewArea.style.display = 'block';
             
             let html = '<div style="display: flex; flex-wrap: wrap; gap: 10px;">';
             
@@ -3957,7 +3989,8 @@ function extractTriageIOCs() {
                 {key: 'hashes', label: '🔐 Hashes', color: '#1abc9c'},
                 {key: 'hostnames', label: '🖥️ Hostnames', color: '#2ecc71'},
                 {key: 'sids', label: '🆔 SIDs', color: '#e67e22'},
-                {key: 'domains', label: '🌍 Domains', color: '#34495e'}
+                {key: 'commands', label: '💻 Commands', color: '#9b59b6'},
+                {key: 'tools', label: '🔧 Tools', color: '#34495e'}
             ];
             
             categories.forEach(cat => {
@@ -3965,19 +3998,27 @@ function extractTriageIOCs() {
                 if (items.length > 0) {
                     html += `<div style="flex: 1; min-width: 200px; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; border-left: 3px solid ${cat.color};">`;
                     html += `<strong style="color: ${cat.color};">${cat.label} (${items.length})</strong><br>`;
-                    html += items.slice(0, 5).map(i => `<code style="font-size: 0.8rem;">${i}</code>`).join('<br>');
-                    if (items.length > 5) html += `<br><em>...and ${items.length - 5} more</em>`;
+                    html += items.slice(0, 3).map(i => `<code style="font-size: 0.75rem; word-break: break-all;">${i.substring(0, 50)}${i.length > 50 ? '...' : ''}</code>`).join('<br>');
+                    if (items.length > 3) html += `<br><em style="font-size: 0.75rem;">...and ${items.length - 3} more</em>`;
                     html += '</div>';
                 }
             });
             
             html += '</div>';
+            
+            // Malware indication
+            if (data.malware_indicated) {
+                html += `<div style="margin-top: 10px; padding: 8px; background: rgba(231,76,60,0.1); border-radius: 4px; border-left: 3px solid #e74c3c;">`;
+                html += `<strong style="color: #e74c3c;">⚠️ Malware/Attack Indicators Detected</strong> - Will search for Defender events and recon commands`;
+                html += '</div>';
+            }
+            
             html += `<div style="margin-top: 10px; padding: 8px; background: rgba(46,204,113,0.1); border-radius: 4px;">`;
             html += `<strong>Total:</strong> ${data.ioc_count} IOCs, ${data.hostname_count} Systems`;
             html += '</div>';
             
-            resultsContent.innerHTML = html;
-            statusText.innerHTML = `<span style="color: #2ecc71;">✓ Found ${data.ioc_count} IOCs and ${data.hostname_count} hostnames</span>`;
+            previewContent.innerHTML = html;
+            statusText.innerHTML = `<span style="color: #2ecc71;">✓ Found ${data.ioc_count} IOCs and ${data.hostname_count} hostnames. Click "Hunt & Add IOCs" to search for related indicators.</span>`;
             
             // Show process button if we found items
             if (data.ioc_count > 0 || data.hostname_count > 0) {
@@ -3989,12 +4030,192 @@ function extractTriageIOCs() {
     })
     .catch(error => {
         extractBtn.disabled = false;
-        extractBtn.innerHTML = '<span>🔍</span><span>Extract IOCs</span>';
+        extractBtn.innerHTML = '<span>🔍</span><span>Extract & Preview</span>';
         statusText.innerHTML = `<span style="color: #e74c3c;">❌ Error: ${error.message}</span>`;
     });
 }
 
 function processTriageReport() {
+    const reportText = document.getElementById('triageReportInput').value.trim();
+    const caseId = {{ case.id }};
+    const processBtn = document.getElementById('triageProcessBtn');
+    const extractBtn = document.getElementById('triageExtractBtn');
+    const statusArea = document.getElementById('triageStatusArea');
+    const statusText = document.getElementById('triageStatusText');
+    
+    // Switch to progress phase
+    document.getElementById('triageInputPhase').style.display = 'none';
+    document.getElementById('triageProgressPhase').style.display = 'block';
+    document.getElementById('triageResultsPhase').style.display = 'none';
+    processBtn.style.display = 'none';
+    extractBtn.style.display = 'none';
+    statusArea.style.display = 'none';
+    
+    const progressLog = document.getElementById('triageProgressLog');
+    progressLog.innerHTML = '<div style="color: var(--color-text-muted);"><span class="spinner" style="display: inline-block; width: 16px; height: 16px; margin-right: 8px;"></span>Starting triage process... This may take 1-2 minutes for large cases.</div>';
+    
+    // Add animated dots to show it's still working
+    let dotCount = 0;
+    const loadingInterval = setInterval(() => {
+        dotCount = (dotCount + 1) % 4;
+        const dots = '.'.repeat(dotCount);
+        const lastLine = progressLog.lastElementChild;
+        if (lastLine && lastLine.textContent.includes('Starting triage')) {
+            lastLine.innerHTML = `<span class="spinner" style="display: inline-block; width: 16px; height: 16px; margin-right: 8px;"></span>Starting triage process${dots} This may take 1-2 minutes for large cases.`;
+        }
+    }, 500);
+    
+    function addProgressLine(phase, message, isError = false) {
+        clearInterval(loadingInterval); // Stop the loading animation
+        const color = isError ? '#e74c3c' : (phase === 'Complete' ? '#2ecc71' : 'var(--color-text-secondary)');
+        const phaseColor = phase.includes('Phase 1') ? '#3498db' : 
+                          phase.includes('Phase 2') ? '#f39c12' : 
+                          phase.includes('Phase 3') ? '#e74c3c' : 
+                          phase.includes('Phase 4') ? '#2ecc71' : '#9b59b6';
+        progressLog.innerHTML += `<div style="margin-top: 4px;"><span style="color: ${phaseColor}; font-weight: 600;">[${phase}]</span> <span style="color: ${color};">${message}</span></div>`;
+        progressLog.scrollTop = progressLog.scrollHeight;
+    }
+    
+    // Make the request
+    fetch(`/case/${caseId}/triage-report/process`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({report_text: reportText}),
+        credentials: 'same-origin'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const report = data.report;
+            
+            // Show progress log entries
+            if (report.progress_log) {
+                progressLog.innerHTML = ''; // Clear initial message
+                report.progress_log.forEach(entry => {
+                    addProgressLine(entry.phase, entry.message);
+                });
+            }
+            
+            // Switch to results phase after a brief delay
+            setTimeout(() => {
+                document.getElementById('triageProgressPhase').style.display = 'none';
+                document.getElementById('triageResultsPhase').style.display = 'block';
+                
+                // Build results HTML
+                let html = '';
+                
+                // Summary card
+                html += `<div style="background: rgba(46,204,113,0.1); border-radius: 8px; padding: 16px; margin-bottom: 16px; border-left: 4px solid #2ecc71;">`;
+                html += `<h3 style="margin: 0 0 12px 0; color: #2ecc71;">✅ Triage Complete</h3>`;
+                html += `<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">`;
+                html += `<div><strong>${report.summary.iocs_added}</strong> IOCs Added</div>`;
+                html += `<div><strong>${report.summary.iocs_skipped}</strong> Already Existed</div>`;
+                html += `<div><strong>${report.summary.systems_added}</strong> Systems Added</div>`;
+                html += `</div></div>`;
+                
+                // From Report section
+                const fromReport = report.from_report;
+                const hasFromReport = Object.values(fromReport).some(arr => arr && arr.length > 0);
+                if (hasFromReport) {
+                    html += `<div style="margin-bottom: 16px;">`;
+                    html += `<h4 style="margin: 0 0 8px 0;">📝 From Report</h4>`;
+                    html += `<div style="display: flex; flex-wrap: wrap; gap: 8px;">`;
+                    
+                    const reportCategories = [
+                        {key: 'ips', label: 'IPs', color: '#e74c3c'},
+                        {key: 'hostnames', label: 'Hostnames', color: '#2ecc71'},
+                        {key: 'usernames', label: 'Usernames', color: '#3498db'},
+                        {key: 'sids', label: 'SIDs', color: '#e67e22', inactive: true},
+                        {key: 'paths', label: 'Paths', color: '#f39c12'},
+                        {key: 'processes', label: 'Processes', color: '#9b59b6'},
+                        {key: 'commands', label: 'Commands', color: '#9b59b6', inactive: true},
+                        {key: 'tools', label: 'Tools', color: '#34495e', inactive: true}
+                    ];
+                    
+                    reportCategories.forEach(cat => {
+                        const items = fromReport[cat.key] || [];
+                        if (items.length > 0) {
+                            const statusBadge = cat.inactive ? ' <span style="font-size: 0.7rem; opacity: 0.7;">(inactive)</span>' : '';
+                            html += `<span style="background: ${cat.color}22; color: ${cat.color}; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem;">${cat.label}: ${items.length}${statusBadge}</span>`;
+                        }
+                    });
+                    html += `</div></div>`;
+                }
+                
+                // Discovered section
+                const discovered = report.discovered;
+                const hasDiscovered = Object.values(discovered).some(arr => arr && arr.length > 0);
+                if (hasDiscovered) {
+                    html += `<div style="margin-bottom: 16px;">`;
+                    html += `<h4 style="margin: 0 0 8px 0;">🔍 Discovered via Hunting</h4>`;
+                    html += `<div style="display: flex; flex-wrap: wrap; gap: 8px;">`;
+                    
+                    const discoveredCategories = [
+                        {key: 'ips', label: 'New IPs', color: '#e74c3c'},
+                        {key: 'hostnames', label: 'New Hostnames', color: '#2ecc71'},
+                        {key: 'usernames', label: 'New Usernames', color: '#3498db'},
+                        {key: 'commands', label: 'Commands', color: '#9b59b6', inactive: true},
+                        {key: 'filenames', label: 'Files', color: '#f39c12'},
+                        {key: 'threats', label: 'Defender Threats', color: '#e74c3c', inactive: true}
+                    ];
+                    
+                    discoveredCategories.forEach(cat => {
+                        const items = discovered[cat.key] || [];
+                        if (items.length > 0) {
+                            const statusBadge = cat.inactive ? ' <span style="font-size: 0.7rem; opacity: 0.7;">(inactive)</span>' : '';
+                            html += `<span style="background: ${cat.color}22; color: ${cat.color}; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem;">${cat.label}: ${items.length}${statusBadge}</span>`;
+                        }
+                    });
+                    html += `</div>`;
+                    
+                    // Show discovered items details
+                    if (discovered.ips && discovered.ips.length > 0) {
+                        html += `<div style="margin-top: 8px; font-size: 0.8rem;"><strong>New IPs:</strong> ${discovered.ips.slice(0, 5).join(', ')}${discovered.ips.length > 5 ? '...' : ''}</div>`;
+                    }
+                    if (discovered.hostnames && discovered.hostnames.length > 0) {
+                        html += `<div style="margin-top: 4px; font-size: 0.8rem;"><strong>New Hostnames:</strong> ${discovered.hostnames.slice(0, 5).join(', ')}${discovered.hostnames.length > 5 ? '...' : ''}</div>`;
+                    }
+                    if (discovered.threats && discovered.threats.length > 0) {
+                        html += `<div style="margin-top: 4px; font-size: 0.8rem; color: #e74c3c;"><strong>Defender Threats:</strong> ${discovered.threats.join(', ')}</div>`;
+                    }
+                    html += `</div>`;
+                }
+                
+                // Guidance section
+                html += `<div style="background: rgba(52,152,219,0.1); border-radius: 8px; padding: 16px; border-left: 4px solid #3498db;">`;
+                html += `<h4 style="margin: 0 0 8px 0; color: #3498db;">📋 Next Steps</h4>`;
+                html += `<div style="font-size: 0.85rem; line-height: 1.6;">`;
+                html += `<p style="margin: 0 0 8px 0;"><strong>Review the discovered IOCs</strong> and set appropriate status:</p>`;
+                html += `<ul style="margin: 0; padding-left: 20px;">`;
+                html += `<li><strong>ACTIVE:</strong> Will be hunted when files are indexed</li>`;
+                html += `<li><strong>INACTIVE:</strong> Stored for reference, not actively hunted</li>`;
+                html += `</ul>`;
+                html += `<p style="margin: 8px 0 0 0; color: var(--color-warning);"><strong>⚠️ Tip:</strong> Do NOT delete IOCs - set to INACTIVE instead to prevent re-creation on future triage runs.</p>`;
+                html += `</div></div>`;
+                
+                document.getElementById('triageResultsContent').innerHTML = html;
+                
+                // Show View IOCs button
+                document.getElementById('triageViewIOCsBtn').style.display = 'inline-flex';
+                
+            }, 500);
+            
+        } else {
+            clearInterval(loadingInterval);
+            addProgressLine('Error', data.error || 'Unknown error', true);
+            document.getElementById('triageProcessBtn').style.display = 'inline-flex';
+            document.getElementById('triageProcessBtn').disabled = false;
+        }
+    })
+    .catch(error => {
+        clearInterval(loadingInterval);
+        addProgressLine('Error', error.message, true);
+        document.getElementById('triageProcessBtn').style.display = 'inline-flex';
+        document.getElementById('triageProcessBtn').disabled = false;
+    });
+}
+
+function processTriageReport_OLD() {
     const reportText = document.getElementById('triageReportInput').value.trim();
     const caseId = {{ case.id }};
     const processBtn = document.getElementById('triageProcessBtn');

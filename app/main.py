@@ -1003,22 +1003,43 @@ def create_case():
         name = request.form.get('name')
         description = request.form.get('description')
         company = request.form.get('company')
+        edr_report = request.form.get('edr_report')
+        router_name = request.form.get('router_name', '').strip()
+        router_ip = request.form.get('router_ip', '').strip()
         
         case = Case(
             name=name,
             description=description,
             company=company,
+            edr_report=edr_report,
             status='New',  # v1.16.0: Default status for new cases
             created_by=current_user.id
         )
         db.session.add(case)
         db.session.commit()
         
+        # Create router/firewall system entry if provided (v1.37.0)
+        if router_name:
+            router_system = System(
+                case_id=case.id,
+                system_name=router_name,
+                ip_address=router_ip if router_ip else None,
+                system_type='firewall',
+                added_by=current_user.username
+            )
+            db.session.add(router_system)
+            db.session.commit()
+        
         # Audit log
         from audit_logger import log_action
         log_action('create_case', resource_type='case', resource_id=case.id,
                   resource_name=case.name, 
-                  details={'company': company, 'description': description})
+                  details={
+                      'company': company, 
+                      'description': description,
+                      'has_edr_report': bool(edr_report),
+                      'router_name': router_name if router_name else None
+                  })
         
         flash('Case created successfully', 'success')
         return redirect(url_for('view_case', case_id=case.id))

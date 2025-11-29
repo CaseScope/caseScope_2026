@@ -1,252 +1,682 @@
-# Triage Search Findings
+# Triage Report IOC Discovery System
 
-## Date: 2025-11-28
+## Overview
 
-## Test Case: Case 13 (Huntress Report)
-
-### Report Details
-- **Report Timestamp**: 2025-09-05 06:40:02 UTC
-- **Search Window**: 24 hours before report (2025-09-04 06:40:02 to 2025-09-05 06:40:02)
-
-### IOCs Extracted from Report
-- **IP**: 192.168.1.150
-- **Username**: tabadmin
-- **SID**: S-1-5-21-393219491-1469002369-1775737052-4603
-- **Processes**: WinSCP.exe, svhost.exe (renamed rclone)
-- **Path**: C:\ProgramData\USOShared\
-- **Hostname**: Receiving
+A multi-phase automated IOC discovery system that:
+1. Extracts IOCs from analyst-pasted EDR/MDR reports
+2. Hunts those IOCs to discover NEW related IOCs
+3. If malware is indicated, hunts malware indicators for additional IOCs
+4. Extracts recon commands and tools as IOCs
+5. Adds all discovered IOCs to the database with appropriate types
 
 ---
 
-## Iterative Search Results
+## Architecture
 
-### Round 1: Search by IP (192.168.1.150)
-**911 events found** (287 EVTX, 213 EDR)
-
-**Hostnames Discovered:**
-- ENGINEERING5
-- JAMES-FS1
-- RECEIVING
-
-**Usernames Discovered:**
-- JAMESMFG\tabadmin
-
-### Round 2: Search by Hostnames (ENGINEERING5, JAMES-FS1, RECEIVING)
-
-| Hostname | Events | IPs Found | Users Found |
-|----------|--------|-----------|-------------|
-| ENGINEERING5 | 2,504 | 172.16.1.10, 192.168.1.20, 192.168.1.150 | tabadmin, ENGINEERING5$ |
-| JAMES-FS1 | 10,000 | (none) | JAMES-FS1$ |
-| RECEIVING | 2,118 | 192.168.1.87, 192.168.1.150 | tabadmin, RECEIVING$ |
-
-**NEW IPs Discovered:**
-- `172.16.1.10` - Engineering5's internal IP
-- `192.168.1.20` - New internal IP (Engineering5)
-- `192.168.1.87` - New internal IP (Receiving)
-
-**Key Observations:**
-1. Attacker IP `192.168.1.150` appears on BOTH Engineering5 and Receiving → lateral movement confirmed
-2. `tabadmin` account active on multiple hosts → compromised account spreading
-3. Machine accounts (ENGINEERING5$, JAMES-FS1$, RECEIVING$) are normal, filter these out
-
----
-
-## Key Finding: Use Existing Search Mechanism
-
-**DO NOT reinvent the wheel** - use `build_search_query` and `execute_search` from `search_utils.py`
-
-### Working Code Pattern
-```python
-from search_utils import build_search_query, execute_search
-
-query_dsl = build_search_query(
-    search_text="192.168.1.150",  # The IOC to search
-    filter_type="all",
-    date_range="custom",
-    custom_date_start=datetime(2025, 9, 4, 6, 40, 2),  # 24h before report
-    custom_date_end=datetime(2025, 9, 5, 6, 40, 2),    # report time
-    file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS'],  # All types
-    tagged_event_ids=None,
-    latest_event_timestamp=None,
-    hidden_filter="hide"
-)
-
-results, total, aggs = execute_search(
-    opensearch_client,
-    f"case_{case_id}",
-    query_dsl,
-    page=1,
-    per_page=500
-)
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ANALYST PASTES REPORT                           │
+│              (Huntress, CrowdStrike, Sentinel, etc.)                │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    PHASE 1: AI EXTRACTION                           │
+│  Extract IOCs from report text using LLM + regex fallback           │
+│  - IPs, Hostnames, Usernames, SIDs, Hashes, Paths, Commands         │
+│  - Malware names, Tool names, Timestamps                            │
+│  - Determine: MALWARE = TRUE/FALSE                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 PHASE 2: STANDARD IOC HUNTING                       │
+│  For each extracted IOC, search OpenSearch and extract NEW IOCs     │
+│  - IPs → discover hostnames, usernames                              │
+│  - Hostnames → discover IPs, usernames                              │
+│  - Usernames → discover IPs, hostnames                              │
+│  Iterate until no new discoveries (or max iterations)               │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              PHASE 3: MALWARE/RECON HUNTING                         │
+│  Search for malware and recon indicators, extract IOCs              │
+│  - Malware: filenames, paths, Defender threats                      │
+│  - Recon: commands (nltest, net group, whoami), tool executables    │
+│  - LOLBins: legitimate tools used maliciously                       │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    PHASE 4: ADD TO DATABASE                         │
+│  Add all discovered IOCs with appropriate types and status          │
+│  - Active IOCs: hunted by IOC hunting engine                        │
+│  - Inactive IOCs: not hunted (SIDs, commands - too noisy/specific)  │
+│  - Ignored IOCs: informational only, never hunted                   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Search Results for IP 192.168.1.150
+## IOC Types
 
-### Event Distribution
-| File Type | Count |
-|-----------|-------|
-| EVTX | 287 |
-| EDR | 213 |
-| **Total** | **911** |
+### Standard IOC Types (Huntable)
+| Type | Description | Example |
+|------|-------------|---------|
+| `ip` | IP address | 192.168.10.50, 181.214.165.70, 96.78.213.49 |
+| `hostname` | Computer/host name | DEPCO-DC01, JELLY-RDS01, CM-DC01 |
+| `username` | User account | tabadmin, JJLAW\Tracy, CM\jose |
+| `hash` | File hash (MD5/SHA1/SHA256) | a1b2c3d4... |
+| `filepath` | Full file path | C:\Users\Public\Music\WQTLib.dll |
+| `filename` | Executable name | PSEXESVC.exe, WQTLib.dll, nltest.exe |
+| `domain` | Domain/FQDN | jjlaw.local |
+| `url` | Full URL | http://evil.com/beacon |
+| `registry` | Registry key | HKLM\SOFTWARE\... |
+| `command` | Command line | powershell -enc ..., nltest /domain_trusts |
+| `user_sid` | Windows SID | S-1-5-21-... |
 
-### Hostnames Discovered
-- ENGINEERING5 / Engineering5
-- JAMES-FS1
-- RECEIVING / Receiving
+### Special IOC Types (Informational)
+| Type | Description | Hunted? |
+|------|-------------|---------|
+| `threat` | Defender threat name | No (informational) |
+| `malware` | Malware family name | No (informational) |
+| `tool` | Attack tool name | No (informational) |
+| `ignored` | Any IOC marked as noise | No (never hunted) |
 
-### Usernames Discovered
-- JAMESMFG\tabadmin
+### IOC Default Status by Type
+| Type | Default Status | Reason |
+|------|----------------|--------|
+| `ip`, `hostname`, `username` | Active | Primary hunt targets |
+| `hash`, `filepath`, `filename`, `domain`, `url` | Active | Huntable indicators |
+| `user_sid` | Inactive | Too noisy, many matches |
+| `command` | Inactive | Too specific, use for context |
+| `registry` | Inactive | Requires exact match |
+| `threat`, `malware`, `tool` | Inactive | Informational only |
 
 ---
 
-## Data Extraction Notes
+## Phase 1: AI Extraction
+
+### LLM Prompt Structure
+```
+Extract the following from this investigative report:
+
+1. IOCs:
+   - IPs (IPv4/IPv6) - both internal and external
+   - Hostnames/computer names
+   - Usernames (including domain\user format)
+   - User SIDs (S-1-5-21-...)
+   - File hashes (MD5, SHA1, SHA256)
+   - File paths (C:\path\to\file.exe)
+   - Process/executable names
+   - Domains/FQDNs
+   - URLs
+   - Registry keys
+   - Commands (especially recon commands, encoded PowerShell)
+
+2. Malware Analysis:
+   - Is malware mentioned? (TRUE/FALSE)
+   - Malware family names (Cobalt Strike, Emotet, etc.)
+   - Attack tools (PSEXEC, Mimikatz, Advanced IP Scanner, etc.)
+   - Initial access vector (VPN, phishing, RDP, SonicWall, etc.)
+
+3. Recon Activity:
+   - Domain enumeration commands (nltest, net group, etc.)
+   - Network enumeration tools (Advanced IP Scanner, etc.)
+   - Credential access attempts
+
+4. Timeline:
+   - Key timestamps mentioned
+   - Attack sequence
+
+Return as JSON.
+```
+
+### Regex Fallback Patterns
+```python
+# IPs
+ip_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
+
+# Hashes
+sha256_pattern = r'\b[a-fA-F0-9]{64}\b'
+sha1_pattern = r'\b[a-fA-F0-9]{40}\b'
+md5_pattern = r'\b[a-fA-F0-9]{32}\b'
+
+# SIDs
+sid_pattern = r'S-1-5-21-[\d-]+'
+
+# Hostnames (from context)
+hostname_patterns = [
+    r'host\s*["\']([^"\']+)["\']',
+    r'machine\s*["\']([^"\']+)["\']',
+    r'endpoint\s+([A-Za-z0-9\-_]+)',
+    r'Host\s*name[:\s]+([A-Za-z0-9\-_]+)',
+]
+
+# Usernames (from context)
+username_patterns = [
+    r'user\s*["\']([^"\']+)["\']',
+    r'account\s*["\']([^"\']+)["\']',
+    r'compromised\s+user\s*["\']([^"\']+)["\']',
+]
+
+# Paths
+path_pattern = r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)+[^\s\\/:*?"<>|]*'
+
+# Commands
+encoded_ps_pattern = r'powershell[^\r\n]*-(?:enc|encodedcommand)\s+[A-Za-z0-9+/=]+'
+rundll_pattern = r'rundll32[^\r\n]+'
+nltest_pattern = r'nltest[^\r\n]+'
+net_pattern = r'net\s+(?:group|user|localgroup)[^\r\n]+'
+```
+
+---
+
+## Phase 2: Standard IOC Hunting
+
+### Search Method
+**ALWAYS use `build_search_query` and `execute_search` from `search_utils.py`**
+
+```python
+from search_utils import build_search_query, execute_search
+
+def search_ioc(opensearch_client, case_id, search_term, time_start=None, time_end=None):
+    query_dsl = build_search_query(
+        search_text=search_term,
+        filter_type="all",
+        date_range="custom" if time_start else "all",
+        custom_date_start=time_start,
+        custom_date_end=time_end,
+        file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS'],
+        tagged_event_ids=None,
+        latest_event_timestamp=None,
+        hidden_filter="hide"
+    )
+    results, total, aggs = execute_search(
+        opensearch_client,
+        f"case_{case_id}",
+        query_dsl,
+        page=1,
+        per_page=500
+    )
+    return results, total
+```
+
+### Extraction Logic
+
+```python
+NOISE_USERS = {
+    'system', 'network service', 'local service', 'anonymous logon',
+    'window manager', 'dwm-1', 'dwm-2', 'umfd-0', 'umfd-1', '-', 'n/a', ''
+}
+
+def is_machine_account(username):
+    return username.endswith('$') if username else False
+
+def extract_from_results(results):
+    ips = set()
+    hostnames = set()
+    usernames = set()
+    
+    ip_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
+    
+    for hit in results:
+        src = hit['_source']
+        blob = src.get('search_blob', '')
+        
+        # === IPs from blob ===
+        for ip in re.findall(ip_pattern, blob):
+            if not ip.startswith(('127.', '0.', '255.')):
+                ips.add(ip)
+        
+        # === EVTX: computer_name field ===
+        computer = src.get('computer_name')
+        if computer and computer not in ['-', 'N/A', None, '']:
+            hostnames.add(computer.upper())
+        
+        # === EVTX: User patterns from blob ===
+        for match in re.findall(r'(?:TargetUserName|SubjectUserName|AccountName)[:\s]+([A-Za-z0-9_\-\.]+)', blob):
+            if match.lower() not in NOISE_USERS and not is_machine_account(match):
+                usernames.add(match)
+        
+        # === EVTX: Workstation from blob ===
+        for ws in re.findall(r'WorkstationName[:\s]+([A-Za-z0-9\-]+)', blob):
+            if ws and ws != '-' and len(ws) > 2:
+                hostnames.add(ws.upper())
+        
+        # === EDR: Nested host field ===
+        host = src.get('host', {})
+        if isinstance(host, dict):
+            h = host.get('hostname') or host.get('name')
+            if h:
+                hostnames.add(h.upper())
+            host_ip = host.get('ip')
+            if host_ip:
+                if isinstance(host_ip, list):
+                    ips.update([ip for ip in host_ip if not ip.startswith('127.')])
+                elif isinstance(host_ip, str) and not host_ip.startswith('127.'):
+                    ips.add(host_ip)
+        
+        # === EDR: Nested process.user and process.user_logon ===
+        process = src.get('process', {})
+        if isinstance(process, dict):
+            proc_user = process.get('user', {})
+            if isinstance(proc_user, dict):
+                name = proc_user.get('name')
+                domain = proc_user.get('domain', '')
+                if name and name.lower() not in NOISE_USERS and not is_machine_account(name):
+                    usernames.add(f"{domain}\\{name}" if domain else name)
+            
+            logon = process.get('user_logon', {})
+            if isinstance(logon, dict):
+                name = logon.get('username')
+                domain = logon.get('domain', '')
+                ws = logon.get('workstation')
+                logon_ip = logon.get('ip')
+                if name and name.lower() not in NOISE_USERS and not is_machine_account(name):
+                    usernames.add(f"{domain}\\{name}" if domain else name)
+                if ws:
+                    hostnames.add(ws.upper())
+                if logon_ip and not logon_ip.startswith('127.'):
+                    ips.add(logon_ip)
+    
+    return ips, hostnames, usernames
+```
+
+---
+
+## Phase 3: Malware & Recon Hunting
+
+### When to Run
+- **Malware hunting**: If Phase 1 determines MALWARE = TRUE
+- **Recon hunting**: Always run - recon commands are IOCs
+
+### Recon Command Extraction
+
+**Key insight**: Recon commands and LOLBins (Living Off the Land Binaries) are IOCs!
+
+```python
+RECON_SEARCH_TERMS = [
+    "nltest",           # Domain trust enumeration
+    "net group",        # Group enumeration
+    "net user",         # User enumeration
+    "net localgroup",   # Local group enumeration
+    "whoami",           # Privilege check
+    "ipconfig",         # Network config
+    "systeminfo",       # System enumeration
+    "domain trust",     # Trust enumeration
+    "quser",            # Logged-in users
+    "query user",       # Logged-in users
+]
+
+RECON_LOLBINS = [
+    "nltest.exe",       # Domain trust enumeration
+    "net.exe",          # Network utility
+    "net1.exe",         # Network utility (alternate)
+    "whoami.exe",       # Privilege check
+    "ipconfig.exe",     # Network config
+    "systeminfo.exe",   # System info
+    "quser.exe",        # User query
+    "netsh.exe",        # Network shell
+    "cmd.exe",          # Command shell
+    "powershell.exe",   # PowerShell
+]
+
+def extract_recon_commands(results):
+    """Extract recon commands from EDR process data"""
+    commands = set()
+    executables = set()
+    
+    for hit in results:
+        src = hit['_source']
+        process = src.get('process', {})
+        
+        if isinstance(process, dict):
+            cmd_line = process.get('command_line', '')
+            exe = process.get('executable', '')
+            
+            if cmd_line:
+                # Look for recon patterns
+                if any(term in cmd_line.lower() for term in ['nltest', 'net group', 'net user', 'whoami', 'domain_trust']):
+                    commands.add(cmd_line[:200])
+            
+            if exe:
+                executables.add(exe)
+    
+    return commands, executables
+```
+
+### Defender Event Extraction
+
+**IMPORTANT**: Defender events (1116, 1117) have `EventData` as a JSON string that must be parsed.
+
+```python
+import json
+
+def extract_defender_threats(opensearch_client, case_id, malware_filename):
+    """
+    Search for Defender events related to a malware file.
+    Parse EventData JSON to extract threat names.
+    """
+    # Use query_string to search all fields
+    query = {
+        "query": {"query_string": {"query": f"*{malware_filename}*"}},
+        "size": 50
+    }
+    result = opensearch_client.search(index=f"case_{case_id}", body=query)
+    
+    threats = set()
+    paths = set()
+    actions = set()
+    
+    for hit in result['hits']['hits']:
+        src = hit['_source']
+        event = src.get('Event', {})
+        event_data_str = event.get('EventData', '{}')
+        
+        try:
+            if isinstance(event_data_str, str):
+                event_data = json.loads(event_data_str)
+            else:
+                event_data = event_data_str
+            
+            threat_name = event_data.get('Threat Name', '')
+            category = event_data.get('Category Name', '')
+            action = event_data.get('Action Name', '')
+            path = event_data.get('Path', '')
+            
+            if threat_name:
+                threats.add(threat_name)
+            if action:
+                actions.add(action)
+            if path:
+                paths.add(path)
+                
+        except json.JSONDecodeError:
+            pass
+    
+    return threats, actions, paths
+```
+
+---
+
+## Test Results
+
+### Case 15 (RDS Compromise with Exfiltration)
+
+**Starting IOCs (from report):**
+- 1 IP: 91.236.230.136 (BlueVPS - bulletproof hosting)
+- 1 Username: BButler
+- 1 SID: S-1-5-21-3129307847-4221876805-1187755365-1138
+- Tools: WinSCP (exfiltration), nltest, net.exe (recon)
+- Path: C:\Users\BButler\Pictures\WinSCP-6.5.3-Portable\
+- Commands: nltest.exe /dclist:, net.exe group "domain computers" /dom
+
+**Malware Indicated:** TRUE (recon commands, exfiltration tool, bulletproof hosting)
+
+**Discovered IOCs:**
+
+| Type | Value | Source |
+|------|-------|--------|
+| IP | 74.93.17.250 | Username hunting |
+| Hostname | DESKTOP-K0RN0VC | IP hunting |
+| Command | "C:\Windows\system32\nltest.exe" /dclist: | Recon hunting |
+| Command | "C:\Windows\system32\net.exe" group "domain computers" /dom | Recon hunting |
+| Filepath | C:\Users\BButler\Pictures\WinSCP-6.5.3-Portable\WinSCP.exe | Recon hunting |
+
+**Key Findings:**
+- **1.98M events** in case - large dataset
+- **BlueVPS** - bulletproof hosting, commonly used by threat actors
+- **WinSCP** extracted to Pictures folder - hiding technique
+- **No Defender detections** - attack wasn't caught by AV
+- **Domain enumeration** - nltest /dclist and net group commands
+
+**Total IOCs Added: 18**
+
+---
+
+### Case 8 (CM) - Recon & Initial Access
+
+**Starting IOCs (from report):**
+- 5 IPs: 192.168.0.254 (gateway), 172.16.10.25, 192.168.0.8, 172.16.10.26 (malicious), 96.78.213.49 (SonicWall)
+- 3 Hostnames: CM-DC01, CM-VMHOST, WIN-HU67JDG9MF1 (known malicious)
+- 1 Username: tabadmin
+- 1 SID
+- Tools: Advanced IP Scanner, SonicWall
+- Paths: AdUsers.txt, AdComp.txt, advanced_ip_scanner.exe
+
+**Malware Indicated:** TRUE (recon tools, known malicious hostname)
+
+**Discovered IOCs:**
+
+| Type | Value | Source |
+|------|-------|--------|
+| IP | 192.168.0.9 | Hunting |
+| Hostname | ATN65900 | Hunting |
+| Username | CM\jose | Hunting |
+| Command | nltest /domain_trusts | Recon search |
+| Command | "C:\Windows\system32\nltest.exe" /domain_trusts | Recon search |
+| Filename | nltest.exe | Recon search |
+| Filename | net.exe | Recon search |
+
+**Key Findings:**
+- SonicWall gateway (96.78.213.49:60443) - potential initial access
+- WIN-HU67JDG9MF1 - known malicious hostname from other intrusions
+- Domain trust enumeration via nltest
+- AD enumeration output files (AdUsers.txt, AdComp.txt)
+- Network scanning with Advanced IP Scanner
+
+**Total IOCs: 23**
+
+---
+
+### Case 11 (DEPCO) - Lateral Movement Attack
+
+**Starting IOCs (from report):**
+- 1 IP: 192.168.10.50
+- 4 Hostnames: DEPCO-DC01, ATN79684, DESKTOP-K1PKL6P, accounting-DAFF0JD
+- 2 Usernames: tabadmin, jeanette
+- 2 SIDs
+
+**Malware Indicated:** TRUE (Cobalt Strike, PSEXEC, Defender disabled)
+
+**Discovered IOCs (11 NEW):**
+
+| Type | Value | Source |
+|------|-------|--------|
+| IP | 192.168.1.125 | Username search |
+| IP | 192.168.1.18 | Username search |
+| IP | 192.168.1.19 | Hostname search |
+| Hostname | ATN79685 | Username search |
+| Hostname | ATN80117 | IP search |
+| Hostname | ATN81301 | Username search |
+| Username | DEPCO\steve | IP search |
+| Threat | Behavior:Win32/ScrpService.B | Defender Event 1116 |
+| Threat | Trojan:Win32/PShellCob.SA | Defender Event 1116 |
+| Filename | PSEXESVC.exe | PSEXEC search |
+| Command | powershell -nop -w hidden -encodedcommand... | Cobalt search |
+
+**Key Findings:**
+- Extensive lateral movement across multiple hosts
+- Cobalt Strike C2 detected by Defender (but failed to block)
+- Multiple new IPs and hostnames discovered through hunting
+
+**Total IOCs: 20**
+
+---
+
+### Case 17 (JJLAW) - RDS Compromise
+
+**Starting IOCs (from report):**
+- 1 IP: 181.214.165.70 (external malicious)
+- 3 Hostnames: JELLY-RDS01, DESKTOP-VSU85FT, JELLY-DC01
+- 1 Username: JJLAW\Tracy
+- 1 SID
+- 1 Domain: jjlaw.local
+- 1 Filename: WQTLib.dll
+- 1 Filepath: C:\Users\Public\Music\WQTLib.dll
+- 1 Command: rundll32 WQTLib.dll,init
+
+**Malware Indicated:** TRUE (WQTLib.dll malicious DLL, recon commands)
+
+**Discovered IOCs (1 NEW):**
+
+| Type | Value | Source |
+|------|-------|--------|
+| Threat | Trojan:Win32/Seheq!rfn | Defender Event 1116 |
+
+**Key Findings:**
+- Contained attack on single RDS server
+- Defender detected and quarantined the malware
+- Known malicious workstation name (DESKTOP-VSU85FT) - threat actor reuses across orgs
+- No lateral movement detected - attack was stopped early
+
+**Total IOCs: 11**
+
+---
+
+## Key Differences Between Cases
+
+| Aspect | Case 8 (CM) | Case 11 (DEPCO) | Case 15 | Case 17 (JJLAW) |
+|--------|-------------|-----------------|---------|-----------------|
+| Attack Type | Recon & enumeration | Lateral movement | Exfiltration | Single host compromise |
+| Initial Access | SonicWall VPN | SonicWall VPN | RDP (BlueVPS) | RDP/RDS |
+| Malware | Recon tools | Cobalt Strike | WinSCP | WQTLib.dll (Trojan) |
+| Hosts Affected | Multiple (3+) | Multiple (5+) | 1 | Single (JELLY-RDS01) |
+| New IOCs Discovered | 7 | 11 | 2 | 1 |
+| Defender Action | N/A | Failed to block | N/A | Quarantined |
+| Key IOC Types | Commands, tools | IPs, hostnames | IP, hostname | Threat name |
+
+---
+
+## Data Source Notes
 
 ### EVTX Events
-- Hostname in: `computer_name` field
+- Hostname: `computer_name` field
 - Username patterns in `search_blob`:
-  - `DOMAIN\username` pattern
-  - `WorkstationName` field
+  - `TargetUserName: value`
+  - `SubjectUserName: value`
+  - `AccountName: value`
+- Workstation: `WorkstationName: value` in blob
+- Defender events: Event IDs 1116, 1117 (but check Channel - not all 1116 are Defender!)
+
+### Defender Events (Windows Defender Operational Log)
+- Source file contains: `Microsoft-Windows-Windows Defender`
+- `EventData` is a JSON string that must be parsed
+- Key fields in EventData:
+  - `Threat Name`: e.g., "Trojan:Win32/Seheq!rfn", "Trojan:Win32/PShellCob.SA"
+  - `Category Name`: e.g., "Trojan"
+  - `Action Name`: e.g., "Quarantine", "Not Applicable"
+  - `Path`: e.g., "file:_C:\Users\Public\Music\WQTLib.dll"
 
 ### EDR Events
-- **Important**: `search_blob` is often EMPTY for EDR data
+- **IMPORTANT**: `search_blob` may be empty for EDR data
 - Data is in nested fields:
   - Hostname: `host.hostname` or `host.name`
+  - Host IP: `host.ip` (can be list or string)
   - Username: `process.user.name` + `process.user.domain`
   - Username: `process.user_logon.username` + `process.user_logon.domain`
   - Workstation: `process.user_logon.workstation`
   - Source IP: `process.user_logon.ip`
+  - **Command line**: `process.command_line`
+  - **Executable**: `process.executable`
 
-### Extraction Code Pattern
-```python
-for r in results:
-    src = r['_source']
-    
-    # EVTX - computer_name
-    computer = src.get('computer_name')
-    if computer and computer not in ['-', 'N/A', None, '']:
-        hostnames.add(computer)
-    
-    # EDR - nested host field
-    host = src.get('host', {})
-    if isinstance(host, dict):
-        h = host.get('hostname') or host.get('name')
-        if h:
-            hostnames.add(h)
-    
-    # EDR - nested process.user and process.user_logon
-    process = src.get('process', {})
-    if isinstance(process, dict):
-        proc_user = process.get('user', {})
-        if isinstance(proc_user, dict):
-            name = proc_user.get('name')
-            domain = proc_user.get('domain', '')
-            if name and name.lower() not in ['system', 'network service', 'local service']:
-                usernames.add(f"{domain}\\{name}" if domain else name)
-        
-        logon = process.get('user_logon', {})
-        if isinstance(logon, dict):
-            name = logon.get('username')
-            domain = logon.get('domain', '')
-            ws = logon.get('workstation')
-            if name and name.lower() not in ['system', 'network service', 'local service']:
-                usernames.add(f"{domain}\\{name}" if domain else name)
-            if ws:
-                hostnames.add(ws)
-```
+### Filtering Rules
+1. **Exclude localhost**: IPs starting with `127.`, `0.`, `255.`
+2. **Exclude noise users**: system, network service, local service, anonymous logon, window manager, dwm-*, umfd-*
+3. **Exclude machine accounts**: Accounts ending with `$` (e.g., `COMPUTER$`)
+4. **Normalize hostnames**: Convert to uppercase for comparison
+5. **Minimum lengths**: Hostnames > 2 chars, paths > 10 chars
 
 ---
 
-## Proposed Triage Flow
+## Implementation Notes
 
-1. **Extract IOCs from report** (current implementation - LLM + regex)
-2. **For each IP IOC**:
-   - Use `build_search_query` with 24h time window
-   - Execute search across ALL file types
-   - Extract hostnames and usernames from results
-3. **Add discovered items**:
-   - New hostnames → Systems table
-   - New usernames → IOC table (type: username)
-   - Original IOCs → IOC table
-
----
-
-## Issues Found
-
-1. **EDR search_blob is empty** - must use nested field extraction
-2. **Hostname case sensitivity** - ENGINEERING5 vs Engineering5 (normalize to uppercase?)
-3. **False positives in usernames** - filter out: system, network service, local service, window manager, anonymous logon
-4. **Machine accounts** - filter out accounts ending in $ (e.g., COMPUTER$)
-5. **Broad hostname search** - using `build_search_query` with hostname matches too many unrelated events (file paths like `Windows\System32`). Use targeted field queries instead.
-
----
-
-## Recommended Search Strategy
-
-### For IPs - Use existing search mechanism
-```python
-query_dsl = build_search_query(
-    search_text="192.168.1.150",
-    filter_type="all",
-    date_range="custom",
-    custom_date_start=time_start,
-    custom_date_end=time_end,
-    file_types=['EVTX', 'EDR', 'JSON', 'CSV', 'IIS'],
-    ...
-)
-```
-
-### For Hostnames - Use targeted field queries
+### Searching for Malware/Recon Files
+Use `query_string` with wildcards to search all fields:
 ```python
 query = {
-    "query": {
-        "bool": {
-            "should": [
-                {"term": {"computer_name.keyword": hostname}},
-                {"term": {"host.hostname.keyword": hostname}},
-                {"term": {"host.name.keyword": hostname}},
-            ],
-            "minimum_should_match": 1,
-            "filter": [{"range": {"normalized_timestamp": {...}}}]
-        }
-    }
+    "query": {"query_string": {"query": "*WQTLib* OR *nltest* OR *advanced_ip_scanner*"}},
+    "size": 50
 }
 ```
 
-### Extraction Patterns for EVTX
+This finds events where the term appears in ANY field, not just `search_blob`.
+
+### Event ID Collision
+Event ID 1116 is used by multiple Windows components:
+- Windows Defender (threat detection)
+- PushNotification-Platform (errors)
+
+Always check the `source_file` or `Event.System.Channel` to confirm it's a Defender event.
+
+### Defender Event Parsing
 ```python
-# Specific user field patterns (not generic DOMAIN\user which catches file paths)
-user_patterns = re.findall(r'(?:TargetUserName|SubjectUserName|AccountName)[:\s]+([A-Za-z0-9_\-\.]+)', blob)
-
-# Domain-qualified users (specify known domains)
-domain_users = re.findall(r'(JAMESMFG|NT AUTHORITY)\\([a-zA-Z0-9_\-\.]+)', blob, re.IGNORECASE)
-
-# Workstation names
-ws_matches = re.findall(r'WorkstationName[:\s]+([A-Za-z0-9\-]+)', blob)
+# EventData is a JSON string inside the Event object
+event = src.get('Event', {})
+event_data_str = event.get('EventData', '{}')
+event_data = json.loads(event_data_str)
+threat_name = event_data.get('Threat Name', '')
 ```
+
+### LOLBins (Living Off the Land Binaries)
+Legitimate Windows tools used maliciously. These ARE IOCs when used in attack context:
+- `nltest.exe` - Domain trust enumeration
+- `net.exe` / `net1.exe` - User/group enumeration
+- `whoami.exe` - Privilege check
+- `ipconfig.exe` - Network config
+- `systeminfo.exe` - System enumeration
+- `netsh.exe` - Network configuration
+- `rundll32.exe` - DLL execution
+- `cmd.exe` / `powershell.exe` - Command execution
 
 ---
 
-## Iterative Triage Algorithm
+## User Guidance: Reviewing Discovered IOCs
 
-```
-1. Extract IOCs from report (IPs, usernames, hostnames, hashes, etc.)
+After the triage process completes, **review the discovered IOCs** and set appropriate status:
 
-2. FOR EACH IP:
-   - Search all file types within time window
-   - Extract: hostnames, usernames from results
-   - Add new hostnames to search queue
+### Active vs Inactive IOCs
+- **Active IOCs** are hunted by the IOC hunting engine when files are indexed
+- **Inactive IOCs** are stored for reference but not actively hunted
 
-3. FOR EACH HOSTNAME (use targeted field queries):
-   - Search by computer_name/host.hostname fields
-   - Extract: IPs, usernames from results
-   - Add new IPs to search queue
+### Recommended Status by IOC Type
 
-4. REPEAT until no new items discovered (or max iterations)
+| IOC Type | Recommended Status | Notes |
+|----------|-------------------|-------|
+| IP (external malicious) | **Active** | Hunt for lateral movement |
+| IP (internal) | **Active** | Hunt for lateral movement |
+| Hostname | **Active** | Hunt for related activity |
+| Username | **Active** | Hunt for related activity |
+| SID | **Inactive** | Too noisy, use for correlation |
+| Command | **Inactive** | Too specific, use for context |
+| Tool/Malware name | **Inactive** | Informational only |
+| Threat (Defender) | **Inactive** | Informational only |
+| Path (suspicious) | **Active** | Hunt for related files |
+| Path (system) | **Inactive** | Too common |
 
-5. Add all discovered items to IOC/Systems tables
-```
+### When to Set IOC to Inactive
+- **False positive**: The value is not actually an IOC (e.g., legitimate internal IP)
+- **Too noisy**: Matches too many events (e.g., common SID)
+- **Already hunted**: You've already reviewed all matches
+- **Informational**: Just for reference (e.g., Defender threat name)
 
-This creates a "snowball" effect - starting from one IP, we discover related hosts, which reveal more IPs, etc.
+### Important: Do NOT Delete IOCs
+Instead of deleting, set IOCs to **Inactive**. This:
+- Prevents them from being re-created on future triage runs
+- Keeps a record of what was found
+- Allows you to reactivate if needed later
 
+---
+
+## Future Enhancements
+
+1. **Base64 Decoding**: Automatically decode encoded PowerShell and extract C2 IPs
+2. **MITRE ATT&CK Mapping**: Tag discovered IOCs with ATT&CK techniques
+3. **Confidence Scoring**: Rate IOCs based on how they were discovered
+4. **Timeline Correlation**: Use timestamps from report to focus searches
+5. **Recursive Discovery**: Multiple rounds of hunting until no new IOCs found
+6. **Cross-Case Correlation**: Check if IOCs appear in other cases
+7. **Threat Intel Integration**: Enrich discovered IOCs with external threat intel
+8. **Recon Pattern Detection**: Identify sequences of recon commands as attack patterns

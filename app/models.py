@@ -44,6 +44,9 @@ class Case(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # EDR Report field (v1.37.0) - Stores the full EDR/MDR report text
+    edr_report = db.Column(db.Text)
+    
     # Archive fields (v1.18.0)
     archive_path = db.Column(db.String(1000))  # Full path to archive ZIP
     archived_at = db.Column(db.DateTime)  # When archived

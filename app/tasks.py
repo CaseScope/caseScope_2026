@@ -1384,16 +1384,18 @@ def delete_case_async(self, case_id):
     Deletes:
     1. Physical files on disk
     2. OpenSearch indices
-    3. Database records: CaseFile, IOC, IOCMatch, System, SigmaViolation, 
-       TimelineTag, AIReport (cascade AIReportChat), SkippedFile, SearchHistory, Case
+    3. Database records: CaseFile, IOC, IOCMatch, System, KnownUser, SigmaViolation, 
+       TimelineTag, AIReport (cascade AIReportChat), CaseTimeline, EvidenceFile,
+       SkippedFile, SearchHistory, CaseLock, Case
     
     Progress tracking:
     - Updates task metadata with current step, progress %, and counts
     - Frontend polls /case/<id>/delete/status for real-time updates
     """
     from main import app, db, opensearch_client
-    from models import (Case, CaseFile, IOC, IOCMatch, System, SigmaViolation, 
-                        TimelineTag, AIReport, SkippedFile, SearchHistory)
+    from models import (Case, CaseFile, IOC, IOCMatch, System, KnownUser, SigmaViolation, 
+                        TimelineTag, AIReport, SkippedFile, SearchHistory, CaseLock,
+                        CaseTimeline, EvidenceFile)
     from utils import make_index_name
     
     logger.info(f"[DELETE_CASE] Starting async deletion of case {case_id}")
@@ -1436,16 +1438,19 @@ def delete_case_async(self, case_id):
             iocs_count = db.session.query(IOC).filter_by(case_id=case_id).count()
             ioc_matches_count = db.session.query(IOCMatch).filter_by(case_id=case_id).count()
             systems_count = db.session.query(System).filter_by(case_id=case_id).count()
+            known_users_count = db.session.query(KnownUser).filter_by(case_id=case_id).count()
             sigma_count = db.session.query(SigmaViolation).filter_by(case_id=case_id).count()
-            timeline_count = db.session.query(TimelineTag).filter_by(case_id=case_id).count()
+            timeline_tag_count = db.session.query(TimelineTag).filter_by(case_id=case_id).count()
+            case_timeline_count = db.session.query(CaseTimeline).filter_by(case_id=case_id).count()
             aireport_count = db.session.query(AIReport).filter_by(case_id=case_id).count()
+            evidence_count = db.session.query(EvidenceFile).filter_by(case_id=case_id).count()
             skipped_count = db.session.query(SkippedFile).filter_by(case_id=case_id).count()
             search_count = db.session.query(SearchHistory).filter_by(case_id=case_id).count()
             
             total_files = len(files)
             
-            update_progress('Counted', 10, f'Found {total_files} files, {iocs_count} IOCs, {systems_count} systems',
-                           files=total_files, iocs=iocs_count, systems=systems_count,
+            update_progress('Counted', 10, f'Found {total_files} files, {iocs_count} IOCs, {systems_count} systems, {known_users_count} known users',
+                           files=total_files, iocs=iocs_count, systems=systems_count, known_users=known_users_count,
                            sigma=sigma_count, ai_reports=aireport_count)
             
             # Step 3: Delete physical files on disk
@@ -1507,8 +1512,16 @@ def delete_case_async(self, case_id):
             db.session.query(SearchHistory).filter_by(case_id=case_id).delete()
             db.session.commit()
             
-            update_progress('Deleting DB: Timeline Tags', 65, f'Deleting {timeline_count} timeline tags...')
+            update_progress('Deleting DB: Timeline Tags', 63, f'Deleting {timeline_tag_count} timeline tags...')
             db.session.query(TimelineTag).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Case Timelines', 65, f'Deleting {case_timeline_count} case timelines...')
+            db.session.query(CaseTimeline).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Evidence Files', 67, f'Deleting {evidence_count} evidence files...')
+            db.session.query(EvidenceFile).filter_by(case_id=case_id).delete()
             db.session.commit()
             
             update_progress('Deleting DB: IOC Matches', 70, f'Deleting {ioc_matches_count} IOC matches...')
@@ -1523,8 +1536,12 @@ def delete_case_async(self, case_id):
             db.session.query(IOC).filter_by(case_id=case_id).delete()
             db.session.commit()
             
-            update_progress('Deleting DB: Systems', 83, f'Deleting {systems_count} systems...')
+            update_progress('Deleting DB: Systems', 82, f'Deleting {systems_count} systems...')
             db.session.query(System).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Known Users', 84, f'Deleting {known_users_count} known users...')
+            db.session.query(KnownUser).filter_by(case_id=case_id).delete()
             db.session.commit()
             
             update_progress('Deleting DB: Skipped Files', 86, f'Deleting {skipped_count} skipped files...')
@@ -1535,12 +1552,27 @@ def delete_case_async(self, case_id):
             db.session.query(CaseFile).filter_by(case_id=case_id).delete()
             db.session.commit()
             
-            # Step 6: Delete the case itself
+            # Step 6: Delete case lock (if any)
+            update_progress('Deleting DB: Case Lock', 92, f'Removing case lock...')
+            db.session.query(CaseLock).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            # Step 6b: Delete embedding queue items (raw SQL - table may not have ORM model)
+            update_progress('Deleting DB: Embedding Queue', 93, f'Removing embedding queue items...')
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("DELETE FROM embedding_queue_item WHERE case_id = :case_id"), {'case_id': case_id})
+                db.session.commit()
+            except Exception as e:
+                logger.warning(f"[DELETE_CASE] Failed to delete embedding_queue_item (table may not exist): {e}")
+                db.session.rollback()
+            
+            # Step 8: Delete the case itself
             update_progress('Deleting Case', 95, f'Removing case "{case_name}"...')
             db.session.delete(case)
             db.session.commit()
             
-            # Step 7: Done!
+            # Step 9: Done!
             update_progress('Complete', 100, f'Case "{case_name}" deleted successfully')
             
             # Audit log
@@ -1552,13 +1584,14 @@ def delete_case_async(self, case_id):
                           'indices_deleted': deleted_indices,
                           'iocs_deleted': iocs_count,
                           'systems_deleted': systems_count,
+                          'known_users_deleted': known_users_count,
                           'sigma_violations_deleted': sigma_count,
                           'ai_reports_deleted': aireport_count
                       })
             
             logger.info(f"[DELETE_CASE] ✅ Case {case_id} '{case_name}' deleted successfully")
             logger.info(f"[DELETE_CASE] Summary: {total_files} files, {deleted_indices} indices, "
-                       f"{iocs_count} IOCs, {systems_count} systems, {sigma_count} SIGMA violations")
+                       f"{iocs_count} IOCs, {systems_count} systems, {known_users_count} known users, {sigma_count} SIGMA violations")
             
             return {
                 'status': 'success',
@@ -1569,8 +1602,11 @@ def delete_case_async(self, case_id):
                     'indices_deleted': deleted_indices,
                     'iocs_deleted': iocs_count,
                     'systems_deleted': systems_count,
+                    'known_users_deleted': known_users_count,
                     'sigma_violations_deleted': sigma_count,
-                    'timeline_tags_deleted': timeline_count,
+                    'timeline_tags_deleted': timeline_tag_count,
+                    'case_timelines_deleted': case_timeline_count,
+                    'evidence_files_deleted': evidence_count,
                     'ai_reports_deleted': aireport_count
                 }
             }

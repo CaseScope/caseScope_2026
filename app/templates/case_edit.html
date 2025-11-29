@@ -29,6 +29,14 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="edr_report">EDR/MDR Report</label>
+                    <textarea id="edr_report" name="edr_report" rows="8" placeholder="Paste the full EDR/MDR report from Huntress, Blackpoint, CrowdStrike, etc.">{{ case.edr_report or '' }}</textarea>
+                    <small style="display: block; margin-top: 4px; color: var(--color-text-secondary);">
+                        This report is used for automated IOC extraction and triage analysis.
+                    </small>
+                </div>
+                
+                <div class="form-group">
                     <label for="company">Company/Organization</label>
                     <input type="text" id="company" name="company" value="{{ case.company or '' }}">
                 </div>

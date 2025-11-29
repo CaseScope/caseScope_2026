@@ -80,12 +80,14 @@ def edit_case(case_id):
         changes = {}
         old_name = case.name
         old_description = case.description
+        old_edr_report = case.edr_report
         old_company = case.company
         old_status = case.status
         old_assigned_to = case.assigned_to
         
         case.name = request.form.get('name', case.name)
         case.description = request.form.get('description', case.description)
+        case.edr_report = request.form.get('edr_report', case.edr_report)
         case.company = request.form.get('company', case.company)
         
         # Get requested status change
@@ -115,6 +117,8 @@ def edit_case(case_id):
             changes['name'] = {'from': old_name, 'to': case.name}
         if old_description != case.description:
             changes['description'] = 'updated'
+        if old_edr_report != case.edr_report:
+            changes['edr_report'] = 'updated'
         if old_company != case.company:
             changes['company'] = {'from': old_company, 'to': case.company}
         if old_status != case.status:

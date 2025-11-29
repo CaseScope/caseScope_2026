@@ -66,8 +66,19 @@
     
     <!-- IOCs Table -->
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">📋 Indicators of Compromise ({{ iocs|length }})</h2>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="card-title">📋 Indicators of Compromise</h2>
+                <span class="text-muted" id="iocCountDisplay">
+                    {% set active_count = iocs|selectattr('is_active')|list|length %}
+                    {% set inactive_count = iocs|rejectattr('is_active')|list|length %}
+                    {{ active_count }} active, {{ inactive_count }} inactive
+                </span>
+            </div>
+            <button id="toggleInactiveBtn" onclick="toggleInactiveIOCs()" class="btn btn-sm btn-secondary">
+                <span id="toggleInactiveIcon">👁️</span>
+                <span id="toggleInactiveText">Show Inactive ({{ iocs|rejectattr('is_active')|list|length }})</span>
+            </button>
         </div>
         <div class="card-body">
             {% if iocs %}
@@ -111,7 +122,7 @@
                     </thead>
                     <tbody>
                         {% for ioc in iocs %}
-                        <tr>
+                        <tr class="ioc-row" data-active="{{ 'true' if ioc.is_active else 'false' }}" {% if not ioc.is_active %}style="display: none;"{% endif %}>
                             <td>
                                 <input type="checkbox" class="ioc-checkbox" value="{{ ioc.id }}" onchange="updateBulkButtons()">
                             </td>
@@ -277,6 +288,47 @@
 
 <script>
 const CASE_ID = {{ case.id }};
+let showingInactive = false;
+
+// Toggle visibility of inactive IOCs
+function toggleInactiveIOCs() {
+    showingInactive = !showingInactive;
+    
+    const rows = document.querySelectorAll('.ioc-row');
+    const btn = document.getElementById('toggleInactiveBtn');
+    const icon = document.getElementById('toggleInactiveIcon');
+    const text = document.getElementById('toggleInactiveText');
+    
+    let activeCount = 0;
+    let inactiveCount = 0;
+    
+    rows.forEach(row => {
+        const isActive = row.dataset.active === 'true';
+        if (isActive) {
+            activeCount++;
+            row.style.display = '';  // Always show active
+        } else {
+            inactiveCount++;
+            row.style.display = showingInactive ? '' : 'none';
+        }
+    });
+    
+    if (showingInactive) {
+        icon.textContent = '🙈';
+        text.textContent = `Hide Inactive (${inactiveCount})`;
+        btn.style.background = 'var(--color-warning)';
+        btn.style.color = 'white';
+    } else {
+        icon.textContent = '👁️';
+        text.textContent = `Show Inactive (${inactiveCount})`;
+        btn.style.background = '';
+        btn.style.color = '';
+    }
+    
+    // Update select all checkbox state
+    document.getElementById('selectAllIOCs').checked = false;
+    updateBulkButtons();
+}
 
 function showAddIOCModal() {
     document.getElementById('modalTitle').textContent = 'Add IOC';
@@ -607,14 +659,23 @@ function closeEnrichmentModal() {
 
 function toggleSelectAllIOCs() {
     const selectAll = document.getElementById('selectAllIOCs');
-    const checkboxes = document.querySelectorAll('.ioc-checkbox');
-    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    // Only select checkboxes in visible rows
+    const visibleRows = document.querySelectorAll('.ioc-row:not([style*="display: none"])');
+    visibleRows.forEach(row => {
+        const cb = row.querySelector('.ioc-checkbox');
+        if (cb) cb.checked = selectAll.checked;
+    });
     updateBulkButtons();
 }
 
 function updateBulkButtons() {
-    const checkboxes = document.querySelectorAll('.ioc-checkbox:checked');
-    const count = checkboxes.length;
+    // Only count checkboxes in visible rows
+    const visibleRows = document.querySelectorAll('.ioc-row:not([style*="display: none"])');
+    let count = 0;
+    visibleRows.forEach(row => {
+        const cb = row.querySelector('.ioc-checkbox:checked');
+        if (cb) count++;
+    });
     
     // Update all button counts
     document.getElementById('countEnable').textContent = count;
