@@ -560,14 +560,14 @@
     </div>
 </div>
 
-<!-- Hide Known Good Modal -->
+<!-- Hide Known Good Modal (v1.38.0: Standardized) -->
 <div id="hideKnownGoodModal" class="modal-overlay" style="display: none;">
-    <div class="modal-content" style="max-width: 600px;">
-        <div class="modal-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
-            <h3 style="margin: 0;">🛡️ Hide Known Good Events</h3>
-            <button onclick="closeHideKnownGoodModal()" class="modal-close" style="color: white;">&times;</button>
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+            <h2 class="modal-title" style="color: white;">🛡️ Hide Known Good Events</h2>
+            <button type="button" class="modal-close" onclick="closeHideKnownGoodModal()" style="color: white;">✕</button>
         </div>
-        <div class="modal-body" style="padding: var(--spacing-lg);">
+        <div class="modal-body">
             
             <!-- No Exclusions Phase -->
             <div id="hideKGNoExclusionsPhase" style="display: none;">
@@ -654,9 +654,9 @@
             </div>
             
         </div>
-        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--spacing-md); padding: var(--spacing-lg); border-top: 1px solid var(--color-border);">
-            <button onclick="closeHideKnownGoodModal()" class="btn btn-secondary" id="hideKGCloseBtn">Cancel</button>
-            <button onclick="startHideKnownGood()" id="hideKGStartBtn" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+        <div class="modal-footer">
+            <button type="button" onclick="closeHideKnownGoodModal()" class="btn btn-secondary" id="hideKGCloseBtn">Cancel</button>
+            <button type="button" onclick="startHideKnownGood()" id="hideKGStartBtn" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
                 🛡️ Start Hiding
             </button>
         </div>
