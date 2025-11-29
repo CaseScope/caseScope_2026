@@ -20,6 +20,174 @@ The AI Triage Search combines:
 
 ---
 
+## Flexible Entry Points (No EDR Report Fallback)
+
+The AI Triage Search supports multiple entry points depending on what data is available:
+
+### Decision Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    USER CLICKS "AI TRIAGE SEARCH"                   │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                    ┌─────────────────────────────┐
+                    │  Does case have EDR report? │
+                    └─────────────────────────────┘
+                           │              │
+                          YES            NO
+                           │              │
+                           ▼              ▼
+              ┌──────────────────┐  ┌──────────────────────────────┐
+              │ ENTRY POINT 1:   │  │ Check existing IOCs...       │
+              │ Full Triage      │  └──────────────────────────────┘
+              │ Extract IOCs     │              │
+              │ from report      │              ▼
+              └──────────────────┘    ┌─────────────────────────────┐
+                           │          │  Does case have IOCs?       │
+                           │          └─────────────────────────────┘
+                           │                 │              │
+                           │                YES            NO
+                           │                 │              │
+                           │                 ▼              ▼
+                           │    ┌─────────────────┐  ┌─────────────────────┐
+                           │    │ ENTRY POINT 2:  │  │ Check tagged events │
+                           │    │ IOC-Based Hunt  │  └─────────────────────┘
+                           │    │ Prompt for      │           │
+                           │    │ date/time       │    ┌──────┴──────┐
+                           │    └─────────────────┘   YES           NO
+                           │           │               │              │
+                           │           │               ▼              ▼
+                           │           │    ┌─────────────────┐  ┌─────────────────┐
+                           │           │    │ ENTRY POINT 3:  │  │ ERROR:          │
+                           │           │    │ Tag-Based Hunt  │  │ Must define     │
+                           │           │    │ Use tagged      │  │ 1 IOC or tag    │
+                           │           │    │ events as       │  │ 1 event         │
+                           │           │    │ anchors         │  └─────────────────┘
+                           │           │    └─────────────────┘
+                           │           │               │
+                           └───────────┴───────────────┘
+                                       │
+                                       ▼
+                           ┌──────────────────────────┐
+                           │ Continue with Phases:    │
+                           │ IOC Classification,      │
+                           │ Hunting, Time Windows,   │
+                           │ Process Trees, MITRE     │
+                           └──────────────────────────┘
+```
+
+### Entry Points Summary
+
+| Entry Point | Has Report | Has IOCs | Has Tags | User Prompt | Action |
+|-------------|------------|----------|----------|-------------|--------|
+| **1. Full Triage** | ✅ | - | - | None | Extract IOCs from report, proceed normally |
+| **2. IOC-Based Hunt** | ❌ | ✅ | - | Date/Time | Hunt existing IOCs from specified date |
+| **3. Tag-Based Hunt** | ❌ | ❌ | ✅ | None | Use tagged events as anchors |
+| **4. Error** | ❌ | ❌ | ❌ | N/A | Show error: "Add 1 IOC or tag 1 event" |
+
+### Entry Point 1: Full Triage (EDR Report Available)
+
+When an EDR report exists:
+- Extract IOCs from report using LLM/regex
+- Merge with any existing IOCs (deduplicated)
+- Include tagged events as high-priority anchors
+- Proceed with all phases
+
+### Entry Point 2: IOC-Based Hunt (No Report, IOCs Exist)
+
+When no report but IOCs exist:
+- **Prompt user for date/time** of the incident
+- Use existing IOCs as hunt targets
+- Default date suggestion: earliest IOC creation date or case creation date
+- Hunt within ±24h of the specified date
+
+**Modal UI:**
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🔍 AI Triage Search                                         │
+├──────────────────────────────────────────────────────────────┤
+│  No EDR report found, but 5 IOCs exist for this case.        │
+│                                                              │
+│  Enter incident date/time to begin hunting:                  │
+│  ┌────────────────────────────────────────┐                  │
+│  │ 2025-11-03 15:00                       │                  │
+│  └────────────────────────────────────────┘                  │
+│                                                              │
+│  IOCs to hunt:                                               │
+│  • IP: 192.168.1.50 (active)                                │
+│  • Hostname: ATN81960 (active)                              │
+│  • Process: statements546.exe (active)                      │
+│                                                              │
+│  [Start Hunt]  [Cancel]                                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Entry Point 3: Tag-Based Hunt (No Report, No IOCs, Tags Exist)
+
+When only tagged events exist:
+- **No date prompt needed** - use timestamps from tagged events
+- Tagged events ARE the anchors (high confidence)
+- Skip IOC extraction phase
+- Proceed directly to time window analysis
+
+**Modal UI:**
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🔍 AI Triage Search                                         │
+├──────────────────────────────────────────────────────────────┤
+│  No EDR report or IOCs found.                                │
+│  Using 12 tagged events as anchor points.                    │
+│                                                              │
+│  Tagged events span: 2025-11-03 14:00 - 2025-11-03 16:30     │
+│                                                              │
+│  [Start Analysis]  [Cancel]                                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Entry Point 4: Error State (Nothing Available)
+
+When nothing is available:
+- Show clear error message
+- Provide action buttons to add data
+
+**Modal UI:**
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🔍 AI Triage Search                                         │
+├──────────────────────────────────────────────────────────────┤
+│  ⚠️ Cannot start AI Triage Search                            │
+│                                                              │
+│  This case has no:                                           │
+│  • EDR Report                                                │
+│  • IOCs defined                                              │
+│  • Tagged events                                             │
+│                                                              │
+│  To use AI Triage Search, please either:                     │
+│  1. Add an EDR report to the case                            │
+│  2. Add at least one IOC                                     │
+│  3. Tag at least one event in the search results             │
+│                                                              │
+│  [Add EDR Report]  [Add IOC]  [Go to Search]  [Cancel]       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Priority When Multiple Sources Exist
+
+| Priority | Source | Reason |
+|----------|--------|--------|
+| 1 | **EDR Report** | Most complete, has context and IOCs together |
+| 2 | **Tagged Events** | Analyst-confirmed, high confidence |
+| 3 | **Existing IOCs** | May be from prior analysis or manual entry |
+
+**Hybrid Mode**: When multiple sources exist, use ALL of them:
+- Extract IOCs from report (if available)
+- Merge with existing IOCs (deduplicated)
+- Include tagged events as high-priority anchors
+
+---
+
 ## Critical Design Decisions (Updated 2025-11-29)
 
 ### Auto-Tagging Strategy
@@ -563,27 +731,190 @@ def auto_tag_anchor_events_batch(case_id: int, user_id: int,
 | `purple` | **AI Triage Auto-Tagged** - discovered by automated search |
 | `orange` | Suspicious - analyst flagged for follow-up |
 
-### 8. Main Orchestrator Function
+### 8. Determine Entry Point Function
 
 ```python
-def ai_triage_search(case_id: int, user_id: int) -> Dict:
+def determine_entry_point(case_id: int) -> Dict:
     """
-    Full automated AI Triage Search.
+    Determine which entry point to use based on available data.
+    
+    Returns:
+        Dict with:
+        - entry_point: 'full_triage' | 'ioc_hunt' | 'tag_hunt' | 'error'
+        - has_report: bool
+        - has_iocs: bool
+        - has_tags: bool
+        - ioc_count: int
+        - tag_count: int
+        - suggested_date: datetime or None
+        - message: str (for UI display)
+    """
+    from app.models import Case, IOC, TimelineTag
+    
+    case = Case.query.get(case_id)
+    
+    has_report = bool(case.edr_report)
+    existing_iocs = IOC.query.filter_by(case_id=case_id, is_active=True).all()
+    tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
+    
+    has_iocs = len(existing_iocs) > 0
+    has_tags = len(tagged_events) > 0
+    
+    # Determine suggested date from IOCs or tags
+    suggested_date = None
+    if existing_iocs:
+        # Use earliest IOC creation date
+        earliest_ioc = min(existing_iocs, key=lambda x: x.created_at or datetime.max)
+        suggested_date = earliest_ioc.created_at
+    elif tagged_events:
+        # Use earliest tagged event timestamp
+        for tag in tagged_events:
+            try:
+                event_data = json.loads(tag.event_data) if tag.event_data else {}
+                ts = event_data.get('@timestamp')
+                if ts:
+                    event_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    if suggested_date is None or event_time < suggested_date:
+                        suggested_date = event_time
+            except:
+                pass
+    
+    # Determine entry point
+    if has_report:
+        return {
+            'entry_point': 'full_triage',
+            'has_report': True,
+            'has_iocs': has_iocs,
+            'has_tags': has_tags,
+            'ioc_count': len(existing_iocs),
+            'tag_count': len(tagged_events),
+            'suggested_date': None,  # Not needed - will extract from report
+            'message': f'EDR report found. Will extract IOCs and hunt.'
+        }
+    elif has_iocs:
+        return {
+            'entry_point': 'ioc_hunt',
+            'has_report': False,
+            'has_iocs': True,
+            'has_tags': has_tags,
+            'ioc_count': len(existing_iocs),
+            'tag_count': len(tagged_events),
+            'iocs': [{'type': ioc.ioc_type, 'value': ioc.ioc_value} for ioc in existing_iocs[:10]],
+            'suggested_date': suggested_date,
+            'message': f'No EDR report. Found {len(existing_iocs)} IOCs. Enter date/time to begin hunt.'
+        }
+    elif has_tags:
+        return {
+            'entry_point': 'tag_hunt',
+            'has_report': False,
+            'has_iocs': False,
+            'has_tags': True,
+            'ioc_count': 0,
+            'tag_count': len(tagged_events),
+            'suggested_date': suggested_date,
+            'message': f'No EDR report or IOCs. Using {len(tagged_events)} tagged events as anchors.'
+        }
+    else:
+        return {
+            'entry_point': 'error',
+            'has_report': False,
+            'has_iocs': False,
+            'has_tags': False,
+            'ioc_count': 0,
+            'tag_count': 0,
+            'suggested_date': None,
+            'message': 'Cannot start AI Triage Search. Please add an EDR report, IOC, or tag an event.'
+        }
+```
+
+### 9. Convert Existing IOCs to Hunt Format
+
+```python
+def convert_existing_iocs_to_hunt_format(iocs: List) -> Dict:
+    """
+    Convert IOC model objects to the format expected by the hunting functions.
+    
+    Args:
+        iocs: List of IOC model objects
+    
+    Returns:
+        Dict in same format as extract_iocs_with_regex returns
+    """
+    result = {
+        'ips': [],
+        'hostnames': [],
+        'usernames': [],
+        'sids': [],
+        'hashes': [],
+        'paths': [],
+        'processes': [],
+        'commands': [],
+        'threats': [],
+        'domains': []
+    }
+    
+    type_mapping = {
+        'ip': 'ips',
+        'hostname': 'hostnames',
+        'username': 'usernames',
+        'user_sid': 'sids',
+        'sid': 'sids',
+        'hash': 'hashes',
+        'filepath': 'paths',
+        'filename': 'processes',
+        'process': 'processes',
+        'command': 'commands',
+        'threat': 'threats',
+        'domain': 'domains',
+        'url': 'domains'
+    }
+    
+    for ioc in iocs:
+        ioc_type = ioc.ioc_type.lower()
+        target_key = type_mapping.get(ioc_type)
+        if target_key and ioc.ioc_value:
+            result[target_key].append(ioc.ioc_value)
+    
+    return result
+```
+
+### 10. Main Orchestrator Function (with Flexible Entry Points)
+
+```python
+def ai_triage_search(case_id: int, user_id: int, 
+                     search_date: datetime = None) -> Dict:
+    """
+    Full automated AI Triage Search with flexible entry points.
+    
+    Entry Points:
+    1. EDR Report exists → extract IOCs, proceed normally
+    2. No report, IOCs exist → use existing IOCs + search_date
+    3. No report, no IOCs, tags exist → use tags as anchors
+    4. Nothing exists → raise error
     
     Phases:
-    1. Get analyst-tagged events as anchors (HIGH PRIORITY)
-    2. Extract IOCs from case EDR report
-    3. Classify IOCs as SPECIFIC vs BROAD
-    4. Search SPECIFIC IOCs → get events for auto-tagging
-    5. Discover via aggregations for BROAD IOCs
-    6. Auto-tag SPECIFIC IOC matches (purple tags)
-    7. Search time windows around ALL anchors
-    8. Build process trees
-    9. Apply MITRE pattern matching
-    10. Generate attack narrative
+    1. Determine entry point and get initial data
+    2. Get analyst-tagged events as anchors (HIGH PRIORITY)
+    3. Get/Extract IOCs (from report OR existing IOCs)
+    4. Classify IOCs as SPECIFIC vs BROAD
+    5. Search SPECIFIC IOCs → get events for auto-tagging
+    6. Discover via aggregations for BROAD IOCs
+    7. Auto-tag SPECIFIC IOC matches (purple tags)
+    8. Search time windows around ALL anchors
+    9. Build process trees
+    10. Apply MITRE pattern matching
+    11. Generate attack narrative
+    
+    Args:
+        case_id: Case ID
+        user_id: User ID who initiated the search
+        search_date: Optional date for IOC-based hunt (required if no report)
     
     Returns:
         Dict with iocs, anchors, timeline, process_trees, mitre_techniques, narrative
+    
+    Raises:
+        ValueError: If no data sources available (no report, IOCs, or tags)
     """
     from app.ai_search import (
         identify_attack_techniques,
@@ -594,14 +925,19 @@ def ai_triage_search(case_id: int, user_id: int) -> Dict:
         extract_iocs_with_llm,
         extract_iocs_with_regex
     )
-    from app.models import Case
+    from app.models import Case, IOC, TimelineTag
     
-    # Get case and EDR report
+    # Get case
     case = Case.query.get(case_id)
-    report_text = case.edr_report or case.description or ''
+    
+    # Check what we have to work with
+    has_report = bool(case.edr_report)
+    existing_iocs = IOC.query.filter_by(case_id=case_id, is_active=True).all()
+    tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
     
     results = {
-        'iocs': {'from_report': {}, 'discovered': {}},
+        'entry_point': None,
+        'iocs': {'from_report': {}, 'from_existing': {}, 'discovered': {}},
         'anchors': {
             'tagged': [],      # Analyst-tagged (high confidence)
             'discovered': []   # SPECIFIC IOC matches (auto-discovered)
@@ -616,23 +952,73 @@ def ai_triage_search(case_id: int, user_id: int) -> Dict:
     }
     
     # =========================================================================
-    # PHASE 1: GET ANALYST-TAGGED ANCHORS (High Confidence)
+    # PHASE 1: DETERMINE ENTRY POINT
+    # =========================================================================
+    
+    if has_report:
+        # ENTRY POINT 1: Full Triage
+        results['entry_point'] = 'full_triage'
+        report_text = case.edr_report
+        
+        # Extract IOCs from report
+        iocs = extract_iocs_with_llm(report_text)
+        if not iocs or not any(iocs.values()):
+            iocs = extract_iocs_with_regex(report_text)
+        
+        results['iocs']['from_report'] = iocs
+        
+        # Merge with existing IOCs (if any)
+        if existing_iocs:
+            existing_iocs_dict = convert_existing_iocs_to_hunt_format(existing_iocs)
+            for key in iocs:
+                if key in existing_iocs_dict:
+                    # Deduplicate
+                    combined = list(set(iocs.get(key, []) + existing_iocs_dict.get(key, [])))
+                    iocs[key] = combined
+            results['iocs']['from_existing'] = existing_iocs_dict
+        
+    elif existing_iocs:
+        # ENTRY POINT 2: IOC-Based Hunt
+        results['entry_point'] = 'ioc_hunt'
+        
+        if not search_date:
+            raise ValueError("search_date required when no EDR report exists. "
+                           "Please specify the approximate incident date/time.")
+        
+        # Convert existing IOCs to hunt format
+        iocs = convert_existing_iocs_to_hunt_format(existing_iocs)
+        results['iocs']['from_existing'] = iocs
+        
+    elif tagged_events:
+        # ENTRY POINT 3: Tag-Based Hunt
+        results['entry_point'] = 'tag_hunt'
+        
+        # No IOCs to hunt - will use tags as anchors
+        iocs = {}
+        
+    else:
+        # ENTRY POINT 4: Error - Nothing to work with
+        raise ValueError("No EDR report, IOCs, or tagged events found. "
+                        "Please add at least one IOC or tag one event to use AI Triage Search.")
+    
+    # =========================================================================
+    # PHASE 2: GET ANALYST-TAGGED ANCHORS (High Confidence)
     # =========================================================================
     
     tagged_anchors = get_tagged_event_anchors(case_id)
     results['anchors']['tagged'] = tagged_anchors
     
+    # For tag-based hunt, if no IOCs, we're done with IOC extraction
+    if results['entry_point'] == 'tag_hunt':
+        logger.info(f"[AI_TRIAGE] Tag-based hunt: Using {len(tagged_anchors)} tagged events as anchors")
+        # Skip to time window analysis (Phase 7)
+        # ... continue with phases 7-11
+    
     # =========================================================================
-    # PHASE 2: EXTRACT IOCs FROM EDR REPORT
+    # PHASE 3: (Already done in Phase 1 for report/IOC entry points)
     # =========================================================================
     
-    iocs = {}
-    if report_text:
-        iocs = extract_iocs_with_llm(report_text)
-        if not iocs or not any(iocs.values()):
-            iocs = extract_iocs_with_regex(report_text)
-    
-    results['iocs']['from_report'] = iocs
+    results['iocs']['combined'] = iocs
     
     # =========================================================================
     # PHASE 3: CLASSIFY IOCs AS SPECIFIC VS BROAD

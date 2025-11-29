@@ -21,6 +21,66 @@ The goal is to automate what analysts do manually: extract IOCs from a report, h
 
 ---
 
+## Flexible Entry Points (No EDR Report Fallback)
+
+Not all cases have an EDR report. The AI Triage Search supports multiple entry points:
+
+### Entry Points Summary
+
+| Entry Point | Has Report | Has IOCs | Has Tags | User Prompt | Action |
+|-------------|------------|----------|----------|-------------|--------|
+| **1. Full Triage** | ✅ | - | - | None | Extract IOCs from report, proceed normally |
+| **2. IOC-Based Hunt** | ❌ | ✅ | - | Date/Time | Hunt existing IOCs from specified date |
+| **3. Tag-Based Hunt** | ❌ | ❌ | ✅ | None | Use tagged events as anchors |
+| **4. Error** | ❌ | ❌ | ❌ | N/A | Show error: "Add 1 IOC or tag 1 event" |
+
+### Entry Point 1: Full Triage (EDR Report Available)
+
+The standard flow:
+1. Extract IOCs from report using LLM/regex
+2. Merge with any existing IOCs (deduplicated)
+3. Include tagged events as high-priority anchors
+4. Proceed with all phases
+
+### Entry Point 2: IOC-Based Hunt (No Report, IOCs Exist)
+
+When the analyst has manually added IOCs but no report:
+1. **Prompt user for date/time** of the incident
+2. Use existing IOCs as hunt targets
+3. Suggested date: earliest IOC creation date or case creation date
+4. Hunt within ±24h of the specified date
+
+**Why date/time is needed**: Without a report, we don't know when the incident occurred. The date helps focus the search window.
+
+### Entry Point 3: Tag-Based Hunt (No Report, No IOCs, Tags Exist)
+
+When the analyst has tagged events but no report or IOCs:
+1. **No date prompt needed** - use timestamps from tagged events
+2. Tagged events ARE the anchors (high confidence)
+3. Skip IOC extraction phase
+4. Proceed directly to time window analysis around each tag
+
+**Why this works**: The analyst has already identified important events. We expand from those.
+
+### Entry Point 4: Error State
+
+When nothing is available:
+- Show clear error message
+- Provide action buttons to add data
+- Options: Add EDR Report, Add IOC, Go to Search (to tag events)
+
+### Priority When Multiple Sources Exist
+
+| Priority | Source | Reason |
+|----------|--------|--------|
+| 1 | **EDR Report** | Most complete, has context and IOCs together |
+| 2 | **Tagged Events** | Analyst-confirmed, high confidence |
+| 3 | **Existing IOCs** | May be from prior analysis or manual entry |
+
+**Hybrid Mode**: When multiple sources exist, use ALL of them (merged, deduplicated).
+
+---
+
 ## The Problem We're Solving
 
 When analyzing an incident, analysts typically:
