@@ -642,38 +642,89 @@ BROAD IOCs (aggregation only):
 
 ---
 
-### Case 8 (CM) - Recon & Initial Access
+### Case 8 / Case 25 (CM) - Recon & Initial Access (Full Dry Run 2025-11-29)
 
 **Starting IOCs (from report):**
 - 5 IPs: 192.168.0.254 (gateway), 172.16.10.25, 192.168.0.8, 172.16.10.26 (malicious), 96.78.213.49 (SonicWall)
 - 3 Hostnames: CM-DC01, CM-VMHOST, WIN-HU67JDG9MF1 (known malicious)
 - 1 Username: tabadmin
-- 1 SID
-- Tools: Advanced IP Scanner, SonicWall
-- Paths: AdUsers.txt, AdComp.txt, advanced_ip_scanner.exe
+- 1 SID: S-1-5-21-2922803321-3646860260-2870289857-1142
+- 2 Paths: C:\ProgramData\AdUsers.txt, C:\ProgramData\AdComp.txt
+- 1 Command: nltest /domain_trusts
+- 1 Tool: Advanced IP Scanner
 
-**Malware Indicated:** TRUE (recon tools, known malicious hostname)
+**IOC Classification:**
+- SPECIFIC (auto-tag): 2 paths, 1 command, 1 tool = 4 items
+- BROAD (aggregation only): 1 username, 3 hostnames, 5 IPs, 1 SID = 10 items
 
-**Discovered IOCs:**
+**Snowball Hunting (±24h from 07:13 UTC):**
 
-| Type | Value | Source |
+| IOC | Events | Discovered Users | Discovered IPs |
+|-----|--------|------------------|----------------|
+| 192.168.0.8 | 10,000 | TABAdmin, cmadmin, DWM-2, UMFD-2 | 192.168.0.8 |
+| 172.16.10.26 | 65 | tabadmin | 192.168.0.9 |
+| CM-VMHOST | 10,000 | TABAdmin, cmadmin, DWM-2, UMFD-2 | 192.168.0.8 |
+| CM-DC01 | 10,000 | ACardoso, ruben, jose, George, VDaCruz | 192.168.0.68, .9, .76, .70 |
+
+**Discovered IOCs (NEW):**
+
+| Type | Count | Values |
 |------|-------|--------|
-| IP | 192.168.0.9 | Hunting |
-| Hostname | ATN65900 | Hunting |
-| Username | CM\jose | Hunting |
-| Command | nltest /domain_trusts | Recon search |
-| Command | "C:\Windows\system32\nltest.exe" /domain_trusts | Recon search |
-| Filename | nltest.exe | Recon search |
-| Filename | net.exe | Recon search |
+| Usernames | 10 | ACardoso, ruben, jose, George, VDaCruz, TABAdmin, UMFD-2, DWM-2, cmadmin, BDaCruz |
+| IPs | 8 | 192.168.0.68, 192.168.0.9, 192.168.0.76, 192.168.0.70, 10.230.22.82, 192.168.0.131, 192.168.0.96, 192.168.0.124 |
+
+**Time Window Analysis (±5 min around key events):**
+- 06:57:00 (gateway auth): 84 events
+- 07:10:00 (malicious host auth): 171 events
+- 07:12:00 (domain trust enum): 178 events
+- 07:13:00 (AdUsers/AdComp access): 201 events
+- 07:14:00 (IP Scanner): 203 events
+- **Total: 837 events in windows**
+
+**Process Trees Built:** 72 (from cmd.exe/powershell.exe parents)
+
+**Attack Timeline (from tabadmin activity 07:10-07:20 UTC):**
+```
+07:10:57 | Explorer.EXE | userinit.exe | Session start
+07:10:58 | LTTray.exe | LTSvcMon.exe | LabTech RMM (legitimate)
+07:10:59 | net.exe | cmd.exe | net use h: \\CM-DC\CompanyShares\Documents
+07:10:59 | net.exe | cmd.exe | net use s: \\CM-DC\CompanyShares\e2
+07:10:59 | net.exe | cmd.exe | net use z: \\CM-DC\CompanyShares\Documents\Quality
+07:10:59 | net.exe | cmd.exe | net use i: \\CM-DC\UserShares\tabadmin
+07:11:00 | ROUTE.EXE | cmd.exe | route add -p 192.168.2.0 mask 255.255.255.0 192.168.0.240
+07:11:09 | NOTEPAD.EXE | Explorer.EXE | \\cm-app01\redirection$\tabadmin\Desktop\sa.txt
+07:12:36 | powershell.exe | Explorer.EXE | PowerShell session started
+07:12:55 | nltest.exe | powershell.exe | /domain_trusts ← RECON
+07:13:10 | NOTEPAD.EXE | Explorer.EXE | C:\ProgramData\AdUsers.txt ← AD USER LIST
+07:13:24 | NOTEPAD.EXE | Explorer.EXE | C:\ProgramData\AdComp.txt ← AD COMPUTER LIST
+07:14:29 | Advanced_IP_Scanner_2.5.4594.1.tmp | Installer | Temp file
+07:14:40 | advanced_ip_scanner.exe | Installer | NETWORK SCANNING
+07:17:00 | msedge.exe | HuntressAgent.exe | Huntress opened browser
+```
+
+**MITRE ATT&CK Techniques:**
+| Technique | Name | Events |
+|-----------|------|--------|
+| T1016 | System Network Config Discovery | 43 |
+| T1018 | Remote System Discovery | 52 |
+| T1033 | System Owner/User Discovery | 48 |
+| T1078 | Valid Accounts | 58 |
+| T1087 | Account Discovery | 8 |
+| T1482 | Domain Trust Discovery | 4 |
+
+**Auto-Tag Results:**
+- SPECIFIC IOCs auto-tagged: **1 event** (Advanced IP Scanner)
+- BROAD IOCs NOT auto-tagged (used for discovery only)
 
 **Key Findings:**
 - SonicWall gateway (96.78.213.49:60443) - potential initial access
 - WIN-HU67JDG9MF1 - known malicious hostname from other intrusions
-- Domain trust enumeration via nltest
-- AD enumeration output files (AdUsers.txt, AdComp.txt)
+- Domain trust enumeration via nltest from PowerShell
+- AD enumeration output files (AdUsers.txt, AdComp.txt) accessed via Notepad
 - Network scanning with Advanced IP Scanner
+- LTTray.exe (LabTech RMM) running - legitimate management tool (would be excluded with System Tools settings)
 
-**Total IOCs: 23**
+**Total IOCs: 23 from report + 18 discovered = 41 total**
 
 ---
 

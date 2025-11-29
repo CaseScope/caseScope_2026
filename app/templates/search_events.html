@@ -4196,63 +4196,92 @@ function startHideKnownGood() {
     startBtn.style.display = 'none';
     closeBtn.textContent = 'Close';
     
-    // Start the hide operation using Server-Sent Events
-    const eventSource = new EventSource(`/settings/system-tools/case/${caseId}/hide-known-good`);
+    // Start the hide operation using Celery background task
+    fetch(`/settings/system-tools/case/${caseId}/hide-known-good`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showHideKnownGoodError(data.error);
+            return;
+        }
+        
+        if (data.task_id) {
+            // Poll for task status
+            pollHideKnownGoodStatus(caseId, data.task_id);
+        }
+    })
+    .catch(error => {
+        showHideKnownGoodError('Failed to start task: ' + error.message);
+    });
+}
+
+function pollHideKnownGoodStatus(caseId, taskId) {
+    const progressTitle = document.getElementById('hideKGProgressTitle');
+    const progressMessage = document.getElementById('hideKGProgressMessage');
+    const progressBar = document.getElementById('hideKGProgressBar');
+    const progressPercent = document.getElementById('hideKGProgressPercent');
+    const progressLabel = document.getElementById('hideKGProgressLabel');
+    const progressProcessed = document.getElementById('hideKGProgressProcessed');
+    const progressFound = document.getElementById('hideKGProgressFound');
     
-    eventSource.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        
-        const progressTitle = document.getElementById('hideKGProgressTitle');
-        const progressMessage = document.getElementById('hideKGProgressMessage');
-        const progressBar = document.getElementById('hideKGProgressBar');
-        const progressPercent = document.getElementById('hideKGProgressPercent');
-        const progressLabel = document.getElementById('hideKGProgressLabel');
-        const progressProcessed = document.getElementById('hideKGProgressProcessed');
-        const progressFound = document.getElementById('hideKGProgressFound');
-        
+    fetch(`/settings/system-tools/case/${caseId}/hide-known-good/status/${taskId}`)
+    .then(response => response.json())
+    .then(data => {
         switch (data.status) {
+            case 'pending':
+                progressTitle.textContent = 'Queued...';
+                progressMessage.textContent = 'Waiting for worker...';
+                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
+                break;
+            
             case 'starting':
                 progressTitle.textContent = 'Starting...';
-                progressMessage.textContent = data.message;
+                progressMessage.textContent = data.message || 'Initializing...';
+                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
                 break;
                 
             case 'scanning':
                 progressTitle.textContent = 'Scanning Events...';
-                progressMessage.textContent = `Checking events for known-good patterns`;
+                progressMessage.textContent = `Checking ${(data.total || 0).toLocaleString()} events for known-good patterns`;
                 progressBar.style.width = (data.percent || 0) + '%';
                 progressPercent.textContent = (data.percent || 0) + '%';
                 progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
                 progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
+                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
                 break;
                 
             case 'hiding':
                 progressTitle.textContent = 'Hiding Events...';
-                progressMessage.textContent = data.message || 'Applying hidden flag to matching events';
-                progressBar.style.width = (data.percent || 0) + '%';
-                progressPercent.textContent = (data.percent || 0) + '%';
+                progressMessage.textContent = 'Applying hidden flag to matching events';
+                progressBar.style.width = '100%';
+                progressPercent.textContent = '100%';
                 progressLabel.textContent = 'Hiding Progress';
-                if (data.hidden !== undefined) {
-                    progressProcessed.textContent = `${data.hidden.toLocaleString()} events hidden`;
-                    progressFound.textContent = `of ${(data.total_to_hide || 0).toLocaleString()} total`;
-                }
+                progressProcessed.textContent = `${(data.found || 0).toLocaleString()} events to hide`;
+                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
                 break;
                 
             case 'complete':
-                eventSource.close();
+            case 'success':
                 showHideKnownGoodResults(data);
                 break;
                 
             case 'error':
-                eventSource.close();
-                showHideKnownGoodError(data.message);
+                showHideKnownGoodError(data.message || 'Task failed');
                 break;
+                
+            default:
+                // Keep polling for unknown states
+                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
         }
-    };
-    
-    eventSource.onerror = function(error) {
-        eventSource.close();
-        showHideKnownGoodError('Connection lost. Please try again.');
-    };
+    })
+    .catch(error => {
+        showHideKnownGoodError('Lost connection to server: ' + error.message);
+    });
 }
 
 function showHideKnownGoodResults(data) {

@@ -502,23 +502,16 @@ def has_exclusions():
 # BULK HIDE KNOWN-GOOD EVENTS
 # ============================================================================
 
-@system_tools_bp.route('/case/<int:case_id>/hide-known-good')
+@system_tools_bp.route('/case/<int:case_id>/hide-known-good', methods=['POST'])
 @login_required
 def hide_known_good_events(case_id):
     """
-    Hide events that match known-good exclusion patterns.
-    Uses streaming response to provide progress updates.
-    
-    Matches events where:
-    - Parent process matches RMM tool patterns (LTSVC.exe, etc.)
-    - Process matches remote tool with known-good session ID
-    - Source IP is in known-good IP ranges
+    Start background task to hide events matching known-good exclusion patterns.
+    Returns task_id for progress polling.
     """
-    from flask import Response, stream_with_context
-    from main import db, opensearch_client
-    from models import Case, SystemToolsSetting
-    from datetime import datetime
-    import fnmatch
+    from main import db
+    from models import Case
+    from tasks import hide_known_good_events_task
     
     # Permission check
     if current_user.role == 'read-only':
@@ -528,142 +521,54 @@ def hide_known_good_events(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
-    # Load exclusions
+    # Load exclusions to validate
     exclusions = _get_exclusions_dict()
     
     if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['known_good_ips']]):
         return jsonify({'error': 'No exclusions defined. Please configure System Tools settings first.'}), 400
     
-    def generate():
-        """Generator for streaming progress updates with frequent keepalives"""
-        index_name = f"case_{case_id}"
-        hidden_count = 0
-        processed_count = 0
-        
-        try:
-            # First, count total events
-            count_response = opensearch_client.count(index=index_name)
-            total_events = count_response.get('count', 0)
-            
-            yield f"data: {json.dumps({'status': 'starting', 'total': total_events, 'message': f'Scanning {total_events:,} events...'})}\n\n"
-            
-            if total_events == 0:
-                yield f"data: {json.dumps({'status': 'complete', 'hidden': 0, 'processed': 0, 'message': 'No events in case'})}\n\n"
-                return
-            
-            # Use scroll API for large datasets
-            scroll_size = 1000
-            scroll_time = '10m'  # Longer scroll time
-            
-            # Query for events that are NOT already hidden
-            query = {
-                "query": {
-                    "bool": {
-                        "must_not": [
-                            {"term": {"is_hidden": True}}
-                        ]
-                    }
-                },
-                "_source": ["process", "parent", "host", "source", "search_blob"]
-            }
-            
-            response = opensearch_client.search(
-                index=index_name,
-                body=query,
-                scroll=scroll_time,
-                size=scroll_size
-            )
-            
-            scroll_id = response.get('_scroll_id')
-            hits = response['hits']['hits']
-            total_to_scan = response['hits']['total']['value']
-            
-            yield f"data: {json.dumps({'status': 'scanning', 'total': total_to_scan, 'message': f'Found {total_to_scan:,} non-hidden events to scan'})}\n\n"
-            
-            events_to_hide = []
-            last_yield_time = datetime.utcnow()
-            
-            while hits:
-                for hit in hits:
-                    processed_count += 1
-                    
-                    if _should_hide_event(hit, exclusions):
-                        events_to_hide.append({
-                            '_id': hit['_id'],
-                            '_index': hit['_index']
-                        })
-                    
-                    # Yield progress every 100 events OR every 5 seconds (keepalive)
-                    now = datetime.utcnow()
-                    time_since_yield = (now - last_yield_time).total_seconds()
-                    
-                    if processed_count % 100 == 0 or time_since_yield >= 5:
-                        pct = int((processed_count / total_to_scan) * 100) if total_to_scan > 0 else 0
-                        yield f"data: {json.dumps({'status': 'scanning', 'processed': processed_count, 'total': total_to_scan, 'found': len(events_to_hide), 'percent': pct})}\n\n"
-                        last_yield_time = now
-                
-                # Yield after each scroll batch (keepalive)
-                pct = int((processed_count / total_to_scan) * 100) if total_to_scan > 0 else 0
-                yield f"data: {json.dumps({'status': 'scanning', 'processed': processed_count, 'total': total_to_scan, 'found': len(events_to_hide), 'percent': pct})}\n\n"
-                
-                # Get next batch
-                response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
-                scroll_id = response.get('_scroll_id')
-                hits = response['hits']['hits']
-            
-            # Clear scroll
-            try:
-                opensearch_client.clear_scroll(scroll_id=scroll_id)
-            except:
-                pass
-            
-            yield f"data: {json.dumps({'status': 'hiding', 'found': len(events_to_hide), 'message': f'Found {len(events_to_hide):,} events to hide. Applying...'})}\n\n"
-            
-            # Bulk update to hide events
-            if events_to_hide:
-                batch_size = 500
-                for i in range(0, len(events_to_hide), batch_size):
-                    batch = events_to_hide[i:i+batch_size]
-                    
-                    bulk_body = []
-                    for evt in batch:
-                        bulk_body.append({"update": {"_index": evt['_index'], "_id": evt['_id']}})
-                        bulk_body.append({
-                            "script": {
-                                "source": "ctx._source.is_hidden = true; ctx._source.hidden_by = params.user_id; ctx._source.hidden_at = params.timestamp; ctx._source.hidden_reason = params.reason",
-                                "lang": "painless",
-                                "params": {
-                                    "user_id": current_user.id,
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                    "reason": "known_good_exclusion"
-                                }
-                            }
-                        })
-                    
-                    try:
-                        opensearch_client.bulk(body=bulk_body, refresh=False)
-                        hidden_count += len(batch)
-                        
-                        pct = int((hidden_count / len(events_to_hide)) * 100)
-                        yield f"data: {json.dumps({'status': 'hiding', 'hidden': hidden_count, 'total_to_hide': len(events_to_hide), 'percent': pct})}\n\n"
-                    except Exception as e:
-                        yield f"data: {json.dumps({'status': 'error', 'message': f'Bulk update error: {str(e)}'})}\n\n"
-                
-                # Refresh index
-                opensearch_client.indices.refresh(index=index_name)
-            
-            # Audit log
-            from audit_logger import log_action
-            log_action('hide_known_good_events', resource_type='case', resource_id=case_id,
-                      resource_name=case.name,
-                      details={'hidden_count': hidden_count, 'total_found': total_found})
-            
-            yield f"data: {json.dumps({'status': 'complete', 'hidden': hidden_count, 'processed': total_found, 'message': f'Hidden {hidden_count:,} known-good events'})}\n\n"
-            
-        except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+    # Start background task
+    task = hide_known_good_events_task.delay(case_id, current_user.id)
     
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    return jsonify({
+        'status': 'started',
+        'task_id': task.id,
+        'message': 'Hide known-good task started'
+    })
+
+
+@system_tools_bp.route('/case/<int:case_id>/hide-known-good/status/<task_id>')
+@login_required
+def hide_known_good_status(case_id, task_id):
+    """Poll for task status"""
+    from celery.result import AsyncResult
+    
+    task = AsyncResult(task_id)
+    
+    if task.state == 'PENDING':
+        return jsonify({
+            'status': 'pending',
+            'message': 'Task is queued...'
+        })
+    elif task.state == 'PROGRESS':
+        # task.info contains {'status': 'scanning', 'processed': X, ...}
+        # Return it directly so frontend can use the inner status
+        return jsonify(task.info)
+    elif task.state == 'SUCCESS':
+        return jsonify({
+            'status': 'complete',
+            **task.result
+        })
+    elif task.state == 'FAILURE':
+        return jsonify({
+            'status': 'error',
+            'message': str(task.info)
+        })
+    else:
+        return jsonify({
+            'status': task.state.lower(),
+            'message': 'Processing...'
+        })
 
 
 def _get_exclusions_dict():

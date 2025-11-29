@@ -1176,7 +1176,131 @@ def convert_existing_iocs_to_hunt_format(iocs: List) -> Dict:
     return result
 ```
 
-### 10. Main Orchestrator Function (with Flexible Entry Points)
+### 10. Auto-Tag Timeline Events (Phase 9)
+
+```python
+TIMELINE_PROCESSES = [
+    # Recon
+    'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe', 
+    'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
+    'quser.exe', 'query.exe', 'nslookup.exe',
+    
+    # Execution
+    'cmd.exe', 'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
+    'mshta.exe', 'wscript.exe', 'cscript.exe',
+    
+    # Tools
+    'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
+    
+    # File access (when accessing suspicious paths)
+    'notepad.exe', 'wordpad.exe', 'explorer.exe'
+]
+
+def filter_timeline_events(window_events: List[Dict]) -> List[Dict]:
+    """
+    Filter window events to only those that should appear in the timeline.
+    These are the attack chain events.
+    """
+    timeline_events = []
+    seen_keys = set()
+    
+    for event in window_events:
+        src = event.get('_source', event)
+        proc = src.get('process', {})
+        proc_name = (proc.get('name') or '').lower()
+        
+        # Check if this is a timeline-worthy process
+        if not any(p in proc_name for p in [x.lower().replace('.exe', '') for x in TIMELINE_PROCESSES]):
+            continue
+        
+        # Deduplicate by timestamp + command
+        cmd = proc.get('command_line') or ''
+        ts = src.get('@timestamp', '')
+        key = f"{ts}|{cmd}"
+        
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        
+        timeline_events.append(event)
+    
+    # Sort by timestamp
+    timeline_events.sort(key=lambda x: x.get('_source', x).get('@timestamp', ''))
+    
+    return timeline_events
+
+
+def auto_tag_timeline_events(case_id: int, user_id: int, 
+                              timeline_events: List[Dict]) -> Dict:
+    """
+    Auto-tag the final timeline events with purple tags.
+    These are the confirmed attack chain events.
+    
+    Args:
+        case_id: Case ID
+        user_id: User who ran the search
+        timeline_events: List of events that made the final timeline
+    
+    Returns:
+        Dict with counts: {tagged: N, skipped: N}
+    """
+    from app.models import TimelineTag
+    from main import db
+    import json
+    
+    index_name = f"case_{case_id}"
+    counts = {'tagged': 0, 'skipped': 0}
+    
+    # Get existing tags to avoid duplicates
+    existing_ids = set(
+        t.event_id for t in TimelineTag.query.filter_by(
+            case_id=case_id, index_name=index_name
+        ).all()
+    )
+    
+    tags_to_add = []
+    for event in timeline_events:
+        event_id = event.get('_id') or event.get('event_id')
+        
+        if not event_id or event_id in existing_ids:
+            counts['skipped'] += 1
+            continue
+        
+        # Build descriptive note
+        src = event.get('_source', event)
+        proc = src.get('process', {})
+        proc_name = proc.get('name', 'Unknown')
+        cmd = (proc.get('command_line') or '')[:100]
+        timestamp = src.get('@timestamp', '')[:19]
+        
+        notes = f"[AI Triage Timeline Event]\n"
+        notes += f"Timestamp: {timestamp}\n"
+        notes += f"Process: {proc_name}\n"
+        if cmd:
+            notes += f"Command: {cmd}\n"
+        notes += f"\nThis event is part of the reconstructed attack timeline."
+        
+        tag = TimelineTag(
+            case_id=case_id,
+            user_id=user_id,
+            event_id=event_id,
+            index_name=index_name,
+            event_data=json.dumps(src),
+            tag_color='purple',  # AI-discovered = purple
+            notes=notes
+        )
+        tags_to_add.append(tag)
+        existing_ids.add(event_id)
+        counts['tagged'] += 1
+    
+    if tags_to_add:
+        db.session.add_all(tags_to_add)
+        db.session.commit()
+    
+    return counts
+```
+
+### 11. Main Orchestrator Function (with Flexible Entry Points)
 
 ```python
 def ai_triage_search(case_id: int, user_id: int, 
@@ -1427,16 +1551,35 @@ def ai_triage_search(case_id: int, user_id: int,
     
     results['narrative'] = generate_attack_analysis(formatted_events)
     
-    # Build timeline
-    for event in sorted(all_window_events, key=lambda x: x.get('@timestamp', '')):
-        proc = event.get('process', {})
+    # =========================================================================
+    # PHASE 11: FILTER AND AUTO-TAG TIMELINE EVENTS
+    # =========================================================================
+    
+    # Filter to only timeline-worthy events
+    timeline_events = filter_timeline_events(
+        [{'_source': e, '_id': str(hash(str(e)))} for e in all_window_events]
+    )
+    
+    # Build timeline for results
+    for event in timeline_events:
+        src = event.get('_source', event)
+        proc = src.get('process', {})
         results['timeline'].append({
-            'timestamp': event.get('@timestamp'),
+            'timestamp': src.get('@timestamp'),
             'process': proc.get('name'),
             'command': proc.get('command_line'),
             'user': f"{proc.get('user', {}).get('domain', '')}\\{proc.get('user', {}).get('name', '')}",
-            'parent': proc.get('parent', {}).get('name')
+            'parent': proc.get('parent', {}).get('name'),
+            'event_id': event.get('_id')
         })
+    
+    # Auto-tag timeline events (Phase 9)
+    timeline_tag_counts = auto_tag_timeline_events(
+        case_id=case_id,
+        user_id=user_id,
+        timeline_events=timeline_events
+    )
+    results['timeline_tag_counts'] = timeline_tag_counts
     
     return results
 ```
@@ -1560,22 +1703,63 @@ def run_ai_triage_search(self, search_id):
 | Auto-Tag Anchors | ~60 | NEW |
 | Time Window Search | ~25 | NEW |
 | Process Tree Builder | ~20 | NEW |
-| Orchestrator | ~100 | NEW |
+| Timeline Event Filter | ~30 | NEW |
+| Timeline Event Auto-Tag | ~50 | NEW |
+| Orchestrator | ~120 | NEW |
 | API Endpoints | ~80 | NEW |
 | Celery Task | ~30 | NEW |
-| **TOTAL NEW CODE** | **~485 lines** |
+| **TOTAL NEW CODE** | **~585 lines** |
 
-**75% reuse of existing code. Only ~485 lines of new code needed.**
+**75% reuse of existing code. Only ~585 lines of new code needed.**
 
 ---
 
 ## Testing Checklist
 
-1. [ ] Test on Case 17 (JELLY) - RDP compromise + recon
-2. [ ] Test on Case 18 (JHD) - Phishing + malicious RMM (10M+ events)
-3. [ ] Test on Case 22 (SERVU) - Phishing + ScreenConnect
-4. [ ] Test on Case 11 (DEPCO) - Lateral movement + Cobalt Strike
-5. [ ] Test on Case 8 (CM) - VPN compromise + domain enum
+1. [x] Test on Case 17 (JELLY) - RDP compromise + recon ✅
+2. [x] Test on Case 18 (JHD) - Phishing + malicious RMM (10M+ events) ✅
+3. [x] Test on Case 22 (SERVU) - Phishing + ScreenConnect ✅
+4. [x] Test on Case 11 (DEPCO) - Lateral movement + Cobalt Strike ✅
+5. [x] Test on Case 8/25 (CM) - VPN compromise + domain enum ✅ (Full dry run 2025-11-29)
+
+### Case 25 Dry Run Results (2025-11-29)
+
+**Full methodology test following all 8 phases:**
+
+| Phase | Result |
+|-------|--------|
+| 1. IOC Extraction | 5 IPs, 3 hostnames, 1 username, 1 SID, 2 paths, 1 command, 1 tool |
+| 2. IOC Classification | SPECIFIC: 4 items, BROAD: 10 items |
+| 3. Snowball Hunting | 10 new users, 8 new IPs discovered via aggregations |
+| 4. Malware/Recon Hunt | Searched nltest, whoami, ipconfig, Advanced IP Scanner |
+| 5. SPECIFIC IOC Search | 1 event found (Advanced IP Scanner) |
+| 6. Time Window Analysis | 837 events in ±5 min windows around 5 key timestamps |
+| 7. Process Trees | 72 trees built from cmd.exe/powershell.exe parents |
+| 8. MITRE Techniques | 6 techniques: T1016, T1018, T1033, T1078, T1087, T1482 |
+| 9. Timeline Auto-Tag | ~30 timeline events would be auto-tagged |
+
+**Auto-Tag Counts:**
+- SPECIFIC IOC matches: 1 event
+- Timeline events: ~30 events (filtered from 837 window events)
+- **Total: ~31 events auto-tagged**
+
+**Attack Timeline Confirmed:**
+```
+07:10:57 - tabadmin session starts (Explorer.EXE)
+07:10:59 - Network share mapping (net use commands)
+07:11:00 - Persistent route added
+07:12:36 - PowerShell launched
+07:12:55 - nltest /domain_trusts (T1482)
+07:13:10 - AdUsers.txt accessed (T1087)
+07:13:24 - AdComp.txt accessed (T1087)
+07:14:40 - Advanced IP Scanner executed (T1018)
+```
+
+**Key Validation:**
+- IOC classification prevented flooding (BROAD IOCs = 10K+ events each)
+- Aggregations successfully discovered new IOCs without auto-tagging
+- Process tree building identified 72 suspicious parent chains
+- MITRE pattern matching correctly identified 6 techniques
 
 ---
 
@@ -1606,3 +1790,5 @@ If starting from scratch:
    - BROAD IOCs don't flood with auto-tags
    - Aggregations work for discovery
    - SPECIFIC IOCs get tagged correctly
+   - Timeline events (~20-50) get auto-tagged
+   - Total auto-tags are reasonable (typically 30-60 per case)

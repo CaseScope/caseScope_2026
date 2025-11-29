@@ -2405,3 +2405,262 @@ def cleanup_old_audit_logs():
                 'status': 'error',
                 'message': str(e)
             }
+
+
+# ============================================================================
+# HIDE KNOWN GOOD EVENTS (v1.38.0)
+# ============================================================================
+
+@celery_app.task(bind=True, name='tasks.hide_known_good_events')
+def hide_known_good_events_task(self, case_id, user_id):
+    """
+    Background task to hide events matching known-good exclusion patterns.
+    
+    This task scans ALL events in a case and hides those matching:
+    - RMM tool parent processes (LTSVC.exe, etc.)
+    - Remote tool sessions with known-good IDs
+    - Known-good IP addresses/ranges
+    
+    Args:
+        case_id: ID of the case to process
+        user_id: ID of the user who initiated the task
+    
+    Returns:
+        Dict with status, hidden count, and processed count
+    """
+    from main import app, db, opensearch_client
+    from models import Case, SystemToolsSetting
+    from datetime import datetime
+    import fnmatch
+    import ipaddress
+    import json
+    
+    with app.app_context():
+        try:
+            case = db.session.get(Case, case_id)
+            if not case:
+                return {'status': 'error', 'message': 'Case not found'}
+            
+            # Load exclusions
+            exclusions = {
+                'rmm_executables': [],
+                'remote_tools': [],
+                'known_good_ips': []
+            }
+            
+            settings = SystemToolsSetting.query.filter_by(is_active=True).all()
+            
+            for s in settings:
+                if s.setting_type == 'rmm_tool':
+                    if s.executable_pattern:
+                        patterns = [p.strip().lower() for p in s.executable_pattern.split(',') if p.strip()]
+                        exclusions['rmm_executables'].extend(patterns)
+                elif s.setting_type == 'remote_tool':
+                    ids = json.loads(s.known_good_ids) if s.known_good_ids else []
+                    exclusions['remote_tools'].append({
+                        'name': s.tool_name,
+                        'pattern': s.executable_pattern.lower() if s.executable_pattern else '',
+                        'known_good_ids': [id.lower() for id in ids]
+                    })
+                elif s.setting_type == 'known_good_ip':
+                    if s.ip_or_cidr:
+                        exclusions['known_good_ips'].append(s.ip_or_cidr)
+            
+            if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['known_good_ips']]):
+                return {'status': 'error', 'message': 'No exclusions defined'}
+            
+            index_name = f"case_{case_id}"
+            hidden_count = 0
+            processed_count = 0
+            
+            # Count total events
+            count_response = opensearch_client.count(index=index_name)
+            total_events = count_response.get('count', 0)
+            
+            self.update_state(state='PROGRESS', meta={
+                'status': 'starting',
+                'total': total_events,
+                'processed': 0,
+                'found': 0,
+                'percent': 0
+            })
+            
+            if total_events == 0:
+                return {'status': 'success', 'hidden': 0, 'processed': 0, 'message': 'No events in case'}
+            
+            # Use scroll API
+            scroll_size = 1000
+            scroll_time = '10m'
+            
+            query = {
+                "query": {
+                    "bool": {
+                        "must_not": [
+                            {"term": {"is_hidden": True}}
+                        ]
+                    }
+                },
+                "_source": ["process", "parent", "host", "source", "search_blob"]
+            }
+            
+            response = opensearch_client.search(
+                index=index_name,
+                body=query,
+                scroll=scroll_time,
+                size=scroll_size
+            )
+            
+            scroll_id = response.get('_scroll_id')
+            hits = response['hits']['hits']
+            total_to_scan = response['hits']['total']['value']
+            
+            events_to_hide = []
+            
+            while hits:
+                for hit in hits:
+                    processed_count += 1
+                    
+                    if _should_hide_event_task(hit, exclusions):
+                        events_to_hide.append({
+                            '_id': hit['_id'],
+                            '_index': hit['_index']
+                        })
+                
+                # Update progress every batch
+                pct = int((processed_count / total_to_scan) * 100) if total_to_scan > 0 else 0
+                self.update_state(state='PROGRESS', meta={
+                    'status': 'scanning',
+                    'total': total_to_scan,
+                    'processed': processed_count,
+                    'found': len(events_to_hide),
+                    'percent': pct
+                })
+                
+                # Get next batch
+                response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
+                scroll_id = response.get('_scroll_id')
+                hits = response['hits']['hits']
+            
+            # Clear scroll
+            try:
+                opensearch_client.clear_scroll(scroll_id=scroll_id)
+            except:
+                pass
+            
+            # Update state before hiding
+            self.update_state(state='PROGRESS', meta={
+                'status': 'hiding',
+                'total': total_to_scan,
+                'processed': processed_count,
+                'found': len(events_to_hide),
+                'percent': 100
+            })
+            
+            # Bulk update to hide events
+            if events_to_hide:
+                batch_size = 500
+                for i in range(0, len(events_to_hide), batch_size):
+                    batch = events_to_hide[i:i+batch_size]
+                    
+                    bulk_body = []
+                    for evt in batch:
+                        bulk_body.append({"update": {"_index": evt['_index'], "_id": evt['_id']}})
+                        bulk_body.append({
+                            "script": {
+                                "source": "ctx._source.is_hidden = true; ctx._source.hidden_by = params.user_id; ctx._source.hidden_at = params.timestamp; ctx._source.hidden_reason = params.reason",
+                                "lang": "painless",
+                                "params": {
+                                    "user_id": user_id,
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                    "reason": "known_good_exclusion"
+                                }
+                            }
+                        })
+                    
+                    try:
+                        opensearch_client.bulk(body=bulk_body, refresh=False)
+                        hidden_count += len(batch)
+                    except Exception as e:
+                        logger.error(f"[HIDE KNOWN GOOD] Bulk update error: {e}")
+                
+                # Refresh index
+                opensearch_client.indices.refresh(index=index_name)
+            
+            # Audit log
+            from audit_logger import log_action
+            # Note: log_action uses current_user which isn't available in Celery task
+            # Log manually to the workers log instead
+            logger.info(f"[HIDE KNOWN GOOD] Audit: user_id={user_id}, case_id={case_id}, hidden={hidden_count}, processed={processed_count}")
+            
+            logger.info(f"[HIDE KNOWN GOOD] Case {case_id}: Hidden {hidden_count:,} of {processed_count:,} events")
+            
+            return {
+                'status': 'success',
+                'hidden': hidden_count,
+                'processed': processed_count,
+                'message': f'Hidden {hidden_count:,} known-good events'
+            }
+            
+        except Exception as e:
+            logger.error(f"[HIDE KNOWN GOOD] Error: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e)}
+
+
+def _should_hide_event_task(hit, exclusions):
+    """Check if an event should be hidden based on exclusion rules."""
+    import fnmatch
+    import ipaddress
+    
+    src = hit.get('_source', {})
+    proc = src.get('process', {})
+    parent = proc.get('parent', {}) or src.get('parent', {})
+    
+    # Check 1: Parent process is a known RMM tool
+    parent_name = (parent.get('name') or parent.get('executable') or '').lower()
+    parent_name_only = parent_name.split('\\')[-1] if parent_name else ''
+    
+    for rmm_pattern in exclusions.get('rmm_executables', []):
+        if fnmatch.fnmatch(parent_name_only, rmm_pattern):
+            return True
+        if fnmatch.fnmatch(parent_name, f'*{rmm_pattern}'):
+            return True
+    
+    # Check 2: Process is a remote tool with known-good ID
+    proc_name = (proc.get('name') or proc.get('executable') or '').lower()
+    cmd_line = (proc.get('command_line') or '').lower()
+    search_blob = (src.get('search_blob') or '').lower()
+    
+    for tool_config in exclusions.get('remote_tools', []):
+        pattern = tool_config.get('pattern', '')
+        if pattern and (pattern in proc_name or pattern in search_blob):
+            for known_id in tool_config.get('known_good_ids', []):
+                if known_id and (known_id in cmd_line or known_id in search_blob):
+                    return True
+    
+    # Check 3: Source IP is in known-good range
+    source_ip = None
+    if src.get('source', {}).get('ip'):
+        source_ip = src['source']['ip']
+    elif src.get('host', {}).get('ip'):
+        source_ip = src['host']['ip']
+    elif proc.get('user_logon', {}).get('ip'):
+        source_ip = proc['user_logon']['ip']
+    
+    if source_ip:
+        if isinstance(source_ip, list):
+            source_ip = source_ip[0]
+        
+        for ip_range in exclusions.get('known_good_ips', []):
+            try:
+                ip = ipaddress.ip_address(source_ip)
+                if '/' in ip_range:
+                    network = ipaddress.ip_network(ip_range, strict=False)
+                    if ip in network:
+                        return True
+                else:
+                    if ip == ipaddress.ip_address(ip_range):
+                        return True
+            except (ValueError, TypeError):
+                pass
+    
+    return False

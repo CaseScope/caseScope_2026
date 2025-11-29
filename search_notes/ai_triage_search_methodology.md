@@ -1,7 +1,7 @@
 # AI Triage Search Methodology
 
 **Created**: 2025-11-29  
-**Last Updated**: 2025-11-29  
+**Last Updated**: 2025-11-29 (Case 25 full dry run added)  
 **Purpose**: Document the methodology for automated attack chain analysis using IOC extraction, iterative hunting, process trees, time windows, and MITRE pattern matching.
 
 ---
@@ -485,6 +485,122 @@ MITRE_PATTERNS = {
 3. Check if command line contains any pattern's indicators
 4. If match, tag the event with the MITRE technique ID
 
+### Phase 9: Timeline Event Auto-Tagging
+
+**Goal**: Auto-tag the final timeline events that represent the confirmed attack chain.
+
+**Why This Phase?**
+- Time window analysis pulls ~500-1000 events per case
+- After filtering to "interesting" processes and deduplication, we get ~20-50 key events
+- These ARE the attack chain - they should be tagged for the analyst to review
+- This is different from Phase 4 (SPECIFIC IOC auto-tagging) - these are the **narrative events**
+
+**Events That Make the Timeline**:
+Only events matching these criteria are included:
+```python
+TIMELINE_PROCESSES = [
+    # Recon
+    'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe', 
+    'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
+    'quser.exe', 'query.exe', 'nslookup.exe',
+    
+    # Execution
+    'cmd.exe', 'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
+    'mshta.exe', 'wscript.exe', 'cscript.exe',
+    
+    # Tools
+    'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
+    
+    # File access (when accessing suspicious paths)
+    'notepad.exe', 'wordpad.exe', 'explorer.exe'
+]
+```
+
+**Auto-Tag Logic**:
+```python
+def auto_tag_timeline_events(case_id: int, user_id: int, 
+                              timeline_events: List[Dict]) -> Dict:
+    """
+    Auto-tag the final timeline events with purple tags.
+    These are the confirmed attack chain events.
+    
+    Args:
+        case_id: Case ID
+        user_id: User who ran the search
+        timeline_events: List of events that made the final timeline
+    
+    Returns:
+        Dict with counts: {tagged: N, skipped: N}
+    """
+    from app.models import TimelineTag
+    from main import db
+    import json
+    
+    index_name = f"case_{case_id}"
+    counts = {'tagged': 0, 'skipped': 0}
+    
+    # Get existing tags to avoid duplicates
+    existing_ids = set(
+        t.event_id for t in TimelineTag.query.filter_by(
+            case_id=case_id, index_name=index_name
+        ).all()
+    )
+    
+    tags_to_add = []
+    for event in timeline_events:
+        event_id = event.get('_id') or event.get('event_id')
+        
+        if not event_id or event_id in existing_ids:
+            counts['skipped'] += 1
+            continue
+        
+        # Build descriptive note
+        src = event.get('_source', event)
+        proc = src.get('process', {})
+        proc_name = proc.get('name', 'Unknown')
+        cmd = (proc.get('command_line') or '')[:100]
+        timestamp = src.get('@timestamp', '')[:19]
+        
+        notes = f"[AI Triage Timeline Event]\n"
+        notes += f"Timestamp: {timestamp}\n"
+        notes += f"Process: {proc_name}\n"
+        if cmd:
+            notes += f"Command: {cmd}\n"
+        notes += f"\nThis event is part of the reconstructed attack timeline."
+        
+        tag = TimelineTag(
+            case_id=case_id,
+            user_id=user_id,
+            event_id=event_id,
+            index_name=index_name,
+            event_data=json.dumps(src),
+            tag_color='purple',  # AI-discovered = purple
+            notes=notes
+        )
+        tags_to_add.append(tag)
+        existing_ids.add(event_id)
+        counts['tagged'] += 1
+    
+    if tags_to_add:
+        db.session.add_all(tags_to_add)
+        db.session.commit()
+    
+    return counts
+```
+
+**Expected Tag Counts by Case Type**:
+| Case Type | Window Events | Timeline Events | Auto-Tagged |
+|-----------|---------------|-----------------|-------------|
+| Single host recon | ~200-500 | ~20-30 | ~20-30 |
+| Lateral movement | ~500-1000 | ~40-60 | ~40-60 |
+| Large case (10M+) | ~500-1000 | ~30-50 | ~30-50 |
+
+**Tag Notes Include**:
+- Timestamp of the event
+- Process name
+- Command line (truncated)
+- Note that it's part of the attack timeline
+
 ---
 
 ## Test Cases
@@ -573,23 +689,77 @@ Explorer.EXE (PID: 6932) - User: JJLAW\Tracy
 
 **Attack Pattern**: Lateral movement chain across multiple hosts.
 
-### Case 8 (CM) - VPN Compromise + Domain Enumeration
+### Case 8 / Case 25 (CM) - VPN Compromise + Domain Enumeration
 
 **Report Summary**: User tabadmin compromised via gateway, authenticated from suspicious workstation, ran domain enumeration, used Advanced IP Scanner.
 
-**IOCs Extracted**:
-- Username: tabadmin
-- IP: 192.168.0.254, 172.16.10.25, 172.16.10.26
+**IOCs Extracted (Phase 1)**:
+- IPs: 192.168.0.8, 192.168.0.254, 96.78.213.49, 172.16.10.25, 172.16.10.26
 - Hostnames: CM-DC01, CM-VMHOST, WIN-HU67JDG9MF1
-- Gateway: 96.78.213.49:60443 (SonicWall)
-- Tools: Advanced IP Scanner, nltest
+- Username: tabadmin
+- SID: S-1-5-21-2922803321-3646860260-2870289857-1142
+- Paths: C:\ProgramData\AdUsers.txt, C:\ProgramData\AdComp.txt
+- Commands: nltest /domain_trusts
+- Tools: Advanced IP Scanner
 
-**Hunting Results**:
-- Found nltest /domain_trusts commands
-- Found Advanced IP Scanner execution
-- Found file access to AdUsers.txt, AdComp.txt
+**IOC Classification (Phase 2)**:
+- SPECIFIC (auto-tag): 2 paths, 1 command, 1 tool
+- BROAD (aggregation): 1 username, 3 hostnames, 5 IPs, 1 SID
 
-**Key Learning**: nltest commands and their executables should be captured as IOCs.
+**Snowball Hunting Results (Phase 3, ±24h window)**:
+| IOC | Events Found | Discovered |
+|-----|--------------|------------|
+| 192.168.0.8 | 10,000 | CM-VMHOST, TABAdmin, cmadmin, DWM-2, UMFD-2 |
+| 172.16.10.26 | 65 | CM-DC01, tabadmin, 192.168.0.9 |
+| CM-VMHOST | 10,000 | TABAdmin, cmadmin, DWM-2, UMFD-2 |
+| CM-DC01 | 10,000 | ACardoso, ruben, jose, George, VDaCruz, multiple IPs |
+
+**NEW IOCs Discovered**:
+- 10 new usernames: ACardoso, ruben, jose, George, VDaCruz, TABAdmin, UMFD-2, DWM-2, cmadmin, BDaCruz
+- 8 new IPs: 192.168.0.68, 192.168.0.9, 192.168.0.76, 192.168.0.70, 10.230.22.82, 192.168.0.131, 192.168.0.96, 192.168.0.124
+
+**Time Window Analysis (Phase 6)**:
+| Timestamp | Events in ±5 min |
+|-----------|------------------|
+| 06:57:00 (gateway auth) | 84 |
+| 07:10:00 (malicious host auth) | 171 |
+| 07:12:00 (domain trust enum) | 178 |
+| 07:13:00 (AdUsers/AdComp access) | 201 |
+| 07:14:00 (IP Scanner) | 203 |
+| **Total** | **837 events** |
+
+**Process Trees (Phase 7)**: 72 trees built from cmd.exe/powershell.exe parents
+
+**Attack Timeline (from EDR data)**:
+```
+07:10:57 | Explorer.EXE launched (tabadmin session)
+07:10:59 | net.exe - net use h: \\CM-DC\CompanyShares\Documents
+07:10:59 | net.exe - net use s: \\CM-DC\CompanyShares\e2
+07:10:59 | net.exe - net use z: \\CM-DC\CompanyShares\Documents\Quality
+07:10:59 | net.exe - net use i: \\CM-DC\UserShares\tabadmin
+07:11:00 | ROUTE.EXE - route add -p 192.168.2.0 mask 255.255.255.0 192.168.0.240
+07:11:09 | NOTEPAD.EXE - \\cm-app01\redirection$\tabadmin\Desktop\sa.txt
+07:12:36 | powershell.exe - launched from Explorer
+07:12:55 | nltest.exe - /domain_trusts ← DOMAIN TRUST ENUMERATION
+07:13:10 | NOTEPAD.EXE - C:\ProgramData\AdUsers.txt ← AD USER LIST ACCESS
+07:13:24 | NOTEPAD.EXE - C:\ProgramData\AdComp.txt ← AD COMPUTER LIST ACCESS
+07:14:29 | Advanced_IP_Scanner_2.5.4594.1.tmp - installer
+07:14:40 | advanced_ip_scanner.exe - NETWORK SCANNING
+```
+
+**MITRE ATT&CK Techniques (Phase 8)**:
+| Technique | Name | Events |
+|-----------|------|--------|
+| T1016 | System Network Config Discovery | 43 |
+| T1018 | Remote System Discovery | 52 |
+| T1033 | System Owner/User Discovery | 48 |
+| T1078 | Valid Accounts | 58 |
+| T1087 | Account Discovery | 8 |
+| T1482 | Domain Trust Discovery | 4 |
+
+**Auto-Tag Count**: 1 event (Advanced IP Scanner match)
+
+**Key Learning**: nltest commands and their executables should be captured as IOCs. The IOC classification prevented flooding - BROAD IOCs like usernames (10K+ events each) were used for discovery only.
 
 ### Case 22 (SERVU) - Phishing + Malicious RMM
 
@@ -792,7 +962,11 @@ If starting from scratch:
 
 11. **Apply MITRE patterns** - Match processes and commands to techniques
 
-12. **Build the narrative** - Sort by time, group by session, identify phases
+12. **Filter timeline events** - Keep only interesting processes (recon, execution, tools)
+
+13. **Auto-tag timeline events** - Tag the ~20-50 events that form the attack narrative
+
+14. **Build the narrative** - Sort by time, group by session, identify phases
 
 ---
 
@@ -817,9 +991,47 @@ The key insight is that **attacks are chains, not single events**. By:
 4. Looking at surrounding time (±5 minutes)
 5. Building process trees (parent/child from EDR)
 6. Matching known patterns (MITRE ATT&CK)
+7. **Auto-tagging timeline events** (~20-50 key events that form the attack narrative)
 
 ...we can automatically reconstruct what an analyst would manually piece together.
 
 The EDR data structure with embedded parent/grandparent information makes process tree building particularly effective. The combination of the triage extraction with time-window analysis catches both the "what" (IOCs) and the "how" (attack chain).
 
 **Critical for large cases (10M+ events)**: Use aggregations for BROAD IOCs instead of auto-tagging all matches.
+
+**Auto-Tag Summary**:
+| Source | Typical Count | Purpose |
+|--------|---------------|---------|
+| SPECIFIC IOC matches | 1-10 | Malware, hashes, suspicious commands |
+| Timeline events | 20-50 | Attack chain narrative events |
+| **Total per case** | **~30-60** | Manageable for analyst review |
+
+---
+
+## Where Results Appear
+
+The AI Triage Search results are stored in the `AITriageSearch` model and displayed in the **AI Analysis** section on the case dashboard, alongside:
+- AI Reports (narrative summaries)
+- AI Timelines (chronological views)
+- **AI Triage Searches** (attack chain analysis)
+
+**Card Display**:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 🔍 AI Triage Search                              [View] [Delete]│
+│ Generated: 2025-11-29 14:30                                     │
+├─────────────────────────────────────────────────────────────────┤
+│ Entry Point: Full Triage (EDR Report)                           │
+│ IOCs Extracted: 14 | Discovered: 28                             │
+│ Events Analyzed: 837 | Timeline Events: 32                      │
+│ Auto-Tagged: 33 events                                          │
+│ MITRE Techniques: T1016, T1018, T1033, T1078, T1087, T1482      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Clicking "View" opens the full results page with**:
+- Attack timeline (chronological list of tagged events)
+- Process trees (visual parent/child relationships)
+- IOC summary (extracted + discovered)
+- MITRE techniques identified
+- AI-generated narrative
