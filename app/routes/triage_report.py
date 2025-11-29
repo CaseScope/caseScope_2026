@@ -15,7 +15,7 @@ import json
 import logging
 import re
 from typing import Dict, List, Set, Tuple
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from flask import Blueprint, request, jsonify, Response, stream_with_context, render_template
 from flask_login import login_required, current_user
 
 logger = logging.getLogger(__name__)
@@ -1279,3 +1279,75 @@ def list_ai_triage_searches(case_id):
         })
     
     return jsonify(result)
+
+
+@triage_report_bp.route('/ai-triage-search/<int:search_id>/view')
+@login_required
+def view_ai_triage_search(search_id):
+    """
+    View the full AI Triage Search report.
+    Shows IOCs extracted, discovered, timeline, MITRE techniques, process trees.
+    """
+    import json
+    from main import db
+    from models import AITriageSearch, Case, User
+    
+    search = AITriageSearch.query.get_or_404(search_id)
+    case = Case.query.get(search.case_id)
+    user = db.session.get(User, search.generated_by)
+    
+    # Parse JSON fields
+    iocs_extracted = {}
+    iocs_discovered = {}
+    timeline = []
+    process_trees = []
+    mitre_techniques = {}
+    summary = {}
+    
+    try:
+        if search.iocs_extracted_json:
+            iocs_extracted = json.loads(search.iocs_extracted_json)
+    except:
+        pass
+    
+    try:
+        if search.iocs_discovered_json:
+            iocs_discovered = json.loads(search.iocs_discovered_json)
+    except:
+        pass
+    
+    try:
+        if search.timeline_json:
+            timeline = json.loads(search.timeline_json)
+    except:
+        pass
+    
+    try:
+        if search.process_trees_json:
+            process_trees = json.loads(search.process_trees_json)
+    except:
+        pass
+    
+    try:
+        if search.mitre_techniques_json:
+            mitre_techniques = json.loads(search.mitre_techniques_json)
+    except:
+        pass
+    
+    try:
+        if search.summary_json:
+            summary = json.loads(search.summary_json)
+    except:
+        pass
+    
+    return render_template('view_ai_triage_search.html',
+        search=search,
+        case=case,
+        user=user,
+        iocs_extracted=iocs_extracted,
+        iocs_discovered=iocs_discovered,
+        timeline=timeline,
+        process_trees=process_trees,
+        mitre_techniques=mitre_techniques,
+        summary=summary
+    )

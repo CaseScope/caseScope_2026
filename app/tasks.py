@@ -2445,6 +2445,7 @@ def hide_known_good_events_task(self, case_id, user_id):
             exclusions = {
                 'rmm_executables': [],
                 'remote_tools': [],
+                'edr_tools': [],
                 'known_good_ips': []
             }
             
@@ -2462,11 +2463,24 @@ def hide_known_good_events_task(self, case_id, user_id):
                         'pattern': s.executable_pattern.lower() if s.executable_pattern else '',
                         'known_good_ids': [id.lower() for id in ids]
                     })
+                elif s.setting_type == 'edr_tool':
+                    # EDR tools have context-aware exclusion
+                    routine = json.loads(s.routine_commands) if s.routine_commands else []
+                    responses = json.loads(s.response_patterns) if s.response_patterns else []
+                    executables = [p.strip().lower() for p in (s.executable_pattern or '').split(',') if p.strip()]
+                    exclusions['edr_tools'].append({
+                        'name': s.tool_name,
+                        'executables': executables,
+                        'exclude_routine': s.exclude_routine if s.exclude_routine is not None else True,
+                        'keep_responses': s.keep_responses if s.keep_responses is not None else True,
+                        'routine_commands': [r.lower() for r in routine],
+                        'response_patterns': [r.lower() for r in responses]
+                    })
                 elif s.setting_type == 'known_good_ip':
                     if s.ip_or_cidr:
                         exclusions['known_good_ips'].append(s.ip_or_cidr)
             
-            if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['known_good_ips']]):
+            if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['edr_tools'], exclusions['known_good_ips']]):
                 return {'status': 'error', 'message': 'No exclusions defined'}
             
             index_name = f"case_{case_id}"
@@ -2615,7 +2629,7 @@ def _should_hide_event_task(hit, exclusions):
     proc = src.get('process', {})
     parent = proc.get('parent', {}) or src.get('parent', {})
     
-    # Check 1: Parent process is a known RMM tool
+    # Check 1: Parent process is a known RMM tool (full exclusion)
     parent_name = (parent.get('name') or parent.get('executable') or '').lower()
     parent_name_only = parent_name.split('\\')[-1] if parent_name else ''
     
@@ -2637,7 +2651,29 @@ def _should_hide_event_task(hit, exclusions):
                 if known_id and (known_id in cmd_line or known_id in search_blob):
                     return True
     
-    # Check 3: Source IP is in known-good range
+    # Check 3: EDR tools - CONTEXT-AWARE exclusion
+    # Exclude routine health checks BUT KEEP response actions
+    for edr_config in exclusions.get('edr_tools', []):
+        # Check if parent is this EDR tool
+        parent_is_edr = any(
+            fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name
+            for exe in edr_config.get('executables', [])
+        )
+        
+        if parent_is_edr:
+            # FIRST: Check if this is a response action - DON'T HIDE
+            if edr_config.get('keep_responses', True):
+                response_patterns = edr_config.get('response_patterns', [])
+                if any(pattern in cmd_line or pattern in search_blob for pattern in response_patterns):
+                    return False  # DON'T hide - this is a response action!
+            
+            # SECOND: Check if this is a routine health check - HIDE
+            if edr_config.get('exclude_routine', True):
+                routine_commands = edr_config.get('routine_commands', [])
+                if any(routine in cmd_line for routine in routine_commands):
+                    return True  # Hide - routine health check
+    
+    # Check 4: Source IP is in known-good range
     source_ip = None
     if src.get('source', {}).get('ip'):
         source_ip = src['source']['ip']
@@ -2676,10 +2712,31 @@ TIMELINE_PROCESSES = [
     'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe',
     'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
     'quser.exe', 'query.exe', 'nslookup.exe', 'route.exe',
-    'cmd.exe', 'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
+    'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
     'mshta.exe', 'wscript.exe', 'cscript.exe',
     'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
     'notepad.exe', 'wordpad.exe'
+]
+
+# Noise processes to EXCLUDE from timeline (system management, not attack-related)
+NOISE_PROCESSES = [
+    'auditpol.exe',      # Windows audit policy - often run by RMM
+    'gpupdate.exe',      # Group policy update
+    'schtasks.exe',      # Task scheduler (when parent is RMM)
+    'wuauclt.exe',       # Windows Update
+    'msiexec.exe',       # Installer
+    'dism.exe',          # Deployment Image Service
+]
+
+# RMM-related paths to exclude (if command line contains these)
+RMM_PATH_PATTERNS = [
+    'ltsvc', 'labtech', 'automate',  # ConnectWise Automate/LabTech
+    'aem', 'datto',                   # Datto RMM
+    'kaseya', 'agentmon',             # Kaseya
+    'ninjarmmag',                     # NinjaRMM
+    'syncro',                         # Syncro
+    'atera',                          # Atera
+    'n-central', 'basupsrvc',         # N-able
 ]
 
 # MITRE ATT&CK patterns for Phase 8
@@ -2718,15 +2775,60 @@ def run_ai_triage_search(self, search_id):
         Dict with status and summary
     """
     from main import app, db, opensearch_client
-    from models import AITriageSearch, Case, IOC, System, TimelineTag
+    from models import AITriageSearch, Case, IOC, System, TimelineTag, SystemToolsSetting
     from routes.triage_report import (
         extract_iocs_with_llm, extract_iocs_with_regex,
         extract_from_search_results, extract_recon_from_results,
-        search_ioc, RECON_SEARCH_TERMS
+        search_ioc, RECON_SEARCH_TERMS,
+        NOISE_USERS, NOT_HOSTNAMES, is_machine_account, is_valid_hostname
     )
     from datetime import datetime, timedelta
     import json
     import re
+    import fnmatch
+    import ipaddress
+    
+    def is_noise_user(username):
+        """Check if username is a known system/noise account."""
+        if not username:
+            return True
+        name_lower = username.lower()
+        # Check against blocklist (imported from triage_report)
+        if name_lower in NOISE_USERS:
+            return True
+        # Check for machine accounts (ending in $)
+        if is_machine_account(username):
+            return True
+        # Check for DWM-N, UMFD-N patterns (extended check)
+        if re.match(r'^(dwm|umfd)-\d+$', name_lower):
+            return True
+        return False
+    
+    def is_noise_hostname(hostname):
+        """Check if hostname is a known noise/invalid hostname."""
+        if not hostname:
+            return True
+        # Use the imported NOT_HOSTNAMES blocklist
+        if hostname.lower() in NOT_HOSTNAMES:
+            return True
+        # Must have at least one letter
+        if not any(c.isalpha() for c in hostname):
+            return True
+        # Too short
+        if len(hostname) < 3:
+            return True
+        return False
+    
+    def normalize_hostname(hostname):
+        """
+        Normalize hostname: strip FQDN to just hostname, uppercase.
+        E.g., 'CM-DC01.domain.local' -> 'CM-DC01'
+        """
+        if not hostname:
+            return None
+        # Strip FQDN - take only the first part before any dot
+        hostname = hostname.split('.')[0].upper()
+        return hostname if len(hostname) >= 3 else None
     
     with app.app_context():
         start_time = datetime.utcnow()
@@ -2756,6 +2858,120 @@ def run_ai_triage_search(self, search_id):
                 'message': message,
                 'percent': percent
             })
+        
+        def load_exclusions():
+            """Load system tools exclusions from database."""
+            exclusions = {
+                'rmm_executables': [],
+                'remote_tools': [],
+                'edr_tools': [],
+                'known_good_ips': []
+            }
+            settings = SystemToolsSetting.query.filter_by(is_active=True).all()
+            for s in settings:
+                if s.setting_type == 'rmm_tool' and s.executable_pattern:
+                    patterns = [p.strip().lower() for p in s.executable_pattern.split(',') if p.strip()]
+                    exclusions['rmm_executables'].extend(patterns)
+                elif s.setting_type == 'remote_tool':
+                    ids = json.loads(s.known_good_ids) if s.known_good_ids else []
+                    exclusions['remote_tools'].append({
+                        'name': s.tool_name,
+                        'pattern': (s.executable_pattern or '').lower(),
+                        'known_good_ids': [i.lower() for i in ids]
+                    })
+                elif s.setting_type == 'edr_tool':
+                    # EDR tools have context-aware exclusion
+                    routine = json.loads(s.routine_commands) if s.routine_commands else []
+                    responses = json.loads(s.response_patterns) if s.response_patterns else []
+                    executables = [p.strip().lower() for p in (s.executable_pattern or '').split(',') if p.strip()]
+                    exclusions['edr_tools'].append({
+                        'name': s.tool_name,
+                        'executables': executables,
+                        'exclude_routine': s.exclude_routine if s.exclude_routine is not None else True,
+                        'keep_responses': s.keep_responses if s.keep_responses is not None else True,
+                        'routine_commands': [r.lower() for r in routine],
+                        'response_patterns': [r.lower() for r in responses]
+                    })
+                elif s.setting_type == 'known_good_ip' and s.ip_or_cidr:
+                    exclusions['known_good_ips'].append(s.ip_or_cidr)
+            return exclusions
+        
+        def should_exclude_event(event, exclusions):
+            """Check if event should be excluded from tagging (known-good)."""
+            src = event.get('_source', event)
+            
+            # Already hidden?
+            if src.get('is_hidden'):
+                return True
+            
+            proc = src.get('process', {})
+            parent = proc.get('parent', {})
+            parent_name = (parent.get('name') or '').lower()
+            proc_name = (proc.get('name') or '').lower()
+            cmd_line = (proc.get('command_line') or '').lower()
+            parent_cmd = (parent.get('command_line') or '').lower()
+            
+            # Check 0: Noise processes (system management, not attack-related)
+            if proc_name.replace('.exe', '') in [p.replace('.exe', '') for p in NOISE_PROCESSES]:
+                return True
+            
+            # Check 1: Parent is a known RMM tool (full exclusion)
+            for rmm_pattern in exclusions.get('rmm_executables', []):
+                if fnmatch.fnmatch(parent_name, rmm_pattern) or fnmatch.fnmatch(proc_name, rmm_pattern):
+                    return True
+            
+            # Check 1.5: Command line or parent command contains RMM paths
+            for rmm_path in RMM_PATH_PATTERNS:
+                if rmm_path in cmd_line or rmm_path in parent_cmd:
+                    return True
+            
+            # Check 2: EDR tools - CONTEXT-AWARE exclusion
+            # Exclude routine health checks BUT KEEP response actions
+            for edr_config in exclusions.get('edr_tools', []):
+                # Check if parent is this EDR tool
+                parent_is_edr = any(
+                    fnmatch.fnmatch(parent_name, exe) or exe in parent_name
+                    for exe in edr_config.get('executables', [])
+                )
+                
+                if parent_is_edr:
+                    # FIRST: Check if this is a response action - ALWAYS KEEP
+                    if edr_config.get('keep_responses', True):
+                        response_patterns = edr_config.get('response_patterns', [])
+                        if any(pattern in cmd_line for pattern in response_patterns):
+                            return False  # DON'T exclude - this is a response action!
+                    
+                    # SECOND: Check if this is a routine health check - exclude
+                    if edr_config.get('exclude_routine', True):
+                        routine_commands = edr_config.get('routine_commands', [])
+                        if any(routine in cmd_line for routine in routine_commands):
+                            return True  # Exclude - routine health check
+            
+            # Check 3: Remote tool with known-good session ID
+            for tool_config in exclusions.get('remote_tools', []):
+                pattern = tool_config.get('pattern', '')
+                if pattern and pattern in proc_name:
+                    for known_id in tool_config.get('known_good_ids', []):
+                        if known_id in cmd_line:
+                            return True
+            
+            # Check 4: Source IP is known-good
+            source_ip = src.get('source', {}).get('ip') or src.get('host', {}).get('ip')
+            if source_ip:
+                if isinstance(source_ip, list):
+                    source_ip = source_ip[0] if source_ip else None
+                if source_ip:
+                    for ip_range in exclusions.get('known_good_ips', []):
+                        try:
+                            if '/' in ip_range:
+                                if ipaddress.ip_address(source_ip) in ipaddress.ip_network(ip_range, strict=False):
+                                    return True
+                            elif source_ip == ip_range:
+                                return True
+                        except:
+                            pass
+            
+            return False
         
         try:
             search.status = 'running'
@@ -2800,6 +3016,22 @@ def run_ai_triage_search(self, search_id):
             
             update_progress(1, 'IOC Extraction', 
                 f'Extracted {len(known_ips)} IPs, {len(known_hostnames)} hosts, {len(known_usernames)} users', 10)
+            
+            # =========================================================
+            # LOAD EXCLUSIONS EARLY - Before any hunting/analysis
+            # =========================================================
+            # This ensures we don't use events from known-good systems as anchors
+            # e.g., if analyst uses ScreenConnect to run whoami, we don't want that polluting results
+            exclusions = load_exclusions()
+            exclusion_summary = {
+                'rmm_tools': len(exclusions.get('rmm_executables', [])),
+                'remote_tools': len(exclusions.get('remote_tools', [])),
+                'edr_tools': len(exclusions.get('edr_tools', [])),
+                'known_ips': len(exclusions.get('known_good_ips', []))
+            }
+            logger.info(f"[AI_TRIAGE] Loaded exclusions: {exclusion_summary['rmm_tools']} RMM patterns, "
+                       f"{exclusion_summary['remote_tools']} remote tools, {exclusion_summary['edr_tools']} EDR tools, "
+                       f"{exclusion_summary['known_ips']} known-good IPs")
             
             # Check event count
             try:
@@ -2887,9 +3119,11 @@ def run_ai_triage_search(self, search_id):
             # =========================================================
             # PHASE 5: SPECIFIC IOC SEARCH (auto-tag candidates)
             # =========================================================
-            update_progress(5, 'SPECIFIC IOC Search', 'Searching for specific IOC matches...', 52)
+            update_progress(5, 'SPECIFIC IOC Search', 'Searching for specific IOC matches (filtering exclusions)...', 52)
             
             specific_anchors = []
+            excluded_anchor_count = 0
+            
             for ioc_type, values in specific_iocs.items():
                 for value in values:
                     if not value:
@@ -2910,6 +3144,12 @@ def run_ai_triage_search(self, search_id):
                         logger.info(f"[AI_TRIAGE] Phase 5: {ioc_type}='{search_value}' found {total} results")
                         if total > 0:
                             for hit in results[:100]:  # Limit per IOC
+                                # FILTER OUT KNOWN-GOOD EVENTS BEFORE USING AS ANCHORS
+                                # e.g., if analyst ran whoami via ScreenConnect, don't use as anchor
+                                if should_exclude_event(hit, exclusions):
+                                    excluded_anchor_count += 1
+                                    continue
+                                
                                 specific_anchors.append({
                                     'event_id': hit['_id'],
                                     'event': hit,
@@ -2922,7 +3162,8 @@ def run_ai_triage_search(self, search_id):
                     except Exception as e:
                         logger.warning(f"[AI_TRIAGE] Error searching {ioc_type}={value}: {e}")
             
-            update_progress(5, 'SPECIFIC IOC Search', f'Found {len(specific_anchors)} specific IOC matches', 55)
+            logger.info(f"[AI_TRIAGE] Phase 5: {len(specific_anchors)} anchors kept, {excluded_anchor_count} excluded as known-good")
+            update_progress(5, 'SPECIFIC IOC Search', f'Found {len(specific_anchors)} anchors ({excluded_anchor_count} excluded)', 55)
             
             # =========================================================
             # PHASE 6: BROAD IOC AGGREGATION (discovery only)
@@ -2946,11 +3187,13 @@ def run_ai_triage_search(self, search_id):
                         result = opensearch_client.search(index=f"case_{search.case_id}", body=agg_query)
                         
                         for bucket in result.get('aggregations', {}).get('hosts', {}).get('buckets', []):
-                            if bucket['key'] and bucket['key'] not in ['-', '']:
-                                discovered_hostnames.add(bucket['key'])
+                            host_val = normalize_hostname(bucket['key'])
+                            if host_val and not is_noise_hostname(host_val):
+                                discovered_hostnames.add(host_val)
                         for bucket in result.get('aggregations', {}).get('users', {}).get('buckets', []):
-                            if bucket['key'] and bucket['key'] not in ['-', '', 'SYSTEM', 'LOCAL SERVICE']:
-                                discovered_usernames.add(bucket['key'])
+                            user_val = bucket['key']
+                            if user_val and not is_noise_user(user_val):
+                                discovered_usernames.add(user_val)
                         for bucket in result.get('aggregations', {}).get('ips', {}).get('buckets', []):
                             if bucket['key'] and not bucket['key'].startswith('127.'):
                                 discovered_ips.add(bucket['key'])
@@ -2971,11 +3214,114 @@ def run_ai_triage_search(self, search_id):
                 f'Discovered {len(discovered_hostnames)} hosts, {len(discovered_usernames)} users, {len(discovered_ips)} IPs', 60)
             
             # =========================================================
+            # CREATE IOCs AND SYSTEMS IN DATABASE
+            # =========================================================
+            update_progress(6, 'Creating IOCs & Systems', 'Adding extracted and discovered IOCs to database...', 61)
+            
+            iocs_created = 0
+            systems_created = 0
+            
+            # Get existing IOCs and Systems to avoid duplicates
+            existing_iocs = set(
+                (i.ioc_type, i.ioc_value.lower()) 
+                for i in IOC.query.filter_by(case_id=search.case_id).all()
+            )
+            existing_systems = set(
+                s.hostname.upper() 
+                for s in System.query.filter_by(case_id=search.case_id).all()
+            )
+            
+            # Helper to add IOC if not exists
+            def add_ioc_if_new(ioc_type, ioc_value, is_active=True):
+                nonlocal iocs_created
+                if not ioc_value or (ioc_type, ioc_value.lower()) in existing_iocs:
+                    return
+                try:
+                    ioc = IOC(
+                        case_id=search.case_id,
+                        ioc_type=ioc_type,
+                        ioc_value=ioc_value,
+                        is_active=is_active,
+                        description='Created by AI Triage Search'
+                    )
+                    db.session.add(ioc)
+                    existing_iocs.add((ioc_type, ioc_value.lower()))
+                    iocs_created += 1
+                except Exception as e:
+                    logger.warning(f"[AI_TRIAGE] Failed to create IOC {ioc_type}={ioc_value}: {e}")
+            
+            # Helper to add System if not exists
+            def add_system_if_new(hostname):
+                nonlocal systems_created
+                if not hostname or hostname.upper() in existing_systems:
+                    return
+                try:
+                    system = System(
+                        case_id=search.case_id,
+                        hostname=hostname.upper(),
+                        system_type='workstation',
+                        notes='Discovered by AI Triage Search'
+                    )
+                    db.session.add(system)
+                    existing_systems.add(hostname.upper())
+                    systems_created += 1
+                except Exception as e:
+                    logger.warning(f"[AI_TRIAGE] Failed to create System {hostname}: {e}")
+            
+            # Add extracted IOCs from report
+            for ip in iocs.get('ips', []):
+                add_ioc_if_new('ip', ip)
+            for hostname in iocs.get('hostnames', []):
+                normalized = normalize_hostname(hostname)
+                if normalized and not is_noise_hostname(normalized):  # Filter noise hostnames
+                    add_ioc_if_new('hostname', normalized)
+                    add_system_if_new(normalized)
+            for username in iocs.get('usernames', []):
+                if not is_noise_user(username):  # Filter noise users
+                    add_ioc_if_new('username', username)
+            for sid in iocs.get('sids', []):
+                add_ioc_if_new('user_sid', sid, is_active=False)  # SIDs start inactive
+            for path in iocs.get('paths', []):
+                add_ioc_if_new('filepath', path)
+            for proc in iocs.get('processes', []):
+                add_ioc_if_new('filename', proc)
+            for cmd in iocs.get('commands', []):
+                add_ioc_if_new('command', cmd)
+            for tool in iocs.get('tools', []):
+                add_ioc_if_new('tool', tool)
+            for hash_val in iocs.get('hashes', []):
+                add_ioc_if_new('hash', hash_val)
+            
+            # Add discovered IOCs
+            for ip in discovered_ips:
+                add_ioc_if_new('ip', ip)
+            for hostname in discovered_hostnames:
+                normalized = normalize_hostname(hostname)
+                if normalized and not is_noise_hostname(normalized):  # Filter noise hostnames
+                    add_ioc_if_new('hostname', normalized)
+                    add_system_if_new(normalized)
+            for username in discovered_usernames:
+                if not is_noise_user(username):  # Filter noise users
+                    add_ioc_if_new('username', username)
+            for cmd in discovered_commands:
+                add_ioc_if_new('command', cmd)
+            for filename in discovered_filenames:
+                add_ioc_if_new('filename', filename)
+            for threat in discovered_threats:
+                add_ioc_if_new('threat', threat)
+            
+            db.session.commit()
+            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs and {systems_created} Systems")
+            
+            # =========================================================
             # PHASE 7: TIME WINDOW ANALYSIS (±5 min around anchors)
             # =========================================================
             update_progress(7, 'Time Window Analysis', 'Analyzing time windows around anchor events...', 62)
             
+            # Note: exclusions already loaded after Phase 1
+            
             all_window_events = []
+            excluded_early_count = 0
             processed_windows = set()
             
             # Use specific anchors or report timestamps
@@ -3004,6 +3350,9 @@ def run_ai_triage_search(self, search_id):
                                 "must": [
                                     {"term": {"normalized_computer.keyword": hostname}},
                                     {"range": {"@timestamp": {"gte": start, "lte": end}}}
+                                ],
+                                "must_not": [
+                                    {"term": {"is_hidden": True}}  # Exclude pre-hidden events
                                 ]
                             }
                         },
@@ -3013,16 +3362,21 @@ def run_ai_triage_search(self, search_id):
                     
                     result = opensearch_client.search(index=f"case_{search.case_id}", body=time_query)
                     for hit in result['hits']['hits']:
+                        # Filter out known-good events EARLY
+                        if should_exclude_event(hit, exclusions):
+                            excluded_early_count += 1
+                            continue
                         all_window_events.append(hit)
                 except Exception as e:
                     logger.warning(f"[AI_TRIAGE] Time window error: {e}")
                 
                 update_progress(7, 'Time Window Analysis', 
-                    f'Processed {i+1}/{len(anchors_to_process)} windows, {len(all_window_events)} events', 
+                    f'Processed {i+1}/{len(anchors_to_process)} windows, {len(all_window_events)} events ({excluded_early_count} excluded)', 
                     62 + int((i / max(len(anchors_to_process), 1)) * 10))
             
             search.events_analyzed_count = len(all_window_events)
-            update_progress(7, 'Time Window Analysis', f'Analyzed {len(all_window_events)} events in time windows', 72)
+            logger.info(f"[AI_TRIAGE] Time window analysis: {len(all_window_events)} events kept, {excluded_early_count} excluded as known-good")
+            update_progress(7, 'Time Window Analysis', f'Analyzed {len(all_window_events)} events ({excluded_early_count} known-good excluded)', 72)
             
             # =========================================================
             # PHASE 8: PROCESS TREE BUILDING + MITRE PATTERN MATCHING
@@ -3078,9 +3432,38 @@ def run_ai_triage_search(self, search_id):
                         if len(techniques_found[tech_id]['events']) < 5:
                             techniques_found[tech_id]['events'].append(event['_id'])
             
+            # Build better process tree structure grouped by parent
+            process_tree_data = []
+            for key, tree in list(suspicious_parents.items())[:30]:
+                # Sort children by timestamp
+                children = sorted(tree.get('children', []), key=lambda x: x.get('timestamp', ''))
+                
+                # Get time range (use different var names to avoid shadowing outer start_time)
+                if children:
+                    tree_start = children[0].get('timestamp', '')[:19] if children[0].get('timestamp') else ''
+                    tree_end = children[-1].get('timestamp', '')[:19] if children[-1].get('timestamp') else ''
+                else:
+                    tree_start = tree_end = ''
+                
+                process_tree_data.append({
+                    'parent_name': tree.get('parent_name'),
+                    'parent_pid': tree.get('parent_pid'),
+                    'hostname': tree.get('hostname'),
+                    'time_range': f"{tree_start} - {tree_end}" if tree_start else '',
+                    'child_count': len(children),
+                    'children': [
+                        {
+                            'timestamp': (c.get('timestamp') or '')[:19],
+                            'name': c.get('name'),
+                            'command': c.get('command_line', '')[:300]
+                        }
+                        for c in children[:20]  # Limit children per tree
+                    ]
+                })
+            
             search.process_trees_count = len(suspicious_parents)
             search.techniques_found_count = len(techniques_found)
-            search.process_trees_json = json.dumps(list(suspicious_parents.values())[:20])
+            search.process_trees_json = json.dumps(process_tree_data)
             search.mitre_techniques_json = json.dumps({k: {'name': v['name'], 'count': v['count']} for k, v in techniques_found.items()})
             
             update_progress(8, 'Process Trees & MITRE', 
@@ -3089,11 +3472,14 @@ def run_ai_triage_search(self, search_id):
             # =========================================================
             # PHASE 9: TIMELINE EVENT AUTO-TAGGING
             # =========================================================
-            update_progress(9, 'Timeline Auto-Tagging', 'Filtering and auto-tagging timeline events...', 87)
+            update_progress(9, 'Timeline Auto-Tagging', 'Filtering timeline events...', 87)
             
-            # Filter to timeline-worthy events
+            # Note: exclusions already loaded after Phase 1
+            
+            # Filter to timeline-worthy events, excluding known-good
             timeline_events = []
             seen_keys = set()
+            excluded_count = 0
             
             for event in all_window_events:
                 src = event.get('_source', {})
@@ -3104,8 +3490,13 @@ def run_ai_triage_search(self, search_id):
                 if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
                     continue
                 
-                # Deduplicate
-                cmd = proc.get('command_line') or ''
+                # Check exclusions (known-good RMM, remote tools, IPs)
+                if should_exclude_event(event, exclusions):
+                    excluded_count += 1
+                    continue
+                
+                # Deduplicate (case-insensitive on command)
+                cmd = (proc.get('command_line') or '').lower()
                 ts = src.get('@timestamp', '')
                 key = f"{ts}|{cmd}"
                 if key in seen_keys:
@@ -3115,6 +3506,7 @@ def run_ai_triage_search(self, search_id):
                 timeline_events.append(event)
             
             timeline_events.sort(key=lambda x: x.get('_source', {}).get('@timestamp', ''))
+            logger.info(f"[AI_TRIAGE] Filtered to {len(timeline_events)} timeline events ({excluded_count} excluded as known-good)")
             
             update_progress(9, 'Timeline Auto-Tagging', f'Filtered to {len(timeline_events)} timeline events', 90)
             
@@ -3125,11 +3517,16 @@ def run_ai_triage_search(self, search_id):
                     case_id=search.case_id, index_name=index_name
                 ).all()
             )
+            existing_tag_count = len(existing_tag_ids)
             
             tags_added = 0
+            already_tagged = 0
             for event in timeline_events:
                 event_id = event.get('_id')
-                if not event_id or event_id in existing_tag_ids:
+                if not event_id:
+                    continue
+                if event_id in existing_tag_ids:
+                    already_tagged += 1
                     continue
                 
                 src = event.get('_source', {})
@@ -3163,22 +3560,42 @@ def run_ai_triage_search(self, search_id):
             
             db.session.commit()
             
-            search.timeline_events_count = len(timeline_events)
-            search.auto_tagged_count = tags_added
+            logger.info(f"[AI_TRIAGE] Auto-tagging: {tags_added} new, {already_tagged} already tagged, {existing_tag_count} total existing")
             
-            # Build timeline JSON
+            search.timeline_events_count = len(timeline_events)
+            # Store total tagged (new + already existed from this run's events)
+            search.auto_tagged_count = tags_added + already_tagged
+            
+            # Build timeline JSON with full process tree info
             timeline_data = []
-            for event in timeline_events[:50]:
+            for event in timeline_events[:100]:  # Increased limit
                 src = event.get('_source', {})
                 proc = src.get('process', {})
+                parent = proc.get('parent', {})
+                grandparent = parent.get('parent', {})  # EDR often includes grandparent
+                
                 timeline_data.append({
                     'timestamp': src.get('@timestamp'),
+                    'hostname': src.get('normalized_computer') or src.get('host', {}).get('hostname'),
+                    # Process info
                     'process': proc.get('name'),
-                    'command': (proc.get('command_line') or '')[:200],
-                    'user': f"{proc.get('user', {}).get('domain', '')}\\{proc.get('user', {}).get('name', '')}",
-                    'parent': proc.get('parent', {}).get('name'),
-                    'hostname': src.get('normalized_computer'),
-                    'event_id': event.get('_id')
+                    'process_pid': proc.get('pid'),
+                    'process_entity_id': proc.get('entity_id'),
+                    'command': (proc.get('command_line') or '')[:500],  # Longer command
+                    'user': f"{proc.get('user', {}).get('domain', '')}\\{proc.get('user', {}).get('name', '')}".strip('\\'),
+                    # Parent info
+                    'parent': parent.get('name'),
+                    'parent_pid': parent.get('pid'),
+                    'parent_entity_id': parent.get('entity_id'),
+                    'parent_command': (parent.get('command_line') or '')[:200],
+                    # Grandparent info (if available)
+                    'grandparent': grandparent.get('name') if grandparent else None,
+                    'grandparent_pid': grandparent.get('pid') if grandparent else None,
+                    # Event metadata
+                    'event_id': event.get('_id'),
+                    'file_type': src.get('file_type'),
+                    # Hash if available
+                    'hash': proc.get('hash', {}).get('sha256') or proc.get('hash', {}).get('md5')
                 })
             search.timeline_json = json.dumps(timeline_data)
             
@@ -3206,10 +3623,11 @@ def run_ai_triage_search(self, search_id):
             
             db.session.commit()
             
+            tag_msg = f'{tags_added} new' if tags_added else f'{already_tagged} already tagged'
             update_progress(9, 'Complete', 
-                f'AI Triage Search complete! Tagged {tags_added} events, found {len(techniques_found)} MITRE techniques', 100)
+                f'AI Triage Search complete! {tag_msg}, found {len(techniques_found)} MITRE techniques', 100)
             
-            logger.info(f"[AI_TRIAGE] Case {search.case_id}: Complete - {tags_added} events tagged, {len(techniques_found)} techniques")
+            logger.info(f"[AI_TRIAGE] Case {search.case_id}: Complete - {tags_added} new tags ({already_tagged} already existed), {len(techniques_found)} techniques")
             
             return {
                 'status': 'success',

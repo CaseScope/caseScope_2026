@@ -79,6 +79,66 @@ RMM_TOOLS = {
     }
 }
 
+# Known EDR/Security tools - exclude routine, keep responses
+EDR_TOOLS = {
+    'huntress': {
+        'name': 'Huntress',
+        'executables': 'HuntressAgent.exe,HuntressUpdater.exe,Huntress*.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig,net user,net group,hostname,tasklist',
+        'response_patterns': 'isolat,quarantin,block,remediat,disable,mass isolation',
+        'description': 'Huntress MDR - exclude health checks, keep isolation/response actions'
+    },
+    'blackpoint': {
+        'name': 'Blackpoint (SNAP)',
+        'executables': 'SnapAgent.exe,Blackpoint*.exe,SNAP*.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig,hostname',
+        'response_patterns': 'isolat,snap,block,contain,quarantin',
+        'description': 'Blackpoint SNAP - exclude health checks, keep isolation/response actions'
+    },
+    'sentinelone': {
+        'name': 'SentinelOne',
+        'executables': 'SentinelAgent.exe,SentinelCtl.exe,SentinelOne*.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig,hostname,tasklist',
+        'response_patterns': 'isolat,quarantin,threat,mitigat,kill,terminat,remediat',
+        'description': 'SentinelOne EDR - exclude health checks, keep threat response actions'
+    },
+    'crowdstrike': {
+        'name': 'CrowdStrike Falcon',
+        'executables': 'CSAgent.exe,CSFalconService.exe,CSFalcon*.exe,CrowdStrike*.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig,hostname',
+        'response_patterns': 'contain,isolat,block,quarantin,kill,remediat',
+        'description': 'CrowdStrike Falcon - exclude health checks, keep containment actions'
+    },
+    'defender_atp': {
+        'name': 'Microsoft Defender for Endpoint',
+        'executables': 'MsSense.exe,SenseIR.exe,MpCmdRun.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig',
+        'response_patterns': 'isolat,quarantin,block,remediat,contain',
+        'description': 'Microsoft Defender ATP - exclude health checks, keep response actions'
+    },
+    'sophos': {
+        'name': 'Sophos Intercept X',
+        'executables': 'SophosAgent.exe,Sophos*.exe,SavService.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig',
+        'response_patterns': 'isolat,quarantin,block,clean',
+        'description': 'Sophos EDR - exclude health checks, keep response actions'
+    },
+    'carbon_black': {
+        'name': 'VMware Carbon Black',
+        'executables': 'CbDefense*.exe,RepMgr.exe,cb.exe',
+        'routine_commands': 'whoami,systeminfo,ipconfig,hostname',
+        'response_patterns': 'isolat,quarantin,ban,block,kill',
+        'description': 'Carbon Black - exclude health checks, keep response actions'
+    },
+    'other': {
+        'name': 'Other (Custom)',
+        'executables': '',
+        'routine_commands': 'whoami,systeminfo,ipconfig,hostname',
+        'response_patterns': 'isolat,quarantin,block,remediat,contain,kill',
+        'description': 'User-defined EDR/Security tool'
+    }
+}
+
 # Known Remote Connectivity tools
 REMOTE_TOOLS = {
     'screenconnect': {
@@ -141,14 +201,17 @@ def index():
     # Get all settings grouped by type
     rmm_settings = SystemToolsSetting.query.filter_by(setting_type='rmm_tool').order_by(SystemToolsSetting.created_at.desc()).all()
     remote_settings = SystemToolsSetting.query.filter_by(setting_type='remote_tool').order_by(SystemToolsSetting.created_at.desc()).all()
+    edr_settings = SystemToolsSetting.query.filter_by(setting_type='edr_tool').order_by(SystemToolsSetting.created_at.desc()).all()
     ip_settings = SystemToolsSetting.query.filter_by(setting_type='known_good_ip').order_by(SystemToolsSetting.created_at.desc()).all()
     
     return render_template('system_tools.html',
                          rmm_settings=rmm_settings,
                          remote_settings=remote_settings,
+                         edr_settings=edr_settings,
                          ip_settings=ip_settings,
                          rmm_tools=RMM_TOOLS,
-                         remote_tools=REMOTE_TOOLS)
+                         remote_tools=REMOTE_TOOLS,
+                         edr_tools=EDR_TOOLS)
 
 
 @system_tools_bp.route('/rmm/add', methods=['POST'])
@@ -266,6 +329,86 @@ def add_remote_tool():
                   details={'type': 'remote_tool', 'executables': executables, 'known_good_ids_count': len(ids_list)})
         
         flash(f'✅ Remote tool added: {tool_name} ({len(ids_list)} known-good IDs)', 'success')
+        return jsonify({'success': True, 'id': setting.id})
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@system_tools_bp.route('/edr/add', methods=['POST'])
+@login_required
+@admin_required
+def add_edr_tool():
+    """Add EDR/Security tool exclusion with context-aware filtering"""
+    from main import db
+    from models import SystemToolsSetting
+    
+    try:
+        tool_key = request.form.get('tool_key', '').strip()
+        custom_name = request.form.get('custom_name', '').strip()
+        custom_executables = request.form.get('custom_executables', '').strip()
+        custom_routine = request.form.get('custom_routine', '').strip()
+        custom_responses = request.form.get('custom_responses', '').strip()
+        description = request.form.get('description', '').strip()
+        exclude_routine = request.form.get('exclude_routine', 'true').lower() == 'true'
+        keep_responses = request.form.get('keep_responses', 'true').lower() == 'true'
+        
+        # Validate
+        if tool_key == 'other':
+            if not custom_name or not custom_executables:
+                return jsonify({'success': False, 'error': 'Custom name and executables are required'}), 400
+            tool_name = custom_name
+            executables = custom_executables
+            routine_commands = custom_routine or EDR_TOOLS['other']['routine_commands']
+            response_patterns = custom_responses or EDR_TOOLS['other']['response_patterns']
+        elif tool_key in EDR_TOOLS:
+            tool_name = EDR_TOOLS[tool_key]['name']
+            executables = EDR_TOOLS[tool_key]['executables']
+            routine_commands = EDR_TOOLS[tool_key]['routine_commands']
+            response_patterns = EDR_TOOLS[tool_key]['response_patterns']
+            if not description:
+                description = EDR_TOOLS[tool_key]['description']
+        else:
+            return jsonify({'success': False, 'error': 'Invalid tool selection'}), 400
+        
+        # Check for duplicate
+        existing = SystemToolsSetting.query.filter_by(
+            setting_type='edr_tool',
+            tool_name=tool_name,
+            is_active=True
+        ).first()
+        if existing:
+            return jsonify({'success': False, 'error': f'{tool_name} is already configured'}), 400
+        
+        # Parse commands/patterns into JSON lists
+        routine_list = [cmd.strip().lower() for cmd in routine_commands.split(',') if cmd.strip()]
+        response_list = [pat.strip().lower() for pat in response_patterns.split(',') if pat.strip()]
+        
+        # Create setting
+        setting = SystemToolsSetting(
+            setting_type='edr_tool',
+            tool_name=tool_name,
+            executable_pattern=executables,
+            exclude_routine=exclude_routine,
+            keep_responses=keep_responses,
+            routine_commands=json.dumps(routine_list),
+            response_patterns=json.dumps(response_list),
+            description=description or f'EDR tool: {tool_name}',
+            created_by=current_user.id,
+            is_active=True
+        )
+        db.session.add(setting)
+        db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('add_system_tool', resource_type='system_tools_setting', resource_id=setting.id,
+                  resource_name=tool_name,
+                  details={'type': 'edr_tool', 'executables': executables, 
+                          'exclude_routine': exclude_routine, 'keep_responses': keep_responses})
+        
+        flash(f'✅ EDR tool added: {tool_name}', 'success')
         return jsonify({'success': True, 'id': setting.id})
     
     except Exception as e:
@@ -460,6 +603,7 @@ def get_exclusions():
     exclusions = {
         'rmm_executables': [],
         'remote_tools': [],
+        'edr_tools': [],
         'known_good_ips': []
     }
     
@@ -478,6 +622,19 @@ def get_exclusions():
                 'name': s.tool_name,
                 'pattern': s.executable_pattern.lower() if s.executable_pattern else '',
                 'known_good_ids': [id.lower() for id in ids]
+            })
+        
+        elif s.setting_type == 'edr_tool':
+            routine = json.loads(s.routine_commands) if s.routine_commands else []
+            responses = json.loads(s.response_patterns) if s.response_patterns else []
+            executables = [p.strip().lower() for p in (s.executable_pattern or '').split(',') if p.strip()]
+            exclusions['edr_tools'].append({
+                'name': s.tool_name,
+                'executables': executables,
+                'exclude_routine': s.exclude_routine if s.exclude_routine is not None else True,
+                'keep_responses': s.keep_responses if s.keep_responses is not None else True,
+                'routine_commands': routine,
+                'response_patterns': responses
             })
         
         elif s.setting_type == 'known_good_ip':
@@ -578,6 +735,7 @@ def _get_exclusions_dict():
     exclusions = {
         'rmm_executables': [],
         'remote_tools': [],
+        'edr_tools': [],
         'known_good_ips': []
     }
     
@@ -595,6 +753,19 @@ def _get_exclusions_dict():
                 'name': s.tool_name,
                 'pattern': s.executable_pattern.lower() if s.executable_pattern else '',
                 'known_good_ids': [id.lower() for id in ids]
+            })
+        
+        elif s.setting_type == 'edr_tool':
+            routine = json.loads(s.routine_commands) if s.routine_commands else []
+            responses = json.loads(s.response_patterns) if s.response_patterns else []
+            executables = [p.strip().lower() for p in (s.executable_pattern or '').split(',') if p.strip()]
+            exclusions['edr_tools'].append({
+                'name': s.tool_name,
+                'executables': executables,
+                'exclude_routine': s.exclude_routine if s.exclude_routine is not None else True,
+                'keep_responses': s.keep_responses if s.keep_responses is not None else True,
+                'routine_commands': routine,
+                'response_patterns': responses
             })
         
         elif s.setting_type == 'known_good_ip':

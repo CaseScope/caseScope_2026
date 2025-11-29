@@ -548,26 +548,33 @@ class SystemToolsSetting(db.Model):
     Allows administrators to define:
     - RMM tools (LabTech, Datto, etc.) - events spawned by these are excluded
     - Remote tools with known-good IDs (ScreenConnect sessions, TeamViewer IDs)
+    - EDR/Security tools (Huntress, SentinelOne, etc.) - exclude routine, keep responses
     - Known-good IP ranges (internal networks, analyst IPs)
     
-    Added in v1.38.0
+    Added in v1.38.0, EDR tools added in v1.40.0
     """
     __tablename__ = 'system_tools_setting'
     
     id = db.Column(db.Integer, primary_key=True)
     
-    # Type of setting: 'rmm_tool', 'remote_tool', 'known_good_ip'
+    # Type of setting: 'rmm_tool', 'remote_tool', 'edr_tool', 'known_good_ip'
     setting_type = db.Column(db.String(50), nullable=False, index=True)
     
-    # For RMM and Remote tools
-    tool_name = db.Column(db.String(100))  # 'ConnectWise Automate', 'ScreenConnect', etc.
-    executable_pattern = db.Column(db.String(500))  # 'LTSVC.exe,LTSvcMon.exe' or 'ScreenConnect*.exe'
+    # For RMM, Remote, and EDR tools
+    tool_name = db.Column(db.String(100))  # 'ConnectWise Automate', 'ScreenConnect', 'Huntress', etc.
+    executable_pattern = db.Column(db.String(500))  # 'LTSVC.exe,LTSvcMon.exe' or 'HuntressAgent.exe'
     
     # For Remote tools with session IDs (e.g., ScreenConnect)
     known_good_ids = db.Column(db.Text)  # JSON list: ["id1", "id2"]
     
     # For IP exclusions
     ip_or_cidr = db.Column(db.String(50))  # '192.168.1.0/24' or '10.0.0.50'
+    
+    # For EDR tools (v1.40.0) - control what to exclude vs keep
+    exclude_routine = db.Column(db.Boolean, default=True)  # Exclude routine health checks
+    keep_responses = db.Column(db.Boolean, default=True)   # Keep isolation/response actions
+    routine_commands = db.Column(db.Text)  # JSON list: ["whoami", "systeminfo", "ipconfig"]
+    response_patterns = db.Column(db.Text)  # JSON list: ["isolat", "quarantin", "block"]
     
     # Description for documentation
     description = db.Column(db.String(500))
