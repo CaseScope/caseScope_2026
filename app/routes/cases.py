@@ -82,6 +82,7 @@ def edit_case(case_id):
         old_description = case.description
         old_edr_report = case.edr_report
         old_company = case.company
+        old_vpn_ip_ranges = case.vpn_ip_ranges  # v1.43.0
         old_status = case.status
         old_assigned_to = case.assigned_to
         
@@ -89,6 +90,10 @@ def edit_case(case_id):
         case.description = request.form.get('description', case.description)
         case.edr_report = request.form.get('edr_report', case.edr_report)
         case.company = request.form.get('company', case.company)
+        
+        # v1.43.0: VPN IP ranges
+        vpn_ip_ranges = request.form.get('vpn_ip_ranges', '').strip()
+        case.vpn_ip_ranges = vpn_ip_ranges if vpn_ip_ranges else None
         
         # Get requested status change
         requested_status = request.form.get('status', case.status)
@@ -121,6 +126,8 @@ def edit_case(case_id):
             changes['edr_report'] = 'updated'
         if old_company != case.company:
             changes['company'] = {'from': old_company, 'to': case.company}
+        if old_vpn_ip_ranges != case.vpn_ip_ranges:
+            changes['vpn_ip_ranges'] = 'updated'  # v1.43.0
         if old_status != case.status:
             changes['status'] = {'from': old_status, 'to': case.status}
         

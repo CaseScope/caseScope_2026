@@ -42,6 +42,17 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="vpn_ip_ranges">🔐 VPN IP Ranges</label>
+                    <input type="text" id="vpn_ip_ranges" name="vpn_ip_ranges" value="{{ case.vpn_ip_ranges or '' }}"
+                           placeholder="e.g., 192.168.100.1-192.168.100.50, 10.10.0.0/24">
+                    <small style="display: block; margin-top: 4px; color: var(--color-text-secondary);">
+                        Enter VPN IP ranges to identify VPN connections during triage. 
+                        Supports ranges (10.0.0.1-10.0.0.50) and CIDR notation (10.0.0.0/24). 
+                        Separate multiple ranges with commas or semicolons.
+                    </small>
+                </div>
+                
+                <div class="form-group">
                     <label for="status">Case Status</label>
                     <select id="status" name="status">
                         <option value="New" {% if case.status == 'New' %}selected{% endif %}>New - Newly created case</option>

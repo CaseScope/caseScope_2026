@@ -1006,6 +1006,7 @@ def create_case():
         description = request.form.get('description')
         company = request.form.get('company')
         edr_report = request.form.get('edr_report')
+        vpn_ip_ranges = request.form.get('vpn_ip_ranges', '').strip()  # v1.43.0
         router_name = request.form.get('router_name', '').strip()
         router_ip = request.form.get('router_ip', '').strip()
         
@@ -1014,6 +1015,7 @@ def create_case():
             description=description,
             company=company,
             edr_report=edr_report,
+            vpn_ip_ranges=vpn_ip_ranges if vpn_ip_ranges else None,  # v1.43.0
             status='New',  # v1.16.0: Default status for new cases
             created_by=current_user.id
         )

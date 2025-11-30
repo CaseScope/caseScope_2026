@@ -47,6 +47,10 @@ class Case(db.Model):
     # EDR Report field (v1.37.0) - Stores the full EDR/MDR report text
     edr_report = db.Column(db.Text)
     
+    # VPN IP Ranges field (v1.43.0) - Stores VPN IP ranges for triage identification
+    # Format: "192.168.100.1-192.168.100.50, 10.10.0.0/24" (comma or semicolon separated)
+    vpn_ip_ranges = db.Column(db.Text)
+    
     # Archive fields (v1.18.0)
     archive_path = db.Column(db.String(1000))  # Full path to archive ZIP
     archived_at = db.Column(db.DateTime)  # When archived

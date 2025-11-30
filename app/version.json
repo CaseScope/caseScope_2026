@@ -1,6 +1,6 @@
 {
-  "version": "1.40.0",
-  "release_date": "2025-11-29",
+  "version": "1.43.0",
+  "release_date": "2025-11-30",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [

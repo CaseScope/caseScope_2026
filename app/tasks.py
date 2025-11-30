@@ -2955,6 +2955,79 @@ def run_ai_triage_search(self, search_id):
         hostname = hostname.split('.')[0].upper()
         return hostname if len(hostname) >= 3 else None
     
+    def parse_vpn_ip_ranges(vpn_ranges_str):
+        """
+        Parse VPN IP ranges string into a list of (start_ip, end_ip) tuples and networks.
+        
+        Supports:
+        - Range format: "192.168.100.1-192.168.100.50"
+        - CIDR format: "10.10.0.0/24"
+        - Multiple ranges separated by comma or semicolon
+        
+        Returns: list of ipaddress objects (IPv4Network or tuple of IPv4Address)
+        """
+        if not vpn_ranges_str:
+            return []
+        
+        vpn_ranges = []
+        # Split by comma or semicolon
+        for part in re.split(r'[,;]', vpn_ranges_str):
+            part = part.strip()
+            if not part:
+                continue
+            
+            try:
+                if '-' in part and '/' not in part:
+                    # Range format: 192.168.100.1-192.168.100.50
+                    start_ip, end_ip = part.split('-', 1)
+                    vpn_ranges.append((
+                        ipaddress.IPv4Address(start_ip.strip()),
+                        ipaddress.IPv4Address(end_ip.strip())
+                    ))
+                elif '/' in part:
+                    # CIDR format: 10.10.0.0/24
+                    vpn_ranges.append(ipaddress.IPv4Network(part.strip(), strict=False))
+                else:
+                    # Single IP
+                    ip = ipaddress.IPv4Address(part.strip())
+                    vpn_ranges.append((ip, ip))
+            except (ValueError, ipaddress.AddressValueError) as e:
+                logger.warning(f"[AI_TRIAGE] Invalid VPN IP range '{part}': {e}")
+                continue
+        
+        return vpn_ranges
+    
+    def is_vpn_ip(ip_str, vpn_ranges):
+        """
+        Check if an IP address is within any of the VPN ranges.
+        
+        Args:
+            ip_str: IP address string to check
+            vpn_ranges: List from parse_vpn_ip_ranges()
+        
+        Returns: True if IP is in a VPN range
+        """
+        if not ip_str or not vpn_ranges:
+            return False
+        
+        try:
+            ip = ipaddress.IPv4Address(ip_str)
+            
+            for vpn_range in vpn_ranges:
+                if isinstance(vpn_range, ipaddress.IPv4Network):
+                    # CIDR network
+                    if ip in vpn_range:
+                        return True
+                elif isinstance(vpn_range, tuple):
+                    # IP range (start, end)
+                    start_ip, end_ip = vpn_range
+                    if start_ip <= ip <= end_ip:
+                        return True
+        except (ValueError, ipaddress.AddressValueError):
+            return False
+        
+        return False
+    
     with app.app_context():
         start_time = datetime.utcnow()
         search = db.session.get(AITriageSearch, search_id)
