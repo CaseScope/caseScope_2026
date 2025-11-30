@@ -79,6 +79,7 @@ def systems_management(case_id):
         'switches': System.query.filter_by(case_id=case_id, system_type='switch', hidden=False).count(),
         'printers': System.query.filter_by(case_id=case_id, system_type='printer', hidden=False).count(),
         'actor_systems': System.query.filter_by(case_id=case_id, system_type='actor_system', hidden=False).count(),
+        'unknown': System.query.filter_by(case_id=case_id, system_type='unknown', hidden=False).count(),  # v1.43.3
         'total': System.query.filter_by(case_id=case_id, hidden=False).count(),
         'hidden': System.query.filter_by(case_id=case_id, hidden=True).count()
     }
@@ -180,6 +181,7 @@ def get_systems_stats(case_id):
         'switches': System.query.filter_by(case_id=case_id, system_type='switch', hidden=False).count(),
         'printers': System.query.filter_by(case_id=case_id, system_type='printer', hidden=False).count(),
         'actor_systems': System.query.filter_by(case_id=case_id, system_type='actor_system', hidden=False).count(),
+        'unknown': System.query.filter_by(case_id=case_id, system_type='unknown', hidden=False).count(),  # v1.43.3
         'total': System.query.filter_by(case_id=case_id, hidden=False).count()
     }
     
@@ -479,7 +481,9 @@ def scan_systems(case_id):
         discovered_systems = {}
         
         # Fields to search for system names
+        # v1.43.3: Added normalized_computer (primary hostname field for EVTX)
         system_fields = [
+            'normalized_computer',  # Primary field - CaseScope's normalized hostname
             'Computer', 'ComputerName', 'Hostname', 'System', 'WorkstationName',
             'host.name', 'hostname', 'computer', 'computername', 'source_name',
             'SourceHostname', 'DestinationHostname', 'src_host', 'dst_host'

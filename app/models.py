@@ -216,7 +216,7 @@ class System(db.Model):
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
     system_name = db.Column(db.String(255), nullable=False, index=True)
     ip_address = db.Column(db.String(45))  # IPv4 (15) or IPv6 (45) address
-    system_type = db.Column(db.String(50), nullable=False, default='workstation')  # server, workstation, firewall, switch, printer, actor_system
+    system_type = db.Column(db.String(50), nullable=False, default='workstation')  # server, workstation, firewall, switch, printer, actor_system, unknown
     
     # User tracking
     added_by = db.Column(db.String(100), default='CaseScope')  # username or 'CaseScope' for auto-detection

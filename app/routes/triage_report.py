@@ -1157,6 +1157,55 @@ def process_triage_report_stream(case_id):
 # Full 9-phase automated attack chain analysis
 # ============================================================================
 
+@triage_report_bp.route('/case/<int:case_id>/ai-triage-search/pre-check')
+@login_required
+def ai_triage_pre_check(case_id):
+    """
+    Check pre-requisites before allowing AI Triage Search to run.
+    Returns status of:
+    - EDR Report: Does the case have an EDR/MDR report?
+    - Systems Discovery: Has "Find Systems" been run? (systems with added_by='CaseScope')
+    
+    v1.43.2: Added to ensure proper triage preparation
+    """
+    from main import db
+    from models import Case, System
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Check for EDR report
+    has_edr_report = bool(case.edr_report and case.edr_report.strip())
+    
+    # Check for auto-discovered systems (added_by='CaseScope' means from Find Systems)
+    auto_discovered_count = db.session.query(System).filter_by(
+        case_id=case_id,
+        added_by='CaseScope'
+    ).count()
+    
+    # Also get total systems count
+    total_systems = db.session.query(System).filter_by(
+        case_id=case_id,
+        hidden=False
+    ).count()
+    
+    # Systems discovery is considered done if we have any auto-discovered systems
+    systems_discovered = auto_discovered_count > 0
+    
+    # All checks passed?
+    ready = has_edr_report and systems_discovered
+    
+    return jsonify({
+        'ready': ready,
+        'has_edr_report': has_edr_report,
+        'systems_discovered': systems_discovered,
+        'auto_discovered_count': auto_discovered_count,
+        'total_systems': total_systems,
+        'edr_report_preview': (case.edr_report[:500] + '...') if case.edr_report and len(case.edr_report) > 500 else case.edr_report
+    })
+
+
 @triage_report_bp.route('/case/<int:case_id>/ai-triage-search/run', methods=['POST'])
 @login_required
 def run_ai_triage_search(case_id):

@@ -3433,6 +3433,7 @@ def run_ai_triage_search(self, search_id):
             update_progress(6, 'Creating IOCs & Systems', 'Adding extracted and discovered IOCs to database...', 61)
             
             iocs_created = 0
+            iocs_skipped_known = 0  # v1.43.4: Track skipped known systems/IPs
             systems_created = 0
             
             # Get existing IOCs and Systems to avoid duplicates
@@ -3445,11 +3446,44 @@ def run_ai_triage_search(self, search_id):
                 for s in System.query.filter_by(case_id=search.case_id).all()
             )
             
+            # v1.43.4: Build lookup tables for known systems and IPs
+            # This enables filtering out known infrastructure from IOCs
+            all_systems = System.query.filter_by(case_id=search.case_id).all()
+            known_system_types = {}  # hostname.lower() -> system_type
+            known_system_ips = set()  # Set of known IP addresses
+            for s in all_systems:
+                known_system_types[s.system_name.lower()] = s.system_type
+                if s.ip_address:
+                    known_system_ips.add(s.ip_address)
+            
+            logger.info(f"[AI_TRIAGE] Loaded {len(known_system_types)} known systems, {len(known_system_ips)} known IPs for filtering")
+            
             # Helper to add IOC if not exists
+            # v1.43.4: Enhanced to skip known systems (non-unknown types) and known IPs
             def add_ioc_if_new(ioc_type, ioc_value, is_active=True):
-                nonlocal iocs_created
+                nonlocal iocs_created, iocs_skipped_known
                 if not ioc_value or (ioc_type, ioc_value.lower()) in existing_iocs:
                     return
+                
+                # v1.43.4: Skip hostname IOCs for known systems with non-unknown types
+                # Systems with type='unknown' still become IOCs (need analyst review)
+                if ioc_type == 'hostname':
+                    hostname_lower = ioc_value.lower()
+                    if hostname_lower in known_system_types:
+                        sys_type = known_system_types[hostname_lower]
+                        if sys_type != 'unknown':
+                            logger.debug(f"[AI_TRIAGE] Skipping known {sys_type} hostname IOC: {ioc_value}")
+                            iocs_skipped_known += 1
+                            return
+                
+                # v1.43.4: Skip IP IOCs for known system IPs
+                # Unknown IPs (even internal) still become IOCs
+                if ioc_type == 'ip':
+                    if ioc_value in known_system_ips:
+                        logger.debug(f"[AI_TRIAGE] Skipping known system IP IOC: {ioc_value}")
+                        iocs_skipped_known += 1
+                        return
+                
                 try:
                     ioc = IOC(
                         case_id=search.case_id,
@@ -3465,6 +3499,8 @@ def run_ai_triage_search(self, search_id):
                     logger.warning(f"[AI_TRIAGE] Failed to create IOC {ioc_type}={ioc_value}: {e}")
             
             # Helper to add System if not exists
+            # v1.43.3: New systems from triage are added as 'unknown' type
+            # This ensures they still become IOCs until an analyst reviews and categorizes them
             def add_system_if_new(hostname):
                 nonlocal systems_created
                 if not hostname or hostname.upper() in existing_systems:
@@ -3473,7 +3509,7 @@ def run_ai_triage_search(self, search_id):
                     system = System(
                         case_id=search.case_id,
                         system_name=hostname.upper(),  # Field is system_name, not hostname
-                        system_type='workstation',
+                        system_type='unknown',  # v1.43.3: Use 'unknown' - analyst must review
                         added_by='AI Triage Search'
                     )
                     db.session.add(system)
@@ -3525,7 +3561,7 @@ def run_ai_triage_search(self, search_id):
                 add_ioc_if_new('threat', threat)
             
             db.session.commit()
-            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs and {systems_created} Systems")
+            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs, {systems_created} Systems (skipped {iocs_skipped_known} known system/IP IOCs)")
             
             # =========================================================
             # PHASE 7: TIME WINDOW ANALYSIS (±5 min around anchors)

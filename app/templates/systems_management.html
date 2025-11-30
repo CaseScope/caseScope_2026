@@ -58,6 +58,10 @@
                         <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">🖨️ Printers</div>
                         <div style="font-size: 2rem; font-weight: 700; color: var(--color-text-secondary);">{{ stats.printers }}</div>
                     </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(251, 191, 36, 0.1); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">❓ Unknown</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #f59e0b;">{{ stats.unknown }}</div>
+                    </div>
                     <div style="text-align: center; padding: var(--spacing-md); background: rgba(239, 68, 68, 0.05); border-radius: 8px;">
                         <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">⚠️ Actor Systems</div>
                         <div style="font-size: 2rem; font-weight: 700; color: var(--color-error);">{{ stats.actor_systems }}</div>
@@ -381,6 +385,7 @@
                     <option value="firewall">🔥 Firewall</option>
                     <option value="switch">🔀 Switch</option>
                     <option value="printer">🖨️ Printer</option>
+                    <option value="unknown">❓ Unknown</option>
                     <option value="actor_system">⚠️ Actor System</option>
                 </select>
             </div>
@@ -418,6 +423,7 @@
                         <option value="firewall">🔥 Firewall</option>
                         <option value="switch">🔀 Switch</option>
                         <option value="printer">🖨️ Printer</option>
+                        <option value="unknown">❓ Unknown</option>
                         <option value="actor_system">⚠️ Actor System</option>
                     </select>
                 </div>

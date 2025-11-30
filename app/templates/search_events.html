@@ -472,6 +472,44 @@
             <button class="modal-close" onclick="closeTriageModal()" style="color: white;">×</button>
         </div>
         <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
+            <!-- Loading Phase (v1.43.2) -->
+            <div id="triageLoadingPhase" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">⏳</div>
+                    <h3 style="margin-bottom: var(--spacing-md); color: var(--color-text-primary);">Checking Pre-requisites...</h3>
+                    <p style="color: var(--color-text-secondary);">Verifying case is ready for AI Triage</p>
+                </div>
+            </div>
+            
+            <!-- No Systems Discovered Phase (v1.43.2) -->
+            <div id="triageNoSystemsPhase" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">💻</div>
+                    <h3 style="margin-bottom: var(--spacing-md); color: var(--color-text-primary);">Systems Not Discovered</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
+                        Before running AI Triage, you need to discover systems from your event logs.<br>
+                        This helps the triage distinguish between known infrastructure and potential IOCs.
+                    </p>
+                    <div style="background: rgba(251, 146, 60, 0.1); border: 1px solid rgba(251, 146, 60, 0.3); border-radius: var(--border-radius); padding: var(--spacing-md); margin-bottom: var(--spacing-lg); text-align: left;">
+                        <h4 style="margin: 0 0 var(--spacing-sm) 0; color: #f59e0b;">📋 How to Discover Systems</h4>
+                        <ol style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-secondary); font-size: 0.9rem;">
+                            <li>Go to <strong>Systems Management</strong></li>
+                            <li>Click the <strong>"🔍 Find Systems"</strong> button</li>
+                            <li>Review and categorize discovered systems</li>
+                            <li>Return here to run AI Triage</li>
+                        </ol>
+                    </div>
+                    <div style="display: flex; gap: var(--spacing-md); justify-content: center;">
+                        <a href="{{ url_for('systems.systems_management', case_id=case.id) }}" class="btn btn-primary">
+                            💻 Go to Systems Management
+                        </a>
+                        <button onclick="closeTriageModal()" class="btn btn-secondary">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
             <!-- No Report Phase -->
             <div id="triageNoReportPhase" style="display: none;">
                 <div style="text-align: center; padding: var(--spacing-xl);">
@@ -4065,16 +4103,16 @@ function clearAIEvidence() {
 function showTriageModal() {
     const modal = document.getElementById('triageReportModal');
     modal.style.display = 'flex';
+    const caseId = {{ case.id }};
     
-    // Get EDR report from case
-    const edrReport = {{ (case.edr_report | tojson) if case.edr_report else 'null' }};
-    
-    // Reset all phases
+    // Reset all phases - hide everything first
+    document.getElementById('triageLoadingPhase').style.display = 'block';
+    document.getElementById('triageNoSystemsPhase').style.display = 'none';
     document.getElementById('triageNoReportPhase').style.display = 'none';
     document.getElementById('triageInputPhase').style.display = 'none';
     document.getElementById('triageProgressPhase').style.display = 'none';
     document.getElementById('triageResultsPhase').style.display = 'none';
-    document.getElementById('triageStartBtn').style.display = 'inline-flex';
+    document.getElementById('triageStartBtn').style.display = 'none';
     document.getElementById('triageStartBtn').disabled = false;
     document.getElementById('triageViewResultsBtn').style.display = 'none';
     document.getElementById('triageProgressLog').innerHTML = '';
@@ -4084,21 +4122,57 @@ function showTriageModal() {
         document.getElementById('phaseInd' + i).style.background = 'var(--color-background-tertiary)';
     }
     
-    if (!edrReport || edrReport.trim() === '') {
-        // No EDR report - show prompt to add one
-        document.getElementById('triageNoReportPhase').style.display = 'block';
-        document.getElementById('triageStartBtn').style.display = 'none';
-    } else {
-        // Has EDR report - show preview and start button
+    // Call pre-check endpoint to verify requirements (v1.43.2)
+    fetch(`/case/${caseId}/ai-triage-search/pre-check`, {
+        credentials: 'same-origin'
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Hide loading
+        document.getElementById('triageLoadingPhase').style.display = 'none';
+        
+        if (data.error) {
+            alert('Error checking triage requirements: ' + data.error);
+            closeTriageModal();
+            return;
+        }
+        
+        // Check 1: Systems must be discovered first
+        if (!data.systems_discovered) {
+            document.getElementById('triageNoSystemsPhase').style.display = 'block';
+            document.getElementById('triageStartBtn').style.display = 'none';
+            return;
+        }
+        
+        // Check 2: EDR report must exist
+        if (!data.has_edr_report) {
+            document.getElementById('triageNoReportPhase').style.display = 'block';
+            document.getElementById('triageStartBtn').style.display = 'none';
+            return;
+        }
+        
+        // All checks passed - show input phase
         document.getElementById('triageInputPhase').style.display = 'block';
+        document.getElementById('triageStartBtn').style.display = 'inline-flex';
+        
+        // Populate report preview
+        const edrReport = data.edr_report_preview || '';
         document.getElementById('triageReportInput').value = edrReport;
         
-        // Show preview of the report (first 800 chars)
         const preview = edrReport.length > 800 
-            ? edrReport.substring(0, 800) + '\n\n... [' + (edrReport.length - 800) + ' more characters]'
+            ? edrReport.substring(0, 800) + '\n\n... [more content]'
             : edrReport;
         document.getElementById('triageReportPreview').textContent = preview;
-    }
+        
+        // Show systems count in a badge (optional enhancement)
+        console.log(`[AI Triage] Pre-check passed: ${data.auto_discovered_count} auto-discovered systems, ${data.total_systems} total`);
+    })
+    .catch(err => {
+        console.error('Failed to check triage requirements:', err);
+        document.getElementById('triageLoadingPhase').style.display = 'none';
+        alert('Failed to check triage requirements. Please try again.');
+        closeTriageModal();
+    });
 }
 
 function closeTriageModal() {
