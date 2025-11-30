@@ -157,6 +157,22 @@
                     <span class="status-badge" style="background: rgba(156, 163, 175, 0.1); color: #6b7280;">⏳ Checking...</span>
                 </div>
             </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">EDR Report</div>
+                <div>
+                    <span class="status-badge" style="background: {% if case.edr_report %}rgba(16, 185, 129, 0.1); color: #10b981;{% else %}rgba(239, 68, 68, 0.1); color: #ef4444;{% endif %} cursor: pointer;" onclick="event.stopPropagation(); showEdrReport();">
+                        {% if case.edr_report %}📄 VIEW REPORT{% else %}⚠️ NO REPORT{% endif %}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Machines Identified</div>
+                <div><strong>{{ total_systems }}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">VPN IP Range</div>
+                <div><strong>{{ case.vpn_ip_ranges or 'Not configured' }}</strong></div>
+            </div>
             <div style="grid-column: 1 / -1; margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Description</div>
                 <div style="white-space: pre-wrap;"><strong>{{ case.description or 'No description provided' }}</strong></div>
@@ -390,6 +406,100 @@
 <script>
 // Case ID constant (v1.18.0)
 const CASE_ID = {{ case.id }};
+
+// EDR Report Modal (v1.43.1)
+// Store report text safely in a variable
+const EDR_REPORT_TEXT = {{ case.edr_report | tojson | default('null') }};
+const EDR_REPORT_EXISTS = {{ 'true' if case.edr_report else 'false' }};
+const EDIT_CASE_URL = "{{ url_for('cases.edit_case', case_id=case.id) }}";
+
+function showEdrReport() {
+    // Remove any existing modal
+    const existingModal = document.getElementById('edrReportModal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'edrReportModal';
+    modal.className = 'modal-overlay';
+    modal.style.display = 'flex';
+    
+    if (EDR_REPORT_EXISTS && EDR_REPORT_TEXT) {
+        // Show EDR report in modal
+        modal.innerHTML = `
+            <div class="modal-container" style="max-width: 900px; max-height: 90vh;">
+                <div class="modal-header">
+                    <h2 class="modal-title">📄 EDR Report</h2>
+                    <button class="modal-close" onclick="document.getElementById('edrReportModal').remove();">×</button>
+                </div>
+                <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
+                    <pre id="edrReportContent" style="white-space: pre-wrap; word-wrap: break-word; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.6; background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin: 0;"></pre>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('edrReportModal').remove();">Close</button>
+                    <button class="btn btn-primary" onclick="copyEdrReport();">📋 Copy to Clipboard</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        // Set the report content safely using textContent (prevents XSS and handles special chars)
+        document.getElementById('edrReportContent').textContent = EDR_REPORT_TEXT;
+    } else {
+        // No EDR report - show popup
+        modal.innerHTML = `
+            <div class="modal-container" style="max-width: 450px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">📄 EDR Report</h2>
+                    <button class="modal-close" onclick="document.getElementById('edrReportModal').remove();">×</button>
+                </div>
+                <div class="modal-body" style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📭</div>
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0;">No EDR Report</h3>
+                    <p style="color: var(--color-text-muted); margin: 0;">No EDR/Huntress report has been added for this case.</p>
+                    <p style="color: var(--color-text-muted); margin-top: var(--spacing-sm); font-size: 0.875rem;">You can add one by editing the case details.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('edrReportModal').remove();">Close</button>
+                    <a href="${EDIT_CASE_URL}" class="btn btn-primary">✏️ Edit Case</a>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    // Close on backdrop click
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+    
+    // Close on Escape key
+    document.addEventListener('keydown', function escHandler(e) {
+        if (e.key === 'Escape') {
+            const m = document.getElementById('edrReportModal');
+            if (m) m.remove();
+            document.removeEventListener('keydown', escHandler);
+        }
+    });
+}
+
+function copyEdrReport() {
+    if (!EDR_REPORT_TEXT) return;
+    navigator.clipboard.writeText(EDR_REPORT_TEXT).then(() => {
+        // Show success feedback
+        const btn = event.target;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Copied!';
+        btn.style.background = 'var(--color-success)';
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.style.background = '';
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
 
 // Live status updates - refresh every 3 seconds
 function updateStatuses() {
