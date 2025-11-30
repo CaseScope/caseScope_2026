@@ -2707,25 +2707,72 @@ def _should_hide_event_task(hit, exclusions):
 # Full 9-phase automated attack chain analysis
 # ============================================================================
 
-# Timeline-worthy processes for Phase 9
+# Timeline-worthy processes for Phase 9 (potential recon/lateral movement)
 TIMELINE_PROCESSES = [
+    # Recon commands
     'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe',
     'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
-    'quser.exe', 'query.exe', 'nslookup.exe', 'route.exe',
-    'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
-    'mshta.exe', 'wscript.exe', 'cscript.exe',
-    'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
-    'notepad.exe', 'wordpad.exe'
+    'nslookup.exe', 'route.exe', 'arp.exe', 'tracert.exe',
+    'hostname.exe', 'nbtstat.exe',
+    
+    # Scripting/execution
+    'powershell.exe', 'pwsh.exe', 'cmd.exe',
+    'rundll32.exe', 'regsvr32.exe', 'mshta.exe',
+    'wscript.exe', 'cscript.exe', 'certutil.exe',
+    'bitsadmin.exe', 'msbuild.exe',
+    
+    # Lateral movement / tools
+    'psexec.exe', 'psexec64.exe', 'wmic.exe',
+    'schtasks.exe',  # Can be attack or maintenance - context matters
+    'sc.exe',        # Service control
+    'reg.exe',       # Registry manipulation
+    
+    # Remote access tools
+    'winscp.exe', 'putty.exe', 'plink.exe',
+    'advanced_ip_scanner.exe', 'nmap.exe', 'masscan.exe',
+    
+    # Data access
+    'notepad.exe', 'wordpad.exe',
 ]
 
 # Noise processes to EXCLUDE from timeline (system management, not attack-related)
 NOISE_PROCESSES = [
-    'auditpol.exe',      # Windows audit policy - often run by RMM
+    # Windows system management
+    'auditpol.exe',      # Windows audit policy - often run by EDR/RMM
     'gpupdate.exe',      # Group policy update
-    'schtasks.exe',      # Task scheduler (when parent is RMM)
     'wuauclt.exe',       # Windows Update
     'msiexec.exe',       # Installer
     'dism.exe',          # Deployment Image Service
+    'sppsvc.exe',        # Software Protection Platform
+    'winmgmt.exe',       # WMI service
+    
+    # Console/shell infrastructure (never useful alone)
+    'conhost.exe',       # Console host - spawned by every cmd.exe
+    'find.exe',          # Usually part of "command | find" pipes
+    'findstr.exe',       # Same as find.exe
+    'sort.exe',          # Pipe utility
+    'more.com',          # Pipe utility
+    
+    # Monitoring/health check processes
+    'tasklist.exe',      # Process listing (RMM monitoring loops)
+    'quser.exe',         # Session queries (RMM health checks)
+    'query.exe',         # Query commands
+    
+    # Windows runtime/background (system noise)
+    'runtimebroker.exe', # Windows Runtime Broker
+    'taskhostw.exe',     # Task Host Window
+    'backgroundtaskhost.exe',  # Background task host
+    'wmiprvse.exe',      # WMI Provider Host (when parent is system)
+    
+    # Update/maintenance processes
+    'huntressupdater.exe',     # Huntress updates
+    'microsoftedgeupdate.exe', # Edge updates
+    'fulltrustnotifier.exe',   # Adobe notifications
+    'filecoauth.exe',          # Office/OneDrive co-auth
+    
+    # Search indexing
+    'searchprotocolhost.exe',  # Windows Search
+    'searchfilterhost.exe',    # Windows Search
 ]
 
 # RMM-related paths to exclude (if command line contains these)
@@ -2737,7 +2784,85 @@ RMM_PATH_PATTERNS = [
     'syncro',                         # Syncro
     'atera',                          # Atera
     'n-central', 'basupsrvc',         # N-able
+    'huntress',                       # Huntress EDR
+    'screenconnect',                  # ConnectWise ScreenConnect
 ]
+
+# Noise command patterns - EXACT command lines that are monitoring noise (v1.41.0)
+# These are excluded ONLY when parent is empty/generic (cmd.exe, svchost.exe)
+# If parent is suspicious (powershell spawning netstat), we KEEP it
+NOISE_COMMAND_PATTERNS = [
+    # Network monitoring commands (run thousands of times by RMM/EDR)
+    'netstat -ano',
+    'netstat  -ano',          # With extra space (common in EDR data)
+    'netstat -an',
+    'netstat  -an',
+    'ipconfig /all',
+    'ipconfig  /all',
+    
+    # System info gathering (monitoring, not attacks)
+    'systeminfo',
+    'hostname',
+    
+    # Session/user queries (RMM health checks)
+    'quser',
+    '"quser"',                # Often quoted
+    'query user',
+    
+    # Process listing (RMM monitoring loops)
+    'tasklist',
+    
+    # Pipe output filters (part of monitoring chains like "netstat | find")
+    'find /i',                # Case-insensitive find (e.g., find /i "Listening")
+    'find "',                 # Port/string checks (e.g., find "41997")
+    'find  /i',               # With extra space
+    'find  "',                # With extra space
+    
+    # Audit policy commands (EDR continuously sets these)
+    'auditpol.exe /set',
+    'auditpol /set',
+    'auditpol.exe  /set',
+    
+    # Console host (spawned by every cmd.exe - never useful for timeline)
+    'conhost.exe 0xffffffff',
+    'conhost.exe  0xffffffff',
+    
+    # PowerShell monitoring - Defender checks (Huntress, RMM)
+    'get-mppreference',       # Defender preference queries
+    'get-mpthreat',           # Defender threat queries
+    'get-mpcomputerstatus',   # Defender status checks
+    
+    # PowerShell monitoring - WMI queries (LabTech, RMM)
+    'get-wmiobject -class win32_operatingsystem',
+    'get-wmiobject -query',
+    'get-wmiobject -namespace root',
+    
+    # Windows service/system processes (never useful in timeline)
+    'runtimebroker.exe -embedding',
+    'backgroundtaskhost.exe',
+    'taskhostw.exe',
+    'wmiprvse.exe -secured',
+    'svchost.exe -k',
+    'sppsvc.exe',             # Software Protection Platform
+    
+    # Application update processes
+    'huntressupdater.exe',
+    'microsoftedgeupdate.exe',
+]
+
+# Generic/benign parent processes - commands from these are likely monitoring, not attacks
+GENERIC_PARENTS = [
+    '',                       # Empty parent (EDR didn't capture it)
+    'cmd.exe',                # Generic - could be anything
+    'svchost.exe',            # Windows service host
+    'services.exe',           # Service control manager
+    'wmiprvse.exe',           # WMI provider (often used by monitoring)
+    'taskhostw.exe',          # Task scheduler host
+]
+
+# Maximum events to tag per unique command per host (frequency-based dedup)
+# If netstat -ano runs 1000 times on a host, we only tag MAX_EVENTS_PER_COMMAND
+MAX_EVENTS_PER_COMMAND = 3
 
 # MITRE ATT&CK patterns for Phase 8
 MITRE_PATTERNS = {
@@ -2897,7 +3022,11 @@ def run_ai_triage_search(self, search_id):
             return exclusions
         
         def should_exclude_event(event, exclusions):
-            """Check if event should be excluded from tagging (known-good)."""
+            """Check if event should be excluded from tagging (known-good).
+            
+            v1.41.0: Added noise command pattern detection for events with empty/generic parents.
+            This handles cases where EDR doesn't capture parent process info.
+            """
             src = event.get('_source', event)
             
             # Already hidden?
@@ -2914,6 +3043,18 @@ def run_ai_triage_search(self, search_id):
             # Check 0: Noise processes (system management, not attack-related)
             if proc_name.replace('.exe', '') in [p.replace('.exe', '') for p in NOISE_PROCESSES]:
                 return True
+            
+            # Check 0.5 (v1.41.0): Noise command patterns with empty/generic parent
+            # If parent is empty or generic AND command matches noise pattern, exclude
+            # This catches monitoring tools that run netstat -ano thousands of times
+            parent_is_generic = parent_name in [p.lower() for p in GENERIC_PARENTS] or not parent_name
+            if parent_is_generic:
+                # Normalize command (strip extra spaces, lowercase)
+                cmd_normalized = ' '.join(cmd_line.split()).strip()
+                for noise_pattern in NOISE_COMMAND_PATTERNS:
+                    noise_normalized = ' '.join(noise_pattern.lower().split()).strip()
+                    if cmd_normalized == noise_normalized or cmd_normalized.startswith(noise_normalized + ' '):
+                        return True  # Exclude - monitoring noise with no suspicious parent
             
             # Check 1: Parent is a known RMM tool (full exclusion)
             for rmm_pattern in exclusions.get('rmm_executables', []):
@@ -3477,9 +3618,13 @@ def run_ai_triage_search(self, search_id):
             # Note: exclusions already loaded after Phase 1
             
             # Filter to timeline-worthy events, excluding known-good
+            # v1.41.0: Added frequency-based deduplication - if same command runs 100+ times
+            # on a host, only tag MAX_EVENTS_PER_COMMAND instances
             timeline_events = []
-            seen_keys = set()
+            seen_keys = set()           # Exact timestamp+command dedup
+            command_frequency = {}       # Track {host|command: count} for frequency dedup
             excluded_count = 0
+            frequency_skipped = 0
             
             for event in all_window_events:
                 src = event.get('_source', {})
@@ -3503,10 +3648,24 @@ def run_ai_triage_search(self, search_id):
                     continue
                 seen_keys.add(key)
                 
+                # v1.41.0: Frequency-based deduplication
+                # Track how many times this command appears on this host
+                hostname = src.get('normalized_computer', 'unknown')
+                # Normalize command for frequency tracking (strip args that change)
+                cmd_base = cmd.split()[0] if cmd else ''  # Just the executable
+                freq_key = f"{hostname}|{cmd_base}"
+                
+                current_count = command_frequency.get(freq_key, 0)
+                if current_count >= MAX_EVENTS_PER_COMMAND:
+                    frequency_skipped += 1
+                    continue  # Already have enough samples of this command on this host
+                
+                command_frequency[freq_key] = current_count + 1
                 timeline_events.append(event)
             
             timeline_events.sort(key=lambda x: x.get('_source', {}).get('@timestamp', ''))
-            logger.info(f"[AI_TRIAGE] Filtered to {len(timeline_events)} timeline events ({excluded_count} excluded as known-good)")
+            logger.info(f"[AI_TRIAGE] Filtered to {len(timeline_events)} timeline events "
+                       f"({excluded_count} excluded as known-good, {frequency_skipped} skipped by frequency limit)")
             
             update_progress(9, 'Timeline Auto-Tagging', f'Filtered to {len(timeline_events)} timeline events', 90)
             

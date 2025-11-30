@@ -1,6 +1,6 @@
 # AI Triage Search - Complete Technical Documentation
 
-**Version:** 1.40.0  
+**Version:** 1.42.0  
 **Last Updated:** 2025-11-29  
 **Author:** CaseScope Development Team
 
@@ -42,6 +42,8 @@ The **AI Triage Search** is an automated attack chain analysis system that:
 - **IOC classification** into SPECIFIC (auto-tag) vs BROAD (aggregation only)
 - **System Tools exclusions** for RMM, Remote Tools, EDR Tools, and Known-Good IPs
 - **EDR context-aware exclusion** - excludes routine health checks but KEEPS response actions
+- **Noise command pattern detection** (v1.41.0) - filters monitoring noise with empty/generic parents
+- **Frequency-based deduplication** (v1.41.0) - limits repeated commands per host
 - **MITRE ATT&CK pattern matching** for technique identification
 - **Process tree building** from EDR parent/child relationships
 - **Timeline auto-tagging** with purple color for AI-discovered events
@@ -98,7 +100,7 @@ The system supports three entry points:
 │  │ Phase 6: BROAD IOC Aggregation + Create IOCs/Systems             ││
 │  │ Phase 7: Time Window Analysis                                    ││
 │  │ Phase 8: Process Trees + MITRE                                   ││
-│  │ Phase 9: Timeline Auto-Tagging                                   ││
+│  │ Phase 9: Timeline Auto-Tagging (with noise filtering)            ││
 │  └─────────────────────────────────────────────────────────────────┘│
 └───────────┼─────────────────────────────────────────────────────────┘
             │
@@ -119,330 +121,150 @@ The system supports three entry points:
 
 ## The 9-Phase Methodology
 
-### Phase 1: IOC Extraction from Report
+### Phase 9: Timeline Event Auto-Tagging (Updated v1.41.0)
 
-**Purpose:** Extract all IOCs from the EDR/MDR report text.
-
-**Functions Used:**
-- `extract_iocs_with_llm()` - Primary extraction using Ollama LLM
-- `extract_iocs_with_regex()` - Fallback if LLM fails
-
-**IOC Types Extracted:**
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `ips` | IP addresses | `192.168.1.100` |
-| `hostnames` | Computer names | `WORKSTATION-01` |
-| `usernames` | User accounts | `jsmith`, `admin` |
-| `sids` | Security Identifiers | `S-1-5-21-...` |
-| `paths` | File paths | `C:\Windows\Temp\malware.exe` |
-| `processes` | Executable names | `rundll32.exe` |
-| `hashes` | File hashes | `a1b2c3d4...` (MD5/SHA1/SHA256) |
-| `commands` | Command lines | `nltest /dclist:` |
-| `tools` | Attack tools | `Cobalt Strike`, `Mimikatz` |
-
-**Progress Update:** 5-10%
-
----
-
-### Phase 2: IOC Classification + Load Exclusions
-
-**Purpose:** Classify IOCs as SPECIFIC (auto-tag) or BROAD (aggregation only), and load System Tools exclusions.
-
-**Classification Logic:**
-
-```python
-# SPECIFIC IOCs - Low event count, high value, will be auto-tagged
-specific_iocs = {
-    'processes': [...],   # Executable names
-    'paths': [...],       # File paths
-    'hashes': [...],      # File hashes
-    'commands': [...],    # Command lines
-    'tools': [...]        # Attack tools
-}
-
-# BROAD IOCs - High event count, used for discovery only
-broad_iocs = {
-    'usernames': [...],   # User accounts
-    'hostnames': [...],   # Computer names
-    'ips': [...],         # IP addresses
-    'sids': [...]         # Security Identifiers
-}
-```
-
-**Exclusions Loaded:**
-- RMM tool executables (full exclusion)
-- Remote tool session IDs (known-good exclusion)
-- EDR tools with context-aware exclusion (routine excluded, responses kept)
-- Known-good IP addresses/CIDR blocks
-
-**Progress Update:** 12-15%
-
----
-
-### Phase 3: Snowball Hunting
-
-**Purpose:** Hunt extracted IOCs to discover NEW related indicators.
-
-**Algorithm:**
-```
-FOR each IP in known_ips (limit 10):
-    results = search_ioc(IP)
-    discovered_ips += extract_ips(results) - known_ips
-    discovered_hostnames += extract_hostnames(results) - known_hostnames
-    discovered_usernames += extract_usernames(results) - known_usernames
-
-FOR each hostname in known_hostnames (limit 10):
-    results = search_ioc(hostname)
-    discovered_ips += extract_ips(results) - known_ips
-    discovered_usernames += extract_usernames(results) - known_usernames
-```
-
-**Functions Used:**
-- `search_ioc()` - Search OpenSearch for IOC matches
-- `extract_from_search_results()` - Extract IPs, hostnames, users from results
-
-**Progress Update:** 20-40%
-
----
-
-### Phase 4: Malware/Recon Hunting
-
-**Purpose:** Search for reconnaissance commands and malware indicators.
-
-**Recon Search Terms (RECON_SEARCH_TERMS):**
-```python
-RECON_SEARCH_TERMS = [
-    'nltest', 'net group', 'net user', 'net localgroup',
-    'whoami', 'ipconfig', 'systeminfo', 'domain trust',
-    'quser', 'query user', 'dclist'
-]
-```
-
-**Functions Used:**
-- `extract_recon_from_results()` - Extract command lines and executables
-
-**Progress Update:** 42-50%
-
----
-
-### Phase 5: SPECIFIC IOC Search
-
-**Purpose:** Find all events matching SPECIFIC IOCs for auto-tagging.
-
-**Process:**
-```python
-specific_anchors = []
-for ioc_type, values in specific_iocs.items():
-    for value in values:
-        # Extract filename from path for better matching
-        search_value = value.split('\\')[-1] if '\\' in value else value
-        results = search_ioc(search_value)
-        for hit in results[:100]:  # Limit per IOC
-            # Filter out known-good events EARLY
-            if should_exclude_event(hit, exclusions):
-                continue
-            specific_anchors.append({
-                'event_id': hit['_id'],
-                'event': hit,
-                'ioc_type': ioc_type,
-                'matched_ioc': value,
-                'timestamp': hit['_source']['@timestamp'],
-                'hostname': hit['_source']['normalized_computer']
-            })
-```
-
-**Progress Update:** 52-55%
-
----
-
-### Phase 6: BROAD IOC Aggregation + Create IOCs/Systems
-
-**Purpose:** Discover additional IOCs via OpenSearch aggregations and persist to database.
-
-**Aggregation Query:**
-```python
-agg_query = {
-    "size": 0,
-    "query": {"query_string": {"query": f'"{value}"'}},
-    "aggs": {
-        "hosts": {"terms": {"field": "normalized_computer.keyword", "size": 50}},
-        "users": {"terms": {"field": "process.user.name.keyword", "size": 50}},
-        "ips": {"terms": {"field": "host.ip.keyword", "size": 50}}
-    }
-}
-```
-
-**Database Creation:**
-```python
-# Helper to add IOC if not exists
-def add_ioc_if_new(ioc_type, ioc_value, is_active=True):
-    if (ioc_type, ioc_value.lower()) not in existing_iocs:
-        ioc = IOC(
-            case_id=search.case_id,
-            ioc_type=ioc_type,
-            ioc_value=ioc_value,
-            is_active=is_active,
-            description='Created by AI Triage Search'
-        )
-        db.session.add(ioc)
-
-# Helper to add System if not exists
-def add_system_if_new(hostname):
-    if hostname.upper() not in existing_systems:
-        system = System(
-            case_id=search.case_id,
-            system_name=hostname.upper(),  # Field is system_name
-            system_type='workstation',
-            added_by='AI Triage Search'
-        )
-        db.session.add(system)
-```
-
-**Noise Filtering Applied:**
-- `is_noise_user()` - Filters DWM-N, UMFD-N, SYSTEM, machine accounts ($)
-- `is_noise_hostname()` - Filters common words, short names
-- `normalize_hostname()` - Strips FQDN to hostname (e.g., `CM-DC01.domain.local` → `CM-DC01`)
-
-**Progress Update:** 57-61%
-
----
-
-### Phase 7: Time Window Analysis
-
-**Purpose:** Analyze ±5 minute windows around anchor events.
-
-**Process:**
-```python
-for anchor in specific_anchors[:30]:
-    hostname = anchor['hostname']
-    timestamp = anchor['timestamp']
-    
-    # Create unique window key to avoid duplicates
-    window_key = f"{hostname}|{timestamp[:16]}"
-    
-    # Search ±5 minutes on same host
-    time_query = {
-        "query": {
-            "bool": {
-                "must": [
-                    {"term": {"normalized_computer.keyword": hostname}},
-                    {"range": {"@timestamp": {"gte": start, "lte": end}}}
-                ],
-                "must_not": [
-                    {"term": {"is_hidden": True}}  # Exclude pre-hidden events
-                ]
-            }
-        }
-    }
-    
-    for hit in results:
-        # Filter out known-good events
-        if should_exclude_event(hit, exclusions):
-            excluded_early_count += 1
-            continue
-        window_events.append(hit)
-```
-
-**Progress Update:** 62-72%
-
----
-
-### Phase 8: Process Tree Building + MITRE Pattern Matching
-
-**Purpose:** Build process trees and identify MITRE ATT&CK techniques.
-
-**MITRE Patterns (MITRE_PATTERNS):**
-```python
-MITRE_PATTERNS = {
-    'T1033': {
-        'name': 'System Owner/User Discovery',
-        'processes': ['whoami.exe', 'quser.exe'],
-        'indicators': ['whoami', '/all']
-    },
-    'T1482': {
-        'name': 'Domain Trust Discovery',
-        'processes': ['nltest.exe'],
-        'indicators': ['domain_trusts', '/all_trusts']
-    },
-    'T1018': {
-        'name': 'Remote System Discovery',
-        'processes': ['nltest.exe', 'ping.exe', 'nslookup.exe'],
-        'indicators': ['dclist', 'ping', 'net view', 'advanced_ip_scanner']
-    },
-    'T1016': {
-        'name': 'System Network Config Discovery',
-        'processes': ['ipconfig.exe', 'netsh.exe', 'route.exe'],
-        'indicators': ['ipconfig', 'netsh', 'route']
-    },
-    'T1087': {
-        'name': 'Account Discovery',
-        'indicators': ['AdUsers', 'net user', 'net group', 'AdComp']
-    },
-    'T1078': {
-        'name': 'Valid Accounts',
-        'indicators': ['logon', 'authentication']
-    },
-    'T1059.001': {
-        'name': 'PowerShell',
-        'processes': ['powershell.exe'],
-        'indicators': ['-enc', '-encodedcommand']
-    },
-    'T1218.011': {
-        'name': 'Rundll32',
-        'processes': ['rundll32.exe'],
-        'indicators': ['rundll32', '.dll,']
-    }
-}
-```
-
-**Process Tree Building:**
-```python
-for event in window_events:
-    parent = event['process']['parent']
-    if parent['name'] in ['cmd.exe', 'powershell.exe']:
-        key = f"{hostname}|{parent['pid']}"
-        suspicious_parents[key]['children'].append({
-            'name': process_name,
-            'command_line': cmd,
-            'timestamp': timestamp
-        })
-```
-
-**Progress Update:** 75-85%
-
----
-
-### Phase 9: Timeline Event Auto-Tagging
-
-**Purpose:** Filter and auto-tag key timeline events.
+**Purpose:** Filter and auto-tag key timeline events with noise reduction.
 
 **Timeline-Worthy Processes (TIMELINE_PROCESSES):**
 ```python
 TIMELINE_PROCESSES = [
+    # Recon commands
     'nltest.exe', 'whoami.exe', 'ipconfig.exe', 'ping.exe',
     'net.exe', 'net1.exe', 'netstat.exe', 'systeminfo.exe',
-    'quser.exe', 'query.exe', 'nslookup.exe', 'route.exe',
-    'powershell.exe', 'rundll32.exe', 'regsvr32.exe',
-    'mshta.exe', 'wscript.exe', 'cscript.exe',
-    'advanced_ip_scanner.exe', 'psexec.exe', 'winscp.exe',
-    'notepad.exe', 'wordpad.exe'
+    'nslookup.exe', 'route.exe', 'arp.exe', 'tracert.exe',
+    'hostname.exe', 'nbtstat.exe',
+    
+    # Scripting/execution
+    'powershell.exe', 'pwsh.exe', 'cmd.exe',
+    'rundll32.exe', 'regsvr32.exe', 'mshta.exe',
+    'wscript.exe', 'cscript.exe', 'certutil.exe',
+    'bitsadmin.exe', 'msbuild.exe',
+    
+    # Lateral movement / tools
+    'psexec.exe', 'psexec64.exe', 'wmic.exe',
+    'schtasks.exe', 'sc.exe', 'reg.exe',
+    
+    # Remote access tools
+    'winscp.exe', 'putty.exe', 'plink.exe',
+    'advanced_ip_scanner.exe', 'nmap.exe', 'masscan.exe',
+    
+    # Data access
+    'notepad.exe', 'wordpad.exe',
 ]
 ```
 
-**Noise Processes Excluded (NOISE_PROCESSES):**
+**Noise Processes Excluded (NOISE_PROCESSES) - v1.42.0:**
 ```python
 NOISE_PROCESSES = [
-    'auditpol.exe',      # Windows audit policy - often run by RMM
+    # Windows system management
+    'auditpol.exe',      # Audit policy - run by EDR/RMM
     'gpupdate.exe',      # Group policy update
-    'schtasks.exe',      # Task scheduler (when parent is RMM)
     'wuauclt.exe',       # Windows Update
     'msiexec.exe',       # Installer
     'dism.exe',          # Deployment Image Service
+    'sppsvc.exe',        # Software Protection Platform
+    'winmgmt.exe',       # WMI service
+    
+    # Console/shell infrastructure
+    'conhost.exe',       # Console host - spawned by every cmd.exe
+    'find.exe',          # Usually part of "command | find" pipes
+    'findstr.exe',       # Same as find.exe
+    'sort.exe',          # Pipe utility
+    'more.com',          # Pipe utility
+    
+    # Monitoring/health check processes
+    'tasklist.exe',      # Process listing (RMM monitoring)
+    'quser.exe',         # Session queries (RMM health checks)
+    'query.exe',         # Query commands
+    
+    # Windows runtime/background
+    'runtimebroker.exe', # Windows Runtime Broker
+    'taskhostw.exe',     # Task Host Window
+    'backgroundtaskhost.exe',  # Background task host
+    'wmiprvse.exe',      # WMI Provider Host
+    
+    # Update/maintenance
+    'huntressupdater.exe',     # Huntress updates
+    'microsoftedgeupdate.exe', # Edge updates
+    'fulltrustnotifier.exe',   # Adobe notifications
+    'filecoauth.exe',          # Office/OneDrive co-auth
+    
+    # Search indexing
+    'searchprotocolhost.exe',  # Windows Search
+    'searchfilterhost.exe',    # Windows Search
 ]
 ```
 
-**RMM Path Patterns Excluded (RMM_PATH_PATTERNS):**
+**Noise Command Patterns (v1.42.0) - NOISE_COMMAND_PATTERNS:**
+
+Commands excluded ONLY when parent is empty/generic:
+```python
+NOISE_COMMAND_PATTERNS = [
+    # Network monitoring (run thousands of times by RMM/EDR)
+    'netstat -ano', 'netstat  -ano',
+    'netstat -an', 'netstat  -an',
+    'ipconfig /all', 'ipconfig  /all',
+    
+    # System info (monitoring, not attacks)
+    'systeminfo', 'hostname',
+    
+    # Session/user queries (RMM health checks)
+    'quser', '"quser"', 'query user',
+    
+    # Process listing (RMM monitoring loops)
+    'tasklist',
+    
+    # Pipe output filters (from "netstat | find" chains)
+    'find /i', 'find "', 'find  /i', 'find  "',
+    
+    # Audit policy commands (EDR continuously sets these)
+    'auditpol.exe /set', 'auditpol /set', 'auditpol.exe  /set',
+    
+    # Console host (spawned by every cmd.exe)
+    'conhost.exe 0xffffffff', 'conhost.exe  0xffffffff',
+    
+    # PowerShell monitoring - Defender checks (Huntress, RMM)
+    'get-mppreference',        # Defender preference queries
+    'get-mpthreat',            # Defender threat queries
+    'get-mpcomputerstatus',    # Defender status checks
+    
+    # PowerShell monitoring - WMI queries (LabTech, RMM)
+    'get-wmiobject -class win32_operatingsystem',
+    'get-wmiobject -query',
+    'get-wmiobject -namespace root',
+    
+    # Windows service/system processes
+    'runtimebroker.exe -embedding',
+    'backgroundtaskhost.exe', 'taskhostw.exe',
+    'wmiprvse.exe -secured', 'svchost.exe -k', 'sppsvc.exe',
+    
+    # Application update processes
+    'huntressupdater.exe', 'microsoftedgeupdate.exe',
+]
+```
+
+**Generic/Benign Parents (v1.41.0) - GENERIC_PARENTS:**
+
+Parents that trigger noise command filtering:
+```python
+GENERIC_PARENTS = [
+    '',                       # Empty parent (EDR didn't capture it)
+    'cmd.exe',                # Generic - could be anything
+    'svchost.exe',            # Windows service host
+    'services.exe',           # Service control manager
+    'wmiprvse.exe',           # WMI provider (often used by monitoring)
+    'taskhostw.exe',          # Task scheduler host
+]
+```
+
+**Frequency-Based Deduplication (v1.41.0):**
+```python
+MAX_EVENTS_PER_COMMAND = 3  # Max events to tag per unique command per host
+```
+
+If `netstat -ano` runs 1000 times on a host, only 3 instances are tagged.
+
+**RMM Path Patterns Excluded (RMM_PATH_PATTERNS) - v1.42.0:**
 ```python
 RMM_PATH_PATTERNS = [
     'ltsvc', 'labtech', 'automate',  # ConnectWise Automate/LabTech
@@ -452,41 +274,55 @@ RMM_PATH_PATTERNS = [
     'syncro',                         # Syncro
     'atera',                          # Atera
     'n-central', 'basupsrvc',         # N-able
+    'huntress',                       # Huntress EDR
+    'screenconnect',                  # ConnectWise ScreenConnect
 ]
 ```
 
-**Auto-Tagging Process:**
+**Auto-Tagging Process (Updated v1.41.0):**
 ```python
-for event in timeline_events:
-    proc_name = event['_source']['process']['name'].lower()
+# Filter to timeline-worthy events with noise reduction
+timeline_events = []
+seen_keys = set()           # Exact timestamp+command dedup
+command_frequency = {}       # Track {host|command: count} for frequency dedup
+excluded_count = 0
+frequency_skipped = 0
+
+for event in all_window_events:
+    src = event.get('_source', {})
+    proc = src.get('process', {})
+    proc_name = (proc.get('name') or '').lower()
     
-    # Skip if not a timeline-worthy process
+    # Check if timeline-worthy
     if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
         continue
     
-    # Skip if already tagged
-    if event_id in existing_tag_ids:
-        already_tagged += 1
+    # Check exclusions (known-good RMM, remote tools, IPs, noise commands)
+    if should_exclude_event(event, exclusions):
+        excluded_count += 1
         continue
     
-    # Create tag with purple color
-    tag = TimelineTag(
-        case_id=case_id,
-        user_id=user_id,
-        event_id=event_id,
-        index_name=f"case_{case_id}",
-        event_data=json.dumps(event['_source']),
-        tag_color='purple',  # AI-tagged events are purple
-        notes=f"[AI Triage Timeline Event]\n..."
-    )
-    db.session.add(tag)
+    # Timestamp+command deduplication
+    cmd = (proc.get('command_line') or '').lower()
+    ts = src.get('@timestamp', '')
+    key = f"{ts}|{cmd}"
+    if key in seen_keys:
+        continue
+    seen_keys.add(key)
+    
+    # Frequency-based deduplication (v1.41.0)
+    hostname = src.get('normalized_computer', 'unknown')
+    cmd_base = cmd.split()[0] if cmd else ''  # Just the executable
+    freq_key = f"{hostname}|{cmd_base}"
+    
+    current_count = command_frequency.get(freq_key, 0)
+    if current_count >= MAX_EVENTS_PER_COMMAND:
+        frequency_skipped += 1
+        continue  # Already have enough samples
+    
+    command_frequency[freq_key] = current_count + 1
+    timeline_events.append(event)
 ```
-
-**Deduplication:**
-- Uses `cmd.lower()` for case-insensitive command deduplication
-- Key format: `f"{timestamp}|{cmd.lower()}"`
-
-**Progress Update:** 87-100%
 
 ---
 
@@ -502,6 +338,18 @@ The exclusion system prevents known-good events from polluting the analysis:
 | **Remote Tools** | Exclude known-good session IDs | ScreenConnect with known GUID |
 | **EDR Tools** | Context-aware: exclude routine, KEEP responses | Huntress isolation kept |
 | **Known-Good IPs** | Full exclusion | Internal network ranges |
+| **Noise Commands** (v1.41.0) | Exclude when parent is empty/generic | `netstat -ano` with no parent |
+
+### The Empty Parent Problem (v1.41.0)
+
+**Issue:** Many EDR tools don't capture parent process information. When parent is empty, we can't determine if a command was launched by RMM/EDR or by an attacker.
+
+**Example from Case 25:**
+- 8,537 `netstat -ano` events on ATN71575
+- 8,410 (98%) had **empty parent** - couldn't be filtered by parent-based exclusion
+- Only 22 had SnapAgent.exe as parent (would be excluded)
+
+**Solution:** Noise command pattern detection for events with empty/generic parents.
 
 ### EDR Tools Context-Aware Exclusion
 
@@ -525,47 +373,99 @@ for edr_config in exclusions.get('edr_tools', []):
 
 | Tool | Executables | Routine Commands | Response Patterns |
 |------|-------------|------------------|-------------------|
-| Huntress | `HuntressAgent.exe` | whoami, systeminfo, ipconfig | isolat, quarantin, block, mass isolation |
-| Blackpoint | `SnapAgent.exe` | whoami, systeminfo | isolat, snap, block |
+| Huntress | `HuntressAgent.exe` | whoami, systeminfo, ipconfig, netstat | isolat, quarantin, block, mass isolation |
+| Blackpoint | `SnapAgent.exe` | whoami, systeminfo, ipconfig, netstat | isolat, snap, block |
 | SentinelOne | `SentinelAgent.exe` | whoami, systeminfo, tasklist | isolat, quarantin, mitigat, kill |
 | CrowdStrike | `CSAgent.exe` | whoami, systeminfo | contain, isolat, block |
 
-### should_exclude_event() Function
+### should_exclude_event() Function (Updated v1.41.0)
 
 ```python
 def should_exclude_event(event, exclusions):
-    """Check if event should be excluded from tagging (known-good)."""
+    """Check if event should be excluded from tagging (known-good).
     
-    # Check 0: Already hidden
+    v1.41.0: Added noise command pattern detection for events with empty/generic parents.
+    """
+    src = event.get('_source', event)
+    
+    # Already hidden?
     if src.get('is_hidden'):
         return True
     
-    # Check 1: Noise processes (auditpol, gpupdate, etc.)
-    if proc_name in NOISE_PROCESSES:
+    proc = src.get('process', {})
+    parent = proc.get('parent', {})
+    parent_name = (parent.get('name') or '').lower()
+    proc_name = (proc.get('name') or '').lower()
+    cmd_line = (proc.get('command_line') or '').lower()
+    parent_cmd = (parent.get('command_line') or '').lower()
+    
+    # Check 0: Noise processes (system management, not attack-related)
+    if proc_name.replace('.exe', '') in [p.replace('.exe', '') for p in NOISE_PROCESSES]:
         return True
     
-    # Check 2: Parent is RMM tool (full exclusion)
-    for rmm_pattern in exclusions['rmm_executables']:
-        if fnmatch.fnmatch(parent_name, rmm_pattern):
+    # Check 0.5 (v1.41.0): Noise command patterns with empty/generic parent
+    # If parent is empty or generic AND command matches noise pattern, exclude
+    parent_is_generic = parent_name in [p.lower() for p in GENERIC_PARENTS] or not parent_name
+    if parent_is_generic:
+        cmd_normalized = ' '.join(cmd_line.split()).strip()
+        for noise_pattern in NOISE_COMMAND_PATTERNS:
+            noise_normalized = ' '.join(noise_pattern.lower().split()).strip()
+            if cmd_normalized == noise_normalized or cmd_normalized.startswith(noise_normalized + ' '):
+                return True  # Exclude - monitoring noise with no suspicious parent
+    
+    # Check 1: Parent is a known RMM tool (full exclusion)
+    for rmm_pattern in exclusions.get('rmm_executables', []):
+        if fnmatch.fnmatch(parent_name, rmm_pattern) or fnmatch.fnmatch(proc_name, rmm_pattern):
             return True
     
-    # Check 3: Command line contains RMM paths
+    # Check 1.5: Command line or parent command contains RMM paths
     for rmm_path in RMM_PATH_PATTERNS:
-        if rmm_path in cmd_line:
+        if rmm_path in cmd_line or rmm_path in parent_cmd:
             return True
     
-    # Check 4: EDR tools - context-aware
-    for edr_config in exclusions['edr_tools']:
+    # Check 2: EDR tools - CONTEXT-AWARE exclusion
+    for edr_config in exclusions.get('edr_tools', []):
+        parent_is_edr = any(
+            fnmatch.fnmatch(parent_name, exe) or exe in parent_name
+            for exe in edr_config.get('executables', [])
+        )
+        
         if parent_is_edr:
-            # Keep response actions
-            if any(pattern in cmd_line for pattern in edr_config['response_patterns']):
-                return False
-            # Exclude routine
-            if any(routine in cmd_line for routine in edr_config['routine_commands']):
-                return True
+            # FIRST: Check if this is a response action - ALWAYS KEEP
+            if edr_config.get('keep_responses', True):
+                response_patterns = edr_config.get('response_patterns', [])
+                if any(pattern in cmd_line for pattern in response_patterns):
+                    return False  # DON'T exclude - response action!
+            
+            # SECOND: Check if this is a routine health check - exclude
+            if edr_config.get('exclude_routine', True):
+                routine_commands = edr_config.get('routine_commands', [])
+                if any(routine in cmd_line for routine in routine_commands):
+                    return True  # Exclude - routine health check
     
-    # Check 5: Remote tool with known-good session ID
-    # Check 6: Known-good IP
+    # Check 3: Remote tool with known-good session ID
+    for tool_config in exclusions.get('remote_tools', []):
+        pattern = tool_config.get('pattern', '')
+        if pattern and pattern in proc_name:
+            for known_id in tool_config.get('known_good_ids', []):
+                if known_id in cmd_line:
+                    return True
+    
+    # Check 4: Source IP is known-good
+    source_ip = src.get('source', {}).get('ip') or src.get('host', {}).get('ip')
+    if source_ip:
+        if isinstance(source_ip, list):
+            source_ip = source_ip[0] if source_ip else None
+        if source_ip:
+            for ip_range in exclusions.get('known_good_ips', []):
+                try:
+                    if '/' in ip_range:
+                        if ipaddress.ip_address(source_ip) in ipaddress.ip_network(ip_range, strict=False):
+                            return True
+                    elif source_ip == ip_range:
+                        return True
+                except:
+                    pass
     
     return False
 ```
@@ -579,9 +479,12 @@ def should_exclude_event(event, exclusions):
 ├── tasks.py                          # Celery task: run_ai_triage_search()
 │   ├── TIMELINE_PROCESSES            # List of timeline-worthy processes
 │   ├── NOISE_PROCESSES               # Processes to exclude
+│   ├── NOISE_COMMAND_PATTERNS        # (v1.41.0) Command lines to exclude
+│   ├── GENERIC_PARENTS               # (v1.41.0) Parents that trigger noise filtering
+│   ├── MAX_EVENTS_PER_COMMAND        # (v1.41.0) Frequency limit per host
 │   ├── RMM_PATH_PATTERNS             # RMM path patterns to exclude
 │   ├── MITRE_PATTERNS                # MITRE ATT&CK pattern definitions
-│   ├── run_ai_triage_search()        # Main 9-phase task (line 2755)
+│   ├── run_ai_triage_search()        # Main 9-phase task
 │   ├── is_noise_user()               # Filter noise usernames
 │   ├── is_noise_hostname()           # Filter noise hostnames
 │   ├── normalize_hostname()          # Strip FQDN to hostname
@@ -589,40 +492,10 @@ def should_exclude_event(event, exclusions):
 │   └── should_exclude_event()        # Check if event is known-good
 │
 ├── routes/triage_report.py           # API routes + helper functions
-│   ├── IOC_TYPE_MAP                  # IOC type mappings
-│   ├── NOISE_USERS                   # Filtered user accounts
-│   ├── NOT_HOSTNAMES                 # Blocklist for hostname extraction
-│   ├── RECON_SEARCH_TERMS            # Reconnaissance search terms
-│   ├── extract_iocs_with_llm()       # LLM-based extraction
-│   ├── extract_iocs_with_regex()     # Regex-based extraction
-│   ├── extract_from_search_results() # Extract IPs/hosts/users from results
-│   ├── extract_recon_from_results()  # Extract commands/executables
-│   ├── search_ioc()                  # Search OpenSearch for IOC
-│   ├── is_valid_hostname()           # Hostname validation
-│   └── is_machine_account()          # Check for machine accounts ($)
-│
 ├── routes/system_tools.py            # System Tools settings
-│   ├── RMM_TOOLS                     # Predefined RMM tools
-│   ├── REMOTE_TOOLS                  # Predefined remote tools
-│   ├── EDR_TOOLS                     # Predefined EDR tools
-│   └── add_edr_tool()                # Add EDR tool route
-│
 ├── models.py                         # Database models
-│   ├── AITriageSearch                # Main model for search results
-│   ├── IOC                           # IOC storage
-│   ├── System                        # System storage (system_name field)
-│   ├── TimelineTag                   # Tagged events
-│   └── SystemToolsSetting            # Exclusion settings
-│
 ├── templates/search_events.html      # Frontend template
-│   ├── triageReportModal             # Modal HTML structure
-│   ├── showTriageModal()             # Open modal function
-│   ├── startAITriageSearch()         # Start search function
-│   ├── pollAITriageStatus()          # Poll for progress
-│   └── showTriageResults()           # Display results
-│
 └── templates/system_tools.html       # System Tools settings page
-    └── EDR Tools section             # Add/manage EDR tools
 ```
 
 ---
@@ -637,9 +510,9 @@ CREATE TABLE ai_triage_search (
     case_id INTEGER NOT NULL REFERENCES "case"(id),
     generated_by INTEGER NOT NULL REFERENCES "user"(id),
     
-    status VARCHAR(20) DEFAULT 'pending',  -- pending, running, completed, failed
+    status VARCHAR(20) DEFAULT 'pending',
     celery_task_id VARCHAR(255),
-    entry_point VARCHAR(50),  -- full_triage, ioc_hunt, tag_hunt
+    entry_point VARCHAR(50),
     search_date TIMESTAMP,
     
     -- Results (JSON)
@@ -673,23 +546,6 @@ CREATE TABLE ai_triage_search (
 );
 ```
 
-### System Table (for hostname storage)
-
-```sql
-CREATE TABLE system (
-    id SERIAL PRIMARY KEY,
-    case_id INTEGER NOT NULL REFERENCES "case"(id),
-    system_name VARCHAR(255) NOT NULL,  -- NOTE: Field is system_name, not hostname
-    ip_address VARCHAR(45),
-    system_type VARCHAR(50) DEFAULT 'workstation',
-    added_by VARCHAR(100) DEFAULT 'CaseScope',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    hidden BOOLEAN DEFAULT FALSE,
-    
-    UNIQUE(case_id, system_name)
-);
-```
-
 ### SystemToolsSetting Table (for exclusions)
 
 ```sql
@@ -698,14 +554,14 @@ CREATE TABLE system_tools_setting (
     setting_type VARCHAR(50) NOT NULL,  -- rmm_tool, remote_tool, edr_tool, known_good_ip
     tool_name VARCHAR(100),
     executable_pattern VARCHAR(500),
-    known_good_ids TEXT,  -- JSON list for remote tools
+    known_good_ids TEXT,
     ip_or_cidr VARCHAR(50),
     
-    -- EDR-specific fields (v1.40.0)
+    -- EDR-specific fields
     exclude_routine BOOLEAN DEFAULT TRUE,
     keep_responses BOOLEAN DEFAULT TRUE,
-    routine_commands TEXT,  -- JSON list: ["whoami", "systeminfo"]
-    response_patterns TEXT,  -- JSON list: ["isolat", "quarantin"]
+    routine_commands TEXT,
+    response_patterns TEXT,
     
     description VARCHAR(500),
     created_by INTEGER REFERENCES "user"(id),
@@ -725,107 +581,57 @@ CREATE TABLE system_tools_setting (
 POST /case/<case_id>/ai-triage-search/run
 ```
 
-**Response:**
-```json
-{
-    "success": true,
-    "search_id": 123,
-    "task_id": "abc123-def456-..."
-}
-```
-
 ### Get Search Status
 
 ```
 GET /case/<case_id>/ai-triage-search/<search_id>/status
 ```
 
-**Response (Running):**
-```json
-{
-    "status": "running",
-    "phase": 3,
-    "phase_name": "Snowball Hunting",
-    "message": "Searching IP: 192.168.1.100",
-    "percent": 25
-}
-```
-
-**Response (Completed):**
-```json
-{
-    "status": "completed",
-    "phase": 9,
-    "phase_name": "Complete",
-    "percent": 100,
-    "iocs_extracted": 12,
-    "iocs_discovered": 8,
-    "events_analyzed": 1500,
-    "auto_tagged": 15,
-    "techniques_found": 5,
-    "generation_time": 45.2
-}
-```
-
 ---
 
 ## Common Issues & Fixes
+
+### Issue: Monitoring noise flooding timeline (v1.41.0)
+
+**Symptoms:** Thousands of `netstat -ano`, `ipconfig /all` events tagged
+
+**Root Cause:** EDR data has empty parent field for 84%+ of events, so parent-based exclusion can't work.
+
+**Example (Case 25 - ATN71575):**
+- 8,537 netstat events total
+- 8,410 (98%) had empty parent
+- 22 from SnapAgent.exe (would be excluded)
+- Without fix: 89+ events tagged as noise
+
+**Fix (v1.41.0):** 
+1. Added `NOISE_COMMAND_PATTERNS` - exact commands excluded when parent is generic
+2. Added `GENERIC_PARENTS` - parents that trigger noise filtering
+3. Added `MAX_EVENTS_PER_COMMAND` - frequency limit per host (default: 3)
+
+```python
+# Noise detection for empty/generic parent
+parent_is_generic = parent_name in GENERIC_PARENTS or not parent_name
+if parent_is_generic:
+    cmd_normalized = ' '.join(cmd_line.split()).strip()
+    for noise_pattern in NOISE_COMMAND_PATTERNS:
+        if cmd_normalized == noise_pattern:
+            return True  # Exclude
+```
 
 ### Issue: Systems not being created
 
 **Cause:** Code was using `hostname` field but model uses `system_name`
 
-**Fix (v1.40.0):**
+**Fix:**
 ```python
-# WRONG
-system = System(case_id=id, hostname=name, notes='...')
-
-# CORRECT
 system = System(case_id=id, system_name=name, added_by='AI Triage Search')
-```
-
-### Issue: Duplicate hostnames with FQDNs
-
-**Cause:** `CM-DC01.domain.local` and `CM-DC01` treated as different
-
-**Fix:** Use `normalize_hostname()` to strip FQDN:
-```python
-def normalize_hostname(hostname):
-    if '.' in hostname:
-        hostname = hostname.split('.')[0]
-    return hostname.upper()
-```
-
-### Issue: Noise usernames being created as IOCs
-
-**Cause:** DWM-2, UMFD-1, NETWORK SERVICE not filtered
-
-**Fix:** Use `is_noise_user()` before creating IOCs:
-```python
-def is_noise_user(username):
-    if username.lower() in NOISE_USERS:
-        return True
-    if re.match(r'^(dwm|umfd)-\d+$', username.lower()):
-        return True
-    return False
-```
-
-### Issue: RMM events polluting timeline
-
-**Cause:** LabTech/Datto running `whoami` being tagged
-
-**Fix:** Check `RMM_PATH_PATTERNS` in command line:
-```python
-for rmm_path in RMM_PATH_PATTERNS:
-    if rmm_path in cmd_line.lower():
-        return True  # Exclude
 ```
 
 ### Issue: Huntress isolation events being hidden
 
 **Cause:** EDR tools were fully excluded like RMM
 
-**Fix (v1.40.0):** Context-aware EDR exclusion - check response patterns FIRST:
+**Fix:** Context-aware EDR exclusion - check response patterns FIRST:
 ```python
 if any(pattern in cmd_line for pattern in edr_config['response_patterns']):
     return False  # KEEP - this is a response action!
@@ -845,32 +651,16 @@ sudo journalctl -u casescope-worker -f
 ### Watch Triage Logs
 
 ```bash
-tail -f /opt/casescope/logs/workers.log | grep -E "AI_TRIAGE|Phase"
+tail -f /opt/casescope/logs/workers.log | grep -E "AI_TRIAGE|Phase|frequency"
 ```
 
 ### Check Database
 
 ```sql
-SELECT id, status, current_phase, progress_message, iocs_extracted_count, 
+SELECT id, status, current_phase, progress_message, 
        auto_tagged_count, error_message 
 FROM ai_triage_search 
 ORDER BY created_at DESC LIMIT 5;
-```
-
-### Verify IOCs Created
-
-```sql
-SELECT ioc_type, ioc_value, is_active, description 
-FROM ioc 
-WHERE case_id = 25 AND description LIKE '%AI Triage%';
-```
-
-### Verify Systems Created
-
-```sql
-SELECT system_name, system_type, added_by 
-FROM system 
-WHERE case_id = 25 AND added_by = 'AI Triage Search';
 ```
 
 ---
@@ -879,6 +669,8 @@ WHERE case_id = 25 AND added_by = 'AI Triage Search';
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.42.0 | 2025-11-29 | **Comprehensive noise analysis:** Expanded NOISE_PROCESSES (29 entries), NOISE_COMMAND_PATTERNS (30+ patterns), RMM_PATH_PATTERNS (huntress, screenconnect). Analyzed Cases 14, 16, 22, 25 - eliminates 2.5-13% noise per case. Added PowerShell monitoring patterns (Get-Mp*, Get-WmiObject). |
+| 1.41.0 | 2025-11-29 | **Noise reduction:** Added NOISE_COMMAND_PATTERNS, GENERIC_PARENTS, frequency-based deduplication (MAX_EVENTS_PER_COMMAND=3) to handle EDR data with empty parent fields |
 | 1.40.0 | 2025-11-29 | EDR context-aware exclusion, fixed System creation (system_name field) |
 | 1.39.0 | 2025-11-29 | Initial 9-phase implementation |
 | 1.38.0 | 2025-11-28 | System Tools settings, Hide Known Good |
@@ -888,4 +680,4 @@ WHERE case_id = 25 AND added_by = 'AI Triage Search';
 
 ## Contact
 
-For issues or questions, contact the CaseScope development team or create an issue in the GitHub repository.
+For issues or questions, contact the CaseScope development team.

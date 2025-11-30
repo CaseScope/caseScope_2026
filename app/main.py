@@ -2845,34 +2845,44 @@ def bulk_untag_events(case_id):
     if not events:
         return jsonify({'error': 'No events provided'}), 400
     
-    untagged_count = 0
-    
-    for event in events:
-        event_id = event.get('event_id')
-        index_name = event.get('index_name')
+    try:
+        untagged_count = 0
+        not_tagged_count = 0
         
-        if not event_id or not index_name:
-            continue
+        for event in events:
+            event_id = event.get('event_id')
+            index_name = event.get('index_name')
+            
+            if not event_id or not index_name:
+                continue
+            
+            # Find and delete tag
+            tag = db.session.query(TimelineTag).filter_by(
+                case_id=case_id,
+                event_id=event_id,
+                index_name=index_name
+            ).first()
+            
+            if tag:
+                db.session.delete(tag)
+                untagged_count += 1
+            else:
+                not_tagged_count += 1
         
-        # Find and delete tag
-        tag = db.session.query(TimelineTag).filter_by(
-            case_id=case_id,
-            event_id=event_id,
-            index_name=index_name
-        ).first()
+        db.session.commit()
         
-        if tag:
-            db.session.delete(tag)
-            untagged_count += 1
+        logger.info(f"[BULK UNTAG] User {current_user.id} untagged {untagged_count} events in case {case_id} ({not_tagged_count} were not tagged)")
+        
+        return jsonify({
+            'success': True,
+            'untagged': untagged_count,
+            'not_tagged': not_tagged_count
+        })
     
-    db.session.commit()
-    
-    logger.info(f"[BULK UNTAG] User {current_user.id} untagged {untagged_count} events in case {case_id}")
-    
-    return jsonify({
-        'success': True,
-        'untagged': untagged_count
-    })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[BULK UNTAG] Error untagging events in case {case_id}: {e}")
+        return jsonify({'error': f'Failed to untag events: {str(e)}'}), 500
 
 
 @app.route('/case/<int:case_id>/sync-timeline-to-iris', methods=['POST'])
