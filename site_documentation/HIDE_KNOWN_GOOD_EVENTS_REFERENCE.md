@@ -1,11 +1,11 @@
 # Hide Known Good Events - Technical Reference
 
-**Version**: 1.43.11  
+**Version**: 1.43.15  
 **Last Updated**: December 1, 2025  
 **Feature Introduced**: v1.38.0  
 **EDR Tools Added**: v1.40.0  
 **Progress Tracking Added**: v1.43.8  
-**Process & Path Matching Added**: v1.43.11
+**Simplified search_blob Matching**: v1.43.15
 
 ---
 
@@ -142,7 +142,9 @@ CREATE INDEX idx_is_active ON system_tools_setting(is_active);
 
 ### 1. RMM Tools (Full Exclusion)
 
-**Behavior**: Hide events where **process OR parent** matches RMM patterns, OR where process runs FROM RMM folders. (v1.43.11)
+**Behavior**: Hide events where RMM executable pattern appears **ANYWHERE in search_blob**. (v1.43.15)
+
+This catches: process name, parent name, grandparent, full paths, command lines - regardless of JSON structure.
 
 **Predefined Tools** (in `system_tools.py`):
 - ConnectWise Automate (LabTech): `LTSVC.exe,LTSvcMon.exe,LTTray.exe,LabTech*.exe`
@@ -154,42 +156,29 @@ CREATE INDEX idx_is_active ON system_tools_setting(is_active);
 - N-able: `N-central*.exe,BASupSrvc*.exe`
 - Pulseway: `PCMonitorSrv.exe,Pulseway*.exe`
 
-**Matching Logic** (`_should_hide_event_task` - v1.43.11):
+**Matching Logic** (`_should_hide_event_task` - v1.43.15):
 ```python
-# Check 1: Process OR Parent matches RMM executable patterns
+search_blob = src.get('search_blob', '').lower()
+
 for rmm_pattern in exclusions['rmm_executables']:
-    # Parent check
-    if fnmatch.fnmatch(parent_name_only, rmm_pattern):
-        return True
-    # Process check (v1.43.11 - NEW)
-    if fnmatch.fnmatch(proc_name_only, rmm_pattern):
-        return True
-
-# Check 2: Process runs FROM known tool folders (v1.43.11 - NEW)
-TOOL_PATH_PATTERNS = [
-    'ltsvc', 'labtech', 'automate',  # ConnectWise Automate
-    'huntress', 'screenconnect',      # Huntress, ScreenConnect
-    'sentinelone', 'crowdstrike',     # EDR tools
-    # ... 20+ patterns
-]
-
-for tool_path in TOOL_PATH_PATTERNS:
-    if tool_path in proc_name:        # C:\Windows\LTSvc\LTSVC.exe
-        return True
-    if tool_path in cmd_line:          # Command contains path
-        return True
-    if tool_path in evtx_process_name: # EVTX ProcessName field
-        return True
+    # Handle wildcards: "LabTech*.exe" → check "labtech"
+    if '*' in rmm_pattern:
+        prefix = rmm_pattern.split('*')[0]
+        if prefix and prefix in search_blob:
+            return True  # HIDE
+    else:
+        if rmm_pattern in search_blob:
+            return True  # HIDE
 ```
 
-**Examples (v1.43.11):**
+**Examples (v1.43.15):**
 
-| Event | Before v1.43.11 | After v1.43.11 |
+| Event | Before v1.43.15 | After v1.43.15 |
 |-------|-----------------|----------------|
-| `ProcessName: C:\Windows\LTSvc\LTSVC.exe` | ❌ Not hidden (parent is services.exe) | ✅ Hidden |
+| `ProcessName: C:\Windows\LTSvc\LTSVC.exe` | ❌ Not hidden | ✅ Hidden |
 | Parent: `LTSVC.exe` spawns `cmd.exe` | ✅ Hidden | ✅ Hidden |
-| Any process in `C:\Windows\LTSvc\*` folder | ❌ Not hidden | ✅ Hidden |
-| `HuntressAgent.exe` running | ❌ Not hidden | ✅ Hidden |
+| Grandparent: `LTSVC.exe` → `cmd.exe` → `whoami.exe` | ❌ Not hidden | ✅ Hidden |
+| Any mention of `ltsvc` anywhere in event | ❌ Not hidden | ✅ Hidden |
 
 ### 2. Remote Tools (Session ID Matching)
 
@@ -217,56 +206,50 @@ for tool_config in exclusions['remote_tools']:
                 return True  # HIDE
 ```
 
-### 3. EDR Tools (Context-Aware - v1.40.0, Enhanced v1.43.11)
+### 3. EDR Tools (Context-Aware - v1.40.0, Simplified v1.43.15)
 
 **Behavior**: 
-- **HIDE** EDR tool processes themselves (v1.43.11)
-- **HIDE** routine health checks (whoami, systeminfo, ipconfig)
-- **KEEP** response/isolation actions (critical for incident understanding)
+- **HIDE** events where EDR pattern + routine command both in search_blob
+- **KEEP** events where response/isolation keywords present (critical for incident understanding)
 
 **Predefined Tools**:
 - Huntress: `HuntressAgent.exe,HuntressUpdater.exe`
-- Blackpoint (SNAP): `SnapAgent.exe`
+- Blackpoint (SNAP): `SnapAgent.exe,Blackpoint*.exe,SNAP*.exe`
 - SentinelOne: `SentinelAgent.exe,SentinelCtl.exe`
 - CrowdStrike Falcon: `CSAgent.exe,CSFalconService.exe`
 - Microsoft Defender ATP: `MsSense.exe,SenseIR.exe`
 - Sophos Intercept X: `SophosAgent.exe`
 - Carbon Black: `CbDefense*.exe,RepMgr.exe`
 
-**Matching Logic** (v1.43.11 enhanced):
+**Matching Logic** (v1.43.15 - search_blob based):
 ```python
+search_blob = src.get('search_blob', '').lower()
+
 for edr_config in exclusions['edr_tools']:
-    # Check if parent OR process is this EDR tool (v1.43.11 - enhanced)
-    is_edr_related = any(
-        fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name or
-        fnmatch.fnmatch(proc_name_only, exe) or exe in proc_name  # NEW
-        for exe in edr_config['executables']
-    )
+    # Check if ANY EDR executable is anywhere in the event
+    edr_in_blob = any(exe.lower() in search_blob for exe in edr_config['executables'])
     
-    if is_edr_related:
+    if edr_in_blob:
         # FIRST: Check for response action - DON'T HIDE
         if edr_config['keep_responses']:
-            if any(pattern in cmd_line or pattern in search_blob 
-                   for pattern in edr_config['response_patterns']):
-                return False  # DON'T hide - response action!
+            if any(pattern.lower() in search_blob for pattern in edr_config['response_patterns']):
+                continue  # Skip - this is a response action, KEEP IT
         
-        # SECOND: Check for routine command OR EDR process itself - HIDE
+        # SECOND: Check for routine command - HIDE
         if edr_config['exclude_routine']:
-            if any(routine in cmd_line for routine in edr_config['routine_commands']):
-                return True  # HIDE - routine health check
-            # Also hide EDR tool's own processes (v1.43.11)
-            if any(exe in proc_name_only for exe in edr_config['executables']):
-                return True  # HIDE - EDR tool itself
+            for routine in edr_config['routine_commands']:
+                if f"{routine.lower()}.exe" in search_blob:
+                    return True  # HIDE - routine health check
 ```
 
-**Examples (v1.43.11):**
+**Key Change (v1.43.15):** Now catches grandparent EDR tools!
 
-| Event | Before v1.43.11 | After v1.43.11 |
+| Event | Before v1.43.15 | After v1.43.15 |
 |-------|-----------------|----------------|
-| `HuntressAgent.exe` running | ❌ Not hidden | ✅ Hidden |
-| `SentinelAgent.exe` running | ❌ Not hidden | ✅ Hidden |
-| EDR spawns `whoami.exe` | ✅ Hidden | ✅ Hidden |
-| EDR performs `isolation` | ✅ Kept (response) | ✅ Kept (response) |
+| `SnapAgent.exe` → `cmd.exe` → `ipconfig.exe` | ❌ Not hidden (parent=cmd.exe) | ✅ Hidden |
+| `HuntressAgent.exe` → `cmd.exe` → `whoami.exe` | ❌ Not hidden | ✅ Hidden |
+| EDR performs `isolation` action | ✅ Kept (response) | ✅ Kept (response) |
+| EDR URL in event (huntress.io) | ✅ NOT hidden (no .exe) | ✅ NOT hidden |
 
 ### 4. Known-Good IPs
 
@@ -482,7 +465,8 @@ grep "HIDE KNOWN GOOD" /opt/casescope/logs/workers.log | tail -20
 | v1.38.0 | Initial implementation: RMM tools, Remote tools, Known-good IPs |
 | v1.40.0 | Added EDR tools with context-aware exclusion (routine vs response) |
 | v1.43.8 | Added progress tracking during hiding phase, accurate success counting |
-| v1.43.11 | **Process & Path Matching:** Check process itself (not just parent) against RMM/EDR patterns. Added TOOL_PATH_PATTERNS to hide events running FROM tool folders (ltsvc, huntress, etc.). Fixed: LTSVC.exe events now hidden even when parent is services.exe. |
+| v1.43.11 | Process & Path Matching: Check process itself (not just parent). |
+| v1.43.15 | **SIMPLIFIED search_blob Matching:** Complete rewrite. Now checks patterns anywhere in search_blob instead of specific JSON paths. Catches grandparent processes (SnapAgent→cmd→ipconfig now hidden). AI Triage's should_exclude_event() also updated for consistency. |
 
 ---
 
@@ -547,5 +531,5 @@ These documentation files describe features that depend on Hide Known Good exclu
 
 ---
 
-**✅ VERIFIED**: All information extracted from live codebase (December 1, 2025, v1.43.11)
+**✅ VERIFIED**: All information extracted from live codebase (December 1, 2025, v1.43.15)
 
