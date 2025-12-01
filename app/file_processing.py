@@ -30,6 +30,59 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# AUTO-HIDE KNOWN GOOD EVENTS (v1.43.17)
+# ============================================================================
+
+def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
+    """
+    Check if event should be auto-hidden based on exclusion rules.
+    
+    Called during indexing (initial, reindex, bulk) to automatically hide
+    known-good events (RMM tools, EDR health checks, etc.)
+    
+    Args:
+        event: Event dictionary (must have search_blob already populated)
+        exclusions: Pre-loaded exclusions dict (optional, will load if None)
+    
+    Returns:
+        Event with is_hidden=true if it matches exclusions
+    """
+    # Skip if no search_blob (can't check patterns)
+    search_blob = event.get('search_blob', '')
+    if not search_blob:
+        return event
+    
+    # Load exclusions if not provided (cached for performance)
+    if exclusions is None:
+        try:
+            from auto_hide import get_cached_exclusions
+            exclusions = get_cached_exclusions()
+        except Exception as e:
+            logger.debug(f"[AUTO_HIDE] Could not load exclusions: {e}")
+            return event
+    
+    # Skip if no exclusions configured
+    if not any([
+        exclusions.get('rmm_executables'),
+        exclusions.get('remote_tools'),
+        exclusions.get('edr_tools'),
+        exclusions.get('known_good_ips')
+    ]):
+        return event
+    
+    # Check if event should be hidden
+    try:
+        from auto_hide import should_auto_hide_event
+        if should_auto_hide_event(event, search_blob, exclusions):
+            event['is_hidden'] = True
+            event['hidden_reason'] = 'auto_hide_index'
+    except Exception as e:
+        logger.debug(f"[AUTO_HIDE] Error checking event: {e}")
+    
+    return event
+
+
+# ============================================================================
 # IIS LOG PARSING (v1.14.0: IIS W3C Extended Log Format support)
 # ============================================================================
 
@@ -841,7 +894,18 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         
         event_count = 0  # Events parsed from file
         indexed_count = 0  # Events successfully indexed to OpenSearch
+        auto_hidden_count = 0  # Events auto-hidden during indexing (v1.43.17)
         bulk_data = []
+        
+        # v1.43.17: Pre-load exclusions for auto-hide (cached for bulk performance)
+        try:
+            from auto_hide import get_cached_exclusions, has_exclusions_configured
+            auto_hide_exclusions = get_cached_exclusions() if has_exclusions_configured() else None
+            if auto_hide_exclusions:
+                logger.info("[INDEX FILE] Auto-hide enabled: will hide known-good events during indexing")
+        except Exception as e:
+            auto_hide_exclusions = None
+            logger.debug(f"[INDEX FILE] Auto-hide not available: {e}")
         
         # Process CSV files
         if is_csv:
@@ -901,6 +965,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     from event_normalization import normalize_event
                     event = normalize_event(event)
                     
+                    # v1.43.17: Auto-hide known good events during indexing
+                    event = apply_auto_hide(event, auto_hide_exclusions)
+                    
                     # Add deterministic document ID for deduplication if enabled
                     bulk_doc = {
                         '_index': index_name,
@@ -913,6 +980,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     bulk_data.append(bulk_doc)
                     
                     event_count += 1
+                    if event.get('is_hidden'):
+                        auto_hidden_count += 1
                     
                     # Bulk index every 1000 events
                     if len(bulk_data) >= 1000:
@@ -946,7 +1015,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         
                         logger.info(f"[INDEX FILE] Progress: {event_count:,} CSV rows indexed")
             
-            logger.info(f"[INDEX FILE] ✓ CSV processing complete: {event_count:,} rows")
+            logger.info(f"[INDEX FILE] ✓ CSV processing complete: {event_count:,} rows ({auto_hidden_count:,} auto-hidden)")
         
         # Process IIS log files
         elif is_iis:
@@ -964,6 +1033,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 from event_normalization import normalize_event
                 event = normalize_event(event)
                 
+                # v1.43.17: Auto-hide known good events during indexing
+                event = apply_auto_hide(event, auto_hide_exclusions)
+                
                 # Add deterministic document ID for deduplication if enabled
                 bulk_doc = {
                     '_index': index_name,
@@ -975,6 +1047,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 
                 bulk_data.append(bulk_doc)
                 event_count += 1
+                if event.get('is_hidden'):
+                    auto_hidden_count += 1
                 
                 # Bulk index every 1000 events
                 if len(bulk_data) >= 1000:
@@ -1007,7 +1081,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     
                     logger.info(f"[INDEX FILE] Progress: {event_count:,} IIS log entries indexed")
             
-            logger.info(f"[INDEX FILE] ✓ IIS log processing complete: {event_count:,} entries")
+            logger.info(f"[INDEX FILE] ✓ IIS log processing complete: {event_count:,} entries ({auto_hidden_count:,} auto-hidden)")
         
         # Process JSON/NDJSON/EVTX files
         elif json_path:
@@ -1089,6 +1163,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         event['source_file'] = filename
                         event['file_id'] = file_id
                         
+                        # v1.43.17: Auto-hide known good events during indexing
+                        event = apply_auto_hide(event, auto_hide_exclusions)
+                        
                         # Add deterministic document ID for deduplication if enabled
                         bulk_doc = {
                             '_index': index_name,
@@ -1101,6 +1178,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         bulk_data.append(bulk_doc)
                         
                         event_count += 1
+                        if event.get('is_hidden'):
+                            auto_hidden_count += 1
                         
                         # Bulk index every 1000 events
                         if len(bulk_data) >= 1000:
@@ -1156,7 +1235,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
             except Exception as e:
                 logger.error(f"[INDEX FILE] Final bulk index error: {e}")
         
-        logger.info(f"[INDEX FILE] ✓ Parsed {event_count:,} events, successfully indexed {indexed_count:,} to {index_name}")
+        logger.info(f"[INDEX FILE] ✓ Parsed {event_count:,} events, indexed {indexed_count:,} to {index_name} ({auto_hidden_count:,} auto-hidden)")
         
         # Verify indexing success
         if indexed_count == 0 and event_count > 0:

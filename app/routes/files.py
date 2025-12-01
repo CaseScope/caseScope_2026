@@ -182,6 +182,7 @@ def case_files(case_id):
                           total_events=stats['total_events'],
                           total_sigma_events=stats['sigma_events'],
                           total_ioc_events=stats['ioc_events'],
+                          total_hidden_events=stats.get('hidden_events', 0),
                           files_completed=stats.get('files_completed', 0),
                           files_queued=stats.get('files_queued', 0),
                           files_indexing=stats.get('files_indexing', 0),

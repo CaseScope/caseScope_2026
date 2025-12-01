@@ -100,6 +100,43 @@ def get_hidden_files_count(db_session, case_id: int) -> int:
     ).count()
 
 
+def get_hidden_events_count(case_id: int) -> int:
+    """
+    Get count of hidden EVENTS in OpenSearch for a case (v1.43.17).
+    
+    This queries OpenSearch for events with is_hidden=true in the case index.
+    Used to display hidden events count on the dashboard.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from file_processing import get_opensearch_client
+        client = get_opensearch_client()
+        
+        index_name = f"case_{case_id}"
+        
+        # Check if index exists
+        if not client.indices.exists(index=index_name):
+            return 0
+        
+        # Count hidden events
+        result = client.count(
+            index=index_name,
+            body={
+                "query": {
+                    "term": {"is_hidden": True}
+                }
+            }
+        )
+        
+        return result.get('count', 0)
+        
+    except Exception as e:
+        logger.warning(f"[HIDDEN_EVENTS] Error getting hidden events count for case {case_id}: {e}")
+        return 0
+
+
 def get_hidden_files(db_session, case_id: int, page: int = 1, per_page: int = 50, search_term: str = None):
     """Get paginated list of hidden files with optional search"""
     from models import CaseFile
@@ -341,6 +378,9 @@ def get_file_stats_with_hidden(db_session, case_id: int) -> Dict:
         is_hidden=False
     ).scalar() or 0
     
+    # Hidden events count from OpenSearch (v1.43.17)
+    hidden_events = get_hidden_events_count(case_id)
+    
     # Processing state counts (visible files only)
     files_indexing = db_session.query(CaseFile).filter_by(
         case_id=case_id,
@@ -394,6 +434,7 @@ def get_file_stats_with_hidden(db_session, case_id: int) -> Dict:
         'total_events': int(total_events),
         'sigma_events': int(sigma_events),
         'ioc_events': int(ioc_events),
+        'hidden_events': int(hidden_events),
         'files_completed': files_completed,
         'files_indexing': files_indexing,
         'files_sigma': files_sigma,

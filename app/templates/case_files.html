@@ -113,7 +113,7 @@
             <h2 class="card-title">📊 Event Statistics</h2>
         </div>
         <div class="card-body">
-            <div class="stat-grid-case">
+            <div class="stat-grid-case" style="grid-template-columns: repeat(4, 1fr);">
                 <div class="stat-item">
                     <div class="stat-item-label">Total Events</div>
                     <div id="stat-total-events" class="stat-item-value-large" style="color: var(--color-primary);">
@@ -130,6 +130,12 @@
                     <div class="stat-item-label">IOC Events</div>
                     <div id="stat-ioc-events" class="stat-item-value-large" style="color: var(--color-error);">
                         {{ '{:,}'.format(total_ioc_events) }}
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">Hidden Events</div>
+                    <div id="stat-hidden-events" class="stat-item-value-large" style="color: var(--color-muted);">
+                        {{ '{:,}'.format(total_hidden_events|default(0)) }}
                     </div>
                 </div>
             </div>
