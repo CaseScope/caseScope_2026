@@ -3495,6 +3495,102 @@ def run_ai_triage_search(self, search_id):
             logger.info(f"[AI_TRIAGE] Loaded {len(known_system_types)} known systems, {len(known_system_ips)} known IPs for filtering")
             
             # =========================================================
+            # v1.43.10: IOC Value Normalization
+            # =========================================================
+            # 1. System utilities: Just filename without extension if in normal path
+            # 2. Usernames: Strip domain (DOMAIN\user, user@domain) → just username
+            # 3. Deduplication handled by existing_iocs set
+            
+            KNOWN_SYSTEM_UTILITIES = {
+                'cmd', 'powershell', 'pwsh', 'whoami', 'ipconfig', 'net', 'net1',
+                'netstat', 'ping', 'nslookup', 'tracert', 'hostname', 'systeminfo',
+                'tasklist', 'taskkill', 'schtasks', 'sc', 'reg', 'regedit', 'wmic',
+                'mshta', 'rundll32', 'regsvr32', 'cscript', 'wscript', 'certutil',
+                'bitsadmin', 'msbuild', 'explorer', 'notepad', 'calc', 'msiexec',
+                'nltest', 'dsquery', 'csvde', 'ldifde', 'netsh', 'route', 'arp',
+                'nbtstat', 'quser', 'query', 'auditpol', 'gpupdate', 'gpresult',
+                'bcdedit', 'diskpart', 'format', 'chkdsk', 'sfc', 'dism',
+                'attrib', 'icacls', 'cacls', 'takeown', 'robocopy', 'xcopy',
+                'findstr', 'find', 'sort', 'more', 'type', 'copy', 'move', 'del',
+                'mkdir', 'rmdir', 'cd', 'dir', 'echo', 'set', 'where', 'tree',
+            }
+            
+            NORMAL_SYSTEM_PATHS = [
+                'c:\\windows\\system32\\',
+                'c:\\windows\\syswow64\\',
+                'c:\\windows\\',
+                '%systemroot%\\system32\\',
+                '%systemroot%\\syswow64\\',
+                '%windir%\\system32\\',
+                '%windir%\\syswow64\\',
+            ]
+            
+            def normalize_filename_ioc(value):
+                """
+                Normalize filename/process IOCs:
+                - System utilities from normal paths → just the name without extension
+                - Other executables → keep as-is (could be suspicious)
+                Returns (normalized_value, ioc_type) where ioc_type may change
+                """
+                if not value:
+                    return None, 'filename'
+                
+                value_lower = value.lower().strip()
+                
+                # Extract just the filename from a full path
+                if '\\' in value or '/' in value:
+                    path_lower = value_lower.replace('/', '\\')
+                    
+                    # Check if it's from a normal system path
+                    is_normal_path = any(path_lower.startswith(p) for p in NORMAL_SYSTEM_PATHS)
+                    
+                    # Get the filename
+                    filename = value.replace('/', '\\').split('\\')[-1]
+                    filename_no_ext = filename.rsplit('.', 1)[0].lower()
+                    
+                    if is_normal_path and filename_no_ext in KNOWN_SYSTEM_UTILITIES:
+                        # System utility in normal path → just the command name
+                        return filename_no_ext, 'command'
+                    else:
+                        # Not a normal path or not a known utility → keep full path
+                        return value, 'filepath'
+                else:
+                    # Just a filename (e.g., "whoami.exe")
+                    filename_no_ext = value.rsplit('.', 1)[0].lower() if '.' in value else value.lower()
+                    
+                    if filename_no_ext in KNOWN_SYSTEM_UTILITIES:
+                        return filename_no_ext, 'command'
+                    else:
+                        return value, 'filename'
+            
+            def normalize_username_ioc(username):
+                """
+                Normalize username by stripping domain:
+                - DOMAIN\\username → username
+                - user@domain.com → user
+                Returns normalized username or None if invalid
+                """
+                if not username:
+                    return None
+                
+                username = username.strip()
+                
+                # Handle DOMAIN\username format
+                if '\\' in username:
+                    username = username.split('\\')[-1]
+                
+                # Handle user@domain format
+                if '@' in username:
+                    username = username.split('@')[0]
+                
+                # Clean up and validate
+                username = username.strip()
+                if not username or len(username) < 2:
+                    return None
+                
+                return username
+            
+            # =========================================================
             # v1.43.9: Context-based IP IOC filtering for discovered IPs
             # =========================================================
             # IPs from EDR report: ALWAYS create IOC (analyst/EDR flagged them)
@@ -3685,16 +3781,27 @@ def run_ai_triage_search(self, search_id):
                     add_ioc_if_new('hostname', normalized)
                     add_system_if_new(normalized)
             for username in iocs.get('usernames', []):
-                if not is_noise_user(username):  # Filter noise users
-                    add_ioc_if_new('username', username)
+                # v1.43.10: Normalize username (strip domain)
+                normalized_user = normalize_username_ioc(username)
+                if normalized_user and not is_noise_user(normalized_user):
+                    add_ioc_if_new('username', normalized_user)
             for sid in iocs.get('sids', []):
                 add_ioc_if_new('user_sid', sid, is_active=False)  # SIDs start inactive
             for path in iocs.get('paths', []):
-                add_ioc_if_new('filepath', path)
+                # v1.43.10: Normalize filepath (system utils → just command name)
+                norm_val, norm_type = normalize_filename_ioc(path)
+                if norm_val:
+                    add_ioc_if_new(norm_type, norm_val)
             for proc in iocs.get('processes', []):
-                add_ioc_if_new('filename', proc)
+                # v1.43.10: Normalize process (system utils → just command name)
+                norm_val, norm_type = normalize_filename_ioc(proc)
+                if norm_val:
+                    add_ioc_if_new(norm_type, norm_val)
             for cmd in iocs.get('commands', []):
-                add_ioc_if_new('command', cmd)
+                # v1.43.10: Normalize command (system utils → just command name)
+                norm_val, norm_type = normalize_filename_ioc(cmd)
+                if norm_val:
+                    add_ioc_if_new(norm_type, norm_val)
             for tool in iocs.get('tools', []):
                 add_ioc_if_new('tool', tool)
             for hash_val in iocs.get('hashes', []):
@@ -3710,12 +3817,20 @@ def run_ai_triage_search(self, search_id):
                     add_ioc_if_new('hostname', normalized)
                     add_system_if_new(normalized)
             for username in discovered_usernames:
-                if not is_noise_user(username):  # Filter noise users
-                    add_ioc_if_new('username', username)
+                # v1.43.10: Normalize username (strip domain)
+                normalized_user = normalize_username_ioc(username)
+                if normalized_user and not is_noise_user(normalized_user):
+                    add_ioc_if_new('username', normalized_user)
             for cmd in discovered_commands:
-                add_ioc_if_new('command', cmd)
+                # v1.43.10: Normalize command (system utils → just command name)
+                norm_val, norm_type = normalize_filename_ioc(cmd)
+                if norm_val:
+                    add_ioc_if_new(norm_type, norm_val)
             for filename in discovered_filenames:
-                add_ioc_if_new('filename', filename)
+                # v1.43.10: Normalize filename (system utils → just command name)
+                norm_val, norm_type = normalize_filename_ioc(filename)
+                if norm_val:
+                    add_ioc_if_new(norm_type, norm_val)
             for threat in discovered_threats:
                 add_ioc_if_new('threat', threat)
             
