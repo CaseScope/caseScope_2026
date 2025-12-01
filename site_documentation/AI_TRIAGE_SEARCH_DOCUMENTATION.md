@@ -1,6 +1,6 @@
 # AI Triage Search - Complete Technical Documentation
 
-**Version:** 1.43.9  
+**Version:** 1.43.10  
 **Last Updated:** 2025-12-01  
 **Author:** CaseScope Development Team
 
@@ -44,6 +44,7 @@ The **AI Triage Search** is an automated attack chain analysis system that:
 - **System Tools exclusions** for RMM, Remote Tools, EDR Tools, and Known-Good IPs
 - **Known System/IP filtering** (v1.43.4) - skips IOCs for known systems (non-unknown types)
 - **Context-based IP filtering** (v1.43.9) - filters noise IPs from firewall/network logs
+- **IOC value normalization** (v1.43.10) - system utilities → command names, usernames strip domain
 - **EDR context-aware exclusion** - excludes routine health checks but KEEPS response actions
 - **Noise command pattern detection** (v1.41.0) - filters monitoring noise with empty/generic parents
 - **Frequency-based deduplication** (v1.41.0) - limits repeated commands per host
@@ -437,6 +438,97 @@ def is_ip_in_meaningful_context(ip, case_id):
     return meaningful_count > 0
 ```
 
+### IOC Value Normalization (v1.43.10)
+
+**Problem:** IOCs were being created with duplicates and noise:
+- Same system utility with full path and just filename: `C:\Windows\System32\whoami.exe` AND `whoami.exe`
+- Same username with different domain formats: `CORP\admin`, `admin@corp.local`, `admin`
+
+**Solution:** Normalize IOC values before creation:
+
+#### Filename/Process Normalization
+
+System utilities running from normal Windows paths are simplified to just the command name:
+
+```python
+KNOWN_SYSTEM_UTILITIES = {
+    'cmd', 'powershell', 'pwsh', 'whoami', 'ipconfig', 'net', 'net1',
+    'netstat', 'ping', 'nslookup', 'tracert', 'hostname', 'systeminfo',
+    'tasklist', 'taskkill', 'schtasks', 'sc', 'reg', 'regedit', 'wmic',
+    'mshta', 'rundll32', 'regsvr32', 'cscript', 'wscript', 'certutil',
+    'bitsadmin', 'msbuild', 'explorer', 'notepad', 'calc', 'msiexec',
+    'nltest', 'dsquery', 'csvde', 'ldifde', 'netsh', 'route', 'arp',
+    'nbtstat', 'quser', 'query', 'auditpol', 'gpupdate', 'gpresult',
+    # ... 60+ utilities total
+}
+
+NORMAL_SYSTEM_PATHS = [
+    'c:\\windows\\system32\\',
+    'c:\\windows\\syswow64\\',
+    'c:\\windows\\',
+    '%systemroot%\\system32\\',
+    '%windir%\\system32\\',
+]
+
+def normalize_filename_ioc(value):
+    # C:\Windows\System32\whoami.exe → 'whoami' (COMMAND type)
+    # C:\Users\Public\evil.exe → kept as FILEPATH (suspicious)
+    # whoami.exe → 'whoami' (COMMAND type)
+```
+
+**Examples:**
+
+| Input | Output | IOC Type |
+|-------|--------|----------|
+| `C:\Windows\System32\whoami.exe` | `whoami` | COMMAND |
+| `C:\Windows\SysWOW64\ipconfig.exe` | `ipconfig` | COMMAND |
+| `C:\Windows\System32\nltest.exe` | `nltest` | COMMAND |
+| `whoami.exe` | `whoami` | COMMAND |
+| `C:\Users\Public\malware.exe` | `C:\Users\Public\malware.exe` | FILEPATH |
+| `C:\Temp\nltest.exe` | `C:\Temp\nltest.exe` | FILEPATH |
+
+#### Username Normalization
+
+Domain prefixes and suffixes are stripped:
+
+```python
+def normalize_username_ioc(username):
+    # DOMAIN\admin → 'admin'
+    # user@domain.com → 'user'
+    
+    if '\\' in username:
+        username = username.split('\\')[-1]
+    if '@' in username:
+        username = username.split('@')[0]
+    return username
+```
+
+**Examples:**
+
+| Input | Output |
+|-------|--------|
+| `CORP\admin` | `admin` |
+| `DOMAIN\jsmith` | `jsmith` |
+| `admin@corp.local` | `admin` |
+| `user@domain.com` | `user` |
+| `localadmin` | `localadmin` |
+
+#### Deduplication
+
+Normalization happens BEFORE the duplicate check in `add_ioc_if_new()`:
+
+```python
+# Both of these become 'whoami' as COMMAND type
+# Only ONE IOC created
+'C:\Windows\System32\whoami.exe' → 'whoami'
+'whoami.exe' → 'whoami'
+
+# Both become 'admin' as USERNAME type
+# Only ONE IOC created  
+'CORP\admin' → 'admin'
+'admin@corp.local' → 'admin'
+```
+
 ---
 
 ## Exclusion System
@@ -782,6 +874,7 @@ ORDER BY created_at DESC LIMIT 5;
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.43.10 | 2025-12-01 | **IOC value normalization:** System utilities from normal paths simplified to command name (whoami.exe → whoami). Usernames strip domain (DOMAIN\user → user). Prevents duplicates. |
 | 1.43.9 | 2025-12-01 | **Context-based IP filtering:** Filters noise IPs from firewall/network logs. IPs only in deny/drop events are skipped. IPs with auth, SIGMA, or EDR context become IOCs. |
 | 1.43.8 | 2025-12-01 | Search optimization (10x faster), Hide Known Good progress tracking. Hybrid search routing for query types. |
 | 1.43.4 | 2025-12-01 | **Known System/IP filtering:** Skip hostname IOCs for known systems (non-unknown types). Skip IP IOCs for known system IPs. |
