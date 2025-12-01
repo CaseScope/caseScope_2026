@@ -2660,131 +2660,97 @@ def _should_hide_event_task(hit, exclusions):
     """
     Check if an event should be hidden based on exclusion rules.
     
-    v1.43.11: Enhanced to check BOTH process and parent for RMM/EDR tools,
-    and to check if process is running FROM known tool folders.
+    v1.43.15: SIMPLIFIED - Uses search_blob for all pattern matching.
+    This catches patterns anywhere in the event (process, parent, grandparent, paths, etc.)
+    
+    Logic:
+    1. RMM: If executable pattern in search_blob → HIDE
+    2. Remote: If tool pattern AND session ID both in search_blob → HIDE
+    3. EDR: If executable in search_blob AND routine command in search_blob → HIDE
+           (unless response pattern also present → KEEP)
+    4. IPs: If source IP matches known-good range → HIDE
     """
     import fnmatch
     import ipaddress
     
     src = hit.get('_source', {})
-    proc = src.get('process', {})
-    parent = proc.get('parent', {}) or src.get('parent', {})
-    
-    # Extract all relevant fields
-    parent_name = (parent.get('name') or parent.get('executable') or '').lower()
-    parent_name_only = parent_name.split('\\')[-1] if parent_name else ''
-    parent_cmd = (parent.get('command_line') or '').lower()
-    
-    proc_name = (proc.get('name') or proc.get('executable') or '').lower()
-    proc_name_only = proc_name.split('\\')[-1] if proc_name else ''
-    cmd_line = (proc.get('command_line') or '').lower()
     search_blob = (src.get('search_blob') or '').lower()
     
-    # Also check EVTX ProcessName field (shows full path like C:\Windows\LTSvc\LTSVC.exe)
-    evtx_process_name = ''
-    event_data = src.get('Event', {}).get('EventData', {})
-    if isinstance(event_data, dict):
-        evtx_process_name = (event_data.get('ProcessName') or '').lower()
-    
     # =========================================================================
-    # CHECK 1: Process OR Parent is RMM tool (v1.43.11 enhanced)
+    # CHECK 1: RMM Tool - Executable pattern ANYWHERE in search_blob
     # =========================================================================
+    # This catches: process name, parent name, grandparent, paths, command lines
     for rmm_pattern in exclusions.get('rmm_executables', []):
-        # Check parent (existing)
-        if fnmatch.fnmatch(parent_name_only, rmm_pattern):
-            return True
-        if parent_name and fnmatch.fnmatch(parent_name, f'*{rmm_pattern}'):
-            return True
-        
-        # Check process itself (v1.43.11 - NEW)
-        if fnmatch.fnmatch(proc_name_only, rmm_pattern):
-            return True
-        if proc_name and fnmatch.fnmatch(proc_name, f'*{rmm_pattern}'):
-            return True
+        # Handle wildcard patterns (e.g., "LabTech*.exe" or "Datto*.exe")
+        if '*' in rmm_pattern:
+            # Convert glob to simple prefix match: "labtech*.exe" → check "labtech"
+            prefix = rmm_pattern.split('*')[0]
+            if prefix and prefix in search_blob:
+                return True
+        else:
+            # Exact pattern match (e.g., "ltsvc.exe")
+            if rmm_pattern in search_blob:
+                return True
     
     # =========================================================================
-    # CHECK 2: Process running FROM known tool folders (v1.43.11 - NEW)
-    # =========================================================================
-    # RMM/EDR/Remote tool installation paths
-    TOOL_PATH_PATTERNS = [
-        'ltsvc', 'labtech', 'automate',      # ConnectWise Automate/LabTech
-        'aem', 'datto',                       # Datto RMM
-        'kaseya', 'agentmon',                 # Kaseya
-        'ninjarmmag', 'ninjarmm',             # NinjaRMM
-        'syncro',                             # Syncro
-        'atera',                              # Atera
-        'n-central', 'basupsrvc',             # N-able
-        'huntress',                           # Huntress EDR
-        'screenconnect', 'connectwise',       # ConnectWise ScreenConnect
-        'sentinelone', 'sentinelagent',       # SentinelOne
-        'crowdstrike', 'csagent', 'csfalcon', # CrowdStrike
-        'carbonblack', 'cbdefense',           # Carbon Black
-        'sophos',                             # Sophos
-        'mssense', 'senseir',                 # Microsoft Defender ATP
-        'snapagent', 'blackpoint',            # Blackpoint SNAP
-        'teamviewer',                         # TeamViewer
-        'anydesk',                            # AnyDesk
-        'splashtop',                          # Splashtop
-        'bomgar', 'beyondtrust',              # BeyondTrust/Bomgar
-    ]
-    
-    # Check if process path, command line, parent path, or EVTX ProcessName contains tool paths
-    for tool_path in TOOL_PATH_PATTERNS:
-        if tool_path in proc_name:        # Process executable path
-            return True
-        if tool_path in cmd_line:          # Command line
-            return True
-        if tool_path in parent_name:       # Parent executable path
-            return True
-        if tool_path in parent_cmd:        # Parent command line
-            return True
-        if tool_path in evtx_process_name: # EVTX ProcessName field
-            return True
-    
-    # =========================================================================
-    # CHECK 3: Remote tool with known-good session ID
+    # CHECK 2: Remote Tool - Tool pattern AND session ID both in search_blob
     # =========================================================================
     for tool_config in exclusions.get('remote_tools', []):
-        pattern = tool_config.get('pattern', '')
-        if pattern and (pattern in proc_name or pattern in search_blob):
+        pattern = (tool_config.get('pattern') or '').lower()
+        if pattern and pattern in search_blob:
+            # Tool is present, now check for known-good session ID
             for known_id in tool_config.get('known_good_ids', []):
-                if known_id and (known_id in cmd_line or known_id in search_blob):
-                    return True
+                if known_id and known_id.lower() in search_blob:
+                    return True  # HIDE - authorized remote session
     
     # =========================================================================
-    # CHECK 4: EDR tools - CONTEXT-AWARE exclusion (v1.43.11 enhanced)
+    # CHECK 3: EDR Tool - Context-aware exclusion via search_blob
     # =========================================================================
-    # Exclude routine health checks BUT KEEP response actions
+    # Hide routine health checks, KEEP response/isolation actions
     for edr_config in exclusions.get('edr_tools', []):
         edr_executables = edr_config.get('executables', [])
         
-        # Check if parent OR process is this EDR tool (v1.43.11 - also check process)
-        is_edr_related = any(
-            fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name or
-            fnmatch.fnmatch(proc_name_only, exe) or exe in proc_name
-            for exe in edr_executables
-        )
+        # Check if ANY EDR executable is anywhere in the event
+        edr_in_blob = False
+        for exe in edr_executables:
+            exe_lower = exe.lower()
+            # Handle wildcards: "Blackpoint*.exe" → check "blackpoint"
+            if '*' in exe_lower:
+                prefix = exe_lower.split('*')[0]
+                if prefix and prefix in search_blob:
+                    edr_in_blob = True
+                    break
+            else:
+                if exe_lower in search_blob:
+                    edr_in_blob = True
+                    break
         
-        if is_edr_related:
-            # FIRST: Check if this is a response action - DON'T HIDE
+        if edr_in_blob:
+            # FIRST: Check for response action keywords - DON'T HIDE these
             if edr_config.get('keep_responses', True):
                 response_patterns = edr_config.get('response_patterns', [])
-                if any(pattern in cmd_line or pattern in search_blob for pattern in response_patterns):
-                    return False  # DON'T hide - this is a response action!
+                if any(pattern.lower() in search_blob for pattern in response_patterns if pattern):
+                    continue  # Skip to next EDR config - this is a response action, KEEP IT
             
-            # SECOND: If it's the EDR process itself or routine check - HIDE
+            # SECOND: Check for routine command - HIDE
             if edr_config.get('exclude_routine', True):
                 routine_commands = edr_config.get('routine_commands', [])
-                # Hide if it's a routine command OR if it's the EDR executable itself
-                if any(routine in cmd_line for routine in routine_commands):
-                    return True  # Hide - routine health check
-                # Also hide EDR tool's own processes (v1.43.11)
-                if any(exe in proc_name_only for exe in edr_executables):
-                    return True  # Hide - EDR tool itself
+                # Hide if routine command is present (e.g., whoami, ipconfig, systeminfo)
+                for routine in routine_commands:
+                    if routine:
+                        # Match routine command (add .exe for precision)
+                        routine_lower = routine.lower()
+                        # Check for "routine.exe" to avoid partial matches
+                        if f"{routine_lower}.exe" in search_blob:
+                            return True  # HIDE - routine health check
+                        # Also check command without .exe for command-line args
+                        if f" {routine_lower} " in search_blob or f"/{routine_lower}" in search_blob:
+                            return True  # HIDE - routine in args
     
     # =========================================================================
-    # CHECK 5: Source IP is in known-good range
+    # CHECK 4: Source IP is in known-good range
     # =========================================================================
+    proc = src.get('process', {})
     source_ip = None
     if src.get('source', {}).get('ip'):
         source_ip = src['source']['ip']
@@ -3208,8 +3174,17 @@ def run_ai_triage_search(self, search_id):
         def should_exclude_event(event, exclusions):
             """Check if event should be excluded from tagging (known-good).
             
-            v1.41.0: Added noise command pattern detection for events with empty/generic parents.
-            This handles cases where EDR doesn't capture parent process info.
+            v1.43.15: SIMPLIFIED - Uses search_blob for all pattern matching.
+            Same logic as _should_hide_event_task() for consistency.
+            
+            Logic:
+            1. Already hidden → exclude
+            2. Noise processes → exclude
+            3. RMM: If executable pattern in search_blob → exclude
+            4. Remote: If tool pattern AND session ID both in search_blob → exclude
+            5. EDR: If executable in search_blob AND routine command in search_blob → exclude
+                   (unless response pattern also present → keep)
+            6. IPs: If source IP matches known-good range → exclude
             """
             src = event.get('_source', event)
             
@@ -3218,69 +3193,81 @@ def run_ai_triage_search(self, search_id):
                 return True
             
             proc = src.get('process', {})
-            parent = proc.get('parent', {})
-            parent_name = (parent.get('name') or '').lower()
             proc_name = (proc.get('name') or '').lower()
-            cmd_line = (proc.get('command_line') or '').lower()
-            parent_cmd = (parent.get('command_line') or '').lower()
+            search_blob = (src.get('search_blob') or '').lower()
             
             # Check 0: Noise processes (system management, not attack-related)
             if proc_name.replace('.exe', '') in [p.replace('.exe', '') for p in NOISE_PROCESSES]:
                 return True
             
-            # Check 0.5 (v1.41.0): Noise command patterns with empty/generic parent
-            # If parent is empty or generic AND command matches noise pattern, exclude
-            # This catches monitoring tools that run netstat -ano thousands of times
-            parent_is_generic = parent_name in [p.lower() for p in GENERIC_PARENTS] or not parent_name
-            if parent_is_generic:
-                # Normalize command (strip extra spaces, lowercase)
-                cmd_normalized = ' '.join(cmd_line.split()).strip()
-                for noise_pattern in NOISE_COMMAND_PATTERNS:
-                    noise_normalized = ' '.join(noise_pattern.lower().split()).strip()
-                    if cmd_normalized == noise_normalized or cmd_normalized.startswith(noise_normalized + ' '):
-                        return True  # Exclude - monitoring noise with no suspicious parent
-            
-            # Check 1: Parent is a known RMM tool (full exclusion)
+            # =========================================================================
+            # CHECK 1: RMM Tool - Executable pattern ANYWHERE in search_blob
+            # =========================================================================
             for rmm_pattern in exclusions.get('rmm_executables', []):
-                if fnmatch.fnmatch(parent_name, rmm_pattern) or fnmatch.fnmatch(proc_name, rmm_pattern):
-                    return True
+                if '*' in rmm_pattern:
+                    prefix = rmm_pattern.split('*')[0]
+                    if prefix and prefix in search_blob:
+                        return True
+                else:
+                    if rmm_pattern in search_blob:
+                        return True
             
-            # Check 1.5: Command line or parent command contains RMM paths
+            # Also check built-in RMM path patterns
             for rmm_path in RMM_PATH_PATTERNS:
-                if rmm_path in cmd_line or rmm_path in parent_cmd:
+                if rmm_path in search_blob:
                     return True
             
-            # Check 2: EDR tools - CONTEXT-AWARE exclusion
-            # Exclude routine health checks BUT KEEP response actions
-            for edr_config in exclusions.get('edr_tools', []):
-                # Check if parent is this EDR tool
-                parent_is_edr = any(
-                    fnmatch.fnmatch(parent_name, exe) or exe in parent_name
-                    for exe in edr_config.get('executables', [])
-                )
-                
-                if parent_is_edr:
-                    # FIRST: Check if this is a response action - ALWAYS KEEP
-                    if edr_config.get('keep_responses', True):
-                        response_patterns = edr_config.get('response_patterns', [])
-                        if any(pattern in cmd_line for pattern in response_patterns):
-                            return False  # DON'T exclude - this is a response action!
-                    
-                    # SECOND: Check if this is a routine health check - exclude
-                    if edr_config.get('exclude_routine', True):
-                        routine_commands = edr_config.get('routine_commands', [])
-                        if any(routine in cmd_line for routine in routine_commands):
-                            return True  # Exclude - routine health check
-            
-            # Check 3: Remote tool with known-good session ID
+            # =========================================================================
+            # CHECK 2: Remote Tool - Tool pattern AND session ID both in search_blob
+            # =========================================================================
             for tool_config in exclusions.get('remote_tools', []):
-                pattern = tool_config.get('pattern', '')
-                if pattern and pattern in proc_name:
+                pattern = (tool_config.get('pattern') or '').lower()
+                if pattern and pattern in search_blob:
                     for known_id in tool_config.get('known_good_ids', []):
-                        if known_id in cmd_line:
+                        if known_id and known_id.lower() in search_blob:
                             return True
             
-            # Check 4: Source IP is known-good
+            # =========================================================================
+            # CHECK 3: EDR Tool - Context-aware exclusion via search_blob
+            # =========================================================================
+            for edr_config in exclusions.get('edr_tools', []):
+                edr_executables = edr_config.get('executables', [])
+                
+                # Check if ANY EDR executable is anywhere in the event
+                edr_in_blob = False
+                for exe in edr_executables:
+                    exe_lower = exe.lower()
+                    if '*' in exe_lower:
+                        prefix = exe_lower.split('*')[0]
+                        if prefix and prefix in search_blob:
+                            edr_in_blob = True
+                            break
+                    else:
+                        if exe_lower in search_blob:
+                            edr_in_blob = True
+                            break
+                
+                if edr_in_blob:
+                    # FIRST: Check for response action keywords - DON'T exclude these
+                    if edr_config.get('keep_responses', True):
+                        response_patterns = edr_config.get('response_patterns', [])
+                        if any(pattern.lower() in search_blob for pattern in response_patterns if pattern):
+                            continue  # Skip - this is a response action, KEEP IT
+                    
+                    # SECOND: Check for routine command - exclude
+                    if edr_config.get('exclude_routine', True):
+                        routine_commands = edr_config.get('routine_commands', [])
+                        for routine in routine_commands:
+                            if routine:
+                                routine_lower = routine.lower()
+                                if f"{routine_lower}.exe" in search_blob:
+                                    return True
+                                if f" {routine_lower} " in search_blob or f"/{routine_lower}" in search_blob:
+                                    return True
+            
+            # =========================================================================
+            # CHECK 4: Source IP is known-good
+            # =========================================================================
             source_ip = src.get('source', {}).get('ip') or src.get('host', {}).get('ip')
             if source_ip:
                 if isinstance(source_ip, list):
