@@ -189,19 +189,21 @@ def normalize_event_id(event: Dict[str, Any]) -> Optional[str]:
 
 def create_search_blob(event: Dict[str, Any]) -> str:
     """
-    Create flattened search blob from nested event data
+    Create flattened search blob from ALL event data
     
-    Extracts text from EventData, Data, UserData, message fields and:
-    - Flattens nested structures (dicts, arrays)
-    - Replaces \\r\\n line breaks with spaces
-    - Normalizes whitespace
+    v1.43.5: Enhanced to extract from ENTIRE event, not just EVTX fields.
+    This ensures search_blob works for ALL event types (EVTX, EDR, CSV, JSON, IIS).
+    
+    Behavior:
+    - Recursively extracts ALL text from nested structures (dicts, arrays)
+    - Normalizes line breaks (\\r\\n → space)
+    - Collapses multiple spaces
+    - Excludes internal metadata fields (has_sigma, file_id, etc.)
+    - Excludes already-flattened forensic_* fields (avoid duplication)
     
     This solves the IOC matching issue where simple_query_string phrase matching
-    fails on multi-line text like:
-      "Transferred files...\\r\\nHide-Mouse-on-blankscreen.exe\\r\\n..."
-    
-    The \\r\\n breaks phrase boundaries, preventing matches. The search_blob
-    field contains the same content but normalized for reliable phrase matching.
+    fails on multi-line text. The search_blob field contains normalized content
+    for reliable phrase matching across ALL event types.
     
     Args:
         event: Original event dictionary
@@ -209,10 +211,36 @@ def create_search_blob(event: Dict[str, Any]) -> str:
     Returns:
         Flattened, normalized text string for searching
     """
-    def extract_text(obj, depth=0):
+    # Fields to EXCLUDE from search_blob (internal/metadata/already-processed)
+    EXCLUDE_FIELDS = {
+        # Internal metadata
+        'has_sigma', 'has_ioc', 'ioc_count', 'ioc_details', 'matched_iocs',
+        'is_hidden', 'hidden_by', 'hidden_at',
+        'file_id', 'source_file', 'opensearch_key', 'source_file_type',
+        'row_number',  # CSV row number
+        
+        # Already-flattened fields (would duplicate content)
+        'search_blob',  # Don't include ourselves
+        'normalized_timestamp', 'normalized_computer', 'normalized_event_id',
+        
+        # Large/noisy fields
+        '@timestamp',  # Timestamp string, not useful for text search
+    }
+    
+    # Field prefixes to exclude (forensic_* fields are already extracted)
+    EXCLUDE_PREFIXES = ('forensic_',)
+    
+    def extract_text(obj, key=None, depth=0):
         """Recursively extract text from nested structures"""
-        if depth > 10:  # Prevent infinite recursion
+        if depth > 15:  # Prevent infinite recursion on deeply nested data
             return ""
+        
+        # Skip excluded fields
+        if key:
+            if key in EXCLUDE_FIELDS:
+                return ""
+            if any(key.startswith(prefix) for prefix in EXCLUDE_PREFIXES):
+                return ""
         
         if isinstance(obj, str):
             # Normalize line breaks and extra whitespace
@@ -222,8 +250,8 @@ def create_search_blob(event: Dict[str, Any]) -> str:
         elif isinstance(obj, dict):
             # Recursively extract from all dict values
             texts = []
-            for v in obj.values():
-                text = extract_text(v, depth + 1)
+            for k, v in obj.items():
+                text = extract_text(v, key=k, depth=depth + 1)
                 if text:
                     texts.append(text)
             return ' '.join(texts)
@@ -231,42 +259,26 @@ def create_search_blob(event: Dict[str, Any]) -> str:
             # Extract from all list items
             texts = []
             for item in obj:
-                text = extract_text(item, depth + 1)
+                text = extract_text(item, depth=depth + 1)
                 if text:
                     texts.append(text)
             return ' '.join(texts)
+        elif isinstance(obj, bool):
+            return ""  # Skip boolean values (not useful for text search)
+        elif obj is not None:
+            return str(obj)
         else:
-            return str(obj) if obj is not None else ""
+            return ""
     
-    # Extract from key searchable fields
-    blob_parts = []
+    # v1.43.5: Extract from ENTIRE event (all fields, all event types)
+    search_blob = extract_text(event, depth=0)
     
-    # EVTX EventData (stringified JSON or object)
-    if 'EventData' in event:
-        blob_parts.append(extract_text(event['EventData']))
+    # Collapse multiple spaces to single space
+    search_blob = ' '.join(search_blob.split())
     
-    # Application log Data field (nested arrays with #text)
-    if 'Data' in event:
-        blob_parts.append(extract_text(event['Data']))
-    
-    # UserData (less common but searchable)
-    if 'UserData' in event:
-        blob_parts.append(extract_text(event['UserData']))
-    
-    # Message field (common in EDR/JSON)
-    if 'message' in event:
-        blob_parts.append(extract_text(event['message']))
-    
-    # Event.EventData for wrapped structures
-    if 'Event' in event and isinstance(event.get('Event'), dict):
-        if 'EventData' in event['Event']:
-            blob_parts.append(extract_text(event['Event']['EventData']))
-        if 'UserData' in event['Event']:
-            blob_parts.append(extract_text(event['Event']['UserData']))
-    
-    # Join all parts and normalize whitespace
-    search_blob = ' '.join(blob_parts)
-    search_blob = ' '.join(search_blob.split())  # Collapse multiple spaces to single space
+    # Limit size to prevent huge blobs (100KB max)
+    if len(search_blob) > 100000:
+        search_blob = search_blob[:100000]
     
     return search_blob
 

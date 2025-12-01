@@ -13,81 +13,55 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # v1.43.5: OPTIMIZED SEARCH FIELDS
 # =============================================================================
-# Performance optimization: Search 23 key fields instead of all 8,759 fields
-# Benchmarks on 10.5M event case:
-#   - All fields: 10-15 seconds per search
-#   - Targeted fields: 400-550ms per search (20-30x faster)
+# Performance optimization: Search key fields instead of all 8,759 fields
+# 
+# PRIMARY: search_blob (contains ALL event data flattened)
+#   - v1.43.5: Now created for ALL event types (EVTX, EDR, CSV, JSON, IIS)
+#   - Single field = fastest search + 100% coverage
+#   - NOTE: Existing data needs reindex to populate search_blob for EDR/CSV
 #
-# Coverage: 95-100% for forensic searches (powershell, cmd.exe, IPs, etc.)
-# Trade-off: May miss matches in obscure non-forensic fields (acceptable)
+# FALLBACK: EDR/forensic fields for backwards compatibility
+#   - These fields are searched for events that don't have search_blob yet
+#   - After full reindex, these could be removed (search_blob covers all)
+#
+# Benchmarks on 10.5M event case:
+#   - All fields (8,759): 10-15 seconds per search
+#   - Targeted fields: 400-600ms per search (20-30x faster)
 # =============================================================================
 SEARCH_FIELDS = [
-    # EVTX catch-all - contains ALL flattened event text from EVTX files
+    # PRIMARY: Universal search blob (ALL event data flattened)
+    # After v1.43.5, this contains EVERYTHING for all event types
     "search_blob",
     
-    # EDR fields (Elastic Common Schema)
+    # FALLBACK: EDR fields (for events without search_blob - pre-v1.43.5 data)
     "process.command_line",
     "process.executable",
     "process.name",
     "process.parent.command_line",
     "process.parent.executable",
-    "process.parent.name",
+    "process.user_logon.ip",
     "user.name",
-    "user.domain",
     "host.hostname",
-    "host.name",
     "host.ip",
     "source.ip",
-    "source.address",
     "destination.ip",
-    "destination.address",
+    "client.ip",
     "file.path",
     "file.name",
     "url.full",
-    "url.original",
     "message",
     
-    # Forensic extraction fields (from EventData/UserData flattening)
+    # FALLBACK: Forensic fields (extracted during EVTX processing)
     "forensic_CommandLine",
-    "forensic_ParentCommandLine",
+    "forensic_ParentCommandLine", 
     "forensic_ProcessName",
-    "forensic_NewProcessName",
-    "forensic_ParentProcessName",
-    "forensic_OriginalFileName",
-    "forensic_Image",
-    "forensic_ParentImage",
+    "forensic_IpAddress",
     "forensic_TargetUserName",
     "forensic_SubjectUserName",
-    "forensic_UserName",
-    "forensic_AccountName",
-    "forensic_IpAddress",
-    "forensic_IpPort",
     "forensic_WorkstationName",
-    "forensic_SourceNetworkAddress",
-    "forensic_DestAddress",
-    "forensic_DestinationHostname",
-    "forensic_ObjectName",
-    "forensic_TargetFilename",
-    "forensic_TargetServerName",
-    "forensic_ServiceName",
-    "forensic_TaskName",
     
-    # Normalized fields (consistent across all event types)
+    # Normalized fields
     "normalized_computer",
-    "normalized_event_id",
-    
-    # CSV/Firewall fields
-    "Src. IP",
-    "Dst. IP",
-    "Source IP",
-    "Destination IP",
-    "Event",
-    "Message",
-    
-    # IIS fields
-    "c-ip",
-    "cs-uri-stem",
-    "cs-uri-query",
 ]
 
 
