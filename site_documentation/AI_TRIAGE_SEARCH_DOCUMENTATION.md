@@ -1,7 +1,7 @@
 # AI Triage Search - Complete Technical Documentation
 
-**Version:** 1.42.0  
-**Last Updated:** 2025-11-29  
+**Version:** 1.43.9  
+**Last Updated:** 2025-12-01  
 **Author:** CaseScope Development Team
 
 ---
@@ -39,11 +39,15 @@ The **AI Triage Search** is an automated attack chain analysis system that:
 
 - **9-phase automated analysis** running as a background Celery task
 - **Real-time progress updates** via polling
+- **Pre-flight checks** (v1.43.0) - validates systems discovered and EDR report exists before running
 - **IOC classification** into SPECIFIC (auto-tag) vs BROAD (aggregation only)
 - **System Tools exclusions** for RMM, Remote Tools, EDR Tools, and Known-Good IPs
+- **Known System/IP filtering** (v1.43.4) - skips IOCs for known systems (non-unknown types)
+- **Context-based IP filtering** (v1.43.9) - filters noise IPs from firewall/network logs
 - **EDR context-aware exclusion** - excludes routine health checks but KEEPS response actions
 - **Noise command pattern detection** (v1.41.0) - filters monitoring noise with empty/generic parents
 - **Frequency-based deduplication** (v1.41.0) - limits repeated commands per host
+- **Unknown system type** (v1.43.3) - new systems from triage set to 'unknown' for analyst review
 - **MITRE ATT&CK pattern matching** for technique identification
 - **Process tree building** from EDR parent/child relationships
 - **Timeline auto-tagging** with purple color for AI-discovered events
@@ -322,6 +326,115 @@ for event in all_window_events:
     
     command_frequency[freq_key] = current_count + 1
     timeline_events.append(event)
+```
+
+---
+
+## Phase 6: IOC Creation (v1.43.4+)
+
+### Overview
+
+Phase 6 creates IOCs and Systems in the database from extracted and discovered indicators.
+
+### Known System Filtering (v1.43.4)
+
+**Problem:** AI Triage was creating hostname IOCs for known systems (workstations, servers, DCs) that analysts had already identified.
+
+**Solution:** Check if hostname/IP belongs to a known system with a non-'unknown' type before creating IOC.
+
+```python
+# v1.43.4: Skip hostname IOCs for known systems with non-unknown types
+if ioc_type == 'hostname':
+    hostname_lower = ioc_value.lower()
+    if hostname_lower in known_system_types:
+        sys_type = known_system_types[hostname_lower]
+        if sys_type != 'unknown':
+            logger.debug(f"Skipping known {sys_type} hostname IOC: {ioc_value}")
+            return
+
+# v1.43.4: Skip IP IOCs for known system IPs
+if ioc_type == 'ip':
+    if ioc_value in known_system_ips:
+        logger.debug(f"Skipping known system IP IOC: {ioc_value}")
+        return
+```
+
+### Unknown System Type (v1.43.3)
+
+**Problem:** When AI Triage discovered new hostnames, they were added as 'workstation' type, which caused them to be skipped as IOCs on subsequent runs.
+
+**Solution:** New systems from AI Triage are set to `system_type='unknown'`:
+- Systems stay as IOCs until analyst reviews and categorizes them
+- Once categorized (workstation, server, etc.), they're filtered out of IOC list
+
+```python
+system = System(
+    case_id=case_id,
+    system_name=hostname.upper(),
+    system_type='unknown',  # v1.43.3: Analyst must review
+    added_by='AI Triage Search'
+)
+```
+
+### Context-Based IP Filtering (v1.43.9)
+
+**Problem:** Firewall logs generate thousands of noise IPs (internet scanners, geo-blocked traffic, CDN/cloud). These IPs were being added as IOCs during snowball hunting.
+
+**Solution:** Filter discovered IPs based on event context:
+
+```python
+# IPs from EDR report: ALWAYS create IOC (analyst/EDR flagged them)
+# Discovered IPs: Only create IOC if they appear in meaningful events
+
+MEANINGFUL_IP_EVENT_IDS = {
+    # Authentication events
+    '4624', '4625', '4648', '4768', '4769', '4771', '4776',
+    # RDP/Remote
+    '4778', '4779', '21', '22', '24', '25',
+    # VPN/NPS
+    '6272', '6273', '6274', '6275', '6278', '6279',
+    # Sysmon process/network
+    '1', '3',
+}
+
+FIREWALL_NOISE_KEYWORDS = [
+    'firewall', 'fw_', 'fw-', 'deny', 'drop', 'block', 'reject',
+    'netflow', 'traffic', 'conn_state', 'action:deny', 'action:drop',
+]
+```
+
+**Filtering Logic:**
+1. IPs from EDR report → Always create IOC (analyst flagged)
+2. Discovered IPs with authentication events → Create IOC (someone tried to log in)
+3. Discovered IPs with SIGMA/IOC hits → Create IOC (correlated threat)
+4. Discovered IPs in process.user_logon.ip → Create IOC (lateral movement)
+5. Discovered IPs only in firewall logs → Skip (perimeter noise)
+6. Discovered IPs in EDR events → Create IOC (endpoint activity)
+
+```python
+def is_ip_in_meaningful_context(ip, case_id):
+    # Search for events containing this IP
+    for hit in search_results:
+        # Check for SIGMA/IOC hits (always meaningful)
+        if src.get('has_sigma') or src.get('has_ioc'):
+            meaningful_count += 1
+            continue
+        
+        # Check for authentication event IDs
+        if event_id in MEANINGFUL_IP_EVENT_IDS:
+            meaningful_count += 1
+            continue
+        
+        # Check for firewall noise keywords
+        if any(kw in blob for kw in FIREWALL_NOISE_KEYWORDS):
+            noise_count += 1
+            continue
+        
+        # EDR events are generally meaningful
+        if source_type == 'EDR':
+            meaningful_count += 1
+    
+    return meaningful_count > 0
 ```
 
 ---
@@ -669,12 +782,35 @@ ORDER BY created_at DESC LIMIT 5;
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.43.9 | 2025-12-01 | **Context-based IP filtering:** Filters noise IPs from firewall/network logs. IPs only in deny/drop events are skipped. IPs with auth, SIGMA, or EDR context become IOCs. |
+| 1.43.8 | 2025-12-01 | Search optimization (10x faster), Hide Known Good progress tracking. Hybrid search routing for query types. |
+| 1.43.4 | 2025-12-01 | **Known System/IP filtering:** Skip hostname IOCs for known systems (non-unknown types). Skip IP IOCs for known system IPs. |
+| 1.43.3 | 2025-12-01 | **Unknown system type:** New systems from triage set to 'unknown'. Ensures IOCs until analyst categorizes. |
+| 1.43.0 | 2025-11-30 | **Pre-flight checks:** Validates systems discovered and EDR report exists before running triage. VPN IP range field added to cases. |
 | 1.42.0 | 2025-11-29 | **Comprehensive noise analysis:** Expanded NOISE_PROCESSES (29 entries), NOISE_COMMAND_PATTERNS (30+ patterns), RMM_PATH_PATTERNS (huntress, screenconnect). Analyzed Cases 14, 16, 22, 25 - eliminates 2.5-13% noise per case. Added PowerShell monitoring patterns (Get-Mp*, Get-WmiObject). |
 | 1.41.0 | 2025-11-29 | **Noise reduction:** Added NOISE_COMMAND_PATTERNS, GENERIC_PARENTS, frequency-based deduplication (MAX_EVENTS_PER_COMMAND=3) to handle EDR data with empty parent fields |
 | 1.40.0 | 2025-11-29 | EDR context-aware exclusion, fixed System creation (system_name field) |
 | 1.39.0 | 2025-11-29 | Initial 9-phase implementation |
 | 1.38.0 | 2025-11-28 | System Tools settings, Hide Known Good |
 | 1.36.0 | 2025-11-27 | 4-phase triage (predecessor) |
+
+---
+
+## Cross References
+
+### USES
+
+These documentation files describe features that AI Triage depends on:
+
+- `HIDE_KNOWN_GOOD_EVENTS_REFERENCE.md` - System Tools exclusions loaded by AI Triage
+- *(Future)* `SEARCH_FUNCTION_REFERENCE.md` - Event search used for IOC hunting
+
+### USED BY
+
+These documentation files describe features that depend on AI Triage:
+
+- *(Future)* `IOC_MANAGEMENT_REFERENCE.md` - IOCs created by AI Triage
+- *(Future)* `SYSTEMS_MANAGEMENT_REFERENCE.md` - Systems created by AI Triage
 
 ---
 

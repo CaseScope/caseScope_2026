@@ -3494,10 +3494,123 @@ def run_ai_triage_search(self, search_id):
             
             logger.info(f"[AI_TRIAGE] Loaded {len(known_system_types)} known systems, {len(known_system_ips)} known IPs for filtering")
             
+            # =========================================================
+            # v1.43.9: Context-based IP IOC filtering for discovered IPs
+            # =========================================================
+            # IPs from EDR report: ALWAYS create IOC (analyst/EDR flagged them)
+            # Discovered IPs: Only create IOC if they appear in meaningful events
+            #
+            # Meaningful events:
+            #   - Authentication (4624, 4625, 4776, VPN, RDP)
+            #   - Process network connections (process.user_logon.ip)
+            #   - SIGMA violations
+            #
+            # NOT meaningful (noise):
+            #   - Firewall DENY/DROP/BLOCK logs (perimeter noise)
+            #   - General network traffic
+            #   - Proxy logs (web browsing)
+            # =========================================================
+            
+            MEANINGFUL_IP_EVENT_IDS = {
+                # Authentication events
+                '4624', '4625', '4648', '4768', '4769', '4771', '4776',
+                # RDP/Remote
+                '4778', '4779', '21', '22', '24', '25',
+                # VPN/NPS
+                '6272', '6273', '6274', '6275', '6278', '6279',
+                # Process creation with network
+                '1', '3',  # Sysmon process create, network connect
+            }
+            
+            # Keywords indicating firewall/network noise
+            FIREWALL_NOISE_KEYWORDS = [
+                'firewall', 'fw_', 'fw-', 'deny', 'drop', 'block', 'reject',
+                'netflow', 'traffic', 'conn_state', 'action:deny', 'action:drop',
+            ]
+            
+            def is_ip_in_meaningful_context(ip, case_id):
+                """
+                Check if an IP appears in meaningful events (auth, process network).
+                Returns True if IP should become an IOC.
+                
+                v1.43.9: Filters firewall/network noise from discovered IPs.
+                """
+                try:
+                    # Search for events containing this IP
+                    query = {
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"query_string": {"query": f'"{ip}"'}}
+                                ]
+                            }
+                        },
+                        "size": 50,  # Sample events
+                        "_source": ["normalized_event_id", "source_file_type", "search_blob", 
+                                   "process.user_logon.ip", "has_sigma", "has_ioc"]
+                    }
+                    
+                    result = opensearch_client.search(index=f"case_{case_id}", body=query)
+                    hits = result.get('hits', {}).get('hits', [])
+                    
+                    if not hits:
+                        return False  # IP not found
+                    
+                    meaningful_count = 0
+                    noise_count = 0
+                    
+                    for hit in hits:
+                        src = hit.get('_source', {})
+                        event_id = str(src.get('normalized_event_id', ''))
+                        source_type = (src.get('source_file_type', '') or '').upper()
+                        blob = (src.get('search_blob', '') or '').lower()
+                        
+                        # Check for SIGMA/IOC hits (always meaningful)
+                        if src.get('has_sigma') or src.get('has_ioc'):
+                            meaningful_count += 1
+                            continue
+                        
+                        # Check for authentication event IDs
+                        if event_id in MEANINGFUL_IP_EVENT_IDS:
+                            meaningful_count += 1
+                            continue
+                        
+                        # Check for process.user_logon.ip (someone logged in from this IP)
+                        proc = src.get('process', {})
+                        if isinstance(proc, dict):
+                            logon_ip = proc.get('user_logon', {}).get('ip')
+                            if logon_ip == ip:
+                                meaningful_count += 1
+                                continue
+                        
+                        # Check for firewall/network noise keywords in blob
+                        if any(kw in blob for kw in FIREWALL_NOISE_KEYWORDS):
+                            noise_count += 1
+                            continue
+                        
+                        # EDR events are generally meaningful
+                        if source_type == 'EDR':
+                            meaningful_count += 1
+                        else:
+                            noise_count += 1
+                    
+                    # IP is meaningful if majority of events are meaningful
+                    # Or if there's at least 1 meaningful event
+                    return meaningful_count > 0
+                    
+                except Exception as e:
+                    logger.warning(f"[AI_TRIAGE] Context check failed for IP {ip}: {e}")
+                    return True  # Be conservative - create IOC on error
+            
+            # Track IPs from EDR report (always IOC) vs discovered (need filtering)
+            report_ips = set(iocs.get('ips', []))
+            noise_ips_filtered = 0
+            
             # Helper to add IOC if not exists
             # v1.43.4: Enhanced to skip known systems (non-unknown types) and known IPs
-            def add_ioc_if_new(ioc_type, ioc_value, is_active=True):
-                nonlocal iocs_created, iocs_skipped_known
+            # v1.43.9: Filter discovered IPs based on event context
+            def add_ioc_if_new(ioc_type, ioc_value, is_active=True, from_report=False):
+                nonlocal iocs_created, iocs_skipped_known, noise_ips_filtered
                 if not ioc_value or (ioc_type, ioc_value.lower()) in existing_iocs:
                     return
                 
@@ -3513,12 +3626,20 @@ def run_ai_triage_search(self, search_id):
                             return
                 
                 # v1.43.4: Skip IP IOCs for known system IPs
-                # Unknown IPs (even internal) still become IOCs
+                # v1.43.9: Filter discovered IPs (not from report) based on event context
                 if ioc_type == 'ip':
                     if ioc_value in known_system_ips:
                         logger.debug(f"[AI_TRIAGE] Skipping known system IP IOC: {ioc_value}")
                         iocs_skipped_known += 1
                         return
+                    
+                    # v1.43.9: Discovered IPs need context check (firewall noise filter)
+                    # IPs from EDR report always become IOCs (analyst/EDR flagged them)
+                    if not from_report and ioc_value not in report_ips:
+                        if not is_ip_in_meaningful_context(ioc_value, search.case_id):
+                            logger.info(f"[AI_TRIAGE] Filtering noise IP (no meaningful context): {ioc_value}")
+                            noise_ips_filtered += 1
+                            return
                 
                 try:
                     ioc = IOC(
@@ -3555,8 +3676,9 @@ def run_ai_triage_search(self, search_id):
                     logger.warning(f"[AI_TRIAGE] Failed to create System {hostname}: {e}")
             
             # Add extracted IOCs from report
+            # v1.43.9: IPs from report use from_report=True (always create IOC)
             for ip in iocs.get('ips', []):
-                add_ioc_if_new('ip', ip)
+                add_ioc_if_new('ip', ip, from_report=True)
             for hostname in iocs.get('hostnames', []):
                 normalized = normalize_hostname(hostname)
                 if normalized and not is_noise_hostname(normalized):  # Filter noise hostnames
@@ -3579,8 +3701,9 @@ def run_ai_triage_search(self, search_id):
                 add_ioc_if_new('hash', hash_val)
             
             # Add discovered IOCs
+            # v1.43.9: Discovered IPs filtered by context (firewall noise excluded)
             for ip in discovered_ips:
-                add_ioc_if_new('ip', ip)
+                add_ioc_if_new('ip', ip, from_report=False)  # Will check context
             for hostname in discovered_hostnames:
                 normalized = normalize_hostname(hostname)
                 if normalized and not is_noise_hostname(normalized):  # Filter noise hostnames
@@ -3597,7 +3720,7 @@ def run_ai_triage_search(self, search_id):
                 add_ioc_if_new('threat', threat)
             
             db.session.commit()
-            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs, {systems_created} Systems (skipped {iocs_skipped_known} known system/IP IOCs)")
+            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs, {systems_created} Systems (skipped {iocs_skipped_known} known, {noise_ips_filtered} noise IPs)")
             
             # =========================================================
             # PHASE 7: TIME WINDOW ANALYSIS (±5 min around anchors)

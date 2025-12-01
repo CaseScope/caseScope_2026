@@ -490,5 +490,21 @@ class SystemToolsSetting(db.Model):
 
 ---
 
+## Cross References
+
+### USES
+
+These documentation files describe features that Hide Known Good depends on:
+
+- *(Internal)* OpenSearch bulk API for event updates
+
+### USED BY
+
+These documentation files describe features that depend on Hide Known Good exclusions:
+
+- `AI_TRIAGE_SEARCH_DOCUMENTATION.md` - Loads exclusions for event filtering and IOC creation
+
+---
+
 **✅ VERIFIED**: All information extracted from live codebase (December 1, 2025)
 
