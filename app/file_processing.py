@@ -1771,7 +1771,27 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
             logger.info(f"[HUNT IOCS] Processing IOC {idx}/{len(iocs)}: {ioc.ioc_type}={ioc.ioc_value}")
             
             # v1.43.12: All IOC types now search search_blob field only
-            # This is faster and excludes noise fields (event_description, etc.)
+            # v1.43.14: Fixed tokenization issue for COMMAND IOCs
+            # =========================================================================
+            # TOKENIZATION FIX (v1.43.14):
+            # search_blob analyzer keeps "command.exe" as a single token.
+            # Searching for "net" won't find "net.exe", but WILL find ".NET" → "net"
+            # This caused 36k false positives for "net" IOC.
+            # 
+            # Solution: For COMMAND IOCs, search for "{command}.exe"
+            # - "net" → search "net.exe" (1,826 matches vs 36k)
+            # - "nltest" → search "nltest.exe" (finds actual executions)
+            # =========================================================================
+            
+            # Determine search value based on IOC type
+            search_value = ioc.ioc_value
+            
+            if ioc.ioc_type == 'command':
+                # v1.43.14: For COMMAND IOCs, search for the .exe form
+                # This prevents "net" matching ".NET" and other partial matches
+                if not search_value.lower().endswith('.exe'):
+                    search_value = f"{search_value}.exe"
+                logger.info(f"[HUNT IOCS] COMMAND IOC: searching for '{search_value}' (added .exe)")
             
             if ioc.ioc_type == 'command_complex':
                 # Complex IOC - extract distinctive terms (obfuscated PowerShell, etc.)
@@ -1793,7 +1813,7 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                                 {
                                     "query_string": {
                                         "query": search_terms,
-                                        "fields": ["search_blob"],  # v1.43.12: Use search_blob
+                                        "fields": ["search_blob"],
                                         "default_operator": "AND",
                                         "lenient": True
                                     }
@@ -1808,15 +1828,14 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                 logger.info(f"[HUNT IOCS] Using distinctive terms for command_complex: {search_terms}")
             else:
                 # Standard IOC - use simple_query_string on search_blob
-                # v1.43.12: Search search_blob instead of ["*"] for speed and accuracy
                 query = {
                     "query": {
                         "bool": {
                             "must": [
                                 {
                                     "simple_query_string": {
-                                        "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
-                                        "fields": ["search_blob"],  # v1.43.12: Use search_blob
+                                        "query": f'"{search_value}"',  # Quote for phrase matching
+                                        "fields": ["search_blob"],
                                         "default_operator": "and"
                                     }
                                 }
@@ -1827,7 +1846,7 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                         }
                     }
                 }
-                logger.info(f"[HUNT IOCS] Searching search_blob for: {ioc.ioc_value}")
+                logger.info(f"[HUNT IOCS] Searching search_blob for: {search_value}")
             
             try:
                 # Use scroll API to get ALL results (not limited to 10,000)
