@@ -2561,20 +2561,27 @@ def hide_known_good_events_task(self, case_id, user_id):
             except:
                 pass
             
-            # Update state before hiding
-            self.update_state(state='PROGRESS', meta={
-                'status': 'hiding',
-                'total': total_to_scan,
-                'processed': processed_count,
-                'found': len(events_to_hide),
-                'percent': 100
-            })
-            
-            # Bulk update to hide events
+            # Bulk update to hide events with progress tracking
+            # v1.43.8: Added progress updates during hiding phase
             if events_to_hide:
+                total_to_hide = len(events_to_hide)
                 batch_size = 500
-                for i in range(0, len(events_to_hide), batch_size):
+                failed_count = 0
+                
+                for i in range(0, total_to_hide, batch_size):
                     batch = events_to_hide[i:i+batch_size]
+                    
+                    # Update progress during hiding
+                    hide_percent = int((i / total_to_hide) * 100) if total_to_hide > 0 else 0
+                    self.update_state(state='PROGRESS', meta={
+                        'status': 'hiding',
+                        'total': total_to_scan,
+                        'processed': processed_count,
+                        'found': total_to_hide,
+                        'hidden': hidden_count,
+                        'percent': hide_percent,
+                        'hide_progress': f'{hidden_count:,} / {total_to_hide:,}'
+                    })
                     
                     bulk_body = []
                     for evt in batch:
@@ -2592,13 +2599,40 @@ def hide_known_good_events_task(self, case_id, user_id):
                         })
                     
                     try:
-                        opensearch_client.bulk(body=bulk_body, refresh=False)
-                        hidden_count += len(batch)
+                        result = opensearch_client.bulk(body=bulk_body, refresh=False)
+                        # v1.43.8: Count actual successes from bulk response
+                        if result.get('errors', False):
+                            # Some items failed - count actual successes
+                            for item in result.get('items', []):
+                                update_result = item.get('update', {})
+                                if update_result.get('status') in [200, 201]:
+                                    hidden_count += 1
+                                else:
+                                    failed_count += 1
+                                    logger.warning(f"[HIDE KNOWN GOOD] Failed to hide event: {update_result.get('_id')} - {update_result.get('error', {}).get('reason', 'unknown')}")
+                        else:
+                            # All items succeeded
+                            hidden_count += len(batch)
                     except Exception as e:
                         logger.error(f"[HIDE KNOWN GOOD] Bulk update error: {e}")
+                        failed_count += len(batch)
+                
+                # Final progress update at 100%
+                self.update_state(state='PROGRESS', meta={
+                    'status': 'hiding',
+                    'total': total_to_scan,
+                    'processed': processed_count,
+                    'found': total_to_hide,
+                    'hidden': hidden_count,
+                    'percent': 100,
+                    'hide_progress': f'{hidden_count:,} / {total_to_hide:,}'
+                })
                 
                 # Refresh index
                 opensearch_client.indices.refresh(index=index_name)
+                
+                if failed_count > 0:
+                    logger.warning(f"[HIDE KNOWN GOOD] {failed_count:,} events failed to hide")
             
             # Audit log
             from audit_logger import log_action
@@ -2606,13 +2640,15 @@ def hide_known_good_events_task(self, case_id, user_id):
             # Log manually to the workers log instead
             logger.info(f"[HIDE KNOWN GOOD] Audit: user_id={user_id}, case_id={case_id}, hidden={hidden_count}, processed={processed_count}")
             
-            logger.info(f"[HIDE KNOWN GOOD] Case {case_id}: Hidden {hidden_count:,} of {processed_count:,} events")
+            found_count = len(events_to_hide) if events_to_hide else 0
+            logger.info(f"[HIDE KNOWN GOOD] Case {case_id}: Found {found_count:,}, Hidden {hidden_count:,} of {processed_count:,} events scanned")
             
             return {
                 'status': 'success',
                 'hidden': hidden_count,
+                'found': found_count,
                 'processed': processed_count,
-                'message': f'Hidden {hidden_count:,} known-good events'
+                'message': f'Hidden {hidden_count:,} of {found_count:,} matching events'
             }
             
         except Exception as e:

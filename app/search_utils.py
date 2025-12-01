@@ -102,83 +102,104 @@ def build_search_query(
         }
     }
     
-    # Text search across all fields (v1.13.8: Use query_string with escaping like IOC hunting)
-    # PROBLEM: query_string with wildcard fails when index has 4096+ fields
-    # APP_MAP SOLUTION: IOC hunting uses query_string (NOT simple_query_string) with:
-    #   1. Lucene special character escaping
-    #   2. lenient=True to handle type mismatches
-    #   3. analyze_wildcard=True for pattern matching
-    # NOTE: simple_query_string with ["*"] returned 0 hits (doesn't traverse nested objects)
-    #       query_string with wildcard returned 179 hits ✅
+    # Text search - hybrid approach for performance + UX
+    # v1.43.7: Optimized search with fields parameter for speed
+    # 
+    # HISTORY:
+    #   - v1.27.13: smart_wildcard() for partial matching (nltest → nltest.exe)
+    #   - v1.43.5: simple_query_string broke partial matching
+    #   - v1.43.6: query_string without fields - correct but 10s+ searches
+    # 
+    # PROBLEM: 
+    #   - Wildcards need query_string (simple_query_string wildcards weak)
+    #   - query_string without 'fields' searches ALL 4,500 fields → 10+ seconds
+    #   - query_string with 'fields' + wildcards fails on hyphens (DESKTOP-951CN7O)
+    #   - Hyphens tokenize: DESKTOP-951CN7O → ['desktop', '951cn7o']
+    #
+    # SOLUTION: Route based on term characteristics
+    #   1. Hyphenated terms: Use simple_query_string (tokenizes, fast)
+    #   2. Simple terms: Wrap in wildcards, use query_string with fields (fast)
+    #   3. Advanced queries: Use appropriate query with fields
+    #
+    # Benchmark: 10s → 0.5s per search
     if search_text:
-        # Escape Lucene special characters to prevent parse errors
-        # NOTE: Only escape characters that are truly problematic
-        # Keep unescaped for full boolean query support:
-        #   - Operators: AND, OR, NOT (including -, !, &, |)
-        #   - Grouping: ( )
-        #   - Wildcards: * ?
-        #   - Phrases: "
-        #   - Field queries: :
-        #   - Paths: / (and \ for Windows paths)
-        #   - Spaces: (for operator separation)
-        def escape_lucene(text):
-            special_chars = ['+', '=', '{', '}', '[', ']', '^', '~', '/']
-            # Only escape rarely-used special characters (added / for paths like Win32/)
-            # Examples of working queries:
-            #   "python AND mkeane"
-            #   "bob AND (NOT joe) OR sam"
-            #   "192.168.1.1"
-            #   "*python*"
-            #   "EventID:4624"
-            #   "C:\Windows\System32"
-            for char in special_chars:
-                text = text.replace(char, f'\\{char}')
-            return text
+        import re
         
-        # Smart wildcard helper (v1.27.13): Auto-add wildcards for simple partial searches
-        # This improves UX so users don't need to manually add * for common searches like "nltest"
-        # Examples:
-        #   "nltest" → "*nltest*" (matches nltest.exe, c:\nltest.exe, etc.)
-        #   "python" → "*python*" (matches python.exe, python3, etc.)
-        #   "192.168" → "*192.168*" (matches IP addresses)
-        # BUT preserve advanced queries:
-        #   "nltest AND domain" → unchanged (has operator)
-        #   "*nltest" → unchanged (already has wildcard)
-        #   "EventID:4624" → unchanged (field query)
-        #   '"exact phrase"' → unchanged (quoted)
-        def smart_wildcard(text):
-            # Don't add wildcards if query already has them or uses advanced syntax
-            advanced_indicators = [
-                ' AND ', ' OR ', ' NOT ',  # Boolean operators
-                '(', ')',                   # Grouping
-                '"',                        # Phrases
-                ':',                        # Field queries
-                '*', '?'                    # Already has wildcards
-            ]
-            
-            # Check if this is a simple search term
-            is_simple = not any(indicator in text for indicator in advanced_indicators)
-            
-            # For simple single terms, add wildcards for partial matching
-            if is_simple and text.strip():
-                return f"*{text.strip()}*"
-            
-            return text
+        # Detect query characteristics
+        has_hyphen_term = bool(re.search(r'\b\w+-\w+\b', search_text))  # word-word pattern
+        has_operators = any(op in search_text for op in [' AND ', ' OR ', ' NOT ', '(', ')'])
+        has_wildcards = '*' in search_text or '?' in search_text
+        has_field_query = ':' in search_text
+        has_quotes = '"' in search_text
         
-        processed_query = smart_wildcard(search_text)
-        escaped_query = escape_lucene(processed_query)
+        is_simple_term = not (has_operators or has_wildcards or has_field_query or has_quotes)
         
-        # v1.43.5: Use targeted fields for 20-30x faster searches
-        # See SEARCH_FIELDS constant at top of file for field list and benchmarks
-        query["bool"]["must"].append({
-            "query_string": {
-                "query": escaped_query,
-                "fields": SEARCH_FIELDS,  # Target key forensic fields instead of all 8,759
-                "default_operator": "AND",
-                "analyze_wildcard": True,
-                "lenient": True  # Prevents errors from type mismatches
-            }
-        })
+        if is_simple_term and has_hyphen_term:
+            # Hyphenated simple term (DESKTOP-951CN7O)
+            # Use simple_query_string - tokenizes hyphens correctly
+            # Don't wrap in wildcards - tokenization handles partial matching
+            query["bool"]["must"].append({
+                "simple_query_string": {
+                    "query": search_text,
+                    "fields": ["search_blob"] + SEARCH_FIELDS[1:],  # search_blob + fallbacks
+                    "default_operator": "AND"
+                }
+            })
+        elif is_simple_term:
+            # Simple term without hyphens (nltest, powershell)
+            # Wrap in wildcards for partial matching (nltest → *nltest*)
+            # Use query_string with fields for performance
+            query["bool"]["must"].append({
+                "query_string": {
+                    "query": f"*{search_text.strip()}*",
+                    "fields": ["search_blob"],
+                    "default_operator": "AND",
+                    "analyze_wildcard": True,
+                    "lenient": True
+                }
+            })
+        elif has_wildcards or has_operators:
+            # Advanced query with wildcards or operators
+            # Use query_string with fields
+            # For operators, wrap non-wildcard terms in wildcards
+            def wrap_terms(text):
+                """Wrap plain terms in wildcards, preserve operators/quotes/fields."""
+                parts = re.split(r'(\s+AND\s+|\s+OR\s+|\s+NOT\s+|\(|\)|"[^"]*")', text)
+                result = []
+                for part in parts:
+                    p = part.strip()
+                    if not p or p in ['AND', 'OR', 'NOT', '(', ')']:
+                        result.append(part)
+                    elif p.startswith('"') or ':' in p or '*' in p or '?' in p:
+                        result.append(part)
+                    elif '-' in p:
+                        # Hyphenated - don't wrap (tokenization will handle)
+                        result.append(part)
+                    else:
+                        result.append(f"*{p}*")
+                return ''.join(result)
+            
+            search_query = wrap_terms(search_text)
+            query["bool"]["must"].append({
+                "query_string": {
+                    "query": search_query,
+                    "fields": ["search_blob"],
+                    "default_operator": "AND",
+                    "analyze_wildcard": True,
+                    "lenient": True
+                }
+            })
+        else:
+            # Field query or quoted phrase - use as-is
+            query["bool"]["must"].append({
+                "query_string": {
+                    "query": search_text,
+                    "fields": ["search_blob"] + SEARCH_FIELDS[1:],
+                    "default_operator": "AND",
+                    "analyze_wildcard": True,
+                    "lenient": True
+                }
+            })
     
     # Filter by SIGMA/IOC tags
     if filter_type == "sigma":

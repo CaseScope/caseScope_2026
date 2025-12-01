@@ -514,6 +514,21 @@ def scan_systems(case_id):
                         if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', system_name):
                             continue
                         
+                        # v1.43.5: Strip FQDN to get just hostname (no duplicates)
+                        # Examples: CM-DC01.cm.local -> CM-DC01, server.domain.com -> server
+                        if '.' in system_name:
+                            # Check if it looks like an FQDN (has domain suffix)
+                            parts = system_name.split('.')
+                            # If first part is a hostname and rest looks like domain
+                            if len(parts) >= 2 and len(parts[0]) >= 2:
+                                # Keep just the hostname part
+                                hostname_only = parts[0].upper()
+                                # Use the hostname (stripped) version
+                                system_name = hostname_only
+                        
+                        # Normalize to uppercase for consistent matching
+                        system_name = system_name.upper()
+                        
                         # Track highest doc count per system
                         if system_name not in discovered_systems or doc_count > discovered_systems[system_name]['count']:
                             discovered_systems[system_name] = {
@@ -550,11 +565,19 @@ def scan_systems(case_id):
             if response.aggregations and hasattr(response.aggregations, 'by_computer'):
                 for bucket in response.aggregations.by_computer.buckets:
                     computer_name = bucket.key
+                    
+                    # v1.43.5: Normalize hostname (strip FQDN, uppercase)
+                    if '.' in computer_name:
+                        computer_name = computer_name.split('.')[0]
+                    computer_name = computer_name.upper()
+                    
                     if bucket.top_ip.hits.hits:
                         ip = bucket.top_ip.hits.hits[0]['_source'].get('host', {}).get('ip')
                         if ip:
-                            system_ips[computer_name] = ip
-                            logger.debug(f"[Systems] {computer_name} -> {ip}")
+                            # Only store if we don't have an IP for this host yet
+                            if computer_name not in system_ips:
+                                system_ips[computer_name] = ip
+                                logger.debug(f"[Systems] {computer_name} -> {ip}")
             
             logger.info(f"[Systems] Resolved IPs for {len(system_ips)} systems")
         except Exception as e:
