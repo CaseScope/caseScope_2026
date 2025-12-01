@@ -2657,7 +2657,12 @@ def hide_known_good_events_task(self, case_id, user_id):
 
 
 def _should_hide_event_task(hit, exclusions):
-    """Check if an event should be hidden based on exclusion rules."""
+    """
+    Check if an event should be hidden based on exclusion rules.
+    
+    v1.43.11: Enhanced to check BOTH process and parent for RMM/EDR tools,
+    and to check if process is running FROM known tool folders.
+    """
     import fnmatch
     import ipaddress
     
@@ -2665,21 +2670,80 @@ def _should_hide_event_task(hit, exclusions):
     proc = src.get('process', {})
     parent = proc.get('parent', {}) or src.get('parent', {})
     
-    # Check 1: Parent process is a known RMM tool (full exclusion)
+    # Extract all relevant fields
     parent_name = (parent.get('name') or parent.get('executable') or '').lower()
     parent_name_only = parent_name.split('\\')[-1] if parent_name else ''
+    parent_cmd = (parent.get('command_line') or '').lower()
     
-    for rmm_pattern in exclusions.get('rmm_executables', []):
-        if fnmatch.fnmatch(parent_name_only, rmm_pattern):
-            return True
-        if fnmatch.fnmatch(parent_name, f'*{rmm_pattern}'):
-            return True
-    
-    # Check 2: Process is a remote tool with known-good ID
     proc_name = (proc.get('name') or proc.get('executable') or '').lower()
+    proc_name_only = proc_name.split('\\')[-1] if proc_name else ''
     cmd_line = (proc.get('command_line') or '').lower()
     search_blob = (src.get('search_blob') or '').lower()
     
+    # Also check EVTX ProcessName field (shows full path like C:\Windows\LTSvc\LTSVC.exe)
+    evtx_process_name = ''
+    event_data = src.get('Event', {}).get('EventData', {})
+    if isinstance(event_data, dict):
+        evtx_process_name = (event_data.get('ProcessName') or '').lower()
+    
+    # =========================================================================
+    # CHECK 1: Process OR Parent is RMM tool (v1.43.11 enhanced)
+    # =========================================================================
+    for rmm_pattern in exclusions.get('rmm_executables', []):
+        # Check parent (existing)
+        if fnmatch.fnmatch(parent_name_only, rmm_pattern):
+            return True
+        if parent_name and fnmatch.fnmatch(parent_name, f'*{rmm_pattern}'):
+            return True
+        
+        # Check process itself (v1.43.11 - NEW)
+        if fnmatch.fnmatch(proc_name_only, rmm_pattern):
+            return True
+        if proc_name and fnmatch.fnmatch(proc_name, f'*{rmm_pattern}'):
+            return True
+    
+    # =========================================================================
+    # CHECK 2: Process running FROM known tool folders (v1.43.11 - NEW)
+    # =========================================================================
+    # RMM/EDR/Remote tool installation paths
+    TOOL_PATH_PATTERNS = [
+        'ltsvc', 'labtech', 'automate',      # ConnectWise Automate/LabTech
+        'aem', 'datto',                       # Datto RMM
+        'kaseya', 'agentmon',                 # Kaseya
+        'ninjarmmag', 'ninjarmm',             # NinjaRMM
+        'syncro',                             # Syncro
+        'atera',                              # Atera
+        'n-central', 'basupsrvc',             # N-able
+        'huntress',                           # Huntress EDR
+        'screenconnect', 'connectwise',       # ConnectWise ScreenConnect
+        'sentinelone', 'sentinelagent',       # SentinelOne
+        'crowdstrike', 'csagent', 'csfalcon', # CrowdStrike
+        'carbonblack', 'cbdefense',           # Carbon Black
+        'sophos',                             # Sophos
+        'mssense', 'senseir',                 # Microsoft Defender ATP
+        'snapagent', 'blackpoint',            # Blackpoint SNAP
+        'teamviewer',                         # TeamViewer
+        'anydesk',                            # AnyDesk
+        'splashtop',                          # Splashtop
+        'bomgar', 'beyondtrust',              # BeyondTrust/Bomgar
+    ]
+    
+    # Check if process path, command line, parent path, or EVTX ProcessName contains tool paths
+    for tool_path in TOOL_PATH_PATTERNS:
+        if tool_path in proc_name:        # Process executable path
+            return True
+        if tool_path in cmd_line:          # Command line
+            return True
+        if tool_path in parent_name:       # Parent executable path
+            return True
+        if tool_path in parent_cmd:        # Parent command line
+            return True
+        if tool_path in evtx_process_name: # EVTX ProcessName field
+            return True
+    
+    # =========================================================================
+    # CHECK 3: Remote tool with known-good session ID
+    # =========================================================================
     for tool_config in exclusions.get('remote_tools', []):
         pattern = tool_config.get('pattern', '')
         if pattern and (pattern in proc_name or pattern in search_blob):
@@ -2687,29 +2751,40 @@ def _should_hide_event_task(hit, exclusions):
                 if known_id and (known_id in cmd_line or known_id in search_blob):
                     return True
     
-    # Check 3: EDR tools - CONTEXT-AWARE exclusion
+    # =========================================================================
+    # CHECK 4: EDR tools - CONTEXT-AWARE exclusion (v1.43.11 enhanced)
+    # =========================================================================
     # Exclude routine health checks BUT KEEP response actions
     for edr_config in exclusions.get('edr_tools', []):
-        # Check if parent is this EDR tool
-        parent_is_edr = any(
-            fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name
-            for exe in edr_config.get('executables', [])
+        edr_executables = edr_config.get('executables', [])
+        
+        # Check if parent OR process is this EDR tool (v1.43.11 - also check process)
+        is_edr_related = any(
+            fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name or
+            fnmatch.fnmatch(proc_name_only, exe) or exe in proc_name
+            for exe in edr_executables
         )
         
-        if parent_is_edr:
+        if is_edr_related:
             # FIRST: Check if this is a response action - DON'T HIDE
             if edr_config.get('keep_responses', True):
                 response_patterns = edr_config.get('response_patterns', [])
                 if any(pattern in cmd_line or pattern in search_blob for pattern in response_patterns):
                     return False  # DON'T hide - this is a response action!
             
-            # SECOND: Check if this is a routine health check - HIDE
+            # SECOND: If it's the EDR process itself or routine check - HIDE
             if edr_config.get('exclude_routine', True):
                 routine_commands = edr_config.get('routine_commands', [])
+                # Hide if it's a routine command OR if it's the EDR executable itself
                 if any(routine in cmd_line for routine in routine_commands):
                     return True  # Hide - routine health check
+                # Also hide EDR tool's own processes (v1.43.11)
+                if any(exe in proc_name_only for exe in edr_executables):
+                    return True  # Hide - EDR tool itself
     
-    # Check 4: Source IP is in known-good range
+    # =========================================================================
+    # CHECK 5: Source IP is in known-good range
+    # =========================================================================
     source_ip = None
     if src.get('source', {}).get('ip'):
         source_ip = src['source']['ip']
@@ -2724,13 +2799,13 @@ def _should_hide_event_task(hit, exclusions):
         
         for ip_range in exclusions.get('known_good_ips', []):
             try:
-                ip = ipaddress.ip_address(source_ip)
+                ip_obj = ipaddress.ip_address(source_ip)
                 if '/' in ip_range:
                     network = ipaddress.ip_network(ip_range, strict=False)
-                    if ip in network:
+                    if ip_obj in network:
                         return True
                 else:
-                    if ip == ipaddress.ip_address(ip_range):
+                    if ip_obj == ipaddress.ip_address(ip_range):
                         return True
             except (ValueError, TypeError):
                 pass

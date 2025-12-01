@@ -225,6 +225,12 @@ def create_search_blob(event: Dict[str, Any]) -> str:
         
         # Large/noisy fields
         '@timestamp',  # Timestamp string, not useful for text search
+        
+        # v1.43.11: Static event descriptions - these are Windows event templates
+        # that contain generic text like "A logon was attempted using explicit credentials"
+        # These should NOT trigger IOC matches
+        'event_description',  # Static Windows event description
+        'event_title',        # Friendly event title
     }
     
     # Field prefixes to exclude (forensic_* fields are already extracted)

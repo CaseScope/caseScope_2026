@@ -1,10 +1,11 @@
 # Hide Known Good Events - Technical Reference
 
-**Version**: 1.43.8  
+**Version**: 1.43.11  
 **Last Updated**: December 1, 2025  
 **Feature Introduced**: v1.38.0  
 **EDR Tools Added**: v1.40.0  
-**Progress Tracking Added**: v1.43.8
+**Progress Tracking Added**: v1.43.8  
+**Process & Path Matching Added**: v1.43.11
 
 ---
 
@@ -141,7 +142,7 @@ CREATE INDEX idx_is_active ON system_tools_setting(is_active);
 
 ### 1. RMM Tools (Full Exclusion)
 
-**Behavior**: Hide ALL events where parent process matches the pattern.
+**Behavior**: Hide events where **process OR parent** matches RMM patterns, OR where process runs FROM RMM folders. (v1.43.11)
 
 **Predefined Tools** (in `system_tools.py`):
 - ConnectWise Automate (LabTech): `LTSVC.exe,LTSvcMon.exe,LTTray.exe,LabTech*.exe`
@@ -153,17 +154,42 @@ CREATE INDEX idx_is_active ON system_tools_setting(is_active);
 - N-able: `N-central*.exe,BASupSrvc*.exe`
 - Pulseway: `PCMonitorSrv.exe,Pulseway*.exe`
 
-**Matching Logic** (`_should_hide_event_task`):
+**Matching Logic** (`_should_hide_event_task` - v1.43.11):
 ```python
-parent_name = parent.get('name') or parent.get('executable')
-parent_name_only = parent_name.split('\\')[-1]  # Extract filename
-
+# Check 1: Process OR Parent matches RMM executable patterns
 for rmm_pattern in exclusions['rmm_executables']:
+    # Parent check
     if fnmatch.fnmatch(parent_name_only, rmm_pattern):
-        return True  # HIDE
-    if fnmatch.fnmatch(parent_name, f'*{rmm_pattern}'):
-        return True  # HIDE
+        return True
+    # Process check (v1.43.11 - NEW)
+    if fnmatch.fnmatch(proc_name_only, rmm_pattern):
+        return True
+
+# Check 2: Process runs FROM known tool folders (v1.43.11 - NEW)
+TOOL_PATH_PATTERNS = [
+    'ltsvc', 'labtech', 'automate',  # ConnectWise Automate
+    'huntress', 'screenconnect',      # Huntress, ScreenConnect
+    'sentinelone', 'crowdstrike',     # EDR tools
+    # ... 20+ patterns
+]
+
+for tool_path in TOOL_PATH_PATTERNS:
+    if tool_path in proc_name:        # C:\Windows\LTSvc\LTSVC.exe
+        return True
+    if tool_path in cmd_line:          # Command contains path
+        return True
+    if tool_path in evtx_process_name: # EVTX ProcessName field
+        return True
 ```
+
+**Examples (v1.43.11):**
+
+| Event | Before v1.43.11 | After v1.43.11 |
+|-------|-----------------|----------------|
+| `ProcessName: C:\Windows\LTSvc\LTSVC.exe` | ❌ Not hidden (parent is services.exe) | ✅ Hidden |
+| Parent: `LTSVC.exe` spawns `cmd.exe` | ✅ Hidden | ✅ Hidden |
+| Any process in `C:\Windows\LTSvc\*` folder | ❌ Not hidden | ✅ Hidden |
+| `HuntressAgent.exe` running | ❌ Not hidden | ✅ Hidden |
 
 ### 2. Remote Tools (Session ID Matching)
 
@@ -191,9 +217,10 @@ for tool_config in exclusions['remote_tools']:
                 return True  # HIDE
 ```
 
-### 3. EDR Tools (Context-Aware - v1.40.0)
+### 3. EDR Tools (Context-Aware - v1.40.0, Enhanced v1.43.11)
 
 **Behavior**: 
+- **HIDE** EDR tool processes themselves (v1.43.11)
 - **HIDE** routine health checks (whoami, systeminfo, ipconfig)
 - **KEEP** response/isolation actions (critical for incident understanding)
 
@@ -206,27 +233,40 @@ for tool_config in exclusions['remote_tools']:
 - Sophos Intercept X: `SophosAgent.exe`
 - Carbon Black: `CbDefense*.exe,RepMgr.exe`
 
-**Matching Logic**:
+**Matching Logic** (v1.43.11 enhanced):
 ```python
 for edr_config in exclusions['edr_tools']:
-    parent_is_edr = any(
-        fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name
+    # Check if parent OR process is this EDR tool (v1.43.11 - enhanced)
+    is_edr_related = any(
+        fnmatch.fnmatch(parent_name_only, exe) or exe in parent_name or
+        fnmatch.fnmatch(proc_name_only, exe) or exe in proc_name  # NEW
         for exe in edr_config['executables']
     )
     
-    if parent_is_edr:
+    if is_edr_related:
         # FIRST: Check for response action - DON'T HIDE
         if edr_config['keep_responses']:
             if any(pattern in cmd_line or pattern in search_blob 
                    for pattern in edr_config['response_patterns']):
                 return False  # DON'T hide - response action!
         
-        # SECOND: Check for routine command - HIDE
+        # SECOND: Check for routine command OR EDR process itself - HIDE
         if edr_config['exclude_routine']:
-            if any(routine in cmd_line 
-                   for routine in edr_config['routine_commands']):
+            if any(routine in cmd_line for routine in edr_config['routine_commands']):
                 return True  # HIDE - routine health check
+            # Also hide EDR tool's own processes (v1.43.11)
+            if any(exe in proc_name_only for exe in edr_config['executables']):
+                return True  # HIDE - EDR tool itself
 ```
+
+**Examples (v1.43.11):**
+
+| Event | Before v1.43.11 | After v1.43.11 |
+|-------|-----------------|----------------|
+| `HuntressAgent.exe` running | ❌ Not hidden | ✅ Hidden |
+| `SentinelAgent.exe` running | ❌ Not hidden | ✅ Hidden |
+| EDR spawns `whoami.exe` | ✅ Hidden | ✅ Hidden |
+| EDR performs `isolation` | ✅ Kept (response) | ✅ Kept (response) |
 
 ### 4. Known-Good IPs
 
@@ -442,6 +482,7 @@ grep "HIDE KNOWN GOOD" /opt/casescope/logs/workers.log | tail -20
 | v1.38.0 | Initial implementation: RMM tools, Remote tools, Known-good IPs |
 | v1.40.0 | Added EDR tools with context-aware exclusion (routine vs response) |
 | v1.43.8 | Added progress tracking during hiding phase, accurate success counting |
+| v1.43.11 | **Process & Path Matching:** Check process itself (not just parent) against RMM/EDR patterns. Added TOOL_PATH_PATTERNS to hide events running FROM tool folders (ltsvc, huntress, etc.). Fixed: LTSVC.exe events now hidden even when parent is services.exe. |
 
 ---
 
@@ -506,5 +547,5 @@ These documentation files describe features that depend on Hide Known Good exclu
 
 ---
 
-**✅ VERIFIED**: All information extracted from live codebase (December 1, 2025)
+**✅ VERIFIED**: All information extracted from live codebase (December 1, 2025, v1.43.11)
 
