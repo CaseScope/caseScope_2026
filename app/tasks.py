@@ -3776,13 +3776,65 @@ def run_ai_triage_search(self, search_id):
             # Track IPs from EDR report (always IOC) vs discovered (need filtering)
             report_ips = set(iocs.get('ips', []))
             noise_ips_filtered = 0
+            noise_values_filtered = 0
+            
+            # =========================================================
+            # v1.43.13: Noise IOC value filtering
+            # =========================================================
+            # These are system/application values that should NEVER be IOCs
+            NOISE_IOC_VALUES = {
+                # Windows Event Providers (from Event.System.Provider.#attributes.Name)
+                '.net runtime', 'microsoft-windows-security-auditing',
+                'microsoft-windows-powershell', 'microsoft-windows-sysmon',
+                'microsoft-windows-taskscheduler', 'microsoft-windows-dns-client',
+                'microsoft-windows-kernel-general', 'microsoft-windows-kernel-power',
+                'microsoft-windows-winlogon', 'microsoft-windows-user profiles service',
+                'microsoft-windows-groupolicy', 'microsoft-windows-windowsupdateclient',
+                'microsoft-windows-bits-client', 'microsoft-windows-eventlog',
+                'microsoft-windows-wmi', 'service control manager', 'schannel',
+                'application error', 'windows error reporting', 'volsnap',
+                
+                # Generic system terms
+                'security', 'system', 'application', 'setup', 'forwarded events',
+                'windows powershell', 'powershell', 'microsoft', 'windows',
+                
+                # Common noise strings
+                'n/a', 'na', 'none', 'null', 'unknown', 'undefined', '-', '--', '---',
+                'true', 'false', 'yes', 'no', '0', '1',
+                
+                # Local/loopback
+                'localhost', '127.0.0.1', '::1', '0.0.0.0',
+            }
+            
+            def is_noise_ioc_value(value):
+                """Check if IOC value is noise (system providers, generic terms, etc.)"""
+                if not value:
+                    return True
+                val_lower = value.lower().strip()
+                # Direct match
+                if val_lower in NOISE_IOC_VALUES:
+                    return True
+                # Too short (less than 3 chars)
+                if len(val_lower) < 3:
+                    return True
+                # Starts with microsoft-windows- (provider names)
+                if val_lower.startswith('microsoft-windows-'):
+                    return True
+                return False
             
             # Helper to add IOC if not exists
             # v1.43.4: Enhanced to skip known systems (non-unknown types) and known IPs
             # v1.43.9: Filter discovered IPs based on event context
+            # v1.43.13: Filter noise IOC values
             def add_ioc_if_new(ioc_type, ioc_value, is_active=True, from_report=False):
-                nonlocal iocs_created, iocs_skipped_known, noise_ips_filtered
+                nonlocal iocs_created, iocs_skipped_known, noise_ips_filtered, noise_values_filtered
                 if not ioc_value or (ioc_type, ioc_value.lower()) in existing_iocs:
+                    return
+                
+                # v1.43.13: Skip noise IOC values (system providers, generic terms)
+                if is_noise_ioc_value(ioc_value):
+                    logger.debug(f"[AI_TRIAGE] Skipping noise IOC value: {ioc_value}")
+                    noise_values_filtered += 1
                     return
                 
                 # v1.43.4: Skip hostname IOCs for known systems with non-unknown types
@@ -3910,7 +3962,7 @@ def run_ai_triage_search(self, search_id):
                 add_ioc_if_new('threat', threat)
             
             db.session.commit()
-            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs, {systems_created} Systems (skipped {iocs_skipped_known} known, {noise_ips_filtered} noise IPs)")
+            logger.info(f"[AI_TRIAGE] Created {iocs_created} IOCs, {systems_created} Systems (skipped {iocs_skipped_known} known, {noise_ips_filtered} noise IPs, {noise_values_filtered} noise values)")
             
             # =========================================================
             # PHASE 7: TIME WINDOW ANALYSIS (±5 min around anchors)
