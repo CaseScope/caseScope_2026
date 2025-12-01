@@ -2677,18 +2677,18 @@ def _should_hide_event_task(hit, exclusions):
     search_blob = (src.get('search_blob') or '').lower()
     
     # =========================================================================
-    # CHECK 1: RMM Tool - Executable pattern ANYWHERE in search_blob
+    # CHECK 1: RMM Tool - Executable pattern in search_blob
     # =========================================================================
-    # This catches: process name, parent name, grandparent, paths, command lines
+    # Only match if executable pattern (with .exe context) is in blob
+    # This prevents matching URLs like huntress.io
     for rmm_pattern in exclusions.get('rmm_executables', []):
-        # Handle wildcard patterns (e.g., "LabTech*.exe" or "Datto*.exe")
         if '*' in rmm_pattern:
-            # Convert glob to simple prefix match: "labtech*.exe" → check "labtech"
+            # Wildcard: "labtech*.exe" → need prefix + .exe in blob
             prefix = rmm_pattern.split('*')[0]
-            if prefix and prefix in search_blob:
+            if prefix and f"{prefix}" in search_blob and '.exe' in search_blob:
                 return True
         else:
-            # Exact pattern match (e.g., "ltsvc.exe")
+            # Exact pattern (e.g., "ltsvc.exe") - must be in blob
             if rmm_pattern in search_blob:
                 return True
     
@@ -2707,20 +2707,22 @@ def _should_hide_event_task(hit, exclusions):
     # CHECK 3: EDR Tool - Context-aware exclusion via search_blob
     # =========================================================================
     # Hide routine health checks, KEEP response/isolation actions
+    # Only match EDR executables (with .exe), not URLs like huntress.io
     for edr_config in exclusions.get('edr_tools', []):
         edr_executables = edr_config.get('executables', [])
         
-        # Check if ANY EDR executable is anywhere in the event
+        # Check if EDR executable (must have .exe context) is in the event
         edr_in_blob = False
         for exe in edr_executables:
             exe_lower = exe.lower()
-            # Handle wildcards: "Blackpoint*.exe" → check "blackpoint"
             if '*' in exe_lower:
+                # Wildcard: "blackpoint*.exe" → need prefix + .exe in blob
                 prefix = exe_lower.split('*')[0]
-                if prefix and prefix in search_blob:
+                if prefix and f"{prefix}" in search_blob and '.exe' in search_blob:
                     edr_in_blob = True
                     break
             else:
+                # Exact: "snapagent.exe" must be in blob
                 if exe_lower in search_blob:
                     edr_in_blob = True
                     break
@@ -2735,17 +2737,12 @@ def _should_hide_event_task(hit, exclusions):
             # SECOND: Check for routine command - HIDE
             if edr_config.get('exclude_routine', True):
                 routine_commands = edr_config.get('routine_commands', [])
-                # Hide if routine command is present (e.g., whoami, ipconfig, systeminfo)
                 for routine in routine_commands:
                     if routine:
-                        # Match routine command (add .exe for precision)
                         routine_lower = routine.lower()
                         # Check for "routine.exe" to avoid partial matches
                         if f"{routine_lower}.exe" in search_blob:
                             return True  # HIDE - routine health check
-                        # Also check command without .exe for command-line args
-                        if f" {routine_lower} " in search_blob or f"/{routine_lower}" in search_blob:
-                            return True  # HIDE - routine in args
     
     # =========================================================================
     # CHECK 4: Source IP is in known-good range
@@ -3201,21 +3198,20 @@ def run_ai_triage_search(self, search_id):
                 return True
             
             # =========================================================================
-            # CHECK 1: RMM Tool - Executable pattern ANYWHERE in search_blob
+            # CHECK 1: RMM Tool - Executable pattern in search_blob
             # =========================================================================
+            # Only check configured RMM executables (e.g., "ltsvc.exe", "labtech*.exe")
+            # NOT broad path patterns (which would match URLs like huntress.io)
             for rmm_pattern in exclusions.get('rmm_executables', []):
                 if '*' in rmm_pattern:
+                    # Wildcard: "labtech*.exe" → check for "labtech" + ".exe" nearby
                     prefix = rmm_pattern.split('*')[0]
-                    if prefix and prefix in search_blob:
+                    if prefix and f"{prefix}" in search_blob and '.exe' in search_blob:
                         return True
                 else:
+                    # Exact: "ltsvc.exe" must be in blob
                     if rmm_pattern in search_blob:
                         return True
-            
-            # Also check built-in RMM path patterns
-            for rmm_path in RMM_PATH_PATTERNS:
-                if rmm_path in search_blob:
-                    return True
             
             # =========================================================================
             # CHECK 2: Remote Tool - Tool pattern AND session ID both in search_blob
@@ -3228,21 +3224,25 @@ def run_ai_triage_search(self, search_id):
                             return True
             
             # =========================================================================
-            # CHECK 3: EDR Tool - Context-aware exclusion via search_blob
+            # CHECK 3: EDR Tool - Context-aware exclusion
             # =========================================================================
+            # Only exclude if EDR EXECUTABLE (with .exe) is in blob AND routine command
+            # This prevents matching URLs like huntress.io
             for edr_config in exclusions.get('edr_tools', []):
                 edr_executables = edr_config.get('executables', [])
                 
-                # Check if ANY EDR executable is anywhere in the event
+                # Check if EDR executable (must have .exe) is in the event
                 edr_in_blob = False
                 for exe in edr_executables:
                     exe_lower = exe.lower()
                     if '*' in exe_lower:
+                        # Wildcard: "blackpoint*.exe" → need prefix + .exe
                         prefix = exe_lower.split('*')[0]
-                        if prefix and prefix in search_blob:
+                        if prefix and f"{prefix}" in search_blob and '.exe' in search_blob:
                             edr_in_blob = True
                             break
                     else:
+                        # Exact: "snapagent.exe" must be in blob
                         if exe_lower in search_blob:
                             edr_in_blob = True
                             break
@@ -3261,8 +3261,6 @@ def run_ai_triage_search(self, search_id):
                             if routine:
                                 routine_lower = routine.lower()
                                 if f"{routine_lower}.exe" in search_blob:
-                                    return True
-                                if f" {routine_lower} " in search_blob or f"/{routine_lower}" in search_blob:
                                     return True
             
             # =========================================================================
