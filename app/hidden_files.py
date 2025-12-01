@@ -111,8 +111,12 @@ def get_hidden_events_count(case_id: int) -> int:
     logger = logging.getLogger(__name__)
     
     try:
-        from file_processing import get_opensearch_client
-        client = get_opensearch_client()
+        from opensearchpy import OpenSearch
+        client = OpenSearch(
+            hosts=[{'host': 'localhost', 'port': 9200}],
+            http_compress=True,
+            timeout=30
+        )
         
         index_name = f"case_{case_id}"
         
