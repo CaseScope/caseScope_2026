@@ -1753,125 +1753,81 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
         
         total_matches = 0
         
-        # IOC Type to Field Mapping (for targeted searches)
-        # IMPORTANT: Most IOC types should search ALL fields (like grep does)
-        # Only use targeted field searches for very specific cases where performance matters
+        # =========================================================================
+        # v1.43.12: IOC Hunting now uses search_blob field
+        # =========================================================================
+        # search_blob contains ALL event data (flattened) EXCEPT:
+        # - Internal metadata (has_sigma, file_id, etc.)
+        # - Static event descriptions (event_description, event_title)
         # 
-        # SearchEVTX.sh does: grep -i -F "keyword" file.jsonl
-        # This finds the IOC ANYWHERE in the JSON, not just specific fields!
-        # 
-        # Example: username "craigw" can appear in:
-        #   - Event.EventData.SubjectUserName
-        #   - Event.EventData.TargetUserName  
-        #   - Event.EventData.User
-        #   - Many other nested locations
-        #
-        # DEFAULT: Search all fields ["*"] to match grep behavior
-        ioc_field_map = {
-            # All IOC types now search all fields by default (like grep)
-            # This ensures we find IOCs regardless of their location in nested JSON
-        }
+        # Benefits:
+        # - Much faster (1 field vs 8,759+ fields with ["*"])
+        # - Excludes noise (event_description won't trigger false IOC matches)
+        # - Consistent with main event search function
+        # =========================================================================
         
         # Process each IOC
         for idx, ioc in enumerate(iocs, 1):
             logger.info(f"[HUNT IOCS] Processing IOC {idx}/{len(iocs)}: {ioc.ioc_type}={ioc.ioc_value}")
             
-            # Determine search fields based on IOC type
-            # DEFAULT: Always search all fields ["*"] to match grep behavior
-            # This ensures IOCs are found regardless of their location in nested JSON
-            search_fields = ioc_field_map.get(ioc.ioc_type, ["*"])
-            logger.info(f"[HUNT IOCS] Search fields for {ioc.ioc_type}: {search_fields} (using wildcard search for all nested fields)")
+            # v1.43.12: All IOC types now search search_blob field only
+            # This is faster and excludes noise fields (event_description, etc.)
             
-            # GREP-LIKE SEARCH: Case-insensitive, targeted or all fields
-            # Use query_string for wildcard searches (supports nested objects)
-            # Use simple_query_string for targeted field searches (better performance)
-            if search_fields == ["*"]:
-                # For command_complex type, extract distinctive terms (obfuscated PowerShell, etc.)
+            if ioc.ioc_type == 'command_complex':
+                # Complex IOC - extract distinctive terms (obfuscated PowerShell, etc.)
                 # This avoids "too many nested clauses" errors (maxClauseCount limit)
-                if ioc.ioc_type == 'command_complex':
-                    # Complex IOC - extract distinctive terms and search for those (no wildcards)
-                    # Example: "powershell.exe -nopROfi -ExEC UnRESTrictED" 
-                    #       -> "nopROfi AND UnRESTrictED AND powershell.exe"
-                    import re
-                    # Extract words that are 5+ characters and look distinctive (mixed case, uncommon)
-                    words = re.findall(r'\b\w{5,}\b', ioc.ioc_value)
-                    # Prioritize mixed-case words (likely obfuscated/distinctive)
-                    distinctive_words = [w for w in words if not w.islower() and not w.isupper()]
-                    if not distinctive_words:
-                        # Fall back to any words
-                        distinctive_words = words[:5]  # Max 5 terms
-                    
-                    search_terms = ' AND '.join(distinctive_words[:5])
-                    
-                    # v1.13.1 FIX: Add file_id filter for consolidated case indices
-                    query = {
-                        "query": {
-                            "bool": {
-                                "must": [
-                                    {
-                                        "query_string": {
-                                            "query": search_terms,
-                                            "default_operator": "AND",
-                                            "lenient": True
-                                        }
+                import re
+                # Extract words that are 5+ characters and look distinctive (mixed case, uncommon)
+                words = re.findall(r'\b\w{5,}\b', ioc.ioc_value)
+                # Prioritize mixed-case words (likely obfuscated/distinctive)
+                distinctive_words = [w for w in words if not w.islower() and not w.isupper()]
+                if not distinctive_words:
+                    distinctive_words = words[:5]  # Max 5 terms
+                
+                search_terms = ' AND '.join(distinctive_words[:5])
+                
+                query = {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {
+                                    "query_string": {
+                                        "query": search_terms,
+                                        "fields": ["search_blob"],  # v1.43.12: Use search_blob
+                                        "default_operator": "AND",
+                                        "lenient": True
                                     }
-                                ],
-                                "filter": [
-                                    {"term": {"file_id": file_id}}  # CRITICAL: Search only this file's events
-                                ]
-                            }
+                                }
+                            ],
+                            "filter": [
+                                {"term": {"file_id": file_id}}
+                            ]
                         }
                     }
-                    logger.info(f"[HUNT IOCS] Using distinctive terms for command_complex: {search_terms}")
-                else:
-                    # Simple IOC - use simple_query_string for phrase matching (no wildcards)
-                    # This searches for the exact phrase across all fields
-                    # More precise than query_string with wildcards which breaks into terms
-                    # v1.13.1 FIX: Add file_id filter for consolidated case indices
-                    query = {
-                        "query": {
-                            "bool": {
-                                "must": [
-                                    {
-                                        "simple_query_string": {
-                                            "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
-                                            "fields": ["*"],
-                                            "default_operator": "and",
-                                            "lenient": True
-                                        }
-                                    }
-                                ],
-                                "filter": [
-                                    {"term": {"file_id": file_id}}  # CRITICAL: Search only this file's events
-                                ]
-                            }
-                        }
-                    }
-                    logger.info(f"[HUNT IOCS] Using simple_query_string with phrase matching for simple IOC")
+                }
+                logger.info(f"[HUNT IOCS] Using distinctive terms for command_complex: {search_terms}")
             else:
-                # Targeted field search - use simple_query_string
-                # v1.13.1 FIX: Add file_id filter for consolidated case indices
+                # Standard IOC - use simple_query_string on search_blob
+                # v1.43.12: Search search_blob instead of ["*"] for speed and accuracy
                 query = {
                     "query": {
                         "bool": {
                             "must": [
                                 {
                                     "simple_query_string": {
-                                        "query": ioc.ioc_value,
-                                        "fields": search_fields,
-                                        "default_operator": "and",
-                                        "lenient": True,
-                                        "analyze_wildcard": False
+                                        "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
+                                        "fields": ["search_blob"],  # v1.43.12: Use search_blob
+                                        "default_operator": "and"
                                     }
                                 }
                             ],
                             "filter": [
-                                {"term": {"file_id": file_id}}  # CRITICAL: Search only this file's events
+                                {"term": {"file_id": file_id}}
                             ]
                         }
                     }
                 }
-                logger.info(f"[HUNT IOCS] Using simple_query_string for targeted field search")
+                logger.info(f"[HUNT IOCS] Searching search_blob for: {ioc.ioc_value}")
             
             try:
                 # Use scroll API to get ALL results (not limited to 10,000)
