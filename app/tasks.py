@@ -4355,7 +4355,26 @@ def run_ai_triage_search(self, search_id):
             command_frequency = {}       # Track {host|command: count} for frequency dedup
             excluded_count = 0
             frequency_skipped = 0
+            process_filter_count = 0    # Debug: track how many filtered by process name
+            no_process_count = 0         # Debug: track how many have no process
             
+            # v1.44.3: Include anchor events directly - these ARE the interesting events
+            # (auth chains, AV detections, IOC matches, pattern matches)
+            # Use unique_anchors (already deduped and prioritized by source)
+            anchor_event_ids = set()
+            for anchor in unique_anchors[:200]:  # Cap at 200 anchors for tagging
+                event = anchor.get('event')
+                if event and event.get('_id'):
+                    event_id = event['_id']
+                    if event_id not in anchor_event_ids:
+                        anchor_event_ids.add(event_id)
+                        # Add anchor events directly (they passed exclusion checks when added)
+                        timeline_events.append(event)
+                        seen_keys.add(event_id)
+            
+            logger.info(f"[AI_TRIAGE] Added {len(timeline_events)} anchor events directly to timeline")
+            
+            # Also check window events for additional timeline-worthy process events
             for event in all_window_events:
                 src = event.get('_source', {})
                 proc = src.get('process', {})
@@ -4367,7 +4386,10 @@ def run_ai_triage_search(self, search_id):
                 if proc_name:
                     # This is a process event - check if it's timeline-worthy
                     if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
+                        process_filter_count += 1
                         continue
+                else:
+                    no_process_count += 1
                 # If no process name, it's likely an auth/AV/pattern event - let it through
                 
                 # Check exclusions (known-good RMM, remote tools)
@@ -4375,17 +4397,16 @@ def run_ai_triage_search(self, search_id):
                     excluded_count += 1
                     continue
                 
-                # Deduplicate (case-insensitive on command)
-                cmd = (proc.get('command_line') or '').lower()
-                ts = src.get('@timestamp', '')
-                key = f"{ts}|{cmd}"
-                if key in seen_keys:
+                # Deduplicate by event ID (already added anchor events use event ID)
+                event_id = event.get('_id', '')
+                if event_id in seen_keys:
                     continue
-                seen_keys.add(key)
+                seen_keys.add(event_id)
                 
                 # v1.41.0: Frequency-based deduplication
                 # Track how many times this command appears on this host
                 hostname = src.get('normalized_computer', 'unknown')
+                cmd = (proc.get('command_line') or '').lower()
                 # Normalize command for frequency tracking (strip args that change)
                 cmd_base = cmd.split()[0] if cmd else ''  # Just the executable
                 freq_key = f"{hostname}|{cmd_base}"
@@ -4399,6 +4420,8 @@ def run_ai_triage_search(self, search_id):
                 timeline_events.append(event)
             
             timeline_events.sort(key=lambda x: x.get('_source', {}).get('@timestamp', ''))
+            logger.info(f"[AI_TRIAGE] Timeline filter debug: {len(all_window_events)} total, {no_process_count} no-process, "
+                       f"{process_filter_count} filtered by process name, {excluded_count} excluded, {frequency_skipped} freq-skip")
             logger.info(f"[AI_TRIAGE] Filtered to {len(timeline_events)} timeline events "
                        f"({excluded_count} excluded as known-good, {frequency_skipped} skipped by frequency limit)")
             
