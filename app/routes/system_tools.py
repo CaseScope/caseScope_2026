@@ -684,10 +684,13 @@ def hide_known_good_events(case_id):
     """
     Start background task to hide events matching known-good exclusion patterns.
     Returns task_id for progress polling.
+    
+    v1.44.0: Uses events_known_good module for validation.
     """
     from main import db
     from models import Case
     from tasks import hide_known_good_events_task
+    from events_known_good import has_exclusions_configured
     
     # Permission check
     if current_user.role == 'read-only':
@@ -697,10 +700,8 @@ def hide_known_good_events(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
-    # Load exclusions to validate
-    exclusions = _get_exclusions_dict()
-    
-    if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['known_good_ips']]):
+    # v1.44.0: Use new module for validation
+    if not has_exclusions_configured():
         return jsonify({'error': 'No exclusions defined. Please configure System Tools settings first.'}), 400
     
     # Start background task

@@ -2408,7 +2408,7 @@ def cleanup_old_audit_logs():
 
 
 # ============================================================================
-# HIDE KNOWN GOOD EVENTS (v1.38.0)
+# HIDE KNOWN GOOD EVENTS (v1.44.0 - Uses events_known_good module)
 # ============================================================================
 
 @celery_app.task(bind=True, name='tasks.hide_known_good_events')
@@ -2416,10 +2416,8 @@ def hide_known_good_events_task(self, case_id, user_id):
     """
     Background task to hide events matching known-good exclusion patterns.
     
-    This task scans ALL events in a case and hides those matching:
-    - RMM tool parent processes (LTSVC.exe, etc.)
-    - Remote tool sessions with known-good IDs
-    - Known-good IP addresses/ranges
+    v1.44.0: Refactored to use events_known_good module for detection logic.
+    This task handles Celery progress updates while delegating detection to the module.
     
     Args:
         case_id: ID of the case to process
@@ -2429,11 +2427,13 @@ def hide_known_good_events_task(self, case_id, user_id):
         Dict with status, hidden count, and processed count
     """
     from main import app, db, opensearch_client
-    from models import Case, SystemToolsSetting
+    from models import Case
     from datetime import datetime
-    import fnmatch
-    import ipaddress
-    import json
+    from events_known_good import (
+        load_exclusions, 
+        has_exclusions_configured,
+        is_known_good_event
+    )
     
     with app.app_context():
         try:
@@ -2441,46 +2441,10 @@ def hide_known_good_events_task(self, case_id, user_id):
             if not case:
                 return {'status': 'error', 'message': 'Case not found'}
             
-            # Load exclusions
-            exclusions = {
-                'rmm_executables': [],
-                'remote_tools': [],
-                'edr_tools': [],
-                'known_good_ips': []
-            }
+            # Load exclusions from the new module
+            exclusions = load_exclusions()
             
-            settings = SystemToolsSetting.query.filter_by(is_active=True).all()
-            
-            for s in settings:
-                if s.setting_type == 'rmm_tool':
-                    if s.executable_pattern:
-                        patterns = [p.strip().lower() for p in s.executable_pattern.split(',') if p.strip()]
-                        exclusions['rmm_executables'].extend(patterns)
-                elif s.setting_type == 'remote_tool':
-                    ids = json.loads(s.known_good_ids) if s.known_good_ids else []
-                    exclusions['remote_tools'].append({
-                        'name': s.tool_name,
-                        'pattern': s.executable_pattern.lower() if s.executable_pattern else '',
-                        'known_good_ids': [id.lower() for id in ids]
-                    })
-                elif s.setting_type == 'edr_tool':
-                    # EDR tools have context-aware exclusion
-                    routine = json.loads(s.routine_commands) if s.routine_commands else []
-                    responses = json.loads(s.response_patterns) if s.response_patterns else []
-                    executables = [p.strip().lower() for p in (s.executable_pattern or '').split(',') if p.strip()]
-                    exclusions['edr_tools'].append({
-                        'name': s.tool_name,
-                        'executables': executables,
-                        'exclude_routine': s.exclude_routine if s.exclude_routine is not None else True,
-                        'keep_responses': s.keep_responses if s.keep_responses is not None else True,
-                        'routine_commands': [r.lower() for r in routine],
-                        'response_patterns': [r.lower() for r in responses]
-                    })
-                elif s.setting_type == 'known_good_ip':
-                    if s.ip_or_cidr:
-                        exclusions['known_good_ips'].append(s.ip_or_cidr)
-            
-            if not any([exclusions['rmm_executables'], exclusions['remote_tools'], exclusions['edr_tools'], exclusions['known_good_ips']]):
+            if not has_exclusions_configured():
                 return {'status': 'error', 'message': 'No exclusions defined'}
             
             index_name = f"case_{case_id}"
@@ -2533,8 +2497,11 @@ def hide_known_good_events_task(self, case_id, user_id):
             while hits:
                 for hit in hits:
                     processed_count += 1
+                    src = hit.get('_source', {})
+                    search_blob = src.get('search_blob', '')
                     
-                    if _should_hide_event_task(hit, exclusions):
+                    # Use the new module's detection function
+                    if is_known_good_event(src, search_blob, exclusions):
                         events_to_hide.append({
                             '_id': hit['_id'],
                             '_index': hit['_index']
@@ -2562,7 +2529,6 @@ def hide_known_good_events_task(self, case_id, user_id):
                 pass
             
             # Bulk update to hide events with progress tracking
-            # v1.43.8: Added progress updates during hiding phase
             if events_to_hide:
                 total_to_hide = len(events_to_hide)
                 batch_size = 500
@@ -2600,18 +2566,15 @@ def hide_known_good_events_task(self, case_id, user_id):
                     
                     try:
                         result = opensearch_client.bulk(body=bulk_body, refresh=False)
-                        # v1.43.8: Count actual successes from bulk response
                         if result.get('errors', False):
-                            # Some items failed - count actual successes
                             for item in result.get('items', []):
                                 update_result = item.get('update', {})
                                 if update_result.get('status') in [200, 201]:
                                     hidden_count += 1
                                 else:
                                     failed_count += 1
-                                    logger.warning(f"[HIDE KNOWN GOOD] Failed to hide event: {update_result.get('_id')} - {update_result.get('error', {}).get('reason', 'unknown')}")
+                                    logger.warning(f"[HIDE KNOWN GOOD] Failed to hide event: {update_result.get('_id')}")
                         else:
-                            # All items succeeded
                             hidden_count += len(batch)
                     except Exception as e:
                         logger.error(f"[HIDE KNOWN GOOD] Bulk update error: {e}")
@@ -2635,9 +2598,6 @@ def hide_known_good_events_task(self, case_id, user_id):
                     logger.warning(f"[HIDE KNOWN GOOD] {failed_count:,} events failed to hide")
             
             # Audit log
-            from audit_logger import log_action
-            # Note: log_action uses current_user which isn't available in Celery task
-            # Log manually to the workers log instead
             logger.info(f"[HIDE KNOWN GOOD] Audit: user_id={user_id}, case_id={case_id}, hidden={hidden_count}, processed={processed_count}")
             
             found_count = len(events_to_hide) if events_to_hide else 0
@@ -2654,126 +2614,6 @@ def hide_known_good_events_task(self, case_id, user_id):
         except Exception as e:
             logger.error(f"[HIDE KNOWN GOOD] Error: {e}", exc_info=True)
             return {'status': 'error', 'message': str(e)}
-
-
-def _should_hide_event_task(hit, exclusions):
-    """
-    Check if an event should be hidden based on exclusion rules.
-    
-    v1.43.15: SIMPLIFIED - Uses search_blob for all pattern matching.
-    This catches patterns anywhere in the event (process, parent, grandparent, paths, etc.)
-    
-    Logic:
-    1. RMM: If executable pattern in search_blob → HIDE
-    2. Remote: If tool pattern AND session ID both in search_blob → HIDE
-    3. EDR: If executable in search_blob AND routine command in search_blob → HIDE
-           (unless response pattern also present → KEEP)
-    4. IPs: If source IP matches known-good range → HIDE
-    """
-    import fnmatch
-    import ipaddress
-    
-    src = hit.get('_source', {})
-    search_blob = (src.get('search_blob') or '').lower()
-    
-    # =========================================================================
-    # CHECK 1: RMM Tool - Executable pattern in search_blob
-    # =========================================================================
-    # Only match if executable pattern (with .exe context) is in blob
-    # This prevents matching URLs like huntress.io
-    for rmm_pattern in exclusions.get('rmm_executables', []):
-        if '*' in rmm_pattern:
-            # Wildcard: "labtech*.exe" → need prefix + .exe in blob
-            prefix = rmm_pattern.split('*')[0]
-            if prefix and f"{prefix}" in search_blob and '.exe' in search_blob:
-                return True
-        else:
-            # Exact pattern (e.g., "ltsvc.exe") - must be in blob
-            if rmm_pattern in search_blob:
-                return True
-    
-    # =========================================================================
-    # CHECK 2: Remote Tool - Tool pattern AND session ID both in search_blob
-    # =========================================================================
-    for tool_config in exclusions.get('remote_tools', []):
-        pattern = (tool_config.get('pattern') or '').lower()
-        if pattern and pattern in search_blob:
-            # Tool is present, now check for known-good session ID
-            for known_id in tool_config.get('known_good_ids', []):
-                if known_id and known_id.lower() in search_blob:
-                    return True  # HIDE - authorized remote session
-    
-    # =========================================================================
-    # CHECK 3: EDR Tool - Context-aware exclusion via search_blob
-    # =========================================================================
-    # Hide routine health checks, KEEP response/isolation actions
-    # Only match EDR executables (with .exe), not URLs like huntress.io
-    for edr_config in exclusions.get('edr_tools', []):
-        edr_executables = edr_config.get('executables', [])
-        
-        # Check if EDR executable (must have .exe context) is in the event
-        edr_in_blob = False
-        for exe in edr_executables:
-            exe_lower = exe.lower()
-            if '*' in exe_lower:
-                # Wildcard: "blackpoint*.exe" → need prefix + .exe in blob
-                prefix = exe_lower.split('*')[0]
-                if prefix and f"{prefix}" in search_blob and '.exe' in search_blob:
-                    edr_in_blob = True
-                    break
-            else:
-                # Exact: "snapagent.exe" must be in blob
-                if exe_lower in search_blob:
-                    edr_in_blob = True
-                    break
-        
-        if edr_in_blob:
-            # FIRST: Check for response action keywords - DON'T HIDE these
-            if edr_config.get('keep_responses', True):
-                response_patterns = edr_config.get('response_patterns', [])
-                if any(pattern.lower() in search_blob for pattern in response_patterns if pattern):
-                    continue  # Skip to next EDR config - this is a response action, KEEP IT
-            
-            # SECOND: Check for routine command - HIDE
-            if edr_config.get('exclude_routine', True):
-                routine_commands = edr_config.get('routine_commands', [])
-                for routine in routine_commands:
-                    if routine:
-                        routine_lower = routine.lower()
-                        # Check for "routine.exe" to avoid partial matches
-                        if f"{routine_lower}.exe" in search_blob:
-                            return True  # HIDE - routine health check
-    
-    # =========================================================================
-    # CHECK 4: Source IP is in known-good range
-    # =========================================================================
-    proc = src.get('process', {})
-    source_ip = None
-    if src.get('source', {}).get('ip'):
-        source_ip = src['source']['ip']
-    elif src.get('host', {}).get('ip'):
-        source_ip = src['host']['ip']
-    elif proc.get('user_logon', {}).get('ip'):
-        source_ip = proc['user_logon']['ip']
-    
-    if source_ip:
-        if isinstance(source_ip, list):
-            source_ip = source_ip[0]
-        
-        for ip_range in exclusions.get('known_good_ips', []):
-            try:
-                ip_obj = ipaddress.ip_address(source_ip)
-                if '/' in ip_range:
-                    network = ipaddress.ip_network(ip_range, strict=False)
-                    if ip_obj in network:
-                        return True
-                else:
-                    if ip_obj == ipaddress.ip_address(ip_range):
-                        return True
-            except (ValueError, TypeError):
-                pass
-    
-    return False
 
 
 # ============================================================================
