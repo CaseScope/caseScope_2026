@@ -4361,11 +4361,16 @@ def run_ai_triage_search(self, search_id):
                 proc = src.get('process', {})
                 proc_name = (proc.get('name') or '').lower()
                 
-                # Check if timeline-worthy
-                if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
-                    continue
+                # v1.44.2: Fixed timeline filtering to allow non-process events
+                # Auth events (4624, 4776), AV detections, pattern matches don't have process names
+                # Only filter by TIMELINE_PROCESSES if the event HAS a process name
+                if proc_name:
+                    # This is a process event - check if it's timeline-worthy
+                    if not any(p.lower().replace('.exe', '') in proc_name for p in TIMELINE_PROCESSES):
+                        continue
+                # If no process name, it's likely an auth/AV/pattern event - let it through
                 
-                # Check exclusions (known-good RMM, remote tools, IPs)
+                # Check exclusions (known-good RMM, remote tools)
                 if should_exclude_event(event, exclusions):
                     excluded_count += 1
                     continue
