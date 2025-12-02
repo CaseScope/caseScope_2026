@@ -4509,7 +4509,7 @@ function pollHideKnownGoodStatus(caseId, taskId) {
         switch (data.status) {
             case 'pending':
                 progressTitle.textContent = 'Queued...';
-                progressMessage.textContent = 'Waiting for worker...';
+                progressMessage.textContent = 'Starting 8 parallel workers... Progress updates as each completes.';
                 setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
                 break;
             
@@ -4521,7 +4521,8 @@ function pollHideKnownGoodStatus(caseId, taskId) {
                 
             case 'scanning':
                 progressTitle.textContent = 'Scanning Events...';
-                progressMessage.textContent = `Checking ${(data.total || 0).toLocaleString()} events for known-good patterns`;
+                const workersInfo = data.workers_complete ? ` (${data.workers_complete} workers done)` : '';
+                progressMessage.textContent = `Checking ${(data.total || 0).toLocaleString()} events for known-good patterns${workersInfo}`;
                 progressBar.style.width = (data.percent || 0) + '%';
                 progressPercent.textContent = (data.percent || 0) + '%';
                 progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# AUTO-HIDE KNOWN GOOD EVENTS (v1.43.17)
+# AUTO-HIDE KNOWN GOOD EVENTS (v1.45.0: Uses events_known_good module)
 # ============================================================================
 
 def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
@@ -39,6 +39,9 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
     
     Called during indexing (initial, reindex, bulk) to automatically hide
     known-good events (RMM tools, EDR health checks, etc.)
+    
+    v1.45.0: Now uses events_known_good module for consistent detection logic
+    across indexing and the Hide Known Good Events button.
     
     Args:
         event: Event dictionary (must have search_blob already populated)
@@ -55,7 +58,7 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
     # Load exclusions if not provided (cached for performance)
     if exclusions is None:
         try:
-            from auto_hide import get_cached_exclusions
+            from events_known_good import get_cached_exclusions
             exclusions = get_cached_exclusions()
         except Exception as e:
             logger.debug(f"[AUTO_HIDE] Could not load exclusions: {e}")
@@ -70,10 +73,10 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
     ]):
         return event
     
-    # Check if event should be hidden
+    # Check if event should be hidden using the centralized module
     try:
-        from auto_hide import should_auto_hide_event
-        if should_auto_hide_event(event, search_blob, exclusions):
+        from events_known_good import is_known_good_event
+        if is_known_good_event(event, search_blob, exclusions):
             event['is_hidden'] = True
             event['hidden_reason'] = 'auto_hide_index'
     except Exception as e:
@@ -897,9 +900,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         auto_hidden_count = 0  # Events auto-hidden during indexing (v1.43.17)
         bulk_data = []
         
-        # v1.43.17: Pre-load exclusions for auto-hide (cached for bulk performance)
+        # v1.45.0: Pre-load exclusions for auto-hide using events_known_good module
         try:
-            from auto_hide import get_cached_exclusions, has_exclusions_configured
+            from events_known_good import get_cached_exclusions, has_exclusions_configured
             auto_hide_exclusions = get_cached_exclusions() if has_exclusions_configured() else None
             if auto_hide_exclusions:
                 logger.info("[INDEX FILE] Auto-hide enabled: will hide known-good events during indexing")
