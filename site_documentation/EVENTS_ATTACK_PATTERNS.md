@@ -63,7 +63,7 @@ The Attack Patterns module is a centralized repository of ALL attack indicators 
 
 ### TIER1_PATTERNS - High Confidence Malicious
 
-**File:** `app/events_attack_patterns.py` (lines 32-70)
+**File:** `app/events_attack_patterns.py` (lines 32-89)
 
 **Priority:** HIGH - Tag immediately, almost always malicious
 
@@ -96,7 +96,7 @@ TIER1_PATTERNS = {
 
 ### TIER2_PATTERNS - Strong Indicators
 
-**File:** `app/events_attack_patterns.py` (lines 77-135)
+**File:** `app/events_attack_patterns.py` (lines 97-237)
 
 **Priority:** MEDIUM - Suspicious, warrants investigation
 
@@ -138,7 +138,7 @@ TIER2_PATTERNS = {
 
 ### TIER3_PATTERNS - Context Dependent
 
-**File:** `app/events_attack_patterns.py` (lines 142-195)
+**File:** `app/events_attack_patterns.py` (lines 162-237)
 
 **Priority:** LOW - May be legitimate, tag only with other indicators
 
@@ -177,7 +177,7 @@ TIER3_PATTERNS = {
 
 ## Recon Commands
 
-**File:** `app/events_attack_patterns.py` (lines 202-235)
+**File:** `app/events_attack_patterns.py` (lines 240-278)
 
 Commands used for discovery/enumeration - searched in AI Triage Phase 3:
 
@@ -215,7 +215,7 @@ RECON_COMMANDS = [
 
 ### AV Detection Event IDs
 
-**File:** `app/events_attack_patterns.py` (lines 242-268)
+**File:** `app/events_attack_patterns.py` (lines 280-322)
 
 ```python
 AV_DETECTION_EVENT_IDS = [
@@ -249,7 +249,7 @@ AV_DETECTION_KEYWORDS = [
 
 ### Authentication Event IDs
 
-**File:** `app/events_attack_patterns.py` (lines 275-305)
+**File:** `app/events_attack_patterns.py` (lines 325-355)
 
 ```python
 AUTH_EVENT_IDS = {
@@ -285,7 +285,7 @@ SUCCESS_AUTH_EVENT_IDS = ['4624', '4648', '6272']
 
 ### Logon Types
 
-**File:** `app/events_attack_patterns.py` (lines 312-330)
+**File:** `app/events_attack_patterns.py` (lines 362-377)
 
 ```python
 LOGON_TYPES = {
@@ -310,7 +310,7 @@ SUSPICIOUS_LOGON_TYPES = ['3', '9', '10']
 
 ## Kill Chain Phases
 
-**File:** `app/events_attack_patterns.py` (lines 337-430)
+**File:** `app/events_attack_patterns.py` (lines 384-555)
 
 Full MITRE ATT&CK kill chain with 12 phases:
 
@@ -364,7 +364,7 @@ TACTIC_TO_PHASE = {
 
 ## Question Classification Patterns
 
-**File:** `app/events_attack_patterns.py` (lines 437-455)
+**File:** `app/events_attack_patterns.py` (lines 511-527)
 
 For classifying AI Search questions into attack categories:
 
@@ -389,7 +389,7 @@ QUESTION_PATTERNS = [
 
 ## Detection Thresholds
 
-**File:** `app/events_attack_patterns.py` (lines 462-475)
+**File:** `app/events_attack_patterns.py` (lines 537-555)
 
 Thresholds for pattern detection:
 

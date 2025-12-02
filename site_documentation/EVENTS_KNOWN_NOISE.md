@@ -33,9 +33,10 @@ The Known-Noise Events system identifies and hides events that are routine Windo
 │                         PATTERN LAYER (Hardcoded)                        │
 │  NOISE_PROCESSES: ['auditpol.exe', 'conhost.exe', 'runtimebroker.exe'] │
 │  NOISE_USERS: {'SYSTEM', 'NETWORK SERVICE', 'DWM-1', ...}              │
-│  NOISE_COMMAND_PATTERNS: ['netstat -ano', 'ipconfig /all', ...]        │
 │  NOISE_IOC_VALUES: {'.net runtime', 'microsoft-windows-*', ...}        │
-│  NOT_HOSTNAMES: {'system', 'server', 'unknown', ...}                   │
+│  NOT_HOSTNAMES: {'system', 'server', 'unknown', 'domain', ...}         │
+│  NOISE_COMMAND_PATTERNS: ['netstat -ano', 'ipconfig /all', ...]        │
+│  GENERIC_PARENTS: {'cmd.exe', 'svchost.exe', 'wmiprvse.exe', ...}      │
 │  FIREWALL_NOISE_KEYWORDS: ['deny', 'drop', 'block', 'firewall']        │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -158,6 +159,27 @@ NOISE_IOC_VALUES = {
     
     # Local/loopback
     '127.0.0.1', '::1', 'localhost',
+}
+```
+
+### NOT_HOSTNAMES
+
+**File:** `app/events_known_noise.py` (lines 113-135)
+
+Strings that should NOT be treated as hostnames:
+
+```python
+NOT_HOSTNAMES = {
+    # Common words
+    'the', 'and', 'from', 'with', 'this', 'that', 'was', 'has', 'been', ...
+    
+    # IT/Security terms that aren't hostnames
+    'system', 'server', 'client', 'machine', 'computer', 'endpoint', 'device',
+    'domain', 'local', 'remote', 'internal', 'external', 'unknown', 'none', 'null',
+    'process', 'service', 'application', 'firewall', 'router', 'gateway',
+    'admin', 'administrator', 'root', 'guest', 'default', 'public', 'private',
+    'powershell', 'cmd', 'command', 'script', 'executed', 'execution',
+    'lateral', 'movement', 'persistence', 'credential', 'access', 'privilege',
 }
 ```
 

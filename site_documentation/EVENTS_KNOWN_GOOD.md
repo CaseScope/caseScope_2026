@@ -114,7 +114,7 @@ class SystemToolsSetting(db.Model):
 
 ### Core Algorithm
 
-**File:** `app/events_known_good.py` → `is_known_good_event()`
+**File:** `app/events_known_good.py` → `is_known_good_event()` (line 145)
 
 The detection uses `search_blob` - a flattened text field containing all event data. This allows matching patterns anywhere in the event (process name, parent, grandparent, command line, paths, etc.).
 
