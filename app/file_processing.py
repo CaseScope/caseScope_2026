@@ -86,6 +86,52 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
 
 
 # ============================================================================
+# AUTO-HIDE NOISE EVENTS (v1.46.0: Uses events_known_noise module)
+# ============================================================================
+
+def apply_auto_hide_noise(event: dict) -> dict:
+    """
+    Check if event should be auto-hidden as noise.
+    
+    Called during indexing AFTER apply_auto_hide() to automatically hide
+    noise events (system processes, monitoring commands, firewall logs).
+    
+    v1.46.0: Uses events_known_noise module for consistent detection logic
+    across indexing and the Hide Noise button.
+    
+    Args:
+        event: Event dictionary (must have search_blob already populated)
+    
+    Returns:
+        Event with is_hidden=true if it matches noise patterns
+    """
+    # Skip if already hidden (don't overwrite known-good reason)
+    if event.get('is_hidden'):
+        return event
+    
+    # Check if event is noise using the centralized module
+    try:
+        from events_known_noise import is_noise_event, is_firewall_noise
+        
+        # Check for noise process/command
+        if is_noise_event(event):
+            event['is_hidden'] = True
+            event['hidden_reason'] = 'noise_auto_index'
+            return event
+        
+        # Check for firewall noise
+        if is_firewall_noise(event):
+            event['is_hidden'] = True
+            event['hidden_reason'] = 'firewall_noise_auto_index'
+            return event
+            
+    except Exception as e:
+        logger.debug(f"[AUTO_HIDE_NOISE] Error checking event: {e}")
+    
+    return event
+
+
+# ============================================================================
 # IIS LOG PARSING (v1.14.0: IIS W3C Extended Log Format support)
 # ============================================================================
 
@@ -971,6 +1017,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     # v1.43.17: Auto-hide known good events during indexing
                     event = apply_auto_hide(event, auto_hide_exclusions)
                     
+                    # v1.46.0: Auto-hide noise events during indexing (after known-good)
+                    event = apply_auto_hide_noise(event)
+                    
                     # Add deterministic document ID for deduplication if enabled
                     bulk_doc = {
                         '_index': index_name,
@@ -1038,6 +1087,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 
                 # v1.43.17: Auto-hide known good events during indexing
                 event = apply_auto_hide(event, auto_hide_exclusions)
+                
+                # v1.46.0: Auto-hide noise events during indexing (after known-good)
+                event = apply_auto_hide_noise(event)
                 
                 # Add deterministic document ID for deduplication if enabled
                 bulk_doc = {
@@ -1168,6 +1220,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         
                         # v1.43.17: Auto-hide known good events during indexing
                         event = apply_auto_hide(event, auto_hide_exclusions)
+                        
+                        # v1.46.0: Auto-hide noise events during indexing (after known-good)
+                        event = apply_auto_hide_noise(event)
                         
                         # Add deterministic document ID for deduplication if enabled
                         bulk_doc = {
