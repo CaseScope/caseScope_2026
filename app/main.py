@@ -1078,7 +1078,8 @@ def case_file_status(case_id):
         'stats': {
             'total_events': stats['total_events'],
             'sigma_events': stats['sigma_events'],
-            'ioc_events': stats['ioc_events']
+            'ioc_events': stats['ioc_events'],
+            'hidden_events': stats.get('hidden_events', 0)
         }
     })
 

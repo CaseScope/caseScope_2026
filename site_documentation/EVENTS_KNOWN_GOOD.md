@@ -34,16 +34,19 @@ The Known-Good Events system identifies and hides events that originate from tru
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         MODULE LAYER                                     │
-│  app/events_known_good.py (NEW - standalone module)                     │
-│  app/auto_hide.py (legacy, used during indexing)                        │
-│  app/tasks.py (_should_hide_event_task, should_exclude_event)          │
+│  app/events_known_good.py (Primary - standalone module)                 │
+│  ├── is_known_good_event() - core detection                            │
+│  ├── process_slice() - parallel worker processing                      │
+│  └── bulk_hide_events() - OpenSearch bulk updates                      │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         EXECUTION LAYER                                  │
 │  1. During Indexing: file_processing.apply_auto_hide()                  │
-│  2. Bulk Hide Task: tasks.hide_known_good_events_task()                 │
+│     → Uses events_known_good.is_known_good_event()                      │
+│  2. Bulk Hide (Parallel): tasks.hide_known_good_events_task()           │
+│     → Dispatches 8x hide_known_good_slice_task() workers                │
 │  3. AI Triage: tasks.should_exclude_event()                             │
 │  4. Manual Hide: main.hide_event() / unhide_event()                     │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -119,7 +122,7 @@ The detection uses `search_blob` - a flattened text field containing all event d
 def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Dict) -> bool:
     blob = (search_blob or '').lower()
     
-    # CHECK 1: RMM Tools
+    # CHECK 1: RMM Tools - Executable patterns
     for rmm_pattern in exclusions.get('rmm_executables', []):
         if '*' in rmm_pattern:
             # Wildcard: "labtech*.exe" → need prefix + .exe in blob
@@ -130,6 +133,35 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Dict) ->
             # Exact: "ltsvc.exe" must be in blob
             if rmm_pattern in blob:
                 return True
+    
+    # CHECK 1b: RMM Path Indicators (v1.44.2)
+    RMM_PATH_INDICATORS = [
+        '\\ltsvc\\',       # LabTech/ConnectWise Automate path
+        '\\labtech\\',     # Alternative LabTech path
+        '\\datto\\',       # Datto RMM
+        '\\aemag\\',       # Datto AEM Agent
+        '\\kaseya\\',      # Kaseya
+        '\\ninjarmmag\\',  # NinjaRMM
+        '\\syncro\\',      # Syncro
+        '\\atera\\',       # Atera
+        '\\n-central\\',   # N-able
+    ]
+    for path_indicator in RMM_PATH_INDICATORS:
+        if path_indicator in blob:
+            return True
+    
+    # CHECK 1c: RMM Service Names (v1.44.2)
+    RMM_SERVICE_NAMES = [
+        'ltservice',       # LabTech service
+        'ltsvcmon',        # LabTech service monitor  
+        'lttray',          # LabTech tray
+        'labvnc',          # LabTech VNC
+        'dattoservice',    # Datto
+        'kaseyaservice',   # Kaseya
+    ]
+    for svc_name in RMM_SERVICE_NAMES:
+        if f'{svc_name} running' in blob or f'{svc_name} stopped' in blob:
+            return True
     
     # CHECK 2: Remote Tools (requires BOTH pattern AND session ID)
     for tool_config in exclusions.get('remote_tools', []):
@@ -144,7 +176,7 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Dict) ->
         # Check if EDR executable in blob (with .exe context)
         for exe in edr_config.get('executables', []):
             if exe in blob or (exe.split('*')[0] in blob and '.exe' in blob):
-                # Check for response action → DON'T hide
+                # Check for response action → DON'T hide (attacker activity!)
                 if any(p in blob for p in edr_config.get('response_patterns', [])):
                     continue
                 # Check for routine command → HIDE
@@ -218,46 +250,38 @@ exclusions = {
 
 ## Files and Functions
 
-### 1. `app/events_known_good.py` (NEW - Standalone Module)
+### 1. `app/events_known_good.py` (Primary Module)
 
-Primary module for known-good detection. Can be called independently.
+Standalone module for known-good detection. Used by all integration points.
 
 | Function | Purpose |
 |----------|---------|
-| `load_exclusions()` | Load patterns from `SystemToolsSetting` |
+| `load_exclusions()` | Load patterns from `SystemToolsSetting` table |
 | `get_cached_exclusions(max_age=60)` | Cached loading for bulk operations |
 | `clear_cache()` | Clear cache after settings change |
 | `has_exclusions_configured()` | Check if any exclusions exist |
 | `is_known_good_event(event, blob, exclusions)` | **Core detection logic** |
-| `hide_known_good_events(case_id, callback)` | Bulk hide all known-good in case |
+| `process_slice(case_id, slice_id, max_slices, exclusions, client)` | Process 1/N slice for parallel workers |
+| `bulk_hide_events(events_list, client, index)` | Bulk update to set is_hidden=True |
+| `hide_known_good_events(case_id, callback)` | Legacy single-threaded bulk hide |
 | `unhide_all_events(case_id)` | Reset all hidden events |
 | `hide_event(case_id, event_id)` | Hide single event |
 | `unhide_event(case_id, event_id)` | Unhide single event |
 | `get_hidden_count(case_id)` | Count hidden events |
 | `get_visible_count(case_id)` | Count visible events |
 
-### 2. `app/auto_hide.py` (Legacy - Used During Indexing)
+### 2. `app/file_processing.py`
 
-Used by `file_processing.py` during event indexing.
-
-| Function | Purpose |
-|----------|---------|
-| `load_exclusions_for_auto_hide()` | Same as `load_exclusions()` |
-| `should_auto_hide_event(event, blob, exclusions)` | Same as `is_known_good_event()` |
-| `get_cached_exclusions()` | Cached loading |
-| `has_exclusions_configured()` | Check if enabled |
-
-### 3. `app/file_processing.py`
-
-Applies auto-hide during file indexing.
+Applies auto-hide during file indexing using `events_known_good` module.
 
 | Function | Purpose |
 |----------|---------|
-| `apply_auto_hide(event, exclusions)` | Wrapper that calls `should_auto_hide_event()` |
+| `apply_auto_hide(event, exclusions)` | Calls `is_known_good_event()` and sets `is_hidden=True` |
 
-**Usage in indexing loop:**
+**Usage in indexing loop (v1.45.0):**
 ```python
-# Lines ~899-970
+from events_known_good import get_cached_exclusions, has_exclusions_configured, is_known_good_event
+
 auto_hide_exclusions = get_cached_exclusions() if has_exclusions_configured() else None
 
 for event in events:
@@ -266,17 +290,35 @@ for event in events:
     bulk_actions.append({'_index': index_name, '_source': event})
 ```
 
-### 4. `app/tasks.py`
+### 3. `app/tasks.py`
 
-Contains Celery task and AI Triage filtering.
+Contains Celery tasks for parallel bulk hide operation.
 
-| Function | Purpose |
-|----------|---------|
-| `hide_known_good_events_task(case_id, user_id)` | Celery task for bulk hide |
-| `_should_hide_event_task(hit, exclusions)` | Detection for bulk task |
-| `should_exclude_event(event, exclusions)` | Detection for AI Triage |
+| Function/Task | Purpose |
+|---------------|---------|
+| `hide_known_good_events_task(case_id, user_id)` | **Coordinator task** - dispatches 8 parallel workers |
+| `hide_known_good_slice_task(case_id, slice_id, max_slices, user_id)` | **Worker task** - processes 1/8 of events |
+| `should_exclude_event(event, exclusions)` | Detection for AI Triage filtering |
 
-### 5. `app/main.py`
+**Parallel Processing (v1.45.0):**
+```python
+HIDE_PARALLEL_SLICES = 8  # Use all 8 Celery workers
+
+# Coordinator dispatches 8 parallel slice tasks
+slice_tasks = group([
+    hide_known_good_slice_task.s(case_id, i, HIDE_PARALLEL_SLICES, user_id)
+    for i in range(HIDE_PARALLEL_SLICES)
+])
+group_result = slice_tasks.apply_async()
+
+# Each slice uses OpenSearch sliced scroll
+query = {
+    "slice": {"id": slice_id, "max": max_slices},
+    "query": {"bool": {"must_not": [{"term": {"is_hidden": True}}]}}
+}
+```
+
+### 4. `app/main.py`
 
 Manual hide/unhide routes.
 
@@ -284,12 +326,12 @@ Manual hide/unhide routes.
 |-------|--------|---------|
 | `/case/<id>/search/hide` | POST | Hide single event |
 | `/case/<id>/search/unhide` | POST | Unhide single event |
-| `/case/<id>/search/bulk-hide` | POST | Bulk hide events |
-| `/case/<id>/search/bulk-unhide` | POST | Bulk unhide events |
+| `/case/<id>/search/bulk-hide` | POST | Bulk hide selected events |
+| `/case/<id>/search/bulk-unhide` | POST | Bulk unhide selected events |
 
-### 6. `app/routes/system_tools.py`
+### 5. `app/routes/system_tools.py`
 
-Admin UI for configuring exclusions.
+Admin UI for configuring exclusions and triggering bulk hide.
 
 | Route | Method | Purpose |
 |-------|--------|---------|
@@ -297,9 +339,11 @@ Admin UI for configuring exclusions.
 | `/settings/system-tools/rmm/add` | POST | Add RMM tool |
 | `/settings/system-tools/remote/add` | POST | Add remote tool |
 | `/settings/system-tools/edr/add` | POST | Add EDR tool |
-| `/settings/system-tools/ip/add` | POST | Add known-good IP |
-| `/case/<id>/hide-known-good` | POST | Start bulk hide task |
-| `/case/<id>/hide-known-good/status/<task_id>` | GET | Poll task progress |
+| `/settings/system-tools/ip/save` | POST | Add known-good IP |
+| `/settings/system-tools/api/exclusions` | GET | Get exclusions summary for modal |
+| `/settings/system-tools/api/has-exclusions` | GET | Check if exclusions configured |
+| `/settings/system-tools/case/<id>/hide-known-good` | POST | Start parallel bulk hide task |
+| `/settings/system-tools/case/<id>/hide-known-good/status/<task_id>` | GET | Poll task progress |
 
 ---
 
@@ -313,10 +357,18 @@ Events are marked hidden by adding this field:
     "process": { ... },
     "host": { ... },
     "is_hidden": true,
-    "hidden_reason": "auto_hide_index"  // or "manual", "bulk_task"
+    "hidden_reason": "auto_hide_index"
   }
 }
 ```
+
+### Hidden Reason Values
+
+| Value | When Set |
+|-------|----------|
+| `auto_hide_index` | During file indexing |
+| `bulk_task` | Via "Hide Known Good" button |
+| `manual` | Via single event hide action |
 
 ### Query Patterns
 
@@ -325,15 +377,9 @@ Events are marked hidden by adding this field:
 {
   "query": {
     "bool": {
-      "filter": [{
-        "bool": {
-          "should": [
-            {"bool": {"must_not": [{"exists": {"field": "is_hidden"}}]}},
-            {"term": {"is_hidden": false}}
-          ],
-          "minimum_should_match": 1
-        }
-      }]
+      "must_not": [
+        {"term": {"is_hidden": true}}
+      ]
     }
   }
 }
@@ -371,24 +417,28 @@ opensearch_client.count(
 **File:** `app/file_processing.py`
 
 ```python
-from auto_hide import get_cached_exclusions, should_auto_hide_event
+from events_known_good import get_cached_exclusions, has_exclusions_configured, is_known_good_event
 
-exclusions = get_cached_exclusions()
+exclusions = get_cached_exclusions() if has_exclusions_configured() else None
+
 for event in events:
     event = normalize_event(event)
-    if should_auto_hide_event(event, event.get('search_blob', ''), exclusions):
-        event['is_hidden'] = True
+    event = apply_auto_hide(event, exclusions)  # Uses is_known_good_event()
+    bulk_actions.append({'_index': index_name, '_source': event})
 ```
 
-### 2. Bulk Hide Task (Manual Trigger)
+### 2. Bulk Hide Task (Manual Trigger - Parallel)
 
 **When:** User clicks "Hide Known Good Events" button
 
 **Flow:**
-1. `POST /case/{id}/hide-known-good` → `routes/system_tools.py`
-2. Starts Celery task `tasks.hide_known_good_events_task`
-3. Task scrolls all events, checks `_should_hide_event_task()`
-4. Bulk updates matching events with `is_hidden: true`
+1. `POST /settings/system-tools/case/{id}/hide-known-good` → `routes/system_tools.py`
+2. Starts Celery task `tasks.hide_known_good_events_task` (coordinator)
+3. Coordinator dispatches 8 parallel `hide_known_good_slice_task` workers
+4. Each worker uses OpenSearch sliced scroll to process 1/8 of events
+5. Workers call `is_known_good_event()` from `events_known_good.py`
+6. Results aggregated and bulk updates applied
+7. Progress updates sent as each worker completes
 
 ### 3. AI Triage Filtering
 
@@ -410,11 +460,11 @@ def should_exclude_event(event, exclusions):
 
 ```python
 if hidden_filter == "hide":
-    # Exclude hidden events
+    # Exclude hidden events (default)
 elif hidden_filter == "only":
     # Show ONLY hidden events
 else:
-    # Show all events
+    # Show all events (both hidden and visible)
 ```
 
 ---
@@ -433,16 +483,16 @@ if is_known_good_event(event, event['search_blob'], exclusions):
     print("Event is known-good")
 ```
 
-### Bulk Hide All Known-Good
+### Bulk Hide All Known-Good (Parallel)
+
+The parallel bulk hide is triggered via the UI button, which calls:
 
 ```python
-from events_known_good import hide_known_good_events
+# In routes/system_tools.py
+from tasks import hide_known_good_events_task
 
-def progress(status, processed, total, found):
-    print(f"{status}: {processed}/{total}, found {found}")
-
-result = hide_known_good_events(case_id=25, progress_callback=progress)
-# {'success': True, 'total_scanned': 150000, 'total_hidden': 3500, 'errors': []}
+task = hide_known_good_events_task.delay(case_id=25, user_id=1)
+# Returns task_id for progress polling
 ```
 
 ### Get Statistics
@@ -477,11 +527,20 @@ Displays configuration forms for:
 - EDR tools (executables + routine commands + response patterns)
 - Known-good IPs (IP/CIDR input)
 
+### Search Events Page
+
+**File:** `app/templates/search_events.html`
+
+- "Hide Known Good" button triggers modal
+- Modal shows configured exclusions summary
+- Progress display with worker completion tracking
+- Results show events hidden count
+
 ### Case Files Dashboard
 
 **File:** `app/templates/case_files.html`
 
-Displays "Hidden Events" counter in statistics panel.
+Displays "Hidden Events" counter in statistics panel (auto-updates).
 
 ---
 
@@ -526,6 +585,8 @@ EDR_TOOLS = {
 | v1.43.16 | Added `.exe` context requirement for wildcards |
 | v1.43.17 | Auto-hide during indexing |
 | v1.44.0 | New standalone module `events_known_good.py` |
+| v1.44.2 | Added RMM path indicators and service name matching |
+| v1.45.0 | Parallel processing with 8 Celery workers (~8x faster) |
 
 ---
 
@@ -540,17 +601,19 @@ To rebuild this system:
 2. **Core Detection Module** (`events_known_good.py`)
    - Implement `load_exclusions()` to query database
    - Implement `is_known_good_event()` with 4-check logic
+   - Add `RMM_PATH_INDICATORS` and `RMM_SERVICE_NAMES` for robust RMM detection
    - Add caching for bulk performance
+   - Implement `process_slice()` for parallel workers
 
 3. **Integration Points**
-   - Add `apply_auto_hide()` call in file indexing loop
-   - Add Celery task for bulk hide operation
+   - Add `apply_auto_hide()` call in file indexing loop (uses `events_known_good`)
+   - Add Celery tasks: coordinator + 8 slice workers
    - Add `should_exclude_event()` for AI Triage filtering
 
 4. **Routes**
-   - Admin UI for configuring exclusions
-   - API endpoints for hide/unhide operations
-   - Status polling for bulk task
+   - Admin UI at `/settings/system-tools/`
+   - API endpoints for exclusions summary
+   - Task trigger and status polling endpoints
 
 5. **Search Filtering**
    - Add `is_hidden` filter to search query builder
@@ -559,4 +622,3 @@ To rebuild this system:
 6. **OpenSearch**
    - No schema changes needed (dynamic field)
    - Add `is_hidden: true` to events via update
-

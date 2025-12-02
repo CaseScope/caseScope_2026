@@ -149,6 +149,12 @@
                     <span>Search</span>
                 </button>
                 
+                <!-- Save Current Search (next to Search) -->
+                <button type="button" onclick="showSaveSearchModal()" class="btn btn-success" title="Save current search">
+                    <span>💾</span>
+                    <span>Save</span>
+                </button>
+                
                 <!-- AI Question Button -->
                 <button type="button" onclick="showAIQuestionModal()" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="Ask AI a question about case events">
                     <span>🤖</span>
@@ -167,10 +173,10 @@
                     <span>Hide Known Good</span>
                 </button>
                 
-                <!-- Save Current Search -->
-                <button type="button" onclick="showSaveSearchModal()" class="btn btn-success" title="Save current search">
-                    <span>💾</span>
-                    <span>Save</span>
+                <!-- Hide Noise Button -->
+                <button type="button" onclick="showHideNoiseModal()" class="btn" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); color: white;" title="Hide noise events (system telemetry, routine processes)">
+                    <span>🔇</span>
+                    <span>Hide Noise</span>
                 </button>
                 
                 <!-- Manage Saved Searches -->
@@ -723,6 +729,92 @@
             <button type="button" onclick="closeHideKnownGoodModal()" class="btn btn-secondary" id="hideKGCloseBtn">Cancel</button>
             <button type="button" onclick="startHideKnownGood()" id="hideKGStartBtn" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
                 🛡️ Start Hiding
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Hide Noise Modal -->
+<div id="hideNoiseModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);">
+            <h2 class="modal-title" style="color: white;">🔇 Hide Noise Events</h2>
+            <button type="button" class="modal-close" onclick="closeHideNoiseModal()" style="color: white;">✕</button>
+        </div>
+        <div class="modal-body">
+            
+            <!-- Confirm Phase -->
+            <div id="hideNoiseConfirmPhase">
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-warning);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-warning);">What This Does</h4>
+                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                        This will scan all events and hide common noise patterns that obscure actual incidents:
+                    </p>
+                    <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
+                        <li><strong>System Processes:</strong> WmiPrvSE, svchost, SearchIndexer, etc.</li>
+                        <li><strong>Machine Accounts:</strong> SYSTEM, LOCAL SERVICE, NETWORK SERVICE</li>
+                        <li><strong>Routine Commands:</strong> Windows telemetry, scheduled tasks</li>
+                        <li><strong>Firewall Logs:</strong> Repetitive allow/block entries</li>
+                    </ul>
+                </div>
+                
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">📊 Noise Categories</h4>
+                    <div id="hideNoiseCategoriesSummary" style="color: var(--color-text-muted); font-size: 0.9rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm);">
+                            <div>✓ Noise Processes (50+ patterns)</div>
+                            <div>✓ Machine Accounts</div>
+                            <div>✓ Routine Commands</div>
+                            <div>✓ Firewall Noise</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(255, 193, 7, 0.1); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 4px solid var(--color-warning);">
+                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                        ⚠️ <strong>Note:</strong> Noise hiding uses built-in patterns that don't require configuration.
+                        Hidden events can be viewed by changing the "Hidden Events" filter.
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Progress Phase -->
+            <div id="hideNoiseProgressPhase" style="display: none;">
+                <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                    <div class="spinner" style="margin: 0 auto var(--spacing-md) auto;"></div>
+                    <h4 id="hideNoiseProgressTitle" style="margin-bottom: var(--spacing-sm);">Scanning Events...</h4>
+                    <p id="hideNoiseProgressMessage" style="color: var(--color-text-muted); margin: 0;">
+                        Initializing...
+                    </p>
+                </div>
+                
+                <div style="background: var(--color-background-secondary); border-radius: var(--border-radius); padding: var(--spacing-md);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
+                        <span id="hideNoiseProgressLabel">Progress</span>
+                        <span id="hideNoiseProgressPercent">0%</span>
+                    </div>
+                    <div style="background: var(--color-background-tertiary); border-radius: 4px; height: 20px; overflow: hidden;">
+                        <div id="hideNoiseProgressBar" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.85rem;">
+                        <span id="hideNoiseProgressProcessed">0 events processed</span>
+                        <span id="hideNoiseProgressFound">0 matches found</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results Phase -->
+            <div id="hideNoiseResultsPhase" style="display: none;">
+                <div id="hideNoiseResultsContent" style="text-align: center;">
+                    <!-- Filled by JavaScript -->
+                </div>
+            </div>
+            
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeHideNoiseModal()" class="btn btn-secondary" id="hideNoiseCloseBtn">Cancel</button>
+            <button type="button" onclick="startHideNoise()" id="hideNoiseStartBtn" class="btn" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); color: white;">
+                🔇 Start Hiding
             </button>
         </div>
     </div>
@@ -4622,6 +4714,115 @@ function showHideKnownGoodError(message) {
     const progressPhase = document.getElementById('hideKGProgressPhase');
     const resultsPhase = document.getElementById('hideKGResultsPhase');
     const resultsContent = document.getElementById('hideKGResultsContent');
+    
+    progressPhase.style.display = 'none';
+    resultsPhase.style.display = 'block';
+    
+    resultsContent.innerHTML = `
+        <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">❌</div>
+        <h4 style="margin-bottom: var(--spacing-md); color: var(--color-error);">Error</h4>
+        <p style="color: var(--color-text-muted);">${message}</p>
+    `;
+}
+
+// ============================================================================
+// HIDE NOISE EVENTS FUNCTIONS (v1.44.0)
+// ============================================================================
+
+function showHideNoiseModal() {
+    const modal = document.getElementById('hideNoiseModal');
+    
+    // Reset to confirm phase
+    document.getElementById('hideNoiseConfirmPhase').style.display = 'block';
+    document.getElementById('hideNoiseProgressPhase').style.display = 'none';
+    document.getElementById('hideNoiseResultsPhase').style.display = 'none';
+    document.getElementById('hideNoiseStartBtn').style.display = 'inline-flex';
+    document.getElementById('hideNoiseCloseBtn').textContent = 'Cancel';
+    
+    modal.style.display = 'flex';
+}
+
+function closeHideNoiseModal() {
+    document.getElementById('hideNoiseModal').style.display = 'none';
+}
+
+function startHideNoise() {
+    const caseId = {{ case.id }};
+    const confirmPhase = document.getElementById('hideNoiseConfirmPhase');
+    const progressPhase = document.getElementById('hideNoiseProgressPhase');
+    const startBtn = document.getElementById('hideNoiseStartBtn');
+    const closeBtn = document.getElementById('hideNoiseCloseBtn');
+    
+    // Switch to progress phase
+    confirmPhase.style.display = 'none';
+    progressPhase.style.display = 'block';
+    startBtn.style.display = 'none';
+    closeBtn.textContent = 'Close';
+    
+    // TODO: Implement backend route for hide noise
+    // For now, show a "Coming Soon" message
+    showHideNoiseResults({
+        status: 'not_implemented',
+        message: 'Hide Noise functionality is coming soon. The detection patterns are ready in events_known_noise.py.'
+    });
+}
+
+function showHideNoiseResults(data) {
+    const progressPhase = document.getElementById('hideNoiseProgressPhase');
+    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
+    const resultsContent = document.getElementById('hideNoiseResultsContent');
+    
+    progressPhase.style.display = 'none';
+    resultsPhase.style.display = 'block';
+    
+    let html = '';
+    
+    if (data.status === 'not_implemented') {
+        html = `
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">🚧</div>
+            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-warning);">Coming Soon</h4>
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                ${data.message}
+            </p>
+            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
+                    💡 <strong>Status:</strong> Pattern detection logic is complete. Backend integration pending.
+                </p>
+            </div>
+        `;
+    } else if (data.hidden > 0) {
+        html = `
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">✅</div>
+            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-success);">Successfully Hidden</h4>
+            <p style="font-size: 1.5rem; font-weight: bold; margin-bottom: var(--spacing-sm);">
+                ${data.hidden.toLocaleString()} noise events
+            </p>
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                Scanned ${data.processed.toLocaleString()} events
+            </p>
+            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
+                    💡 <strong>Tip:</strong> To view hidden events, change the "Hidden Events" filter to "Show" or "Only Hidden".
+                </p>
+            </div>
+        `;
+    } else {
+        html = `
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">ℹ️</div>
+            <h4 style="margin-bottom: var(--spacing-md);">No Noise Events Found</h4>
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                Scanned ${(data.processed || 0).toLocaleString()} events but none matched noise patterns.
+            </p>
+        `;
+    }
+    
+    resultsContent.innerHTML = html;
+}
+
+function showHideNoiseError(message) {
+    const progressPhase = document.getElementById('hideNoiseProgressPhase');
+    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
+    const resultsContent = document.getElementById('hideNoiseResultsContent');
     
     progressPhase.style.display = 'none';
     resultsPhase.style.display = 'block';

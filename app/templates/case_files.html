@@ -908,6 +908,7 @@ function updateStatuses() {
                 const totalEventsEl = document.getElementById('stat-total-events');
                 const sigmaEventsEl = document.getElementById('stat-sigma-events');
                 const iocEventsEl = document.getElementById('stat-ioc-events');
+                const hiddenEventsEl = document.getElementById('stat-hidden-events');
                 
                 if (totalEventsEl) {
                     totalEventsEl.textContent = data.stats.total_events.toLocaleString();
@@ -917,6 +918,9 @@ function updateStatuses() {
                 }
                 if (iocEventsEl) {
                     iocEventsEl.textContent = data.stats.ioc_events.toLocaleString();
+                }
+                if (hiddenEventsEl && data.stats.hidden_events !== undefined) {
+                    hiddenEventsEl.textContent = data.stats.hidden_events.toLocaleString();
                 }
             }
             
