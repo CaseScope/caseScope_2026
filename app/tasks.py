@@ -2411,143 +2411,60 @@ def cleanup_old_audit_logs():
 # HIDE KNOWN GOOD EVENTS (v1.44.0 - Uses events_known_good module)
 # ============================================================================
 
-@celery_app.task(bind=True, name='tasks.hide_known_good_events')
-def hide_known_good_events_task(self, case_id, user_id):
+# =============================================================================
+# PARALLEL HIDE KNOWN GOOD - Uses 8 workers with sliced scroll
+# =============================================================================
+
+# Number of parallel slices (matches worker concurrency)
+HIDE_PARALLEL_SLICES = 8
+
+
+@celery_app.task(bind=True, name='tasks.hide_known_good_slice')
+def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: int, user_id: int):
     """
-    Background task to hide events matching known-good exclusion patterns.
+    Worker task: Process one slice of events for hide known good operation.
     
-    v1.44.0: Refactored to use events_known_good module for detection logic.
-    This task handles Celery progress updates while delegating detection to the module.
+    Uses OpenSearch sliced scroll to process 1/max_slices of total events.
+    This task runs in parallel with other slice tasks.
     
     Args:
-        case_id: ID of the case to process
-        user_id: ID of the user who initiated the task
+        case_id: Case ID to process
+        slice_id: This worker's slice (0 to max_slices-1)
+        max_slices: Total number of slices
+        user_id: User who initiated the operation
     
     Returns:
-        Dict with status, hidden count, and processed count
+        Dict with scanned, found, and hidden counts for this slice
     """
-    from main import app, db, opensearch_client
-    from models import Case
+    from main import app, opensearch_client
     from datetime import datetime
-    from events_known_good import (
-        load_exclusions, 
-        has_exclusions_configured,
-        is_known_good_event
-    )
+    from events_known_good import load_exclusions, process_slice
     
     with app.app_context():
         try:
-            case = db.session.get(Case, case_id)
-            if not case:
-                return {'status': 'error', 'message': 'Case not found'}
+            index_name = f"case_{case_id}"
             
-            # Load exclusions from the new module
+            # Load exclusions
             exclusions = load_exclusions()
             
-            if not has_exclusions_configured():
-                return {'status': 'error', 'message': 'No exclusions defined'}
+            logger.info(f"[HIDE KNOWN GOOD] Slice {slice_id}/{max_slices}: Starting for case {case_id}")
             
-            index_name = f"case_{case_id}"
-            hidden_count = 0
-            processed_count = 0
-            
-            # Count total events
-            count_response = opensearch_client.count(index=index_name)
-            total_events = count_response.get('count', 0)
-            
-            self.update_state(state='PROGRESS', meta={
-                'status': 'starting',
-                'total': total_events,
-                'processed': 0,
-                'found': 0,
-                'percent': 0
-            })
-            
-            if total_events == 0:
-                return {'status': 'success', 'hidden': 0, 'processed': 0, 'message': 'No events in case'}
-            
-            # Use scroll API
-            scroll_size = 1000
-            scroll_time = '10m'
-            
-            query = {
-                "query": {
-                    "bool": {
-                        "must_not": [
-                            {"term": {"is_hidden": True}}
-                        ]
-                    }
-                },
-                "_source": ["process", "parent", "host", "source", "search_blob"]
-            }
-            
-            response = opensearch_client.search(
-                index=index_name,
-                body=query,
-                scroll=scroll_time,
-                size=scroll_size
+            # Process this slice
+            scanned, events_to_hide = process_slice(
+                case_id=case_id,
+                slice_id=slice_id,
+                max_slices=max_slices,
+                exclusions=exclusions,
+                opensearch_client=opensearch_client
             )
             
-            scroll_id = response.get('_scroll_id')
-            hits = response['hits']['hits']
-            total_to_scan = response['hits']['total']['value']
-            
-            events_to_hide = []
-            
-            while hits:
-                for hit in hits:
-                    processed_count += 1
-                    src = hit.get('_source', {})
-                    search_blob = src.get('search_blob', '')
-                    
-                    # Use the new module's detection function
-                    if is_known_good_event(src, search_blob, exclusions):
-                        events_to_hide.append({
-                            '_id': hit['_id'],
-                            '_index': hit['_index']
-                        })
-                
-                # Update progress every batch
-                pct = int((processed_count / total_to_scan) * 100) if total_to_scan > 0 else 0
-                self.update_state(state='PROGRESS', meta={
-                    'status': 'scanning',
-                    'total': total_to_scan,
-                    'processed': processed_count,
-                    'found': len(events_to_hide),
-                    'percent': pct
-                })
-                
-                # Get next batch
-                response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
-                scroll_id = response.get('_scroll_id')
-                hits = response['hits']['hits']
-            
-            # Clear scroll
-            try:
-                opensearch_client.clear_scroll(scroll_id=scroll_id)
-            except:
-                pass
-            
-            # Bulk update to hide events with progress tracking
+            # Bulk hide the events found in this slice
+            hidden_count = 0
             if events_to_hide:
-                total_to_hide = len(events_to_hide)
                 batch_size = 500
-                failed_count = 0
                 
-                for i in range(0, total_to_hide, batch_size):
-                    batch = events_to_hide[i:i+batch_size]
-                    
-                    # Update progress during hiding
-                    hide_percent = int((i / total_to_hide) * 100) if total_to_hide > 0 else 0
-                    self.update_state(state='PROGRESS', meta={
-                        'status': 'hiding',
-                        'total': total_to_scan,
-                        'processed': processed_count,
-                        'found': total_to_hide,
-                        'hidden': hidden_count,
-                        'percent': hide_percent,
-                        'hide_progress': f'{hidden_count:,} / {total_to_hide:,}'
-                    })
+                for i in range(0, len(events_to_hide), batch_size):
+                    batch = events_to_hide[i:i + batch_size]
                     
                     bulk_body = []
                     for evt in batch:
@@ -2566,49 +2483,186 @@ def hide_known_good_events_task(self, case_id, user_id):
                     
                     try:
                         result = opensearch_client.bulk(body=bulk_body, refresh=False)
-                        if result.get('errors', False):
-                            for item in result.get('items', []):
-                                update_result = item.get('update', {})
-                                if update_result.get('status') in [200, 201]:
-                                    hidden_count += 1
-                                else:
-                                    failed_count += 1
-                                    logger.warning(f"[HIDE KNOWN GOOD] Failed to hide event: {update_result.get('_id')}")
-                        else:
+                        if not result.get('errors', False):
                             hidden_count += len(batch)
+                        else:
+                            for item in result.get('items', []):
+                                if item.get('update', {}).get('status') in [200, 201]:
+                                    hidden_count += 1
                     except Exception as e:
-                        logger.error(f"[HIDE KNOWN GOOD] Bulk update error: {e}")
-                        failed_count += len(batch)
+                        logger.error(f"[HIDE KNOWN GOOD] Slice {slice_id}: Bulk error - {e}")
+            
+            logger.info(f"[HIDE KNOWN GOOD] Slice {slice_id}/{max_slices}: Complete - scanned={scanned:,}, found={len(events_to_hide):,}, hidden={hidden_count:,}")
+            
+            return {
+                'slice_id': slice_id,
+                'scanned': scanned,
+                'found': len(events_to_hide),
+                'hidden': hidden_count
+            }
+            
+        except Exception as e:
+            logger.error(f"[HIDE KNOWN GOOD] Slice {slice_id}: Error - {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'slice_id': slice_id,
+                'scanned': 0,
+                'found': 0,
+                'hidden': 0,
+                'error': str(e)
+            }
+
+
+@celery_app.task(bind=True, name='tasks.hide_known_good_events')
+def hide_known_good_events_task(self, case_id, user_id):
+    """
+    Coordinator task: Dispatches 8 parallel slice workers and aggregates results.
+    
+    v1.45.0: Refactored for parallel processing using sliced scroll.
+    Uses all 8 Celery workers to process events ~8x faster.
+    
+    Args:
+        case_id: ID of the case to process
+        user_id: ID of the user who initiated the task
+    
+    Returns:
+        Dict with status, hidden count, and processed count
+    """
+    from main import app, db, opensearch_client
+    from models import Case
+    from celery import group
+    from events_known_good import load_exclusions, has_exclusions_configured
+    
+    with app.app_context():
+        try:
+            case = db.session.get(Case, case_id)
+            if not case:
+                return {'status': 'error', 'message': 'Case not found'}
+            
+            # Validate exclusions are configured
+            exclusions = load_exclusions()
+            logger.info(f"[HIDE KNOWN GOOD] Loaded exclusions: RMM={len(exclusions.get('rmm_executables', []))}, "
+                       f"Remote={len(exclusions.get('remote_tools', []))}, "
+                       f"EDR={len(exclusions.get('edr_tools', []))}, "
+                       f"IPs={len(exclusions.get('known_good_ips', []))}")
+            
+            if not has_exclusions_configured():
+                return {'status': 'error', 'message': 'No exclusions defined'}
+            
+            index_name = f"case_{case_id}"
+            
+            # Count total non-hidden events
+            try:
+                count_response = opensearch_client.count(
+                    index=index_name,
+                    body={
+                        "query": {
+                            "bool": {
+                                "must_not": [{"term": {"is_hidden": True}}]
+                            }
+                        }
+                    }
+                )
+                total_events = count_response.get('count', 0)
+            except Exception as e:
+                return {'status': 'error', 'message': f'Failed to count events: {e}'}
+            
+            if total_events == 0:
+                return {'status': 'success', 'hidden': 0, 'processed': 0, 'message': 'No visible events to scan'}
+            
+            logger.info(f"[HIDE KNOWN GOOD] Case {case_id}: Starting parallel scan of {total_events:,} events using {HIDE_PARALLEL_SLICES} workers")
+            
+            # Initial progress update
+            self.update_state(state='PROGRESS', meta={
+                'status': 'dispatching',
+                'total': total_events,
+                'processed': 0,
+                'found': 0,
+                'percent': 0,
+                'workers': HIDE_PARALLEL_SLICES
+            })
+            
+            # Dispatch parallel slice tasks
+            slice_tasks = group([
+                hide_known_good_slice_task.s(case_id, i, HIDE_PARALLEL_SLICES, user_id)
+                for i in range(HIDE_PARALLEL_SLICES)
+            ])
+            
+            # Execute all slices in parallel and wait for results
+            group_result = slice_tasks.apply_async()
+            
+            # Poll for completion with progress updates
+            completed_slices = 0
+            total_scanned = 0
+            total_found = 0
+            total_hidden = 0
+            
+            import time
+            while not group_result.ready():
+                # Count completed tasks
+                completed = sum(1 for r in group_result.results if r.ready())
+                if completed > completed_slices:
+                    completed_slices = completed
+                    # Estimate progress
+                    est_scanned = int((completed_slices / HIDE_PARALLEL_SLICES) * total_events)
+                    pct = int((completed_slices / HIDE_PARALLEL_SLICES) * 100)
+                    
+                    self.update_state(state='PROGRESS', meta={
+                        'status': 'scanning',
+                        'total': total_events,
+                        'processed': est_scanned,
+                        'found': total_found,
+                        'percent': pct,
+                        'workers_complete': f'{completed_slices}/{HIDE_PARALLEL_SLICES}'
+                    })
                 
-                # Final progress update at 100%
-                self.update_state(state='PROGRESS', meta={
-                    'status': 'hiding',
-                    'total': total_to_scan,
-                    'processed': processed_count,
-                    'found': total_to_hide,
-                    'hidden': hidden_count,
-                    'percent': 100,
-                    'hide_progress': f'{hidden_count:,} / {total_to_hide:,}'
-                })
+                time.sleep(0.5)
+            
+            # Aggregate results from all slices
+            # Use allow_join_result to permit .get() inside task (we're coordinating subtasks)
+            from celery.result import allow_join_result
+            try:
+                with allow_join_result():
+                    results = group_result.get(timeout=300)  # 5 min timeout
                 
-                # Refresh index
+                for r in results:
+                    if isinstance(r, dict):
+                        total_scanned += r.get('scanned', 0)
+                        total_found += r.get('found', 0)
+                        total_hidden += r.get('hidden', 0)
+                        if r.get('error'):
+                            logger.warning(f"[HIDE KNOWN GOOD] Slice {r.get('slice_id')} error: {r.get('error')}")
+                            
+            except Exception as e:
+                logger.error(f"[HIDE KNOWN GOOD] Failed to get slice results: {e}")
+                return {'status': 'error', 'message': f'Worker aggregation failed: {e}'}
+            
+            # Refresh index
+            try:
                 opensearch_client.indices.refresh(index=index_name)
-                
-                if failed_count > 0:
-                    logger.warning(f"[HIDE KNOWN GOOD] {failed_count:,} events failed to hide")
+            except:
+                pass
             
-            # Audit log
-            logger.info(f"[HIDE KNOWN GOOD] Audit: user_id={user_id}, case_id={case_id}, hidden={hidden_count}, processed={processed_count}")
+            # Final progress
+            self.update_state(state='PROGRESS', meta={
+                'status': 'complete',
+                'total': total_events,
+                'processed': total_scanned,
+                'found': total_found,
+                'hidden': total_hidden,
+                'percent': 100
+            })
             
-            found_count = len(events_to_hide) if events_to_hide else 0
-            logger.info(f"[HIDE KNOWN GOOD] Case {case_id}: Found {found_count:,}, Hidden {hidden_count:,} of {processed_count:,} events scanned")
+            logger.info(f"[HIDE KNOWN GOOD] Case {case_id}: Complete - scanned={total_scanned:,}, found={total_found:,}, hidden={total_hidden:,}")
+            logger.info(f"[HIDE KNOWN GOOD] Audit: user_id={user_id}, case_id={case_id}, hidden={total_hidden}, processed={total_scanned}")
             
             return {
                 'status': 'success',
-                'hidden': hidden_count,
-                'found': found_count,
-                'processed': processed_count,
-                'message': f'Hidden {hidden_count:,} of {found_count:,} matching events'
+                'hidden': total_hidden,
+                'found': total_found,
+                'processed': total_scanned,
+                'message': f'Hidden {total_hidden:,} events using {HIDE_PARALLEL_SLICES} parallel workers'
             }
             
         except Exception as e:

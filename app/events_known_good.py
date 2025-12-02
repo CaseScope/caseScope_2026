@@ -166,11 +166,12 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
     
     blob = (search_blob or '').lower()
     
+    
     # =========================================================================
     # CHECK 1: RMM Tools
     # =========================================================================
-    # Match executable patterns. Wildcards require .exe context to avoid
-    # matching URLs (e.g., "huntress" in "huntress.io")
+    # Match executable patterns AND path patterns.
+    # Wildcards require .exe context to avoid matching URLs
     for rmm_pattern in exclusions.get('rmm_executables', []):
         if '*' in rmm_pattern:
             # Wildcard: "labtech*.exe" → need prefix + .exe in blob
@@ -183,6 +184,40 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
             if rmm_pattern in blob:
                 logger.debug(f"[KNOWN_GOOD] RMM match: {rmm_pattern}")
                 return True
+    
+    # Also check for RMM installation paths (v1.44.2)
+    # This catches events that reference the RMM path but not the exact executable
+    RMM_PATH_INDICATORS = [
+        '\\ltsvc\\',       # LabTech/ConnectWise Automate path
+        '\\labtech\\',     # Alternative LabTech path
+        '\\datto\\',       # Datto RMM
+        '\\aemag\\',       # Datto AEM Agent
+        '\\kaseya\\',      # Kaseya
+        '\\ninjarmmag\\',  # NinjaRMM
+        '\\syncro\\',      # Syncro
+        '\\atera\\',       # Atera
+        '\\n-central\\',   # N-able
+    ]
+    for path_indicator in RMM_PATH_INDICATORS:
+        if path_indicator in blob:
+            logger.debug(f"[KNOWN_GOOD] RMM path match: {path_indicator}")
+            return True
+    
+    # Check for RMM service names in Service Control Manager events (v1.44.2)
+    # These appear as "servicename running/stopped" without .exe
+    RMM_SERVICE_NAMES = [
+        'ltservice',       # LabTech service
+        'ltsvcmon',        # LabTech service monitor  
+        'lttray',          # LabTech tray
+        'labvnc',          # LabTech VNC
+        'dattoservice',    # Datto
+        'kaseyaservice',   # Kaseya
+    ]
+    for svc_name in RMM_SERVICE_NAMES:
+        # Match "servicename running" or "servicename stopped" patterns
+        if f'{svc_name} running' in blob or f'{svc_name} stopped' in blob:
+            logger.debug(f"[KNOWN_GOOD] RMM service name match: {svc_name}")
+            return True
     
     # =========================================================================
     # CHECK 2: Remote Tools (e.g., TeamViewer, AnyDesk)
@@ -278,7 +313,153 @@ def _extract_source_ip(event_data: Dict) -> Optional[str]:
 
 
 # =============================================================================
-# BULK HIDE OPERATION
+# SLICED PROCESSING (for parallel workers)
+# =============================================================================
+
+def process_slice(
+    case_id: int,
+    slice_id: int,
+    max_slices: int,
+    exclusions: Dict,
+    opensearch_client
+) -> Tuple[int, List[Dict]]:
+    """
+    Process a single slice of events for parallel hide operation.
+    
+    Uses OpenSearch's sliced scroll to divide work among multiple workers.
+    Each worker processes 1/max_slices of the total events.
+    
+    Args:
+        case_id: The case ID to process
+        slice_id: This worker's slice ID (0 to max_slices-1)
+        max_slices: Total number of slices (usually 8 for 8 workers)
+        exclusions: Pre-loaded exclusions dict from load_exclusions()
+        opensearch_client: OpenSearch client instance
+    
+    Returns:
+        Tuple of (events_scanned, events_to_hide_list)
+        events_to_hide_list contains dicts with {_id, _index}
+    """
+    index_name = f"case_{case_id}"
+    events_to_hide = []
+    scanned_count = 0
+    
+    scroll_time = '5m'
+    batch_size = 1000
+    
+    # Sliced scroll query - each slice gets 1/N of events
+    query = {
+        "size": batch_size,
+        "slice": {
+            "id": slice_id,
+            "max": max_slices
+        },
+        "_source": ["search_blob", "source", "host", "process"],
+        "query": {
+            "bool": {
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
+            }
+        }
+    }
+    
+    try:
+        response = opensearch_client.search(
+            index=index_name,
+            body=query,
+            scroll=scroll_time
+        )
+    except Exception as e:
+        logger.error(f"[KNOWN_GOOD] Slice {slice_id}: Search failed - {e}")
+        return (0, [])
+    
+    scroll_id = response.get('_scroll_id')
+    hits = response['hits']['hits']
+    
+    logger.info(f"[KNOWN_GOOD] Slice {slice_id}/{max_slices}: Starting scan")
+    
+    # Process all events in this slice
+    while hits:
+        for hit in hits:
+            src = hit.get('_source', {})
+            search_blob = src.get('search_blob', '')
+            scanned_count += 1
+            
+            if is_known_good_event(src, search_blob, exclusions):
+                events_to_hide.append({
+                    '_id': hit['_id'],
+                    '_index': hit['_index']
+                })
+        
+        # Get next batch
+        try:
+            response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
+            scroll_id = response.get('_scroll_id')
+            hits = response['hits']['hits']
+        except Exception as e:
+            logger.error(f"[KNOWN_GOOD] Slice {slice_id}: Scroll failed - {e}")
+            break
+    
+    # Clear scroll
+    try:
+        if scroll_id:
+            opensearch_client.clear_scroll(scroll_id=scroll_id)
+    except:
+        pass
+    
+    logger.info(f"[KNOWN_GOOD] Slice {slice_id}/{max_slices}: Scanned {scanned_count:,}, found {len(events_to_hide):,} to hide")
+    
+    return (scanned_count, events_to_hide)
+
+
+def bulk_hide_events(
+    events_to_hide: List[Dict],
+    opensearch_client,
+    index_name: str
+) -> int:
+    """
+    Bulk update events to set is_hidden=True.
+    
+    Args:
+        events_to_hide: List of dicts with {_id, _index}
+        opensearch_client: OpenSearch client instance
+        index_name: Index name for refresh
+    
+    Returns:
+        Number of events successfully hidden
+    """
+    if not events_to_hide:
+        return 0
+    
+    hidden_count = 0
+    bulk_batch_size = 500
+    
+    for i in range(0, len(events_to_hide), bulk_batch_size):
+        batch = events_to_hide[i:i + bulk_batch_size]
+        
+        bulk_body = []
+        for evt in batch:
+            bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
+            bulk_body.append({"doc": {"is_hidden": True}})
+        
+        try:
+            bulk_result = opensearch_client.bulk(body=bulk_body, refresh=False)
+            if not bulk_result.get('errors'):
+                hidden_count += len(batch)
+            else:
+                # Count successful updates
+                for item in bulk_result.get('items', []):
+                    if item.get('update', {}).get('status') in [200, 201]:
+                        hidden_count += 1
+        except Exception as e:
+            logger.error(f"[KNOWN_GOOD] Bulk hide failed: {e}")
+    
+    return hidden_count
+
+
+# =============================================================================
+# BULK HIDE OPERATION (legacy single-threaded)
 # =============================================================================
 
 def hide_known_good_events(
