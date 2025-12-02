@@ -42,17 +42,19 @@ The Known-Noise Events system identifies and hides events that are routine Windo
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         MODULE LAYER                                     │
-│  app/events_known_noise.py (standalone module)                          │
-│  app/tasks.py (NOISE_PROCESSES, should_exclude_event)                  │
-│  app/routes/triage_report.py (NOISE_USERS, NOT_HOSTNAMES)              │
+│  app/events_known_noise.py (Primary - standalone module)                │
+│  ├── is_noise_event() - core detection                                 │
+│  ├── process_slice() - parallel worker processing                      │
+│  └── bulk_hide_events() - OpenSearch bulk updates                      │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         EXECUTION LAYER                                  │
-│  1. AI Triage: Filters noise from timeline tagging                      │
-│  2. IOC Creation: Filters noise values from becoming IOCs               │
-│  3. Bulk Hide: hide_noise_events() for manual cleanup                   │
+│  1. Bulk Hide (Parallel): tasks.hide_noise_events_task()               │
+│     → Dispatches 8x hide_noise_slice_task() workers                    │
+│  2. AI Triage: tasks.should_exclude_event()                            │
+│  3. IOC Creation: Filters noise values from becoming IOCs              │
 │  4. Validation: is_noise_user(), is_noise_hostname() for IOC filtering │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -70,7 +72,7 @@ The Known-Noise Events system identifies and hides events that are routine Windo
 
 ### NOISE_PROCESSES
 
-**File:** `app/events_known_noise.py` (lines 35-68)
+**File:** `app/events_known_noise.py` (lines 39-76)
 
 Processes that are always system noise, never attack-related:
 
@@ -117,7 +119,7 @@ NOISE_PROCESSES = [
 
 ### NOISE_USERS
 
-**File:** `app/events_known_noise.py` (lines 70-76)
+**File:** `app/events_known_noise.py` (lines 79-85)
 
 System accounts that are never real users:
 
@@ -133,7 +135,7 @@ NOISE_USERS = {
 
 ### NOISE_IOC_VALUES
 
-**File:** `app/events_known_noise.py` (lines 78-98)
+**File:** `app/events_known_noise.py` (lines 88-110)
 
 Values that should never become IOCs:
 
@@ -143,12 +145,7 @@ NOISE_IOC_VALUES = {
     '.net runtime', 'microsoft-windows-security-auditing',
     'microsoft-windows-powershell', 'microsoft-windows-sysmon',
     'microsoft-windows-taskscheduler', 'microsoft-windows-dns-client',
-    'microsoft-windows-kernel-general', 'microsoft-windows-kernel-power',
-    'microsoft-windows-winlogon', 'microsoft-windows-user profiles service',
-    'microsoft-windows-groupolicy', 'microsoft-windows-windowsupdateclient',
-    'microsoft-windows-bits-client', 'microsoft-windows-eventlog',
-    'microsoft-windows-wmi', 'service control manager', 'schannel',
-    'application error', 'windows error reporting', 'volsnap',
+    ...
     
     # Generic system terms
     'security', 'system', 'application', 'setup', 'forwarded events',
@@ -156,80 +153,46 @@ NOISE_IOC_VALUES = {
     
     # Common noise strings
     'n/a', 'na', 'none', 'null', 'unknown', 'undefined', '-', '--', '---',
-    'true', 'false', 'yes', 'no', '0', '1',
     
     # Local/loopback
     '127.0.0.1', '::1', 'localhost',
 }
 ```
 
-### NOT_HOSTNAMES
-
-**File:** `app/events_known_noise.py` (lines 100-120)
-
-Strings that should never be treated as hostnames:
-
-```python
-NOT_HOSTNAMES = {
-    # Common words
-    'the', 'and', 'from', 'with', 'this', 'that', 'was', 'has', 'been', ...
-    
-    # IT/Security terms that aren't hostnames
-    'system', 'server', 'client', 'machine', 'computer', 'endpoint', 'device',
-    'domain', 'local', 'remote', 'internal', 'external', 'unknown', 'none',
-    'admin', 'administrator', 'root', 'guest', 'default', 'public', 'private',
-    'powershell', 'cmd', 'command', 'script', 'executed', 'execution',
-    'lateral', 'movement', 'persistence', 'credential', 'access', ...
-}
-```
-
 ### NOISE_COMMAND_PATTERNS
 
-**File:** `app/events_known_noise.py` (lines 122-162)
+**File:** `app/events_known_noise.py` (lines 139-179)
 
 Exact command patterns that are monitoring noise (only hidden when parent is generic):
 
 ```python
 NOISE_COMMAND_PATTERNS = [
     # Network monitoring commands (run thousands of times by RMM/EDR)
-    'netstat -ano',
-    'netstat  -ano',
-    'netstat -an',
-    'ipconfig /all',
+    'netstat -ano', 'netstat -an', 'ipconfig /all',
     
     # System info gathering (monitoring, not attacks)
-    'systeminfo',
-    'hostname',
+    'systeminfo', 'hostname',
     
     # Session/user queries (RMM health checks)
-    'quser',
-    '"quser"',
-    'query user',
+    'quser', 'query user',
     
     # Process listing (RMM monitoring loops)
     'tasklist',
     
-    # Pipe output filters
-    'find /i',
-    'find "',
-    
     # Audit policy commands (EDR continuously sets these)
-    'auditpol.exe /set',
-    'auditpol /set',
+    'auditpol.exe /set', 'auditpol /set',
     
     # Console host (spawned by every cmd.exe)
     'conhost.exe 0xffffffff',
     
     # PowerShell monitoring - Defender checks
-    'get-mppreference',
-    'get-mpthreat',
-    'get-mpcomputerstatus',
+    'get-mppreference', 'get-mpthreat', 'get-mpcomputerstatus',
 ]
 ```
 
 ### GENERIC_PARENTS
 
-**File:** `app/events_known_noise.py` (lines 164-168)
+**File:** `app/events_known_noise.py` (lines 182-185)
 
 When command is noise AND parent is generic, it's safe to hide:
 
@@ -242,7 +205,7 @@ GENERIC_PARENTS = {
 
 ### FIREWALL_NOISE_KEYWORDS
 
-**File:** `app/events_known_noise.py` (lines 170-174)
+**File:** `app/events_known_noise.py` (lines 188-191)
 
 Keywords indicating firewall/network logs that are noise:
 
@@ -269,7 +232,6 @@ def is_noise_event(event_data: Dict) -> bool:
     Detection Logic:
         1. Process name is in NOISE_PROCESSES
         2. Command line matches NOISE_COMMAND_PATTERNS (with generic parent)
-        3. Event is only from noise user with no meaningful activity
     """
     proc = event_data.get('process', {})
     
@@ -280,9 +242,9 @@ def is_noise_event(event_data: Dict) -> bool:
     
     command_line = proc.get('command_line', '')
     
-    # Get parent info
-    parent = proc.get('parent', {})
-    parent_name = (parent.get('name') or '').lower()
+    # Get parent info (handle None parent)
+    parent = proc.get('parent') or {}
+    parent_name = (parent.get('name') or parent.get('executable') or '').lower()
     
     # CHECK 1: Noise process
     if proc_name and is_noise_process(proc_name):
@@ -306,7 +268,7 @@ def is_noise_command(command_line: str, parent_name: str = None) -> bool:
     1. It matches a NOISE_COMMAND_PATTERN exactly, AND
     2. The parent process is generic (cmd.exe, svchost.exe, etc.)
     
-    If parent is suspicious (e.g., powershell spawning netstat), we KEEP it.
+    If parent is suspicious (e.g., mimikatz spawning netstat), we KEEP it.
     """
     cmd_lower = command_line.lower().strip()
     
@@ -338,9 +300,9 @@ def is_noise_command(command_line: str, parent_name: str = None) -> bool:
 
 ## Files and Functions
 
-### 1. `app/events_known_noise.py` (Standalone Module)
+### 1. `app/events_known_noise.py` (Primary Module)
 
-Primary module for noise detection. Can be called independently.
+Standalone module for noise detection. Used by all integration points.
 
 | Function | Purpose |
 |----------|---------|
@@ -351,24 +313,51 @@ Primary module for noise detection. Can be called independently.
 | `is_noise_command(cmd, parent)` | Check if command is monitoring noise |
 | `is_noise_event(event)` | **Core detection** - combines all rules |
 | `is_firewall_noise(event)` | Check for DENY/DROP/BLOCK logs |
-| `hide_noise_events(case_id, callback)` | Bulk hide all noise in case |
+| `process_slice(case_id, slice_id, max_slices, client)` | Process 1/N slice for parallel workers |
+| `bulk_hide_events(events_list, client, index)` | Bulk update to set is_hidden=True |
+| `hide_noise_events(case_id, callback)` | Legacy single-threaded bulk hide |
 | `get_noise_estimate(case_id)` | Preview counts before hiding |
 | `is_valid_hostname(hostname, ip_set)` | Validation helper |
 | `is_machine_account(username)` | Check if username ends with `$` |
 
 ### 2. `app/tasks.py`
 
-Contains noise filtering for AI Triage.
+Contains Celery tasks for parallel bulk hide operation.
 
-| Constant/Function | Purpose |
-|-------------------|---------|
-| `NOISE_PROCESSES` | List of noise process names |
-| `NOISE_COMMAND_PATTERNS` | List of noise command patterns |
-| `NOISE_IOC_VALUES` | Set of noise IOC values |
-| `is_noise_ioc_value()` | Filter noise from IOC creation |
-| `should_exclude_event()` | Checks `NOISE_PROCESSES` for timeline filtering |
+| Function/Task | Purpose |
+|---------------|---------|
+| `hide_noise_events_task(case_id, user_id)` | **Coordinator task** - dispatches 8 parallel workers |
+| `hide_noise_slice_task(case_id, slice_id, max_slices, user_id)` | **Worker task** - processes 1/8 of events |
+| `should_exclude_event(event, exclusions)` | Checks noise processes for AI Triage filtering |
 
-### 3. `app/routes/triage_report.py`
+**Parallel Processing (v1.46.0):**
+```python
+NOISE_PARALLEL_SLICES = 8  # Use all 8 workers
+
+# Coordinator dispatches 8 parallel slice tasks
+slice_tasks = group([
+    hide_noise_slice_task.s(case_id, i, NOISE_PARALLEL_SLICES, user_id)
+    for i in range(NOISE_PARALLEL_SLICES)
+])
+group_result = slice_tasks.apply_async()
+
+# Each slice uses OpenSearch sliced scroll
+query = {
+    "slice": {"id": slice_id, "max": max_slices},
+    "query": {"bool": {"must_not": [{"term": {"is_hidden": True}}]}}
+}
+```
+
+### 3. `app/routes/system_tools.py`
+
+Routes for triggering bulk hide and polling status.
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/settings/system-tools/case/<id>/hide-noise` | POST | Start parallel bulk hide task |
+| `/settings/system-tools/case/<id>/hide-noise/status/<task_id>` | GET | Poll task progress |
+
+### 4. `app/routes/triage_report.py`
 
 Contains noise definitions used during IOC extraction.
 
@@ -391,7 +380,7 @@ Events are marked hidden with category-specific reason:
     "process": { ... },
     "host": { ... },
     "is_hidden": true,
-    "hidden_reason": "noise_process"  // or "noise_command", "firewall_noise"
+    "hidden_reason": "noise_process"
   }
 }
 ```
@@ -408,19 +397,32 @@ Events are marked hidden with category-specific reason:
 
 ## Integration Points
 
-### 1. AI Triage Timeline Filtering
+### 1. Bulk Hide Task (Manual Trigger - Parallel)
+
+**When:** User clicks "Hide Noise" button on Search Events page
+
+**Flow:**
+1. `POST /settings/system-tools/case/{id}/hide-noise` → `routes/system_tools.py`
+2. Starts Celery task `tasks.hide_noise_events_task` (coordinator)
+3. Coordinator dispatches 8 parallel `hide_noise_slice_task` workers
+4. Each worker uses OpenSearch sliced scroll to process 1/8 of events
+5. Workers call `is_noise_event()` and `is_firewall_noise()` from `events_known_noise.py`
+6. Results aggregated with category breakdown
+7. Progress updates sent as each worker completes
+
+### 2. AI Triage Timeline Filtering
 
 **When:** AI Triage decides which events to tag for timeline
 
 **File:** `app/tasks.py` → `should_exclude_event()`
 
 ```python
-# Check 0: Noise processes (system management, not attack-related)
+# Check noise processes (system management, not attack-related)
 if proc_name.replace('.exe', '') in [p.replace('.exe', '') for p in NOISE_PROCESSES]:
     return True  # Exclude from timeline
 ```
 
-### 2. IOC Creation Filtering
+### 3. IOC Creation Filtering
 
 **When:** AI Triage creates IOCs from discovered values
 
@@ -430,11 +432,10 @@ if proc_name.replace('.exe', '') in [p.replace('.exe', '') for p in NOISE_PROCES
 # v1.43.13: Skip noise IOC values (system providers, generic terms)
 if is_noise_ioc_value(ioc_value):
     logger.debug(f"[AI_TRIAGE] Skipping noise IOC value: {ioc_value}")
-    noise_values_filtered += 1
     return
 ```
 
-### 3. Username Validation
+### 4. Username Validation
 
 **When:** Extracting usernames from events
 
@@ -445,7 +446,7 @@ if name.lower() not in NOISE_USERS and not is_machine_account(name):
     usernames.add(name)
 ```
 
-### 4. Hostname Validation
+### 5. Hostname Validation
 
 **When:** Extracting hostnames from events
 
@@ -456,17 +457,18 @@ if is_valid_hostname(hostname, ip_set):
     hostnames.add(hostname)
 ```
 
-### 5. Bulk Hide Operation
+---
 
-**When:** Manual cleanup of noise events
+## Templates
 
-**Usage:**
-```python
-from events_known_noise import hide_noise_events
+### Search Events Page
 
-result = hide_noise_events(case_id=25)
-# {'success': True, 'total_hidden': 5000, 'by_category': {...}}
-```
+**File:** `app/templates/search_events.html`
+
+- "Hide Noise" button (🔇) triggers modal
+- Modal shows noise categories summary
+- Progress display with worker completion tracking
+- Results show events hidden count with category breakdown
 
 ---
 
@@ -515,40 +517,16 @@ is_noise_ioc_value('.NET Runtime')                # True
 is_noise_ioc_value('evil.exe')                    # False
 ```
 
-### Bulk Hide All Noise
+### Bulk Hide All Noise (Parallel)
+
+The parallel bulk hide is triggered via the UI button, which calls:
 
 ```python
-from events_known_noise import hide_noise_events
+# In routes/system_tools.py
+from tasks import hide_noise_events_task
 
-def progress(status, processed, total, found):
-    print(f"{status}: {processed}/{total}, found {found}")
-
-result = hide_noise_events(case_id=25, progress_callback=progress)
-# {
-#     'success': True,
-#     'total_scanned': 150000,
-#     'total_hidden': 5000,
-#     'by_category': {
-#         'noise_process': 3000,
-#         'noise_command': 1500,
-#         'firewall_noise': 500
-#     },
-#     'errors': []
-# }
-```
-
-### Get Noise Estimate (Preview)
-
-```python
-from events_known_noise import get_noise_estimate
-
-estimate = get_noise_estimate(case_id=25)
-# {
-#     'noise_process': 3000,
-#     'noise_command': 1500,
-#     'firewall_noise': 500,
-#     'total': 5000
-# }
+task = hide_noise_events_task.delay(case_id=25, user_id=1)
+# Returns task_id for progress polling
 ```
 
 ### Validate Hostname
@@ -572,6 +550,7 @@ is_valid_hostname('AB', set())          # False - too short
 | v1.41.0 | Added `NOISE_COMMAND_PATTERNS` with parent context |
 | v1.43.13 | Added `NOISE_IOC_VALUES` for IOC filtering |
 | v1.44.0 | New standalone module `events_known_noise.py` |
+| v1.46.0 | Parallel processing with 8 Celery workers, UI button, routes |
 
 ---
 
@@ -594,17 +573,22 @@ To rebuild this system:
    - `is_noise_command()`: Match against `NOISE_COMMAND_PATTERNS` with parent check
    - `is_noise_event()`: Combine all checks
    - `is_firewall_noise()`: Check for firewall keywords
+   - `process_slice()`: Parallel processing with sliced scroll
+   - `bulk_hide_events()`: Batch update events
 
-3. **Integration**
-   - AI Triage: Filter noise from timeline tagging
-   - IOC Creation: Filter noise values from becoming IOCs
-   - Username/Hostname extraction: Validate against noise lists
+3. **Celery Tasks**
+   - `hide_noise_events_task`: Coordinator dispatches 8 workers
+   - `hide_noise_slice_task`: Worker processes 1/8 of events
 
-4. **Bulk Operations**
-   - `hide_noise_events()`: Scroll all events, check, bulk update
-   - Track categories for reporting
+4. **Routes**
+   - `POST /settings/system-tools/case/<id>/hide-noise`: Start task
+   - `GET /settings/system-tools/case/<id>/hide-noise/status/<task_id>`: Poll progress
 
-5. **OpenSearch**
+5. **Frontend**
+   - "Hide Noise" button on Search Events page
+   - Modal with progress and results display
+
+6. **OpenSearch**
    - Set `is_hidden: true` with `hidden_reason: noise_*`
    - Use same filtering as Known-Good events
 
@@ -620,5 +604,6 @@ To rebuild this system:
 | **Examples** | LTSVC.exe, HuntressAgent.exe | conhost.exe, auditpol.exe |
 | **Module** | `events_known_good.py` | `events_known_noise.py` |
 | **Context-aware** | Yes (session IDs, response patterns) | Yes (parent process) |
-| **hidden_reason** | `auto_hide_index` | `noise_process`, `noise_command` |
-
+| **hidden_reason** | `auto_hide_index`, `bulk_task` | `noise_process`, `noise_command`, `firewall_noise` |
+| **Parallel Workers** | 8 (sliced scroll) | 8 (sliced scroll) |
+| **UI Button** | "Hide Known Good" (🛡️) | "Hide Noise" (🔇) |

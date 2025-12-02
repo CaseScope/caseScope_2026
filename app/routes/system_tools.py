@@ -748,6 +748,74 @@ def hide_known_good_status(case_id, task_id):
         })
 
 
+# ============================================================================
+# HIDE NOISE EVENTS (v1.46.0)
+# ============================================================================
+
+@system_tools_bp.route('/case/<int:case_id>/hide-noise', methods=['POST'])
+@login_required
+def hide_noise_events(case_id):
+    """
+    Start background task to hide events matching noise patterns.
+    Returns task_id for progress polling.
+    
+    v1.46.0: Uses events_known_noise module for detection.
+    Unlike known_good, this doesn't require configuration - uses hardcoded patterns.
+    """
+    from main import db
+    from models import Case
+    from tasks import hide_noise_events_task
+    
+    # Permission check
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot hide events'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Start background task (no config validation needed - uses hardcoded patterns)
+    task = hide_noise_events_task.delay(case_id, current_user.id)
+    
+    return jsonify({
+        'status': 'started',
+        'task_id': task.id,
+        'message': 'Hide noise task started'
+    })
+
+
+@system_tools_bp.route('/case/<int:case_id>/hide-noise/status/<task_id>')
+@login_required
+def hide_noise_status(case_id, task_id):
+    """Poll for hide noise task status"""
+    from celery.result import AsyncResult
+    
+    task = AsyncResult(task_id)
+    
+    if task.state == 'PENDING':
+        return jsonify({
+            'status': 'pending',
+            'message': 'Task is queued...'
+        })
+    elif task.state == 'PROGRESS':
+        return jsonify(task.info)
+    elif task.state == 'SUCCESS':
+        return jsonify({
+            'status': 'complete',
+            **task.result
+        })
+    elif task.state == 'FAILURE':
+        return jsonify({
+            'status': 'error',
+            'message': str(task.info)
+        })
+    else:
+        return jsonify({
+            'status': task.state.lower(),
+            'message': 'Processing...'
+        })
+
+
 def _get_exclusions_dict():
     """Get exclusions as a structured dict"""
     from models import SystemToolsSetting

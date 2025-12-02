@@ -2671,6 +2671,220 @@ def hide_known_good_events_task(self, case_id, user_id):
 
 
 # ============================================================================
+# HIDE NOISE EVENTS (v1.46.0)
+# Parallel processing using sliced scroll - similar to hide_known_good
+# ============================================================================
+
+NOISE_PARALLEL_SLICES = 8  # Use all 8 workers
+
+
+@celery_app.task(bind=True, name='tasks.hide_noise_slice')
+def hide_noise_slice_task(self, case_id: int, slice_id: int, max_slices: int, user_id: int):
+    """
+    Worker task: Process one slice of events for hide noise operation.
+    
+    Uses OpenSearch sliced scroll to process 1/max_slices of total events.
+    This task runs in parallel with other slice tasks.
+    """
+    from main import app, db, opensearch_client
+    from events_known_noise import process_slice, bulk_hide_events
+    
+    with app.app_context():
+        try:
+            logger.info(f"[HIDE NOISE] Slice {slice_id}/{max_slices}: Starting for case {case_id}")
+            
+            # Process this slice
+            result = process_slice(case_id, slice_id, max_slices, opensearch_client)
+            
+            scanned = result.get('scanned', 0)
+            events_to_hide = result.get('events_to_hide', [])
+            by_category = result.get('by_category', {})
+            
+            # Hide the found events
+            hidden_count = 0
+            if events_to_hide:
+                hidden_count = bulk_hide_events(events_to_hide, opensearch_client, f"case_{case_id}")
+            
+            logger.info(f"[HIDE NOISE] Slice {slice_id}/{max_slices}: Scanned {scanned:,}, found {len(events_to_hide):,}, hid {hidden_count:,}")
+            logger.info(f"[HIDE NOISE] Slice {slice_id} breakdown: {by_category}")
+            
+            return {
+                'slice_id': slice_id,
+                'scanned': scanned,
+                'found': len(events_to_hide),
+                'hidden': hidden_count,
+                'by_category': by_category,
+                'error': None
+            }
+            
+        except Exception as e:
+            logger.error(f"[HIDE NOISE] Slice {slice_id} error: {e}", exc_info=True)
+            return {
+                'slice_id': slice_id,
+                'scanned': 0,
+                'found': 0,
+                'hidden': 0,
+                'by_category': {},
+                'error': str(e)
+            }
+
+
+@celery_app.task(bind=True, name='tasks.hide_noise_events')
+def hide_noise_events_task(self, case_id, user_id):
+    """
+    Coordinator task: Dispatches 8 parallel slice workers and aggregates results.
+    
+    v1.46.0: Parallel processing for noise event hiding.
+    Uses all 8 Celery workers to process events ~8x faster.
+    
+    Args:
+        case_id: ID of the case to process
+        user_id: ID of the user who initiated the task
+    
+    Returns:
+        Dict with status, hidden count, processed count, and category breakdown
+    """
+    from main import app, db, opensearch_client
+    from models import Case
+    from celery import group
+    
+    with app.app_context():
+        try:
+            case = db.session.get(Case, case_id)
+            if not case:
+                return {'status': 'error', 'message': 'Case not found'}
+            
+            index_name = f"case_{case_id}"
+            
+            # Count total non-hidden events
+            try:
+                count_response = opensearch_client.count(
+                    index=index_name,
+                    body={
+                        "query": {
+                            "bool": {
+                                "must_not": [{"term": {"is_hidden": True}}]
+                            }
+                        }
+                    }
+                )
+                total_events = count_response.get('count', 0)
+            except Exception as e:
+                return {'status': 'error', 'message': f'Failed to count events: {e}'}
+            
+            if total_events == 0:
+                return {'status': 'success', 'hidden': 0, 'processed': 0, 'message': 'No visible events to scan'}
+            
+            logger.info(f"[HIDE NOISE] Case {case_id}: Starting parallel scan of {total_events:,} events using {NOISE_PARALLEL_SLICES} workers")
+            
+            # Initial progress update
+            self.update_state(state='PROGRESS', meta={
+                'status': 'dispatching',
+                'total': total_events,
+                'processed': 0,
+                'found': 0,
+                'percent': 0,
+                'workers': NOISE_PARALLEL_SLICES
+            })
+            
+            # Dispatch parallel slice tasks
+            slice_tasks = group([
+                hide_noise_slice_task.s(case_id, i, NOISE_PARALLEL_SLICES, user_id)
+                for i in range(NOISE_PARALLEL_SLICES)
+            ])
+            
+            # Execute all slices in parallel
+            group_result = slice_tasks.apply_async()
+            
+            # Poll for completion with progress updates
+            completed_slices = 0
+            total_scanned = 0
+            total_found = 0
+            total_hidden = 0
+            aggregate_categories = {
+                'noise_process': 0,
+                'noise_command': 0,
+                'firewall_noise': 0
+            }
+            
+            import time
+            while not group_result.ready():
+                # Count completed tasks
+                completed = sum(1 for r in group_result.results if r.ready())
+                if completed > completed_slices:
+                    completed_slices = completed
+                    est_scanned = int((completed_slices / NOISE_PARALLEL_SLICES) * total_events)
+                    pct = int((completed_slices / NOISE_PARALLEL_SLICES) * 100)
+                    
+                    self.update_state(state='PROGRESS', meta={
+                        'status': 'scanning',
+                        'total': total_events,
+                        'processed': est_scanned,
+                        'found': total_found,
+                        'percent': pct,
+                        'workers_complete': f'{completed_slices}/{NOISE_PARALLEL_SLICES}'
+                    })
+                
+                time.sleep(0.5)
+            
+            # Aggregate results from all slices
+            from celery.result import allow_join_result
+            try:
+                with allow_join_result():
+                    results = group_result.get(timeout=300)  # 5 min timeout
+                
+                for r in results:
+                    if isinstance(r, dict):
+                        total_scanned += r.get('scanned', 0)
+                        total_found += r.get('found', 0)
+                        total_hidden += r.get('hidden', 0)
+                        # Aggregate categories
+                        for cat, count in r.get('by_category', {}).items():
+                            if cat in aggregate_categories:
+                                aggregate_categories[cat] += count
+                        if r.get('error'):
+                            logger.warning(f"[HIDE NOISE] Slice {r.get('slice_id')} error: {r.get('error')}")
+                            
+            except Exception as e:
+                logger.error(f"[HIDE NOISE] Failed to get slice results: {e}")
+                return {'status': 'error', 'message': f'Worker aggregation failed: {e}'}
+            
+            # Refresh index
+            try:
+                opensearch_client.indices.refresh(index=index_name)
+            except:
+                pass
+            
+            # Final progress
+            self.update_state(state='PROGRESS', meta={
+                'status': 'complete',
+                'total': total_events,
+                'processed': total_scanned,
+                'found': total_found,
+                'hidden': total_hidden,
+                'percent': 100,
+                'by_category': aggregate_categories
+            })
+            
+            logger.info(f"[HIDE NOISE] Case {case_id}: Complete - scanned={total_scanned:,}, found={total_found:,}, hidden={total_hidden:,}")
+            logger.info(f"[HIDE NOISE] Categories: {aggregate_categories}")
+            logger.info(f"[HIDE NOISE] Audit: user_id={user_id}, case_id={case_id}, hidden={total_hidden}, processed={total_scanned}")
+            
+            return {
+                'status': 'success',
+                'hidden': total_hidden,
+                'found': total_found,
+                'processed': total_scanned,
+                'by_category': aggregate_categories,
+                'message': f'Hidden {total_hidden:,} noise events using {NOISE_PARALLEL_SLICES} parallel workers'
+            }
+            
+        except Exception as e:
+            logger.error(f"[HIDE NOISE] Error: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e)}
+
+
+# ============================================================================
 # AI TRIAGE SEARCH (v1.39.0)
 # Full 9-phase automated attack chain analysis
 # ============================================================================

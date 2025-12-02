@@ -320,7 +320,7 @@ def is_noise_event(event_data: Dict) -> bool:
     command_line = proc.get('command_line', '')
     
     # Get parent info
-    parent = proc.get('parent', {})
+    parent = proc.get('parent') or {}  # Handle None parent
     parent_name = (parent.get('name') or parent.get('executable') or '').lower()
     if '\\' in parent_name:
         parent_name = parent_name.split('\\')[-1]
@@ -349,7 +349,187 @@ def is_firewall_noise(event_data: Dict) -> bool:
 
 
 # =============================================================================
-# BULK HIDE OPERATION
+# SLICED PROCESSING (for parallel workers)
+# =============================================================================
+
+def process_slice(
+    case_id: int,
+    slice_id: int,
+    max_slices: int,
+    opensearch_client
+) -> Dict[str, Any]:
+    """
+    Process a single slice of events for parallel noise hide operation.
+    
+    Uses OpenSearch's sliced scroll to divide work among multiple workers.
+    Each worker processes 1/max_slices of the total events.
+    
+    Args:
+        case_id: The case ID to process
+        slice_id: This worker's slice ID (0 to max_slices-1)
+        max_slices: Total number of slices (usually 8 for 8 workers)
+        opensearch_client: OpenSearch client instance
+    
+    Returns:
+        Dict with scanned, events_to_hide list, and by_category counts
+    """
+    index_name = f"case_{case_id}"
+    events_to_hide = []
+    scanned_count = 0
+    by_category = {
+        'noise_process': 0,
+        'noise_command': 0,
+        'firewall_noise': 0
+    }
+    
+    scroll_time = '5m'
+    batch_size = 1000
+    
+    # Sliced scroll query - each slice gets 1/N of events
+    query = {
+        "size": batch_size,
+        "slice": {
+            "id": slice_id,
+            "max": max_slices
+        },
+        "_source": ["process", "search_blob"],
+        "query": {
+            "bool": {
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
+            }
+        }
+    }
+    
+    try:
+        response = opensearch_client.search(
+            index=index_name,
+            body=query,
+            scroll=scroll_time
+        )
+    except Exception as e:
+        logger.error(f"[NOISE] Slice {slice_id}: Search failed - {e}")
+        return {'scanned': 0, 'events_to_hide': [], 'by_category': by_category}
+    
+    scroll_id = response.get('_scroll_id')
+    hits = response['hits']['hits']
+    
+    logger.info(f"[NOISE] Slice {slice_id}/{max_slices}: Starting scan")
+    
+    # Process all events in this slice
+    while hits:
+        for hit in hits:
+            src = hit.get('_source', {})
+            scanned_count += 1
+            
+            category = None
+            
+            # Check noise process
+            proc = src.get('process', {})
+            proc_name = (proc.get('name') or proc.get('executable') or '')
+            if proc_name:
+                if '\\' in proc_name:
+                    proc_name = proc_name.split('\\')[-1]
+                if is_noise_process(proc_name):
+                    category = 'noise_process'
+            
+            # Check noise command
+            if not category:
+                command_line = proc.get('command_line', '')
+                parent = proc.get('parent') or {}  # Handle None parent
+                parent_name = parent.get('name') or parent.get('executable') or ''
+                if parent_name and '\\' in parent_name:
+                    parent_name = parent_name.split('\\')[-1]
+                
+                if command_line and is_noise_command(command_line, parent_name):
+                    category = 'noise_command'
+            
+            # Check firewall noise
+            if not category:
+                if is_firewall_noise(src):
+                    category = 'firewall_noise'
+            
+            if category:
+                events_to_hide.append({
+                    '_id': hit['_id'],
+                    '_index': hit['_index'],
+                    'category': category
+                })
+                by_category[category] += 1
+        
+        # Get next batch
+        try:
+            response = opensearch_client.scroll(scroll_id=scroll_id, scroll=scroll_time)
+            scroll_id = response.get('_scroll_id')
+            hits = response['hits']['hits']
+        except Exception as e:
+            logger.error(f"[NOISE] Slice {slice_id}: Scroll failed - {e}")
+            break
+    
+    # Clear scroll
+    try:
+        if scroll_id:
+            opensearch_client.clear_scroll(scroll_id=scroll_id)
+    except:
+        pass
+    
+    logger.info(f"[NOISE] Slice {slice_id}/{max_slices}: Scanned {scanned_count:,}, found {len(events_to_hide):,} to hide")
+    
+    return {
+        'scanned': scanned_count,
+        'events_to_hide': events_to_hide,
+        'by_category': by_category
+    }
+
+
+def bulk_hide_events(
+    events_to_hide: List[Dict],
+    opensearch_client,
+    index_name: str
+) -> int:
+    """
+    Bulk update events to set is_hidden=True.
+    
+    Args:
+        events_to_hide: List of dicts with {_id, _index, category}
+        opensearch_client: OpenSearch client instance
+        index_name: Index name for refresh
+    
+    Returns:
+        Number of events successfully hidden
+    """
+    if not events_to_hide:
+        return 0
+    
+    hidden_count = 0
+    bulk_batch_size = 500
+    
+    for i in range(0, len(events_to_hide), bulk_batch_size):
+        batch = events_to_hide[i:i + bulk_batch_size]
+        
+        bulk_body = []
+        for evt in batch:
+            bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
+            bulk_body.append({"doc": {"is_hidden": True, "hidden_reason": f"noise_{evt.get('category', 'general')}"}})
+        
+        try:
+            bulk_result = opensearch_client.bulk(body=bulk_body, refresh=False)
+            if not bulk_result.get('errors'):
+                hidden_count += len(batch)
+            else:
+                # Count successful updates
+                for item in bulk_result.get('items', []):
+                    if item.get('update', {}).get('status') in [200, 201]:
+                        hidden_count += 1
+        except Exception as e:
+            logger.error(f"[NOISE] Bulk hide failed: {e}")
+    
+    return hidden_count
+
+
+# =============================================================================
+# BULK HIDE OPERATION (legacy single-threaded)
 # =============================================================================
 
 def hide_noise_events(
@@ -454,7 +634,7 @@ def hide_noise_events(
             # Check noise command
             if not category:
                 command_line = proc.get('command_line', '')
-                parent = proc.get('parent', {})
+                parent = proc.get('parent') or {}  # Handle None parent
                 parent_name = parent.get('name') or parent.get('executable') or ''
                 if parent_name and '\\' in parent_name:
                     parent_name = parent_name.split('\\')[-1]

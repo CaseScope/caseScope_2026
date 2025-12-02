@@ -4750,6 +4750,7 @@ function startHideNoise() {
     const caseId = {{ case.id }};
     const confirmPhase = document.getElementById('hideNoiseConfirmPhase');
     const progressPhase = document.getElementById('hideNoiseProgressPhase');
+    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
     const startBtn = document.getElementById('hideNoiseStartBtn');
     const closeBtn = document.getElementById('hideNoiseCloseBtn');
     
@@ -4759,11 +4760,81 @@ function startHideNoise() {
     startBtn.style.display = 'none';
     closeBtn.textContent = 'Close';
     
-    // TODO: Implement backend route for hide noise
-    // For now, show a "Coming Soon" message
-    showHideNoiseResults({
-        status: 'not_implemented',
-        message: 'Hide Noise functionality is coming soon. The detection patterns are ready in events_known_noise.py.'
+    // Start the hide operation using Celery background task
+    fetch(`/settings/system-tools/case/${caseId}/hide-noise`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showHideNoiseError(data.error);
+            return;
+        }
+        
+        if (data.task_id) {
+            // Poll for task status
+            pollHideNoiseStatus(caseId, data.task_id);
+        }
+    })
+    .catch(error => {
+        showHideNoiseError('Failed to start task: ' + error.message);
+    });
+}
+
+function pollHideNoiseStatus(caseId, taskId) {
+    const progressTitle = document.getElementById('hideNoiseProgressTitle');
+    const progressMessage = document.getElementById('hideNoiseProgressMessage');
+    const progressBar = document.getElementById('hideNoiseProgressBar');
+    const progressPercent = document.getElementById('hideNoiseProgressPercent');
+    const progressProcessed = document.getElementById('hideNoiseProgressProcessed');
+    const progressFound = document.getElementById('hideNoiseProgressFound');
+    
+    fetch(`/settings/system-tools/case/${caseId}/hide-noise/status/${taskId}`)
+    .then(response => response.json())
+    .then(data => {
+        switch (data.status) {
+            case 'pending':
+                progressTitle.textContent = 'Queued...';
+                progressMessage.textContent = 'Starting 8 parallel workers... Progress updates as each completes.';
+                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
+                break;
+            
+            case 'dispatching':
+                progressTitle.textContent = 'Starting...';
+                progressMessage.textContent = 'Dispatching workers...';
+                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
+                break;
+                
+            case 'scanning':
+                progressTitle.textContent = 'Scanning Events...';
+                const workersInfo = data.workers_complete ? ` (${data.workers_complete} workers done)` : '';
+                progressMessage.textContent = `Checking ${(data.total || 0).toLocaleString()} events for noise patterns${workersInfo}`;
+                progressBar.style.width = (data.percent || 0) + '%';
+                progressPercent.textContent = (data.percent || 0) + '%';
+                progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
+                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
+                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
+                break;
+                
+            case 'complete':
+            case 'success':
+                showHideNoiseResults(data);
+                break;
+                
+            case 'error':
+                showHideNoiseError(data.message || 'Task failed');
+                break;
+                
+            default:
+                // Keep polling for unknown states
+                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
+        }
+    })
+    .catch(error => {
+        showHideNoiseError('Lost connection to server: ' + error.message);
     });
 }
 
@@ -4777,20 +4848,23 @@ function showHideNoiseResults(data) {
     
     let html = '';
     
-    if (data.status === 'not_implemented') {
-        html = `
-            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">🚧</div>
-            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-warning);">Coming Soon</h4>
-            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                ${data.message}
-            </p>
-            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
-                    💡 <strong>Status:</strong> Pattern detection logic is complete. Backend integration pending.
-                </p>
-            </div>
-        `;
-    } else if (data.hidden > 0) {
+    if (data.hidden > 0) {
+        // Build category breakdown
+        let categoryHtml = '';
+        if (data.by_category) {
+            const cats = data.by_category;
+            categoryHtml = `
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); text-align: left;">
+                    <h5 style="margin: 0 0 var(--spacing-sm) 0;">📊 Breakdown</h5>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-xs); font-size: 0.9rem; color: var(--color-text-muted);">
+                        <div>🔧 Noise Processes: ${(cats.noise_process || 0).toLocaleString()}</div>
+                        <div>⌨️ Noise Commands: ${(cats.noise_command || 0).toLocaleString()}</div>
+                        <div>🔥 Firewall Noise: ${(cats.firewall_noise || 0).toLocaleString()}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
         html = `
             <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">✅</div>
             <h4 style="margin-bottom: var(--spacing-md); color: var(--color-success);">Successfully Hidden</h4>
@@ -4798,8 +4872,9 @@ function showHideNoiseResults(data) {
                 ${data.hidden.toLocaleString()} noise events
             </p>
             <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                Scanned ${data.processed.toLocaleString()} events
+                Scanned ${(data.processed || 0).toLocaleString()} events • Found ${(data.found || data.hidden).toLocaleString()} matches
             </p>
+            ${categoryHtml}
             <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
                 <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
                     💡 <strong>Tip:</strong> To view hidden events, change the "Hidden Events" filter to "Show" or "Only Hidden".
@@ -4813,6 +4888,14 @@ function showHideNoiseResults(data) {
             <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
                 Scanned ${(data.processed || 0).toLocaleString()} events but none matched noise patterns.
             </p>
+            <p style="color: var(--color-text-muted); font-size: 0.9rem;">
+                This could mean:
+            </p>
+            <ul style="text-align: left; display: inline-block; color: var(--color-text-muted); font-size: 0.9rem;">
+                <li>All noise events are already hidden</li>
+                <li>This case has minimal system noise</li>
+                <li>Events don't match current noise patterns</li>
+            </ul>
         `;
     }
     
