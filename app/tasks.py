@@ -3276,23 +3276,10 @@ def run_ai_triage_search(self, search_id):
                                 if f"{routine_lower}.exe" in search_blob:
                                     return True
             
-            # =========================================================================
-            # CHECK 4: Source IP is known-good
-            # =========================================================================
-            source_ip = src.get('source', {}).get('ip') or src.get('host', {}).get('ip')
-            if source_ip:
-                if isinstance(source_ip, list):
-                    source_ip = source_ip[0] if source_ip else None
-                if source_ip:
-                    for ip_range in exclusions.get('known_good_ips', []):
-                        try:
-                            if '/' in ip_range:
-                                if ipaddress.ip_address(source_ip) in ipaddress.ip_network(ip_range, strict=False):
-                                    return True
-                            elif source_ip == ip_range:
-                                return True
-                        except:
-                            pass
+            # NOTE: Known-good IP filtering is intentionally NOT done here.
+            # v1.44.2: Attacks can come from VPN/internal IPs (stolen creds, lateral movement)
+            # Known-good IP filtering only applies to "Hide Known Good Events" task,
+            # not to AI Triage hunting.
             
             return False
         
@@ -3350,11 +3337,10 @@ def run_ai_triage_search(self, search_id):
                 'rmm_tools': len(exclusions.get('rmm_executables', [])),
                 'remote_tools': len(exclusions.get('remote_tools', [])),
                 'edr_tools': len(exclusions.get('edr_tools', [])),
-                'known_ips': len(exclusions.get('known_good_ips', []))
             }
             logger.info(f"[AI_TRIAGE] Loaded exclusions: {exclusion_summary['rmm_tools']} RMM patterns, "
-                       f"{exclusion_summary['remote_tools']} remote tools, {exclusion_summary['edr_tools']} EDR tools, "
-                       f"{exclusion_summary['known_ips']} known-good IPs")
+                       f"{exclusion_summary['remote_tools']} remote tools, {exclusion_summary['edr_tools']} EDR tools "
+                       f"(known-good IPs NOT filtered - attacks can come from VPN/internal)")
             
             # Check event count
             try:
