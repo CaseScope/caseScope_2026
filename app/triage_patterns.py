@@ -110,13 +110,17 @@ def detect_password_spray(opensearch_client, case_id: int, exclusions: Dict = No
     
     try:
         # Query for failed logon events (4625 Windows, 6273 NPS)
+        # Exclude hidden events
         query = {
             "bool": {
                 "should": [
                     {"term": {"normalized_event_id": "4625"}},
                     {"term": {"normalized_event_id": "6273"}},
                 ],
-                "minimum_should_match": 1
+                "minimum_should_match": 1,
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
             }
         }
         
@@ -203,7 +207,10 @@ def detect_brute_force(opensearch_client, case_id: int, exclusions: Dict = None,
                     {"term": {"normalized_event_id": "4625"}},
                     {"term": {"normalized_event_id": "6273"}},
                 ],
-                "minimum_should_match": 1
+                "minimum_should_match": 1,
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
             }
         }
         
@@ -284,6 +291,7 @@ def detect_lateral_movement(opensearch_client, case_id: int, known_systems: Set[
     
     try:
         # Query for successful logons (4624) with LogonType 3 (Network) or 10 (RDP)
+        # Exclude hidden events
         query = {
             "bool": {
                 "must": [
@@ -295,7 +303,10 @@ def detect_lateral_movement(opensearch_client, case_id: int, known_systems: Set[
                     {"match": {"search_blob": "logontype.*3"}},
                     {"match": {"search_blob": "logontype.*10"}},
                 ],
-                "minimum_should_match": 0  # LogonType filter is best-effort
+                "minimum_should_match": 0,  # LogonType filter is best-effort
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
             }
         }
         
@@ -382,7 +393,7 @@ def detect_auth_chains(opensearch_client, case_id: int, known_systems: Set[str],
     index_name = f"case_{case_id}"
     
     try:
-        # First, get all auth events
+        # First, get all auth events (exclude hidden)
         query = {
             "bool": {
                 "should": [
@@ -390,7 +401,10 @@ def detect_auth_chains(opensearch_client, case_id: int, known_systems: Set[str],
                     {"term": {"normalized_event_id": "4776"}},  # Credential validation
                     {"term": {"normalized_event_id": "4624"}},  # Logon success
                 ],
-                "minimum_should_match": 1
+                "minimum_should_match": 1,
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
             }
         }
         
@@ -495,7 +509,7 @@ def detect_pass_the_hash(opensearch_client, case_id: int) -> Tuple[List[Dict], b
     index_name = f"case_{case_id}"
     
     try:
-        # Query for PTH indicators
+        # Query for PTH indicators (exclude hidden)
         query = {
             "bool": {
                 "should": [
@@ -509,7 +523,10 @@ def detect_pass_the_hash(opensearch_client, case_id: int) -> Tuple[List[Dict], b
                     # 4648 = Explicit credentials
                     {"term": {"normalized_event_id": "4648"}},
                 ],
-                "minimum_should_match": 1
+                "minimum_should_match": 1,
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
             }
         }
         
@@ -566,7 +583,10 @@ def search_av_detections(opensearch_client, case_id: int) -> Tuple[List[Dict], L
         query = {
             "bool": {
                 "should": should_clauses,
-                "minimum_should_match": 1
+                "minimum_should_match": 1,
+                "must_not": [
+                    {"term": {"is_hidden": True}}
+                ]
             }
         }
         
