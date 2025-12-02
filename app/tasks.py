@@ -3564,10 +3564,10 @@ def run_ai_triage_search(self, search_id):
                     f'Found {len(discovered_commands)} commands, {len(discovered_filenames)} files', 48)
             
             # =========================================================
-            # PHASE 4: AV/EDR MALWARE LOG CHECK (v1.44.0)
-            # Only if malware_indicated from IOC extraction
+            # PHASE 4: AV/EDR MALWARE LOG CHECK (v1.44.2)
+            # Always check - AV logs may have detections not in report
             # =========================================================
-            if total_events > 0 and malware_indicated:
+            if total_events > 0:
                 update_progress(4, 'AV Log Check', 'Checking AV/EDR logs for malware detections...', 50)
                 
                 try:
