@@ -154,15 +154,18 @@ Report:
 {summary_text}
 """
     
+    logger.info(f"[TRIAGE] Calling LLM ({model}) for IOC extraction...")
+    
     try:
         response = requests.post(
             f"{host}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
-            timeout=60
+            timeout=120  # v1.43.18: Increased timeout for longer prompts
         )
         
         if response.status_code == 200:
             result = response.json().get('response', '')
+            logger.info(f"[TRIAGE] LLM response received ({len(result)} chars)")
             
             # Try to parse JSON from response
             json_match = re.search(r'\{[\s\S]*\}', result)
@@ -172,12 +175,20 @@ Report:
                     total_iocs = sum(len(v) for v in iocs.values() if isinstance(v, list))
                     logger.info(f"[TRIAGE] LLM ({model}) extracted IOCs: {total_iocs} total")
                     return iocs
-                except json.JSONDecodeError:
-                    logger.warning("[TRIAGE] LLM returned invalid JSON, falling back to regex")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[TRIAGE] LLM returned invalid JSON: {e}")
+                    logger.warning(f"[TRIAGE] Raw response (first 500 chars): {result[:500]}")
+            else:
+                logger.warning(f"[TRIAGE] No JSON found in LLM response: {result[:300]}")
+        else:
+            logger.warning(f"[TRIAGE] LLM HTTP error: {response.status_code}")
         
+    except requests.exceptions.Timeout:
+        logger.warning(f"[TRIAGE] LLM request timed out (120s)")
     except Exception as e:
-        logger.warning(f"[TRIAGE] LLM extraction failed: {e}, falling back to regex")
+        logger.warning(f"[TRIAGE] LLM extraction failed: {e}")
     
+    logger.info("[TRIAGE] Falling back to regex extraction")
     return {}
 
 
