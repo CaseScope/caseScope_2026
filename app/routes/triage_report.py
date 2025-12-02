@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 triage_report_bp = Blueprint('triage_report', __name__)
 
 # IOC type mappings for the IOC table
+# v1.43.18: Added services mapping
 IOC_TYPE_MAP = {
     'ips': 'ip',
     'hashes': 'hash',
@@ -38,6 +39,7 @@ IOC_TYPE_MAP = {
     'threats': 'threat',
     'malware': 'malware',
     'tools': 'tool',
+    'services': 'service',
 }
 
 # Noise filtering
@@ -103,51 +105,52 @@ def extract_iocs_with_llm(summary_text: str) -> Dict:
     """
     Use LLM to extract structured IOCs from investigative summary.
     Returns dict with categorized IOCs.
+    
+    v1.43.18: Hardcoded to dfir-qwen:latest for best IOC extraction accuracy.
     """
     import requests
     from models import SystemSettings
     
-    # Get Ollama settings
+    # Get Ollama host setting (model is hardcoded for IOC extraction)
     ollama_host = SystemSettings.query.filter_by(setting_key='ollama_host').first()
-    ollama_model = SystemSettings.query.filter_by(setting_key='ollama_model').first()
-    
     host = ollama_host.setting_value if ollama_host else 'http://localhost:11434'
-    model = ollama_model.setting_value if ollama_model else 'mistral'
     
-    prompt = f"""You are a security analyst. Extract ALL indicators of compromise (IOCs) from this investigative report.
+    # v1.43.18: Hardcode model for IOC extraction - Qwen performs best
+    model = 'dfir-qwen:latest'
+    
+    # v1.43.18: Improved prompt - clearer schema, defang rules, no example contamination
+    prompt = f"""Extract IOCs from the following EDR/security report. Return ONLY valid JSON.
 
-Return ONLY valid JSON with these fields (use empty arrays if none found):
+SCHEMA (use empty arrays [] if none found):
 {{
-    "usernames": ["username1", "username2"],
-    "ips": ["1.2.3.4", "10.0.0.1"],
-    "processes": ["malware.exe", "suspicious.exe"],
-    "paths": ["C:\\\\path\\\\to\\\\file"],
-    "hashes": ["sha256_or_md5_hash"],
-    "hostnames": ["SERVER01", "WORKSTATION"],
-    "timestamps": ["2025-09-05T06:40:02"],
-    "sids": ["S-1-5-21-..."],
-    "domains": ["evil.com"],
-    "registry_keys": ["HKLM\\\\..."],
-    "commands": ["powershell -enc ...", "nltest /dclist:"],
-    "tools": ["WinSCP", "Advanced IP Scanner", "PSEXEC"],
-    "malware_indicated": true
+  "usernames": ["exact usernames only - no SIDs, no domain prefixes"],
+  "sids": ["S-1-5-21-... format only"],
+  "ips": ["IP addresses only - defang: 91.236.230[.]136 becomes 91.236.230.136"],
+  "hostnames": ["computer names like SERVER01, DC1, WORKSTATION - NOT domains"],
+  "domains": ["domain names like evil.com, malware.net - NOT computer names"],
+  "processes": ["executable names like nltest.exe, WinSCP.exe"],
+  "paths": ["file/folder paths like C:\\Users\\..."],
+  "commands": ["full command lines executed"],
+  "hashes": ["SHA256, SHA1, or MD5 hashes"],
+  "timestamps": ["ISO 8601 format: 2025-10-05T19:46:35Z"],
+  "registry_keys": ["HKLM\\..., HKCU\\..."],
+  "tools": ["tool/software names mentioned: WinSCP, Mimikatz, BlueVPS, etc."],
+  "services": ["network services: RDP, SMB, WinRM, SSH if mentioned"],
+  "threat_types": ["enumeration", "lateral_movement", "exfiltration", "persistence", etc.],
+  "malware_indicated": true or false
 }}
 
-IMPORTANT RULES:
-- Extract EXACT values from the text
-- IP addresses go in "ips" NOT "hostnames"
-- Hostnames are computer names like "SERVER01", "WORKSTATION", "DC1"
-- Include ALL usernames mentioned (e.g., "tabadmin", "BButler")
-- Include ALL IP addresses (both internal and external)
-- Include ALL process names (e.g., "WinSCP.exe", "nltest.exe")
-- Include ALL file paths mentioned
-- Include ALL SHA256/MD5/SHA1 hashes
-- Include recon commands like "nltest /dclist:", "net group /domain"
-- Include tool names like "WinSCP", "Advanced IP Scanner", "BlueVPS"
-- Set malware_indicated to true if malware, recon tools, or suspicious activity is mentioned
-- Only return the JSON, no explanations
+RULES:
+- Extract EXACT values from text only - do not invent or assume
+- Defang IPs: 91.236.230[.]136 becomes 91.236.230.136
+- Usernames: extract just the username (BButler), not "BButler / S-1-5-21-..."
+- IPs go in "ips", computer names go in "hostnames" - DO NOT MIX
+- Include VPS/hosting providers in "tools" (BlueVPS, DigitalOcean, etc.)
+- Normalize timestamps to ISO 8601 (2025-10-05 19:46:35 UTC becomes 2025-10-05T19:46:35Z)
+- Set malware_indicated=true if: recon tools, exfil tools, C2, suspicious RDP, or malware
+- Return ONLY the JSON object, no markdown, no explanation, no comments
 
-Report text:
+Report:
 {summary_text}
 """
     
@@ -166,7 +169,8 @@ Report text:
             if json_match:
                 try:
                     iocs = json.loads(json_match.group())
-                    logger.info(f"[TRIAGE] LLM extracted IOCs: {sum(len(v) for v in iocs.values() if isinstance(v, list))} total")
+                    total_iocs = sum(len(v) for v in iocs.values() if isinstance(v, list))
+                    logger.info(f"[TRIAGE] LLM ({model}) extracted IOCs: {total_iocs} total")
                     return iocs
                 except json.JSONDecodeError:
                     logger.warning("[TRIAGE] LLM returned invalid JSON, falling back to regex")
@@ -181,6 +185,8 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
     """
     Fallback: Extract IOCs using regex patterns.
     Used if LLM fails or is unavailable.
+    
+    v1.43.18: Added services, threat_types fields for consistency with LLM output.
     """
     iocs = {
         'usernames': [],
@@ -195,6 +201,8 @@ def extract_iocs_with_regex(summary_text: str) -> Dict:
         'registry_keys': [],
         'commands': [],
         'tools': [],
+        'services': [],
+        'threat_types': [],
         'malware_indicated': False
     }
     
