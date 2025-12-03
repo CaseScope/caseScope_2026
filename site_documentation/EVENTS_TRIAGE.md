@@ -11,10 +11,11 @@ Complete documentation for the Triage system. Each phase is documented separatel
 3. [Triage Page & Prerequisites](#triage-page--prerequisites)
 4. [Phase 1: EDR IOC Extraction](#phase-1-edr-ioc-extraction)
 5. [Phase 2: Find Potential IOCs (Snowball Hunting)](#phase-2-find-potential-iocs-snowball-hunting)
-6. [Routes Reference](#routes-reference)
-7. [Database Models](#database-models)
-8. [Reconstruction Checklist](#reconstruction-checklist)
-9. [Version History](#version-history)
+6. [Phase 3: Tag Highly Likely Events](#phase-3-tag-highly-likely-events)
+7. [Routes Reference](#routes-reference)
+8. [Database Models](#database-models)
+9. [Reconstruction Checklist](#reconstruction-checklist)
+10. [Version History](#version-history)
 
 ---
 
@@ -50,6 +51,15 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
+│                      CENTRALIZED NOISE FILTERS                           │
+│  app/noise_filters.py (Single Source of Truth)                          │
+│  ├── NOISE_USERS, NOISE_PROCESSES, NOISE_PATH_PATTERNS                 │
+│  ├── is_noise_user(), is_noise_process(), is_external_ip()             │
+│  └── Imported by all triage modules below                              │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
 │                         MODULE LAYER                                     │
 │                                                                          │
 │  Phase 1: app/ai_triage_edr_ioc.py                                      │
@@ -60,10 +70,17 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 │                                                                          │
 │  Phase 2: app/ai_triage_find_iocs.py                                    │
 │  ├── get_case_context() - Load case data for filtering                 │
-│  ├── search_events_with_iocs() - OpenSearch query                      │
+│  ├── search_events_with_iocs() - OpenSearch query (scroll API)         │
 │  ├── extract_iocs_from_events() - Extract from matched events          │
 │  ├── check_managed_tool() - RMM/EDR tool ID verification               │
 │  └── find_potential_iocs() - Main entry point                          │
+│                                                                          │
+│  Phase 3: app/ai_triage_tag_iocs.py                                     │
+│  ├── get_high_confidence_iocs() - Get IOCs for tagging                 │
+│  ├── get_actor_systems() - Get actor system hostnames/IPs              │
+│  ├── search_events_for_tagging() - OpenSearch query (scroll API)       │
+│  ├── is_noise_event() - Filter noise events                            │
+│  └── tag_high_confidence_events() - Main entry point                   │
 │                                                                          │
 │  Future phases:                                                         │
 │  ├── ai_triage_patterns.py (Attack Pattern Detection)                  │
@@ -78,13 +95,15 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 │  ├── POST /case/<id>/triage/extract-iocs - Phase 1: Extract IOCs       │
 │  ├── POST /case/<id>/triage/add-extracted-iocs - Save extracted IOCs   │
 │  ├── POST /case/<id>/triage/find-iocs - Phase 2: Find potential IOCs   │
-│  └── POST /case/<id>/triage/add-found-iocs - Save found IOCs           │
+│  ├── POST /case/<id>/triage/add-found-iocs - Save found IOCs           │
+│  └── POST /case/<id>/triage/tag-events - Phase 3: Tag events           │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         STORAGE LAYER                                    │
 │  PostgreSQL: IOC table (extracted & discovered IOCs)                    │
+│  PostgreSQL: TimelineTag table (tagged events from Phase 3)             │
 │  PostgreSQL: AITriageSearch table (triage history)                      │
 │  OpenSearch: case_{id} index (event data for hunting)                   │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -245,7 +264,7 @@ def find_potential_iocs(case_id: int) -> Dict:
 
 ### Filtering Logic
 
-The module applies extensive filtering to avoid noise:
+The module applies extensive filtering to avoid noise. **All noise constants are imported from `app/noise_filters.py`** (centralized source of truth).
 
 #### 1. Hidden Events
 - OpenSearch query includes `"must_not": [{"term": {"is_hidden": True}}]`
@@ -275,30 +294,23 @@ For each tool with `executable_pattern` and optional `known_good_ids`:
   - If `known_good_ids` configured AND ID NOT found → **KEEP** (attacker using tool!)
   - If no `known_good_ids` configured → **SKIP** (trust the tool)
 
-#### 6. Noise Filtering
+#### 6. Noise Filtering (from `noise_filters.py`)
 
-**Noise Users (filtered):**
-```python
-NOISE_USERS = {
-    'system', 'network service', 'local service', 'anonymous logon',
-    'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
-    'umfd-0', 'umfd-1', 'font driver host', 'guest', 'defaultaccount',
-    'nt authority\\system', 'nt authority\\local service', ...
-}
-```
+**Noise Users (23 accounts):**
+- System accounts: `system`, `network service`, `local service`
+- DWM/UMFD accounts: `dwm-1`, `dwm-2`, `umfd-0`, etc.
+- NT Authority accounts: `nt authority\\system`, etc.
+- Machine accounts (ending with `$`) are also filtered
 
-**Noise Processes (filtered):**
+**Noise Processes (109 processes):**
 - Browser processes (chrome.exe, msedge.exe, firefox.exe)
 - Adobe processes (acrord32.exe, acrobat.exe, adobearm.exe)
 - Windows background (runtimebroker.exe, taskhostw.exe, searchindexer.exe)
 - Common apps (teams.exe, slack.exe, zoom.exe, spotify.exe)
-- Many more (~100+ processes)
 
-**Noise Paths (filtered):**
-- `c:\windows\system32\`
-- `c:\program files\`
-- `appdata\local\google\chrome`
-- `appdata\local\microsoft\edge`
+**Noise Paths:**
+- `c:\windows\system32\`, `c:\windows\syswow64\`
+- `appdata\local\google\chrome`, `appdata\local\microsoft\edge`
 - Adobe, Office, browser paths
 
 ### Extraction Fields
@@ -346,6 +358,127 @@ function findPotentialIOCs() {
     // 2. POST to /case/{id}/triage/find-iocs
     // 3. Display categorized results in modal
     // 4. User reviews and clicks "Add Selected IOCs"
+}
+```
+
+---
+
+## Phase 3: Tag Highly Likely Events
+
+### File: `app/ai_triage_tag_iocs.py`
+
+Automatically tags events containing high-confidence IOCs. Creates `TimelineTag` entries for events that match commands, external IPs, actor systems, and other definitive indicators.
+
+### High-Confidence IOC Criteria
+
+| IOC Type | Criteria |
+|----------|----------|
+| `command` | Always high confidence (specific attack indicators) |
+| `command_complex` | Always high confidence (obfuscated commands) |
+| `hash` | Always high confidence (file hashes are definitive) |
+| `malware_name` | Always high confidence |
+| `url` | Always high confidence |
+| `domain` | Always high confidence (C2 domains) |
+| `ip` | High confidence **only if external** (not private/loopback) |
+| `hostname` | High confidence **only if threat_level is high/critical** |
+| `filename` | High confidence **only if threat_level is high/critical** |
+| `filepath` | High confidence **only if threat_level is high/critical** |
+| `username` | High confidence **only if threat_level is high/critical** |
+
+**Actor Systems:** Systems marked as `actor_system` type in the database are always included.
+
+### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `get_high_confidence_iocs(case_id)` | Get IOCs meeting high-confidence criteria |
+| `get_actor_systems(case_id)` | Get hostnames/IPs of actor systems |
+| `search_events_for_tagging(case_id, query)` | Query OpenSearch with scroll API (no limit) |
+| `is_noise_event(event)` | Check if event should be filtered as noise |
+| `tag_event(case_id, user_id, event, match)` | Create TimelineTag entry |
+| `tag_high_confidence_events(case_id, user_id)` | **Main entry point** |
+
+### Flow Logic
+
+```python
+def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
+    """
+    1. Get high-confidence IOCs from database
+    2. Get actor system hostnames/IPs
+    3. Build OpenSearch query for events matching IOCs
+    4. Query excludes hidden events (is_hidden: true)
+    5. Use scroll API to get ALL matching events (no limit)
+    6. Filter noise events (system users, background processes)
+    7. Skip already-tagged events
+    8. Create TimelineTag entries for remaining events
+    9. Return summary with tagged count
+    """
+```
+
+### Filtering Logic (from `noise_filters.py`)
+
+#### 1. Hidden Events
+- OpenSearch query includes `"must_not": [{"term": {"is_hidden": True}}]`
+
+#### 2. Already Tagged Events
+- Events with existing `TimelineTag` entries are skipped
+
+#### 3. Noise Event Filtering
+
+**Noise Users:**
+- Imported from `noise_filters.NOISE_USERS`
+- Events with these users in relevant fields are filtered
+
+**Noise Parent Processes:**
+```python
+NOISE_PARENT_PROCESSES = GENERIC_PARENTS | {
+    'taskhostw.exe', 'runtimebroker.exe', 'searchindexer.exe',
+    'tiworker.exe', 'trustedinstaller.exe', 'msiexec.exe',
+    'spoolsv.exe', 'lsass.exe', 'csrss.exe', 'wininit.exe',
+    'smss.exe', 'system', 'registry', 'fontdrvhost.exe',
+}
+```
+
+**Noise Event IDs:**
+- Imported from `noise_filters.NOISE_EVENT_IDS`
+- Event IDs 4689, 7036, 7040, 7045 (process termination, service changes)
+
+### Output Structure
+
+```python
+{
+    'success': True,
+    'tagged_count': 42,
+    'events_found': 156,
+    'events_filtered': 114,
+    'already_tagged': 12,
+    'iocs_used': 18,
+    'tags_created': [
+        {
+            'event_id': 'abc123',
+            'timestamp': '2024-01-15T10:30:00',
+            'matched_ioc': 'nltest.exe /dclist',
+            'ioc_type': 'command'
+        },
+        ...
+    ]
+}
+```
+
+### Routes
+
+| Route | Method | Function |
+|-------|--------|----------|
+| `/case/<id>/triage/tag-events` | POST | Tag events with high-confidence IOCs |
+
+### JavaScript Function
+
+```javascript
+function tagHighlyLikelyEvents() {
+    // 1. Show modal with progress spinner
+    // 2. POST to /case/{id}/triage/tag-events
+    // 3. Display results in modal (tagged count, filters applied)
+    // 4. Refresh page to update tagged events count
 }
 ```
 
@@ -420,6 +553,25 @@ new_ioc = IOC(
 
 **Description field:** `'Discovered via IOC hunting'`
 
+### POST `/case/<int:case_id>/triage/tag-events`
+
+**Function:** `triage_tag_events(case_id)`
+
+Triggers Phase 3 event tagging.
+
+**Response:**
+```json
+{
+    "success": true,
+    "tagged_count": 42,
+    "events_found": 156,
+    "events_filtered": 114,
+    "already_tagged": 12,
+    "iocs_used": 18,
+    "message": "Tagged 42 events with high-confidence IOCs"
+}
+```
+
 ---
 
 ## Database Models
@@ -435,11 +587,36 @@ class IOC(db.Model):
     ioc_type = db.Column(db.String(50))  # ip, username, hostname, command, etc.
     ioc_value = db.Column(db.String(500), index=True)
     description = db.Column(db.Text)  # 'Extracted from EDR Report' or 'Discovered via IOC hunting'
-    threat_level = db.Column(db.String(20), default='medium')
+    threat_level = db.Column(db.String(20), default='medium')  # low, medium, high, critical
     is_active = db.Column(db.Boolean, default=True)
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 ```
+
+**Threat Level Values:**
+- `low` - Informational indicator
+- `medium` - Default, requires investigation
+- `high` - Likely attack-related (included in Phase 3 tagging)
+- `critical` - Definitive attack indicator (included in Phase 3 tagging)
+
+### TimelineTag Table
+
+**File:** `app/models.py`
+
+```python
+class TimelineTag(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), index=True)
+    event_id = db.Column(db.String(100), index=True)  # OpenSearch _id
+    event_timestamp = db.Column(db.DateTime)
+    tag_type = db.Column(db.String(50))  # 'ioc_match', 'actor_system', 'manual'
+    tag_value = db.Column(db.String(500))  # The matched IOC value
+    tag_reason = db.Column(db.Text)  # Why this event was tagged
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+```
+
+**Used by:** Phase 3 event tagging to mark events for timeline generation.
 
 ### AITriageSearch Table
 
@@ -460,11 +637,18 @@ class AITriageSearch(db.Model):
 
 To rebuild this system:
 
+### 0. Centralized Noise Filters (`noise_filters.py`)
+- [ ] Create `app/noise_filters.py` as single source of truth
+- [ ] Define `NOISE_USERS`, `NOISE_PROCESSES`, `NOISE_PATH_PATTERNS`
+- [ ] Define `is_noise_user()`, `is_noise_process()`, `is_external_ip()` functions
+- [ ] All triage modules import from this file
+
 ### 1. Triage Page (`templates/triage.html`)
 - [ ] Prerequisite cards with conditional styling
 - [ ] Badge pills for status indicators
 - [ ] Phase 1 button: "Extract IOCs from EDR Report"
 - [ ] Phase 2 button: "Find Potential IOCs"
+- [ ] Phase 3 button: "Tag Highly Likely Events"
 - [ ] Modals for progress and results
 
 ### 2. Phase 1 Module (`ai_triage_edr_ioc.py`)
@@ -474,26 +658,37 @@ To rebuild this system:
 - [ ] `extract_iocs_from_report()` flow logic
 
 ### 3. Phase 2 Module (`ai_triage_find_iocs.py`)
+- [ ] Import from `noise_filters.py`
 - [ ] `get_case_context()` to load filtering data
 - [ ] `search_events_with_iocs()` with scroll API
 - [ ] `extract_iocs_from_events()` with all filters
 - [ ] `check_managed_tool()` for RMM/EDR ID verification
 - [ ] `contains_existing_ioc()` for duplicate detection
-- [ ] Noise filtering constants (NOISE_USERS, NOISE_PROCESSES, etc.)
 
-### 4. Routes (`main.py`)
+### 4. Phase 3 Module (`ai_triage_tag_iocs.py`)
+- [ ] Import from `noise_filters.py`
+- [ ] `get_high_confidence_iocs()` to get IOCs for tagging
+- [ ] `get_actor_systems()` to get actor hostnames/IPs
+- [ ] `search_events_for_tagging()` with scroll API (no limit)
+- [ ] `is_noise_event()` for noise filtering
+- [ ] `tag_event()` to create TimelineTag entries
+- [ ] `tag_high_confidence_events()` main entry point
+
+### 5. Routes (`main.py`)
 - [ ] `triage_page()` route
 - [ ] `triage_extract_iocs()` route
 - [ ] `triage_add_extracted_iocs()` route
 - [ ] `triage_find_iocs()` route
 - [ ] `triage_add_found_iocs()` route
+- [ ] `triage_tag_events()` route
 - [ ] **Important:** Use `description` field, NOT `ioc_source`
 
-### 5. JavaScript
+### 6. JavaScript
 - [ ] `extractIOCs()` for Phase 1
 - [ ] `addExtractedIOCs()` to save Phase 1 results
 - [ ] `findPotentialIOCs()` for Phase 2
 - [ ] `addFoundIOCs()` to save Phase 2 results
+- [ ] `tagHighlyLikelyEvents()` for Phase 3
 
 ---
 
@@ -509,3 +704,7 @@ To rebuild this system:
 | v1.46.3 | Added snowball hunting with managed tool filtering |
 | v1.46.3 | Added scroll API for unlimited event search |
 | v1.46.3 | Added `contains_existing_ioc()` for duplicate filtering |
+| v1.46.3 | Created `ai_triage_tag_iocs.py` (Phase 3) |
+| v1.46.3 | Added high-confidence event tagging with TimelineTag |
+| v1.46.3 | Centralized noise filters into `noise_filters.py` |
+| v1.46.3 | All triage modules now import from centralized filters |
