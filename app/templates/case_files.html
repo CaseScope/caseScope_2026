@@ -765,7 +765,9 @@ function refreshFileStats() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                // Update individual stat elements
+                // ====================================================================
+                // UPDATE FILE STATUS COUNTS (queue monitoring)
+                // ====================================================================
                 document.getElementById('stat-completed').textContent = data.completed || 0;
                 document.getElementById('stat-failed').textContent = data.failed || 0;
                 document.getElementById('stat-queued').textContent = data.queued || 0;
@@ -773,7 +775,25 @@ function refreshFileStats() {
                 document.getElementById('stat-sigma').textContent = data.sigma || 0;
                 document.getElementById('stat-ioc-hunting').textContent = data.ioc_hunting || 0;
                 
-                // Update event status counts if available
+                // ====================================================================
+                // UPDATE EVENT STATISTICS (synchronous - all together)
+                // ====================================================================
+                // Top row: Total Events, SIGMA Violations, IOC Events
+                const totalEventsEl = document.getElementById('stat-total-events');
+                const sigmaEventsEl = document.getElementById('stat-sigma-events');
+                const iocEventsEl = document.getElementById('stat-ioc-events');
+                
+                if (totalEventsEl && data.total_events !== undefined) {
+                    totalEventsEl.textContent = data.total_events.toLocaleString();
+                }
+                if (sigmaEventsEl && data.sigma_events !== undefined) {
+                    sigmaEventsEl.textContent = data.sigma_events.toLocaleString();
+                }
+                if (iocEventsEl && data.ioc_events !== undefined) {
+                    iocEventsEl.textContent = data.ioc_events.toLocaleString();
+                }
+                
+                // Bottom row: Event Status Breakdown (New, Hunted, Confirmed, Noise)
                 if (data.status_counts) {
                     const statusNewEl = document.getElementById('stat-status-new');
                     const statusHuntedEl = document.getElementById('stat-status-hunted');

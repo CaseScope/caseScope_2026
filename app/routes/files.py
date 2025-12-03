@@ -1267,15 +1267,18 @@ def queue_health_case(case_id):
 @files_bp.route('/case/<int:case_id>/file-stats')
 @login_required
 def file_stats_case(case_id):
-    """Get file statistics for auto-refresh"""
+    """Get comprehensive file and event statistics for auto-refresh (synchronous update)"""
     from main import db, Case, CaseFile
+    from sqlalchemy import func
     
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'status': 'error', 'message': 'Case not found'}), 404
     
     try:
-        # Count by status (v1.13.9: Exclude hidden files from all counts)
+        # ========================================================================
+        # FILE STATUS COUNTS (for queue monitoring)
+        # ========================================================================
         completed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'Completed',
@@ -1315,36 +1318,66 @@ def file_stats_case(case_id):
             CaseFile.case_id == case_id,
             CaseFile.indexing_status.like('Failed%'),
             CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False  # v1.13.9: Exclude hidden files from failed count
+            CaseFile.is_hidden == False
         ).count()
         
-        # Get event status counts
-        from event_status import get_status_counts
-        from sqlalchemy import func
-        
-        # Get total events (same way as main page load)
-        total_events = db.session.query(func.sum(CaseFile.event_count)).filter_by(
+        # ========================================================================
+        # EVENT COUNTS (for Event Statistics tile)
+        # ========================================================================
+        # Total events
+        total_events = int(db.session.query(func.sum(CaseFile.event_count)).filter_by(
             case_id=case_id,
             is_deleted=False,
             is_hidden=False
-        ).scalar() or 0
+        ).scalar() or 0)
         
-        # Get status counts and calculate "new" the same way as main page
+        # SIGMA violation events (distinct events with has_sigma=True)
+        from models import SigmaViolation
+        sigma_events = db.session.query(func.count(func.distinct(SigmaViolation.event_id))).filter_by(
+            case_id=case_id
+        ).scalar() or 0
+        sigma_events = int(sigma_events)
+        
+        # IOC match events (distinct events with has_ioc=True)
+        from models import IOCMatch
+        ioc_events = db.session.query(func.count(func.distinct(IOCMatch.event_id))).filter_by(
+            case_id=case_id
+        ).scalar() or 0
+        ioc_events = int(ioc_events)
+        
+        # ========================================================================
+        # EVENT STATUS COUNTS (for status breakdown)
+        # ========================================================================
+        from event_status import get_status_counts
+        
+        # Get status counts from database
         status_counts = get_status_counts(case_id)
-        tracked_events = status_counts.get('hunted', 0) + status_counts.get('confirmed', 0) + status_counts.get('noise', 0)
+        
+        # Calculate "new" count: total events - (hunted + confirmed + noise)
+        # Events without a status record are considered "new"
+        tracked_events = int(status_counts.get('hunted', 0) + status_counts.get('confirmed', 0) + status_counts.get('noise', 0))
         status_counts['new'] = max(0, total_events - tracked_events)
         
         # Convert all status_counts values to int (prevent Decimal/string serialization issues)
         status_counts = {k: int(v) for k, v in status_counts.items()}
         
+        # ========================================================================
+        # RETURN ALL DATA SYNCHRONOUSLY (one response, all updates together)
+        # ========================================================================
         return jsonify({
             'status': 'success',
+            # File status counts (queue monitoring)
             'completed': completed,
             'queued': queued,
             'indexing': indexing,
             'sigma': sigma,
             'ioc_hunting': ioc_hunting,
             'failed': failed,
+            # Event counts (statistics tile)
+            'total_events': total_events,
+            'sigma_events': sigma_events,
+            'ioc_events': ioc_events,
+            # Event status breakdown
             'status_counts': status_counts
         })
     
