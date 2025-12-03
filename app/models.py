@@ -635,6 +635,7 @@ class SystemToolsSetting(db.Model):
     # For RMM, Remote, and EDR tools
     tool_name = db.Column(db.String(100))  # 'ConnectWise Automate', 'ScreenConnect', 'Huntress', etc.
     executable_pattern = db.Column(db.String(500))  # 'LTSVC.exe,LTSvcMon.exe' or 'HuntressAgent.exe'
+    rmm_path = db.Column(db.String(500))  # RMM installation path (e.g., 'C:\\Program Files\\LabTech\\')
     
     # For Remote tools with session IDs (e.g., ScreenConnect)
     known_good_ids = db.Column(db.Text)  # JSON list: ["id1", "id2"]

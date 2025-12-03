@@ -1,63 +1,51 @@
 # Events Known Good - Technical Reference
 
-Complete documentation for the Known-Good Events detection and hiding system. This document provides enough detail to reconstruct the entire system.
+Complete documentation for the Known-Good Events detection system that marks events as `status: noise`.
 
 ---
 
 ## Overview
 
-The Known-Good Events system identifies and hides events that originate from trusted tools and sources, reducing noise in security investigations. Events are marked with `is_hidden: true` in OpenSearch but remain searchable when analysts enable "Show Hidden" filter.
+The Known-Good Events system identifies events from trusted tools and sources, marking them with `status: noise` to reduce clutter in security investigations. Events remain fully searchable and visible when the "Noise" status filter is enabled.
 
 ### Key Concepts
 
 | Term | Description |
 |------|-------------|
 | **Known-Good** | Events from trusted RMM tools, EDR health checks, remote sessions with valid IDs |
-| **Hidden Event** | Event with `is_hidden: true` field in OpenSearch |
+| **Noise Status** | Event with `event_status='noise'` in OpenSearch AND `status='noise'` in database |
 | **Exclusion** | A pattern defined in System Settings that identifies known-good events |
 | **search_blob** | Flattened text field containing all event data for pattern matching |
+| **event_status** | Field in OpenSearch: 'new', 'noise', 'hunted', or 'confirmed' |
+| **EventStatus Table** | PostgreSQL table tracking event status for dashboard statistics |
 
 ---
 
-## Architecture
+## Detection Logic - The Three Rules
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         CONFIGURATION LAYER                              │
-│  SystemToolsSetting (PostgreSQL)                                         │
-│  ├── rmm_tool: "LTSVC.exe,LTSvcMon.exe"                                │
-│  ├── remote_tool: "screenconnect" + ["session-id-1", "session-id-2"]   │
-│  ├── edr_tool: "huntressagent.exe" + routine: ["whoami.exe"]           │
-│  └── known_good_ip: "192.168.1.0/24"                                   │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         MODULE LAYER                                     │
-│  app/events_known_good.py (Primary - standalone module)                 │
-│  ├── is_known_good_event() - core detection                            │
-│  ├── process_slice() - parallel worker processing                      │
-│  └── bulk_hide_events() - OpenSearch bulk updates                      │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         EXECUTION LAYER                                  │
-│  1. During Indexing: file_processing.apply_auto_hide()                  │
-│     → Uses events_known_good.is_known_good_event()                      │
-│  2. Bulk Hide (Parallel): tasks.hide_known_good_events_task()           │
-│     → Dispatches 8x hide_known_good_slice_task() workers                │
-│  3. AI Triage: tasks.should_exclude_event()                             │
-│  4. Manual Hide: main.hide_event() / unhide_event()                     │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         STORAGE LAYER                                    │
-│  OpenSearch: case_{id} index                                            │
-│  Event document: { ..., "is_hidden": true, "hidden_reason": "..." }    │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+The system uses these **exact** rules to identify known-good events:
+
+### Rule 1: RMM Tools
+**If RMM EXE OR RMM PATH found in blob → status: noise**
+
+- Checks for RMM executable patterns (e.g., `ltsvc.exe`, `dattoagent.exe`)
+- Checks for RMM installation paths (e.g., `c:\program files\labtech\`)
+- Both EXE list and PATH are configured per-RMM tool in System Settings
+
+### Rule 2: Remote Tools
+**If Remote Tool EXE AND Session ID found in blob → status: noise**
+
+- BOTH the remote tool executable pattern AND a known-good session ID must be present
+- Example: `screenconnect` + `abc123-session-id`
+- Session IDs are configured per-tool in System Settings
+
+### Rule 3: EDR Tools
+**If EDR Tool EXE AND Routine Keyword(s) found in blob → status: noise**
+
+- EDR executable must be present (e.g., `huntressagent.exe`)
+- Routine command keyword must be present (e.g., `whoami`, `ipconfig`)
+- UNLESS a response pattern is also present (e.g., `isolat`, `quarantin`) → then keep it (not noise!)
+- Routine keywords and response patterns configured per-EDR tool in System Settings
 
 ---
 
@@ -65,7 +53,7 @@ The Known-Good Events system identifies and hides events that originate from tru
 
 ### Table: `system_tools_setting`
 
-**File:** `app/models.py` (lines 548-596)
+**File:** `app/models.py` (lines 616-665)
 
 ```python
 class SystemToolsSetting(db.Model):
@@ -79,6 +67,7 @@ class SystemToolsSetting(db.Model):
     # For RMM, Remote, and EDR tools
     tool_name = db.Column(db.String(100))           # 'ConnectWise Automate', 'Huntress'
     executable_pattern = db.Column(db.String(500))  # 'LTSVC.exe,LTSvcMon.exe'
+    rmm_path = db.Column(db.String(500))           # 'C:\\Program Files\\LabTech\\'
     
     # For Remote tools (ScreenConnect, TeamViewer)
     known_good_ids = db.Column(db.Text)  # JSON: ["session-id-1", "session-id-2"]
@@ -86,8 +75,8 @@ class SystemToolsSetting(db.Model):
     # For IP exclusions
     ip_or_cidr = db.Column(db.String(50))  # '192.168.1.0/24' or '10.0.0.50'
     
-    # For EDR tools (v1.40.0)
-    exclude_routine = db.Column(db.Boolean, default=True)   # Hide health checks
+    # For EDR tools
+    exclude_routine = db.Column(db.Boolean, default=True)   # Hide routine checks
     keep_responses = db.Column(db.Boolean, default=True)    # Keep response actions
     routine_commands = db.Column(db.Text)   # JSON: ["whoami", "systeminfo", "ipconfig"]
     response_patterns = db.Column(db.Text)  # JSON: ["isolat", "quarantin", "block"]
@@ -103,67 +92,70 @@ class SystemToolsSetting(db.Model):
 
 | Type | Purpose | Key Fields |
 |------|---------|------------|
-| `rmm_tool` | RMM tools (LabTech, Datto) | `tool_name`, `executable_pattern` |
+| `rmm_tool` | RMM tools (LabTech, Datto) | `tool_name`, `executable_pattern`, `rmm_path` |
 | `remote_tool` | Remote access with session IDs | `tool_name`, `executable_pattern`, `known_good_ids` |
 | `edr_tool` | EDR/AV tools | `tool_name`, `executable_pattern`, `routine_commands`, `response_patterns` |
 | `known_good_ip` | Trusted IP/CIDR | `ip_or_cidr` |
 
 ---
 
-## Detection Logic
+## How Status is Set
 
-### Core Algorithm
+### During File Indexing (Automatic)
+When events are indexed, the system:
+1. Checks each event against exclusion rules using `is_known_good_event()`
+2. If matched, sets `event_status='noise'` in the OpenSearch document
+3. Sets `status_reason='auto_known_good'` for tracking
+4. No database update during indexing (for performance)
+
+### During "Hide Known Good" Operation (Manual)
+When user clicks "Hide Known Good Events":
+1. Scans all events using parallel workers (8 workers via Celery)
+2. Checks each event against exclusion rules
+3. For matched events:
+   - Sets `event_status='noise'` in OpenSearch document
+   - Sets `status_reason='auto_known_good'` in OpenSearch document
+   - Creates/updates database records in `event_status` table with `status='noise'`
+4. Uses `bulk_set_status()` from `event_status` module for database updates
+
+### Status Storage (Dual System)
+- **OpenSearch Document:** `event_status='noise'` field + `status_reason` field
+- **PostgreSQL EventStatus Table:** Record with `status='noise'` + notes
+- Both layers are kept in sync during manual hide operations
+- Queries filter by `event_status='noise'` (not the old `is_hidden` field)
+
+---
+
+## Core Detection Function
 
 **File:** `app/events_known_good.py` → `is_known_good_event()` (line 145)
 
-The detection uses `search_blob` - a flattened text field containing all event data. This allows matching patterns anywhere in the event (process name, parent, grandparent, command line, paths, etc.).
-
 ```python
-def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Dict) -> bool:
+def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional[Dict] = None) -> bool:
+    """
+    Check if an event matches known-good patterns.
+    
+    Returns True if event should be marked as noise, False otherwise.
+    
+    Detection Logic (THE THREE RULES):
+        1. RMM: If EXE pattern OR path in search_blob → NOISE
+        2. Remote: If tool pattern AND session ID in search_blob → NOISE
+        3. EDR: If executable AND routine keyword in search_blob → NOISE
+               (unless response pattern also present → NOT NOISE, keep it)
+        4. IPs: If source IP matches known-good range → NOISE
+    """
     blob = (search_blob or '').lower()
     
-    # CHECK 1: RMM Tools - Executable patterns
+    # CHECK 1: RMM Tools - EXE or PATH
     for rmm_pattern in exclusions.get('rmm_executables', []):
-        if '*' in rmm_pattern:
-            # Wildcard: "labtech*.exe" → need prefix + .exe in blob
-            prefix = rmm_pattern.split('*')[0]
-            if prefix and prefix in blob and '.exe' in blob:
-                return True
-        else:
-            # Exact: "ltsvc.exe" must be in blob
-            if rmm_pattern in blob:
-                return True
-    
-    # CHECK 1b: RMM Path Indicators (v1.44.2)
-    RMM_PATH_INDICATORS = [
-        '\\ltsvc\\',       # LabTech/ConnectWise Automate path
-        '\\labtech\\',     # Alternative LabTech path
-        '\\datto\\',       # Datto RMM
-        '\\aemag\\',       # Datto AEM Agent
-        '\\kaseya\\',      # Kaseya
-        '\\ninjarmmag\\',  # NinjaRMM
-        '\\syncro\\',      # Syncro
-        '\\atera\\',       # Atera
-        '\\n-central\\',   # N-able
-    ]
-    for path_indicator in RMM_PATH_INDICATORS:
-        if path_indicator in blob:
+        if rmm_pattern in blob:
             return True
     
-    # CHECK 1c: RMM Service Names (v1.44.2)
-    RMM_SERVICE_NAMES = [
-        'ltservice',       # LabTech service
-        'ltsvcmon',        # LabTech service monitor  
-        'lttray',          # LabTech tray
-        'labvnc',          # LabTech VNC
-        'dattoservice',    # Datto
-        'kaseyaservice',   # Kaseya
-    ]
-    for svc_name in RMM_SERVICE_NAMES:
-        if f'{svc_name} running' in blob or f'{svc_name} stopped' in blob:
+    for rmm_path in exclusions.get('rmm_paths', []):
+        if rmm_path and rmm_path in blob:
             return True
     
-    # CHECK 2: Remote Tools (requires BOTH pattern AND session ID)
+    # CHECK 2: Remote Tools - EXE + ID
     for tool_config in exclusions.get('remote_tools', []):
         pattern = tool_config.get('pattern', '')
         if pattern and pattern in blob:
@@ -171,79 +163,27 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Dict) ->
                 if known_id and known_id in blob:
                     return True
     
-    # CHECK 3: EDR Tools (hide routine, keep responses)
+    # CHECK 3: EDR Tools - EXE + Routine Keyword
     for edr_config in exclusions.get('edr_tools', []):
-        # Check if EDR executable in blob (with .exe context)
-        for exe in edr_config.get('executables', []):
-            if exe in blob or (exe.split('*')[0] in blob and '.exe' in blob):
-                # Check for response action → DON'T hide (attacker activity!)
-                if any(p in blob for p in edr_config.get('response_patterns', [])):
-                    continue
-                # Check for routine command → HIDE
-                for routine in edr_config.get('routine_commands', []):
-                    if f"{routine}.exe" in blob:
-                        return True
-    
-    # CHECK 4: Known-Good IP
-    source_ip = _extract_source_ip(event_data)
-    if source_ip:
-        for ip_range in exclusions.get('known_good_ips', []):
-            if ip_in_range(source_ip, ip_range):
+        # Check EDR executable present
+        edr_in_blob = any(exe in blob for exe in edr_config.get('executables', []))
+        
+        if edr_in_blob:
+            # Check for response action - DON'T mark as noise
+            if any(p in blob for p in edr_config.get('response_patterns', [])):
+                continue
+            
+            # Check for routine command - MARK AS NOISE
+            if any(r in blob for r in edr_config.get('routine_commands', [])):
                 return True
     
+    # CHECK 4: Known-Good Source IPs
+    source_ip = _extract_source_ip(event_data)
+    if source_ip and any(ip_in_range(source_ip, ip_range) 
+                        for ip_range in exclusions.get('known_good_ips', [])):
+        return True
+    
     return False
-```
-
-### Why `.exe` Context Matters
-
-Without `.exe` context, patterns match URLs incorrectly:
-
-| Pattern | Without Context | With Context |
-|---------|-----------------|--------------|
-| `huntress` | ❌ Matches `huntress.io` URL | ✅ Only `huntressagent.exe` |
-| `labtech*` | ❌ Matches `labtech.com` | ✅ Only `labtechservice.exe` |
-
----
-
-## Exclusion Data Structure
-
-Loaded from database into this structure:
-
-```python
-exclusions = {
-    'rmm_executables': [
-        'ltsvc.exe',
-        'ltsvcmon.exe', 
-        'labtech*.exe',      # Wildcard
-        'dattoagent.exe'
-    ],
-    'remote_tools': [
-        {
-            'name': 'ScreenConnect',
-            'pattern': 'screenconnect',
-            'known_good_ids': ['abc123-session', 'def456-session']
-        },
-        {
-            'name': 'TeamViewer',
-            'pattern': 'teamviewer',
-            'known_good_ids': ['tv-1234567890']
-        }
-    ],
-    'edr_tools': [
-        {
-            'name': 'Huntress',
-            'executables': ['huntressagent.exe', 'huntressupdater.exe'],
-            'exclude_routine': True,
-            'keep_responses': True,
-            'routine_commands': ['whoami', 'systeminfo', 'ipconfig', 'net'],
-            'response_patterns': ['isolat', 'quarantin', 'block', 'kill']
-        }
-    ],
-    'known_good_ips': [
-        '192.168.1.0/24',
-        '10.0.0.50'
-    ]
-}
 ```
 
 ---
@@ -252,326 +192,97 @@ exclusions = {
 
 ### 1. `app/events_known_good.py` (Primary Module)
 
-Standalone module for known-good detection. Used by all integration points.
-
 | Function | Purpose |
 |----------|---------|
-| `load_exclusions()` | Load patterns from `SystemToolsSetting` table |
+| `load_exclusions()` | Load patterns from `SystemToolsSetting` table including RMM paths |
 | `get_cached_exclusions(max_age=60)` | Cached loading for bulk operations |
-| `clear_cache()` | Clear cache after settings change |
-| `has_exclusions_configured()` | Check if any exclusions exist |
-| `is_known_good_event(event, blob, exclusions)` | **Core detection logic** |
-| `process_slice(case_id, slice_id, max_slices, exclusions, client)` | Process 1/N slice for parallel workers |
-| `bulk_hide_events(events_list, client, index)` | Bulk update to set is_hidden=True |
-| `hide_known_good_events(case_id, callback)` | Legacy single-threaded bulk hide |
-| `unhide_all_events(case_id)` | Reset all hidden events |
-| `hide_event(case_id, event_id)` | Hide single event |
-| `unhide_event(case_id, event_id)` | Unhide single event |
-| `get_hidden_count(case_id)` | Count hidden events |
-| `get_visible_count(case_id)` | Count visible events |
+| `is_known_good_event(event, blob, exclusions)` | **Core detection logic - The Three Rules** |
+| `bulk_hide_events(events_list, client, index, case_id)` | Update both OpenSearch and database to set status='noise' |
+| `process_slice(case_id, slice_id, ...)` | Process 1/N slice for parallel workers |
+| `hide_event(case_id, event_id)` | Mark single event as noise (OpenSearch + database) |
+| `unhide_event(case_id, event_id)` | Reset single event to 'new' status (OpenSearch + database) |
+| `unhide_all_events(case_id)` | Reset all noise events back to 'new' status |
+| `get_hidden_count(case_id)` | Count events with status='noise' |
+| `get_visible_count(case_id)` | Count events without status='noise' |
 
 ### 2. `app/file_processing.py`
 
-Applies auto-hide during file indexing using `events_known_good` module.
-
 | Function | Purpose |
 |----------|---------|
-| `apply_auto_hide(event, exclusions)` | Calls `is_known_good_event()` and sets `is_hidden=True` |
-
-**Usage in indexing loop (v1.45.0):**
-```python
-from events_known_good import get_cached_exclusions, has_exclusions_configured, is_known_good_event
-
-auto_hide_exclusions = get_cached_exclusions() if has_exclusions_configured() else None
-
-for event in events:
-    event = normalize_event(event)
-    event = apply_auto_hide(event, auto_hide_exclusions)  # Sets is_hidden=True if match
-    bulk_actions.append({'_index': index_name, '_source': event})
-```
+| `apply_auto_hide(event, exclusions)` | Calls `is_known_good_event()` and sets `event_status='noise'` during indexing |
+| `apply_auto_hide_noise(event, exclusions)` | Additional noise detection for specific patterns |
 
 ### 3. `app/tasks.py`
 
-Contains Celery tasks for parallel bulk hide operation.
-
 | Function/Task | Purpose |
 |---------------|---------|
-| `hide_known_good_events_task(case_id, user_id)` | **Coordinator task** - dispatches 8 parallel workers |
-| `hide_known_good_slice_task(case_id, slice_id, max_slices, user_id)` | **Worker task** - processes 1/8 of events |
-| `should_exclude_event(event, exclusions)` | Detection for AI Triage filtering |
+| `hide_known_good_events_task(case_id, user_id)` | Coordinator task - dispatches 8 parallel workers |
+| `hide_known_good_slice_task(case_id, slice_id, ...)` | Worker task - processes 1/8 of events, updates both OpenSearch and database |
 
-**Parallel Processing (v1.45.0):**
-```python
-HIDE_PARALLEL_SLICES = 8  # Use all 8 Celery workers
+### 4. `app/event_status.py`
 
-# Coordinator dispatches 8 parallel slice tasks
-slice_tasks = group([
-    hide_known_good_slice_task.s(case_id, i, HIDE_PARALLEL_SLICES, user_id)
-    for i in range(HIDE_PARALLEL_SLICES)
-])
-group_result = slice_tasks.apply_async()
-
-# Each slice uses OpenSearch sliced scroll
-query = {
-    "slice": {"id": slice_id, "max": max_slices},
-    "query": {"bool": {"must_not": [{"term": {"is_hidden": True}}]}}
-}
-```
-
-### 4. `app/main.py`
-
-Manual hide/unhide routes.
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/case/<id>/search/hide` | POST | Hide single event |
-| `/case/<id>/search/unhide` | POST | Unhide single event |
-| `/case/<id>/search/bulk-hide` | POST | Bulk hide selected events |
-| `/case/<id>/search/bulk-unhide` | POST | Bulk unhide selected events |
-
-### 5. `app/routes/system_tools.py`
-
-Admin UI for configuring exclusions and triggering bulk hide.
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/settings/system-tools/` | GET | Admin UI page |
-| `/settings/system-tools/rmm/add` | POST | Add RMM tool |
-| `/settings/system-tools/remote/add` | POST | Add remote tool |
-| `/settings/system-tools/edr/add` | POST | Add EDR tool |
-| `/settings/system-tools/ip/save` | POST | Add known-good IP |
-| `/settings/system-tools/api/exclusions` | GET | Get exclusions summary for modal |
-| `/settings/system-tools/api/has-exclusions` | GET | Check if exclusions configured |
-| `/settings/system-tools/case/<id>/hide-known-good` | POST | Start parallel bulk hide task |
-| `/settings/system-tools/case/<id>/hide-known-good/status/<task_id>` | GET | Poll task progress |
-
----
-
-## OpenSearch Field
-
-Events are marked hidden by adding this field:
-
-```json
-{
-  "_source": {
-    "process": { ... },
-    "host": { ... },
-    "is_hidden": true,
-    "hidden_reason": "auto_hide_index"
-  }
-}
-```
-
-### Hidden Reason Values
-
-| Value | When Set |
-|-------|----------|
-| `auto_hide_index` | During file indexing |
-| `bulk_task` | Via "Hide Known Good" button |
-| `manual` | Via single event hide action |
-
-### Query Patterns
-
-**Exclude hidden events (default):**
-```json
-{
-  "query": {
-    "bool": {
-      "must_not": [
-        {"term": {"is_hidden": true}}
-      ]
-    }
-  }
-}
-```
-
-**Show only hidden events:**
-```json
-{
-  "query": {
-    "bool": {
-      "filter": [
-        {"term": {"is_hidden": true}}
-      ]
-    }
-  }
-}
-```
-
-**Count hidden events:**
-```python
-opensearch_client.count(
-    index=f"case_{case_id}",
-    body={"query": {"term": {"is_hidden": True}}}
-)
-```
+| Function | Purpose |
+|----------|---------|
+| `bulk_set_status(case_id, event_ids, STATUS_NOISE, ...)` | Creates/updates PostgreSQL records with status='noise' |
+| `get_event_ids_by_status(case_id, [STATUS_NOISE])` | Get all event IDs with noise status |
 
 ---
 
 ## Integration Points
 
-### 1. File Indexing (Automatic)
+### Important Note on Dual Updates
 
+**CRITICAL:** When marking events as noise, you MUST update BOTH systems:
+
+1. **OpenSearch Document:** Set `event_status='noise'` (for query filtering and display)
+2. **PostgreSQL Database:** Set `status='noise'` in `event_status` table (for statistics and tracking)
+
+**Why both?**
+- OpenSearch filtering is fast for large-scale queries
+- PostgreSQL provides reliable counts for dashboard statistics
+- Both must stay synchronized for accurate results
+
+### 1. File Indexing (Automatic)
 **When:** Initial index, reindex, bulk reindex
 
-**File:** `app/file_processing.py`
-
 ```python
-from events_known_good import get_cached_exclusions, has_exclusions_configured, is_known_good_event
+from events_known_good import get_cached_exclusions, is_known_good_event
 
-exclusions = get_cached_exclusions() if has_exclusions_configured() else None
+exclusions = get_cached_exclusions()
 
 for event in events:
     event = normalize_event(event)
-    event = apply_auto_hide(event, exclusions)  # Uses is_known_good_event()
+    event = apply_auto_hide(event, exclusions)  # Sets event_status='noise' if matched
     bulk_actions.append({'_index': index_name, '_source': event})
 ```
 
 ### 2. Bulk Hide Task (Manual Trigger - Parallel)
-
 **When:** User clicks "Hide Known Good Events" button
 
 **Flow:**
-1. `POST /settings/system-tools/case/{id}/hide-known-good` → `routes/system_tools.py`
-2. Starts Celery task `tasks.hide_known_good_events_task` (coordinator)
-3. Coordinator dispatches 8 parallel `hide_known_good_slice_task` workers
-4. Each worker uses OpenSearch sliced scroll to process 1/8 of events
-5. Workers call `is_known_good_event()` from `events_known_good.py`
-6. Results aggregated and bulk updates applied
-7. Progress updates sent as each worker completes
+1. `POST /settings/system-tools/case/{id}/hide-known-good`
+2. Starts Celery task `hide_known_good_events_task` (coordinator)
+3. Dispatches 8 parallel `hide_known_good_slice_task` workers
+4. Each worker processes 1/8 of events using OpenSearch sliced scroll
+5. Each worker:
+   - Uses query filter `must_not: {"term": {"event_status": "noise"}}` to skip already-processed events
+   - Identifies matched events using `is_known_good_event()`
+   - Updates OpenSearch: sets `event_status='noise'` and `status_reason='auto_known_good'`
+   - Updates database: sets `status='noise'` via `bulk_set_status()`
+6. Progress updates sent as each worker completes
 
-### 3. AI Triage Filtering
-
-**When:** AI Triage runs, excludes known-good from anchor events
-
-**File:** `app/tasks.py` → `should_exclude_event()`
-
-```python
-def should_exclude_event(event, exclusions):
-    # Same logic as is_known_good_event
-    # Returns True → event excluded from triage tagging
-```
-
-### 4. Search Results Filtering
-
+### 3. Search Results Filtering
 **When:** User searches events
 
-**File:** `app/search_utils.py`
+Status filter checkboxes control which events are shown:
+- ☑ New ☑ Hunted ☑ Confirmed ☐ Noise (default - noise hidden)
+- Check "Noise" box to show noise events
+- Filter uses OpenSearch query: `must_not: {"term": {"event_status": "noise"}}` when Noise is unchecked
 
-```python
-if hidden_filter == "hide":
-    # Exclude hidden events (default)
-elif hidden_filter == "only":
-    # Show ONLY hidden events
-else:
-    # Show all events (both hidden and visible)
-```
-
----
-
-## Usage Examples
-
-### Check Single Event
-
-```python
-from events_known_good import is_known_good_event, get_cached_exclusions
-
-exclusions = get_cached_exclusions()
-event = {'process': {'name': 'LTSVC.exe'}, 'search_blob': 'ltsvc.exe c:\\program files\\labtech\\'}
-
-if is_known_good_event(event, event['search_blob'], exclusions):
-    print("Event is known-good")
-```
-
-### Bulk Hide All Known-Good (Parallel)
-
-The parallel bulk hide is triggered via the UI button, which calls:
-
-```python
-# In routes/system_tools.py
-from tasks import hide_known_good_events_task
-
-task = hide_known_good_events_task.delay(case_id=25, user_id=1)
-# Returns task_id for progress polling
-```
-
-### Get Statistics
-
-```python
-from events_known_good import get_hidden_count, get_visible_count
-
-hidden = get_hidden_count(case_id=25)   # 3500
-visible = get_visible_count(case_id=25)  # 146500
-```
-
-### Unhide All
-
-```python
-from events_known_good import unhide_all_events
-
-result = unhide_all_events(case_id=25)
-# {'success': True, 'total_unhidden': 3500, 'errors': []}
-```
-
----
-
-## Templates
-
-### Admin Settings UI
-
-**File:** `app/templates/system_tools.html`
-
-Displays configuration forms for:
-- RMM tools (dropdown + custom)
-- Remote tools (pattern + session IDs)
-- EDR tools (executables + routine commands + response patterns)
-- Known-good IPs (IP/CIDR input)
-
-### Search Events Page
-
-**File:** `app/templates/search_events.html`
-
-- "Hide Known Good" button triggers modal
-- Modal shows configured exclusions summary
-- Progress display with worker completion tracking
-- Results show events hidden count
-
-### Case Files Dashboard
-
-**File:** `app/templates/case_files.html`
-
-Displays "Hidden Events" counter in statistics panel (auto-updates).
-
----
-
-## Predefined Tool Lists
-
-**File:** `app/routes/system_tools.py` (lines 23-180)
-
-```python
-RMM_TOOLS = {
-    'labtech': {
-        'name': 'ConnectWise Automate (LabTech)',
-        'executables': ['LTSVC.exe', 'LTSvcMon.exe', 'LTTray.exe', 'LabTechService.exe']
-    },
-    'datto': {
-        'name': 'Datto RMM',
-        'executables': ['AEMAgent.exe', 'CagService.exe']
-    },
-    # ... more tools
-}
-
-EDR_TOOLS = {
-    'huntress': {
-        'name': 'Huntress',
-        'executables': ['HuntressAgent.exe', 'HuntressUpdater.exe'],
-        'routine_commands': ['whoami', 'systeminfo', 'ipconfig', 'net', 'nltest'],
-        'response_patterns': ['isolat', 'quarantin', 'block', 'kill', 'terminat']
-    },
-    'sentinelone': { ... },
-    'crowdstrike': { ... }
-}
-```
+**Query Logic:**
+- Events are filtered based on `event_status` field in OpenSearch
+- No `is_hidden` field is used (deprecated as of v1.46.0)
+- Dashboard counts use the `event_status` table in PostgreSQL
 
 ---
 
@@ -581,44 +292,56 @@ EDR_TOOLS = {
 |---------|---------|
 | v1.38.0 | Initial implementation - RMM, Remote, IP exclusions |
 | v1.40.0 | Added EDR tools with routine/response patterns |
-| v1.43.15 | Switched to `search_blob` matching (catches grandparent processes) |
-| v1.43.16 | Added `.exe` context requirement for wildcards |
-| v1.43.17 | Auto-hide during indexing |
-| v1.44.0 | New standalone module `events_known_good.py` |
-| v1.44.2 | Added RMM path indicators and service name matching |
-| v1.45.0 | Parallel processing with 8 Celery workers (~8x faster) |
+| v1.43.15 | Switched to `search_blob` matching |
+| v1.44.0 | Standalone module `events_known_good.py` |
+| v1.45.0 | Parallel processing with 8 Celery workers |
+| v1.46.0 | **BREAKING: Removed all `is_hidden` references** |
+| v1.46.0 | **Now uses `event_status='noise'` exclusively in both OpenSearch and PostgreSQL** |
+| v1.46.0 | **Added `rmm_path` field to RMM tool configuration** |
+| v1.46.0 | **Query filters changed from `is_hidden: true` to `event_status: 'noise'`** |
 
 ---
 
-## Reconstruction Checklist
+## Admin UI (System Settings)
 
-To rebuild this system:
+### RMM Tools
+- Tool Name (dropdown or custom)
+- Executable Pattern (comma-separated, e.g., `LTSVC.exe,LTSvcMon.exe`)
+- **RMM Path** (e.g., `C:\Program Files\LabTech\`)
+- Edit button (to modify existing entries)
 
-1. **Database Model**
-   - Create `SystemToolsSetting` table with fields above
-   - Add indexes on `setting_type` and `is_active`
+### Remote Tools
+- Tool Name
+- Executable Pattern (e.g., `screenconnect`)
+- Known-Good Session IDs (list)
+- Edit button
 
-2. **Core Detection Module** (`events_known_good.py`)
-   - Implement `load_exclusions()` to query database
-   - Implement `is_known_good_event()` with 4-check logic
-   - Add `RMM_PATH_INDICATORS` and `RMM_SERVICE_NAMES` for robust RMM detection
-   - Add caching for bulk performance
-   - Implement `process_slice()` for parallel workers
+### EDR Tools
+- Tool Name
+- Executable Pattern (comma-separated)
+- Routine Commands (keywords to mark as noise)
+- Response Patterns (keywords to keep, not mark as noise)
+- Edit button
 
-3. **Integration Points**
-   - Add `apply_auto_hide()` call in file indexing loop (uses `events_known_good`)
-   - Add Celery tasks: coordinator + 8 slice workers
-   - Add `should_exclude_event()` for AI Triage filtering
+---
 
-4. **Routes**
-   - Admin UI at `/settings/system-tools/`
-   - API endpoints for exclusions summary
-   - Task trigger and status polling endpoints
+## Summary
 
-5. **Search Filtering**
-   - Add `is_hidden` filter to search query builder
-   - Default to excluding hidden events
+**The system works in 3 simple steps:**
 
-6. **OpenSearch**
-   - No schema changes needed (dynamic field)
-   - Add `is_hidden: true` to events via update
+1. **Define exclusions** in System Settings (RMM paths/exes, Remote tool IDs, EDR routines)
+2. **Detection** uses the Three Rules to identify known-good events
+3. **Status** is set to `noise` (in both OpenSearch `event_status` field and PostgreSQL `event_status` table)
+
+**Key Implementation Details:**
+
+- **During Indexing:** Events get `event_status='noise'` set in OpenSearch document only (for performance)
+- **During Manual Hide:** Events get updated in BOTH OpenSearch (`event_status='noise'`) AND database (`status='noise'`)
+- **Query Filtering:** All queries filter by `event_status='noise'`, NOT the deprecated `is_hidden` field
+- **Statistics:** Dashboard counts query the PostgreSQL `event_status` table
+
+**Critical Change in v1.46.0:**
+- ❌ **REMOVED:** `is_hidden: true/false` field (deprecated, no longer used)
+- ✅ **NOW USES:** `event_status: 'noise'` / 'new' / 'hunted' / 'confirmed'
+
+This unified status system allows events to remain searchable while being properly categorized as noise from trusted tools.

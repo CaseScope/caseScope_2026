@@ -634,15 +634,48 @@ tbody tr:last-child td {
     color: white;
 }
 
+.btn-success:hover {
+    background: #27ae60;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(46, 204, 113, 0.4);
+}
+
 .btn-warning {
     background: var(--color-warning);
     color: white;
 }
 
-.btn-danger {
+.btn-warning:hover {
+    background: #d68910;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(243, 156, 18, 0.4);
+}
+
+.btn-danger,
+.btn-error {
     background: var(--color-error);
     color: white;
 }
+
+.btn-danger:hover,
+.btn-error:hover {
+    background: #c0392b;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(231, 76, 60, 0.4);
+}
+
+/* Purple button for AI features */
+.btn-purple {
+    background: #9b59b6;
+    color: white;
+}
+
+.btn-purple:hover {
+    background: #8e44ad;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(155, 89, 182, 0.4);
+}
+
 
 .btn-sm {
     padding: 6px var(--spacing-md);
@@ -820,6 +853,32 @@ tbody tr:last-child td {
     font-size: 0.9375rem;
     transition: all var(--transition-fast);
 }
+
+/* Ensure select dropdowns have proper text color and cursor */
+select.form-input,
+select.form-select,
+.form-group select {
+    cursor: pointer;
+    color: var(--color-text-primary);
+}
+
+/* Compact dropdown style for in-table or small contexts */
+.dropdown-compact {
+    font-size: 0.75rem;
+    padding: 2px 4px;
+    border-radius: 4px;
+    min-width: 90px;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    cursor: pointer;
+}
+
+.dropdown-compact:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
 
 .form-group input:focus,
 .form-group textarea:focus,

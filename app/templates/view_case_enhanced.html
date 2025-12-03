@@ -58,20 +58,16 @@
             {% if case.status != 'Archived' %}
             <!-- Unlock Case Button (v1.25.0) -->
             <form action="{{ url_for('unlock_case', case_id=case.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('⚠️ Unlock this case?\n\nThis will release your lock and return you to case selection. Other users will be able to select this case.');">
-                <button type="submit" class="btn" style="background: var(--color-warning); color: white;" title="Release your lock on this case">
+                <button type="submit" class="btn btn-warning" title="Release your lock on this case">
                     <span>🔓</span>
                     <span>Unlock Case</span>
                 </button>
             </form>
-            <a href="{{ url_for('triage_page', case_id=case.id) }}" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
-                <span>🔍</span>
-                <span>Triage</span>
-            </a>
-            <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
+            <button onclick="generateTimeline()" class="btn btn-warning" id="timelineBtn">
                 <span>📅</span>
                 <span>AI Case Timeline</span>
             </button>
-            <button onclick="generateAIReport()" class="btn" style="background: var(--color-primary); color: white;" id="aiReportBtn">
+            <button onclick="generateAIReport()" class="btn btn-primary" id="aiReportBtn">
                 <span>🤖</span>
                 <span>Generate AI Report</span>
             </button>
@@ -79,15 +75,15 @@
                 <span>📤</span>
                 <span>Upload Files</span>
             </a>
-            <button onclick="confirmClearFiles()" class="btn" style="background: var(--color-error); color: white;">
+            <button onclick="confirmClearFiles()" class="btn btn-danger">
                 <span>🗑️</span>
                 <span>Clear All Files</span>
             </button>
-            <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
+            <button onclick="confirmRehuntIOCs()" class="btn btn-warning">
                 <span>🎯</span>
                 <span>Re-Hunt IOCs</span>
             </button>
-            <button onclick="showArchiveModal()" class="btn" style="background: #6b7280; color: white;" title="Archive case files to cold storage">
+            <button onclick="showArchiveModal()" class="btn btn-secondary" title="Archive case files to cold storage">
                 <span>🗄️</span>
                 <span>Archive Case</span>
             </button>
@@ -108,7 +104,7 @@
                 <span>🗑️</span>
                 <span>Clear All Files</span>
             </button>
-            <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
+            <button onclick="confirmRehuntIOCs()" class="btn btn-warning">
                 <span>🎯</span>
                 <span>Re-Hunt IOCs</span>
             </button>
@@ -1280,16 +1276,16 @@ function loadAIReportsList() {
                 `;
             } else if (timeline.status === 'generating' || timeline.status === 'pending') {
                 html += `
-                    <button class="btn btn-sm" style="background: var(--color-info); color: white;" disabled>
+                    <button class="btn btn-sm btn-primary" disabled>
                         <span>⏳ Generating...</span>
                     </button>
                 `;
             } else if (timeline.status === 'failed') {
                 html += `
-                    <button class="btn btn-sm" style="background: var(--color-error); color: white;" disabled>
+                    <button class="btn btn-sm btn-danger" disabled>
                         <span>❌ Failed</span>
                     </button>
-                    <button onclick="deleteTimelineFromList(${timeline.id})" class="btn btn-sm" style="background: var(--color-error); color: white;" title="Delete failed timeline">
+                    <button onclick="deleteTimelineFromList(${timeline.id})" class="btn btn-sm btn-danger" title="Delete failed timeline">
                         <span>🗑️ Delete</span>
                     </button>
                 `;
@@ -1399,32 +1395,32 @@ function loadAIReportsList() {
                     // Add delete button for administrators only
                     if ('{{ current_user.role }}' === 'administrator') {
                         html += `
-                            <button onclick="deleteAIReport(${report.id})" class="btn btn-sm" style="background: var(--color-error); color: white;" title="Delete report (Admin only)">
+                            <button onclick="deleteAIReport(${report.id})" class="btn btn-sm btn-danger" title="Delete report (Admin only)">
                                 <span>🗑️ Delete</span>
                             </button>
                         `;
                     }
                 } else if (report.status === 'generating' || report.status === 'pending') {
                     html += `
-                        <button onclick="checkStatus(${report.id})" class="btn btn-sm" style="background: var(--color-info); color: white;">
+                        <button onclick="checkStatus(${report.id})" class="btn btn-sm btn-primary">
                             <span>📊 Check Status</span>
                         </button>
                     `;
                 } else if (report.status === 'failed') {
                     html += `
-                        <button class="btn btn-sm" style="background: var(--color-error); color: white;" disabled>
+                        <button class="btn btn-sm btn-danger" disabled>
                             <span>❌ Failed</span>
                         </button>
-                        <button onclick="deleteAIReport(${report.id})" class="btn btn-sm" style="background: var(--color-error); color: white; opacity: 0.8;" title="Delete this failed report">
+                        <button onclick="deleteAIReport(${report.id})" class="btn btn-sm btn-danger" style="opacity: 0.8;" title="Delete this failed report">
                             <span>🗑️ Delete</span>
                         </button>
                     `;
                 } else if (report.status === 'cancelled') {
                     html += `
-                        <button class="btn btn-sm" style="background: var(--color-warning); color: white;" disabled>
+                        <button class="btn btn-sm btn-warning" disabled>
                             <span>⛔ Cancelled</span>
                         </button>
-                        <button onclick="deleteAIReport(${report.id})" class="btn btn-sm" style="background: var(--color-warning); color: white; opacity: 0.8;" title="Delete this cancelled report">
+                        <button onclick="deleteAIReport(${report.id})" class="btn btn-sm btn-warning" style="opacity: 0.8;" title="Delete this cancelled report">
                             <span>🗑️ Delete</span>
                         </button>
                     `;
@@ -1507,7 +1503,7 @@ function loadAIReportsList() {
                 
                 if (triage.status === 'completed') {
                     html += `
-                        <a href="/ai-triage-search/${triage.id}/view" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="View full triage report">
+                        <a href="/ai-triage-search/${triage.id}/view" class="btn btn-sm btn-purple" title="View full triage report">
                             <span>📊 View Report</span>
                         </a>
                         <a href="/case/{{ case.id }}/search?filter=tagged" class="btn btn-sm btn-secondary" title="View tagged events in search">
@@ -1516,13 +1512,13 @@ function loadAIReportsList() {
                     `;
                 } else if (triage.status === 'running' || triage.status === 'pending') {
                     html += `
-                        <button class="btn btn-sm" style="background: var(--color-info); color: white;" disabled>
+                        <button class="btn btn-sm btn-primary" disabled>
                             <span>⏳ Running...</span>
                         </button>
                     `;
                 } else if (triage.status === 'failed') {
                     html += `
-                        <button class="btn btn-sm" style="background: var(--color-error); color: white;" disabled title="${triage.error_message || 'Unknown error'}">
+                        <button class="btn btn-sm btn-danger" disabled title="${triage.error_message || 'Unknown error'}">
                             <span>❌ Failed</span>
                         </button>
                     `;
@@ -2857,7 +2853,7 @@ function confirmRestore() {
         </div>
         <div class="modal-footer">
             <button onclick="closeArchiveModal()" class="btn btn-secondary">Cancel</button>
-            <button onclick="confirmArchive()" class="btn" style="background: var(--color-error); color: white;">
+            <button onclick="confirmArchive()" class="btn btn-danger">
                 🗄️ Archive Case
             </button>
         </div>

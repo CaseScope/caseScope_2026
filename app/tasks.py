@@ -2459,6 +2459,7 @@ def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: in
             )
             
             # Bulk hide the events found in this slice
+            # In the new EventStatus system, we only update the database, not OpenSearch
             hidden_count = 0
             if events_to_hide:
                 batch_size = 500
@@ -2466,31 +2467,14 @@ def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: in
                 for i in range(0, len(events_to_hide), batch_size):
                     batch = events_to_hide[i:i + batch_size]
                     
-                    bulk_body = []
-                    for evt in batch:
-                        bulk_body.append({"update": {"_index": evt['_index'], "_id": evt['_id']}})
-                        bulk_body.append({
-                            "script": {
-                                "source": "ctx._source.is_hidden = true; ctx._source.hidden_by = params.user_id; ctx._source.hidden_at = params.timestamp; ctx._source.hidden_reason = params.reason",
-                                "lang": "painless",
-                                "params": {
-                                    "user_id": user_id,
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                    "reason": "known_good_exclusion"
-                                }
-                            }
-                        })
-                    
+                    # Update EventStatus database to 'noise'
                     try:
-                        result = opensearch_client.bulk(body=bulk_body, refresh=False)
-                        if not result.get('errors', False):
-                            hidden_count += len(batch)
-                        else:
-                            for item in result.get('items', []):
-                                if item.get('update', {}).get('status') in [200, 201]:
-                                    hidden_count += 1
+                        from event_status import bulk_set_status
+                        event_ids = [evt['_id'] for evt in batch]
+                        result = bulk_set_status(case_id, event_ids, 'noise', user_id=user_id, notes="Auto-hidden: known-good")
+                        hidden_count += result.get('updated', 0) + result.get('created', 0)
                     except Exception as e:
-                        logger.error(f"[HIDE KNOWN GOOD] Slice {slice_id}: Bulk error - {e}")
+                        logger.error(f"[HIDE KNOWN GOOD] Slice {slice_id}: EventStatus update failed - {e}")
             
             logger.info(f"[HIDE KNOWN GOOD] Slice {slice_id}/{max_slices}: Complete - scanned={scanned:,}, found={len(events_to_hide):,}, hidden={hidden_count:,}")
             
@@ -2637,12 +2621,6 @@ def hide_known_good_events_task(self, case_id, user_id):
             except Exception as e:
                 logger.error(f"[HIDE KNOWN GOOD] Failed to get slice results: {e}")
                 return {'status': 'error', 'message': f'Worker aggregation failed: {e}'}
-            
-            # Refresh index
-            try:
-                opensearch_client.indices.refresh(index=index_name)
-            except:
-                pass
             
             # Final progress
             self.update_state(state='PROGRESS', meta={

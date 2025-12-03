@@ -60,9 +60,10 @@
                     <tr>
                         <th>Tool Name</th>
                         <th>Executable Patterns</th>
+                        <th>RMM Path</th>
                         <th>Description</th>
                         <th>Status</th>
-                        <th style="width: 120px;">Actions</th>
+                        <th style="width: 180px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -70,6 +71,13 @@
                     <tr>
                         <td><strong>{{ setting.tool_name }}</strong></td>
                         <td><code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.executable_pattern }}</code></td>
+                        <td>
+                            {% if setting.rmm_path %}
+                            <code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.rmm_path }}</code>
+                            {% else %}
+                            <span style="color: var(--color-text-muted);">-</span>
+                            {% endif %}
+                        </td>
                         <td style="color: var(--color-text-muted);">{{ setting.description or '-' }}</td>
                         <td>
                             {% if setting.is_active %}
@@ -79,10 +87,13 @@
                             {% endif %}
                         </td>
                         <td>
-                            <button class="btn btn-sm" onclick="toggleSetting({{ setting.id }})" title="Toggle">
+                            <button class="btn btn-sm btn-primary" onclick="editRMMSetting({{ setting.id }}, '{{ setting.tool_name }}', '{{ setting.executable_pattern }}', '{{ setting.rmm_path or '' }}', '{{ setting.description or '' }}')" title="Edit">
+                                ✏️
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="toggleSetting({{ setting.id }})" title="Toggle">
                                 {{ '⏸️' if setting.is_active else '▶️' }}
                             </button>
-                            <button class="btn btn-sm" style="background: var(--color-danger);" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
+                            <button class="btn btn-sm btn-danger" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
                                 🗑️
                             </button>
                         </td>
@@ -340,6 +351,16 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="rmm_path" class="form-label">RMM Installation Path (optional)</label>
+                    <input type="text" id="rmm_path" name="custom_path" class="form-input"
+                           placeholder="C:\Program Files\LabTech\"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Installation directory path. Used to match events referencing the RMM folder.
+                    </p>
+                </div>
+                
+                <div class="form-group">
                     <label for="rmm_description" class="form-label">Description (optional)</label>
                     <input type="text" id="rmm_description" name="description" class="form-input" placeholder="Why this tool is excluded">
                 </div>
@@ -347,6 +368,49 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('addRMMModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Add RMM Tool</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit RMM Tool Modal -->
+<div id="editRMMModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Edit RMM Tool: <span id="editRMMToolName"></span></h2>
+            <button type="button" class="modal-close" onclick="closeModal('editRMMModal')">✕</button>
+        </div>
+        <form id="editRMMForm" onsubmit="submitEditRMMForm(event)">
+            <input type="hidden" id="edit_rmm_setting_id" name="setting_id">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_rmm_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="edit_rmm_executables" name="executable_pattern" class="form-input"
+                           placeholder="process1.exe,process2.exe,Tool*.exe"
+                           style="font-family: monospace;" required>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Wildcards (*) supported.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_rmm_path" class="form-label">RMM Installation Path (optional)</label>
+                    <input type="text" id="edit_rmm_path" name="rmm_path" class="form-input"
+                           placeholder="C:\Program Files\LabTech\"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Installation directory path. Used to match events referencing the RMM folder.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_rmm_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="edit_rmm_description" name="description" class="form-input" placeholder="Why this tool is excluded">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editRMMModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
             </div>
         </form>
     </div>
@@ -794,6 +858,43 @@ async function submitEDRForm(event) {
     }
 }
 
+
+// Edit RMM Tool
+function editRMMSetting(settingId, toolName, executables, rmmPath, description) {
+    document.getElementById('edit_rmm_setting_id').value = settingId;
+    document.getElementById('editRMMToolName').textContent = toolName;
+    document.getElementById('edit_rmm_executables').value = executables || '';
+    document.getElementById('edit_rmm_path').value = rmmPath || '';
+    document.getElementById('edit_rmm_description').value = description || '';
+    
+    document.getElementById('editRMMModal').style.display = 'flex';
+}
+
+async function submitEditRMMForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const settingId = formData.get('setting_id');
+    
+    try {
+        const response = await fetch(`{{ url_for('system_tools.edit_setting', setting_id=0) }}`.replace('/0/', `/${settingId}/`), {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + (result.error || 'Failed to update'));
+        }
+    } catch (error) {
+        alert('Network error: ' + error.message);
+    }
+}
+
+// Edit Remote Tool
 function editRemoteTool(settingId, toolName, knownGoodIds) {
     document.getElementById('edit_setting_id').value = settingId;
     document.getElementById('editRemoteToolName').textContent = toolName;

@@ -1313,6 +1313,25 @@ def file_stats_case(case_id):
             CaseFile.is_hidden == False  # v1.13.9: Exclude hidden files from failed count
         ).count()
         
+        # Get event status counts
+        from event_status import get_status_counts
+        from sqlalchemy import func
+        
+        # Get total events (same way as main page load)
+        total_events = db.session.query(func.sum(CaseFile.event_count)).filter_by(
+            case_id=case_id,
+            is_deleted=False,
+            is_hidden=False
+        ).scalar() or 0
+        
+        # Get status counts and calculate "new" the same way as main page
+        status_counts = get_status_counts(case_id)
+        tracked_events = status_counts.get('hunted', 0) + status_counts.get('confirmed', 0) + status_counts.get('noise', 0)
+        status_counts['new'] = max(0, total_events - tracked_events)
+        
+        # Convert all status_counts values to int (prevent Decimal/string serialization issues)
+        status_counts = {k: int(v) for k, v in status_counts.items()}
+        
         return jsonify({
             'status': 'success',
             'completed': completed,
@@ -1320,7 +1339,8 @@ def file_stats_case(case_id):
             'indexing': indexing,
             'sigma': sigma,
             'ioc_hunting': ioc_hunting,
-            'failed': failed
+            'failed': failed,
+            'status_counts': status_counts
         })
     
     except Exception as e:

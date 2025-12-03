@@ -40,15 +40,15 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
     Called during indexing (initial, reindex, bulk) to automatically hide
     known-good events (RMM tools, EDR health checks, etc.)
     
-    v1.45.0: Now uses events_known_good module for consistent detection logic
-    across indexing and the Hide Known Good Events button.
+    v1.46.0: Sets event_status='noise' (not is_hidden). Uses events_known_good 
+    module for consistent detection logic across indexing and manual hide operations.
     
     Args:
         event: Event dictionary (must have search_blob already populated)
         exclusions: Pre-loaded exclusions dict (optional, will load if None)
     
     Returns:
-        Event with is_hidden=true if it matches exclusions
+        Event with event_status='noise' if it matches exclusions
     """
     # Skip if no search_blob (can't check patterns)
     search_blob = event.get('search_blob', '')
@@ -73,12 +73,15 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
     ]):
         return event
     
-    # Check if event should be hidden using the centralized module
+    # Check if event should be marked as known-good noise using the centralized module
     try:
         from events_known_good import is_known_good_event
         if is_known_good_event(event, search_blob, exclusions):
-            event['is_hidden'] = True
-            event['hidden_reason'] = 'auto_hide_index'
+            # Mark in OpenSearch document for immediate filtering
+            event['event_status'] = 'noise'
+            event['status_reason'] = 'auto_known_good'
+            # Note: Database EventStatus records are created by bulk_hide_events() 
+            # when "Hide Known Good" is run manually
     except Exception as e:
         logger.debug(f"[AUTO_HIDE] Error checking event: {e}")
     
@@ -103,10 +106,10 @@ def apply_auto_hide_noise(event: dict) -> dict:
         event: Event dictionary (must have search_blob already populated)
     
     Returns:
-        Event with is_hidden=true if it matches noise patterns
+        Event with event_status='noise' if it matches noise patterns
     """
-    # Skip if already hidden (don't overwrite known-good reason)
-    if event.get('is_hidden'):
+    # Skip if already marked as noise (don't overwrite known-good reason)
+    if event.get('event_status') == 'noise':
         return event
     
     # Check if event is noise using the centralized module
@@ -115,14 +118,14 @@ def apply_auto_hide_noise(event: dict) -> dict:
         
         # Check for noise process/command
         if is_noise_event(event):
-            event['is_hidden'] = True
-            event['hidden_reason'] = 'noise_auto_index'
+            event['event_status'] = 'noise'
+            event['status_reason'] = 'noise_auto_index'
             return event
         
         # Check for firewall noise
         if is_firewall_noise(event):
-            event['is_hidden'] = True
-            event['hidden_reason'] = 'firewall_noise_auto_index'
+            event['event_status'] = 'noise'
+            event['status_reason'] = 'firewall_noise_auto_index'
             return event
             
     except Exception as e:

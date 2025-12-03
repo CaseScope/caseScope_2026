@@ -6,14 +6,51 @@
 
 <div class="content-header">
     <div>
-        <h1 class="content-title">🔍 Triage - {{ case.name }}</h1>
-        <p class="text-secondary">Case ID: {{ case.id }} • Prepare and run AI-powered attack chain analysis</p>
+        <h1 class="content-title">🎯 Hunting - {{ case.name }}</h1>
+        <p class="text-secondary">Case ID: {{ case.id }} • Quick analysis and AI-powered attack chain analysis</p>
     </div>
     <div>
         <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
             <span>←</span>
             <span>Back to Case</span>
         </a>
+    </div>
+</div>
+
+<!-- ============================================================================
+     QUICK ANALYSIS BUTTONS (New Tile)
+     ============================================================================ -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">⚡ Quick Analysis</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-md);">
+            <button type="button" onclick="showLoginsOK()" class="btn" style="background: var(--color-info); color: white; justify-content: center;">
+                <span>🔐</span>
+                <span>Show Logins OK</span>
+            </button>
+            <button type="button" onclick="showLoginsFailed()" class="btn" style="background: var(--color-error); color: white; justify-content: center;">
+                <span>🚫</span>
+                <span>Failed Logins</span>
+            </button>
+            <button type="button" onclick="showRDPConnections()" class="btn" style="background: var(--color-success); color: white; justify-content: center;">
+                <span>🖥️</span>
+                <span>RDP Connections</span>
+            </button>
+            <button type="button" onclick="showConsoleLogins()" class="btn" style="background: var(--color-warning); color: white; justify-content: center;">
+                <span>💻</span>
+                <span>Console Logins</span>
+            </button>
+            <button type="button" onclick="showVPNAuthentications()" class="btn" style="background: var(--color-primary); color: white; justify-content: center;">
+                <span>🔒</span>
+                <span>VPN Authentications</span>
+            </button>
+            <button type="button" onclick="showFailedVPNAttempts()" class="btn" style="background: var(--color-error); color: white; justify-content: center;">
+                <span>🚫</span>
+                <span>Failed VPN Attempts</span>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1060,6 +1097,34 @@ function closeTagEventsModal() {
 
 // ============================================================================
 // MODAL BACKGROUND CLICKS
+// ============================================================================
+// QUICK ANALYSIS BUTTONS - Redirect to Search Events
+// ============================================================================
+
+function showLoginsOK() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=logins_ok`;
+}
+
+function showLoginsFailed() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=logins_failed`;
+}
+
+function showRDPConnections() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=rdp_connections`;
+}
+
+function showConsoleLogins() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=console_logins`;
+}
+
+function showVPNAuthentications() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=vpn_auths`;
+}
+
+function showFailedVPNAttempts() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=failed_vpn`;
+}
+
 // ============================================================================
 
 document.addEventListener('click', function(e) {

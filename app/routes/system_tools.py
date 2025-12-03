@@ -226,6 +226,7 @@ def add_rmm_tool():
         tool_key = request.form.get('tool_key', '').strip()
         custom_name = request.form.get('custom_name', '').strip()
         custom_executables = request.form.get('custom_executables', '').strip()
+        custom_path = request.form.get('custom_path', '').strip()
         description = request.form.get('description', '').strip()
         
         # Validate
@@ -234,9 +235,11 @@ def add_rmm_tool():
                 return jsonify({'success': False, 'error': 'Custom name and executables are required'}), 400
             tool_name = custom_name
             executables = custom_executables
+            rmm_path = custom_path or None
         elif tool_key in RMM_TOOLS:
             tool_name = RMM_TOOLS[tool_key]['name']
             executables = RMM_TOOLS[tool_key]['executables']
+            rmm_path = RMM_TOOLS[tool_key].get('path', None)  # Get default path if available
             if not description:
                 description = RMM_TOOLS[tool_key]['description']
         else:
@@ -256,6 +259,7 @@ def add_rmm_tool():
             setting_type='rmm_tool',
             tool_name=tool_name,
             executable_pattern=executables,
+            rmm_path=rmm_path,
             description=description or f'RMM tool exclusion: {tool_name}',
             created_by=current_user.id,
             is_active=True
@@ -558,7 +562,15 @@ def edit_setting(setting_id):
             return jsonify({'success': False, 'error': 'Setting not found'}), 404
         
         # Update fields based on type
-        if setting.setting_type == 'remote_tool':
+        if setting.setting_type == 'rmm_tool':
+            # Update RMM-specific fields
+            if 'executable_pattern' in request.form:
+                setting.executable_pattern = request.form.get('executable_pattern', '').strip()
+            
+            if 'rmm_path' in request.form:
+                setting.rmm_path = request.form.get('rmm_path', '').strip() or None
+        
+        elif setting.setting_type == 'remote_tool':
             known_good_ids = request.form.get('known_good_ids', '').strip()
             ids_list = [id.strip() for id in known_good_ids.split('\n') if id.strip()]
             setting.known_good_ids = json.dumps(ids_list) if ids_list else None

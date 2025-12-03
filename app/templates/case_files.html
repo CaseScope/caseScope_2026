@@ -137,25 +137,25 @@
             <div class="stat-grid-case" style="grid-template-columns: repeat(4, 1fr); margin-top: var(--spacing-sm);">
                 <div class="stat-item">
                     <div class="stat-item-label">New</div>
-                    <div class="stat-item-value-large" style="color: var(--color-text-secondary);">
+                    <div class="stat-item-value-large" style="color: var(--color-text-secondary);" id="stat-status-new">
                         {{ '{:,}'.format(status_counts.new|default(0)) }}
                     </div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-item-label">🎯 Hunted</div>
-                    <div class="stat-item-value-large" style="color: #9b59b6;">
+                    <div class="stat-item-value-large" style="color: #9b59b6;" id="stat-status-hunted">
                         {{ '{:,}'.format(status_counts.hunted|default(0)) }}
                     </div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-item-label">✓ Confirmed</div>
-                    <div class="stat-item-value-large" style="color: #c0392b;">
+                    <div class="stat-item-value-large" style="color: #c0392b;" id="stat-status-confirmed">
                         {{ '{:,}'.format(status_counts.confirmed|default(0)) }}
                     </div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-item-label">🔇 Noise</div>
-                    <div class="stat-item-value-large" style="color: var(--color-muted);">
+                    <div class="stat-item-value-large" style="color: var(--color-muted);" id="stat-status-noise">
                         {{ '{:,}'.format(status_counts.noise|default(0)) }}
                     </div>
                 </div>
@@ -772,6 +772,27 @@ function refreshFileStats() {
                 document.getElementById('stat-indexing').textContent = data.indexing || 0;
                 document.getElementById('stat-sigma').textContent = data.sigma || 0;
                 document.getElementById('stat-ioc-hunting').textContent = data.ioc_hunting || 0;
+                
+                // Update event status counts if available
+                if (data.status_counts) {
+                    const statusNewEl = document.getElementById('stat-status-new');
+                    const statusHuntedEl = document.getElementById('stat-status-hunted');
+                    const statusConfirmedEl = document.getElementById('stat-status-confirmed');
+                    const statusNoiseEl = document.getElementById('stat-status-noise');
+                    
+                    if (statusNewEl && data.status_counts.new !== undefined) {
+                        statusNewEl.textContent = data.status_counts.new.toLocaleString();
+                    }
+                    if (statusHuntedEl && data.status_counts.hunted !== undefined) {
+                        statusHuntedEl.textContent = data.status_counts.hunted.toLocaleString();
+                    }
+                    if (statusConfirmedEl && data.status_counts.confirmed !== undefined) {
+                        statusConfirmedEl.textContent = data.status_counts.confirmed.toLocaleString();
+                    }
+                    if (statusNoiseEl && data.status_counts.noise !== undefined) {
+                        statusNoiseEl.textContent = data.status_counts.noise.toLocaleString();
+                    }
+                }
             }
         })
         .catch(error => {

@@ -100,7 +100,14 @@
                 </a>
                 {% endif %}
                 
-                <!-- 7. Search Events - if no case active goes to Case Selection -->
+                <!-- 7. Hunting (Triage) - if no case active goes to Case Selection -->
+                <a href="{% if current_case %}{{ url_for('triage_page', case_id=current_case.id) }}{% else %}{{ url_for('case_selection') }}{% endif %}" 
+                   class="sidebar-nav-item {% if request.endpoint == 'triage_page' %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🎯</span>
+                    <span>Hunting</span>
+                </a>
+                
+                <!-- 8. Search Events - if no case active goes to Case Selection -->
                 <a href="{% if current_case %}{{ url_for('search_events', case_id=current_case.id) }}{% else %}{{ url_for('case_selection') }}{% endif %}" 
                    class="sidebar-nav-item {% if request.endpoint == 'search_events' %}active{% endif %}">
                     <span class="sidebar-nav-icon">🔍</span>

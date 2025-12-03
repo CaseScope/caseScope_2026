@@ -150,42 +150,24 @@
                 </button>
                 
                 <!-- Save Current Search (next to Search) -->
-                <button type="button" onclick="showSaveSearchModal()" class="btn btn-success" title="Save current search">
+                <button type="button" onclick="showSaveSearchModal()" class="btn btn-primary" title="Save current search">
                     <span>💾</span>
                     <span>Save</span>
                 </button>
                 
                 <!-- AI Question Button -->
-                <button type="button" onclick="showAIQuestionModal()" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="Ask AI a question about case events">
+                <button type="button" onclick="showAIQuestionModal()" class="btn btn-purple" title="Ask AI a question about case events">
                     <span>🤖</span>
                     <span>AI Question</span>
                 </button>
                 
-                <!-- Triage Page Button -->
-                <a href="{{ url_for('triage_page', case_id=case.id) }}" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;" title="Open Triage workflow page">
-                    <span>🔍</span>
-                    <span>Triage</span>
-                </a>
-                
-                <!-- Hide Known Good Button -->
-                <button type="button" onclick="showHideKnownGoodModal()" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;" title="Hide events from known-good sources (RMM tools, internal IPs)">
-                    <span>🛡️</span>
-                    <span>Hide Known Good</span>
-                </button>
-                
-                <!-- Hide Noise Button -->
-                <button type="button" onclick="showHideNoiseModal()" class="btn" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); color: white;" title="Hide noise events (system telemetry, routine processes)">
-                    <span>🔇</span>
-                    <span>Hide Noise</span>
-                </button>
-                
                 <!-- Manage Saved Searches -->
-                <button type="button" onclick="showManageSearchesModal()" class="btn btn-secondary" title="Manage saved searches">
+                <button type="button" onclick="showManageSearchesModal()" class="btn btn-primary" title="Manage saved searches">
                     <span>⚙️</span>
                     <span>Manage</span>
                 </button>
                 
-                <button type="button" onclick="exportToCSV()" class="btn" style="background: var(--color-success); color: white;">
+                <button type="button" onclick="exportToCSV()" class="btn btn-primary">
                     <span>📥</span>
                     <span>Export CSV</span>
                 </button>
@@ -262,7 +244,7 @@
                 <!-- Columns Config -->
                 <div>
                     <label class="form-label">Actions</label>
-                    <button type="button" onclick="showColumnManager()" class="btn" style="width: 100%;">
+                    <button type="button" onclick="showColumnManager()" class="btn btn-primary" style="width: 100%;">
                         ⚙️ Manage Columns
                     </button>
                 </div>
@@ -293,34 +275,6 @@
                 <!-- Hidden - keep for backward compat -->
                 <input type="hidden" name="hidden_filter" value="{{ hidden_filter }}"
             </div>
-            
-            <!-- Row 3: Quick Analysis Buttons -->
-            <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
-                <button type="button" onclick="showLoginsOK()" class="btn" style="background: var(--color-info); color: white;">
-                    <span>🔐</span>
-                    <span>Show Logins OK</span>
-                </button>
-                <button type="button" onclick="showLoginsFailed()" class="btn" style="background: var(--color-error); color: white;">
-                    <span>🚫</span>
-                    <span>Failed Logins</span>
-                </button>
-                <button type="button" onclick="showRDPConnections()" class="btn" style="background: var(--color-success); color: white;">
-                    <span>🖥️</span>
-                    <span>RDP Connections</span>
-                </button>
-        <button type="button" onclick="showConsoleLogins()" class="btn" style="background: var(--color-warning); color: white;">
-            <span>💻</span>
-            <span>Console Logins</span>
-        </button>
-        <button type="button" onclick="showVPNAuthentications()" class="btn" style="background: var(--color-primary); color: white;">
-            <span>🔒</span>
-            <span>VPN Authentications</span>
-        </button>
-        <button type="button" onclick="showFailedVPNAttempts()" class="btn" style="background: var(--color-error); color: white;">
-            <span>🚫</span>
-            <span>Failed VPN Attempts</span>
-        </button>
-    </div>
             
             <!-- Hidden inputs for pagination/sorting -->
             <input type="hidden" name="sort" value="{{ sort_field }}">
@@ -447,7 +401,7 @@
                             <h4 style="margin: 0; font-size: 0.875rem; color: var(--color-text-secondary);">
                                 📋 Evidence Events (<span id="aiEventCount">0</span>)
                             </h4>
-                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" title="Shows events below with AI analysis pinned above">
+                            <button onclick="showAIEventsInSearchResults()" class="btn btn-sm btn-purple" title="Shows events below with AI analysis pinned above">
                                 Show Events Below ↓
                             </button>
                         </div>
@@ -460,7 +414,7 @@
         </div>
         <div class="modal-footer">
             <button onclick="closeAIQuestionModal()" class="btn btn-secondary">Close</button>
-            <button onclick="submitAIQuestion()" id="aiSubmitBtn" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <button onclick="submitAIQuestion()" id="aiSubmitBtn" class="btn btn-purple">
                 <span>🔍</span>
                 <span>Ask AI</span>
             </button>
@@ -485,355 +439,6 @@
     </div>
 </div>
 
-<!-- AI Triage Search Modal (v1.39.0: Full 9-phase methodology) -->
-<div id="triageReportModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 900px; max-height: 90vh;">
-        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <h2 class="modal-title" style="color: white;">🎯 AI Triage Search</h2>
-            <button class="modal-close" onclick="closeTriageModal()" style="color: white;">×</button>
-        </div>
-        <div class="modal-body" style="max-height: calc(90vh - 180px); overflow-y: auto;">
-            <!-- Loading Phase (v1.43.2) -->
-            <div id="triageLoadingPhase" style="display: none;">
-                <div style="text-align: center; padding: var(--spacing-xl);">
-                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">⏳</div>
-                    <h3 style="margin-bottom: var(--spacing-md); color: var(--color-text-primary);">Checking Pre-requisites...</h3>
-                    <p style="color: var(--color-text-secondary);">Verifying case is ready for AI Triage</p>
-                </div>
-            </div>
-            
-            <!-- No Systems Discovered Phase (v1.43.2) -->
-            <div id="triageNoSystemsPhase" style="display: none;">
-                <div style="text-align: center; padding: var(--spacing-xl);">
-                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">💻</div>
-                    <h3 style="margin-bottom: var(--spacing-md); color: var(--color-text-primary);">Systems Not Discovered</h3>
-                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
-                        Before running AI Triage, you need to discover systems from your event logs.<br>
-                        This helps the triage distinguish between known infrastructure and potential IOCs.
-                    </p>
-                    <div style="background: rgba(251, 146, 60, 0.1); border: 1px solid rgba(251, 146, 60, 0.3); border-radius: var(--border-radius); padding: var(--spacing-md); margin-bottom: var(--spacing-lg); text-align: left;">
-                        <h4 style="margin: 0 0 var(--spacing-sm) 0; color: #f59e0b;">📋 How to Discover Systems</h4>
-                        <ol style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-secondary); font-size: 0.9rem;">
-                            <li>Go to <strong>Systems Management</strong></li>
-                            <li>Click the <strong>"🔍 Find Systems"</strong> button</li>
-                            <li>Review and categorize discovered systems</li>
-                            <li>Return here to run AI Triage</li>
-                        </ol>
-                    </div>
-                    <div style="display: flex; gap: var(--spacing-md); justify-content: center;">
-                        <a href="{{ url_for('systems.systems_management', case_id=case.id) }}" class="btn btn-primary">
-                            💻 Go to Systems Management
-                        </a>
-                        <button onclick="closeTriageModal()" class="btn btn-secondary">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- No Report Phase -->
-            <div id="triageNoReportPhase" style="display: none;">
-                <div style="text-align: center; padding: var(--spacing-xl);">
-                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
-                    <h3 style="margin-bottom: var(--spacing-md); color: var(--color-text-primary);">No EDR Report Found</h3>
-                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
-                        This case doesn't have an EDR/MDR report attached yet.<br>
-                        Add a report to enable automated IOC extraction and hunting.
-                    </p>
-                    <div style="display: flex; gap: var(--spacing-md); justify-content: center;">
-                        <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" class="btn btn-primary">
-                            ✏️ Edit Case to Add Report
-                        </a>
-                        <button onclick="closeTriageModal()" class="btn btn-secondary">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Input Phase (shows EDR report preview) -->
-            <div id="triageInputPhase">
-                <div style="background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid #667eea;">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: #667eea;">What This Does</h4>
-                    <p style="margin: 0; color: var(--color-text-secondary); font-size: 0.9rem;">
-                        The AI Triage Search runs a <strong>9-phase automated analysis</strong>:
-                    </p>
-                    <ol style="margin: var(--spacing-sm) 0 0 var(--spacing-md); padding: 0; color: var(--color-text-muted); font-size: 0.85rem;">
-                        <li>Extract IOCs from report</li>
-                        <li>Classify IOCs (specific vs broad)</li>
-                        <li>Snowball hunt for new IOCs</li>
-                        <li>Search for recon/malware</li>
-                        <li>Find specific IOC matches</li>
-                        <li>Aggregate broad IOCs</li>
-                        <li>Analyze ±5 min time windows</li>
-                        <li>Build process trees & match MITRE</li>
-                        <li>Auto-tag timeline events</li>
-                    </ol>
-                </div>
-                
-                <div style="margin-bottom: var(--spacing-md);">
-                    <label class="form-label">EDR/MDR Report (from case)</label>
-                    <div id="triageReportPreview" style="background: var(--color-background-tertiary); border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; color: var(--color-text-secondary);">
-                    </div>
-                    <small style="color: var(--color-text-muted); margin-top: var(--spacing-xs); display: block;">
-                        <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" style="color: var(--color-info);">Edit case</a> to modify the EDR report.
-                    </small>
-                </div>
-                
-                <textarea id="triageReportInput" style="display: none;"></textarea>
-            </div>
-            
-            <!-- Progress Phase (9-phase display) -->
-            <div id="triageProgressPhase" style="display: none;">
-                <!-- Phase Progress Bar -->
-                <div style="margin-bottom: var(--spacing-lg);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
-                        <span id="triagePhaseLabel" style="font-weight: 600; color: #667eea;">Phase 1: IOC Extraction</span>
-                        <span id="triagePhasePercent" style="color: var(--color-text-muted);">0%</span>
-                    </div>
-                    <div style="background: var(--color-background-tertiary); border-radius: 8px; height: 12px; overflow: hidden;">
-                        <div id="triageProgressBar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
-                    </div>
-                </div>
-                
-                <!-- Phase Indicators -->
-                <div style="display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-bottom: var(--spacing-md);">
-                    <div id="phaseInd1" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd2" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd3" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd4" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd5" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd6" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd7" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd8" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                    <div id="phaseInd9" class="phase-indicator" style="height: 4px; background: var(--color-background-tertiary); border-radius: 2px;"></div>
-                </div>
-                
-                <!-- Current Status -->
-                <div style="text-align: center; padding: var(--spacing-lg); background: var(--color-background-tertiary); border-radius: var(--border-radius);">
-                    <div class="spinner" style="margin: 0 auto var(--spacing-md) auto;"></div>
-                    <h4 id="triageProgressTitle" style="margin: 0 0 var(--spacing-sm) 0;">Starting AI Triage Search...</h4>
-                    <p id="triageProgressMessage" style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                        Initializing...
-                    </p>
-                </div>
-                
-                <!-- Progress Log -->
-                <div style="margin-top: var(--spacing-md);">
-                    <h5 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.85rem; color: var(--color-text-muted);">Progress Log</h5>
-                    <div id="triageProgressLog" style="background: var(--color-background-tertiary); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.75rem;">
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Results Phase -->
-            <div id="triageResultsPhase" style="display: none;">
-                <div id="triageResultsContent" style="font-size: 0.875rem;">
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button onclick="closeTriageModal()" class="btn btn-secondary" id="triageCloseBtn">Close</button>
-            <button onclick="startAITriageSearch()" id="triageStartBtn" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                <span>🎯</span>
-                <span>Start AI Triage Search</span>
-            </button>
-            <a href="{{ url_for('view_case', case_id=case.id) }}#ai-analysis" id="triageViewResultsBtn" class="btn btn-primary" style="display: none;">
-                <span>📊</span>
-                <span>View Results</span>
-            </a>
-        </div>
-    </div>
-</div>
-
-<!-- Hide Known Good Modal (v1.38.0: Standardized) -->
-<div id="hideKnownGoodModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 600px;">
-        <div class="modal-header" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
-            <h2 class="modal-title" style="color: white;">🛡️ Hide Known Good Events</h2>
-            <button type="button" class="modal-close" onclick="closeHideKnownGoodModal()" style="color: white;">✕</button>
-        </div>
-        <div class="modal-body">
-            
-            <!-- No Exclusions Phase -->
-            <div id="hideKGNoExclusionsPhase" style="display: none;">
-                <div style="text-align: center; padding: var(--spacing-xl);">
-                    <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">⚠️</div>
-                    <h4 style="margin-bottom: var(--spacing-md);">No Exclusions Defined</h4>
-                    <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                        You need to configure known-good tools and IPs before hiding events.
-                        <br><br>
-                        Go to <strong>Settings → System Tools</strong> to define:
-                    </p>
-                    <ul style="text-align: left; display: inline-block; color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                        <li><strong>RMM Tools:</strong> LabTech, Datto, Kaseya, etc.</li>
-                        <li><strong>Remote Tools:</strong> ScreenConnect, TeamViewer with known-good session IDs</li>
-                        <li><strong>Known-Good IPs:</strong> Internal networks, analyst workstations</li>
-                    </ul>
-                    <div>
-                        <a href="{{ url_for('system_tools.index') }}" class="btn btn-primary">
-                            ⚙️ Configure System Tools
-                        </a>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Confirm Phase -->
-            <div id="hideKGConfirmPhase">
-                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-info);">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">What This Does</h4>
-                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                        This will scan all events in the case and hide any that match your configured exclusions:
-                    </p>
-                    <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
-                        <li>Events spawned by RMM tools (parent process matches)</li>
-                        <li>Remote tool sessions with known-good IDs</li>
-                        <li>Events from known-good IP addresses</li>
-                    </ul>
-                </div>
-                
-                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg);">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">📊 Current Exclusions</h4>
-                    <div id="hideKGExclusionsSummary" style="color: var(--color-text-muted); font-size: 0.9rem;">
-                        Loading...
-                    </div>
-                </div>
-                
-                <div style="background: rgba(255, 193, 7, 0.1); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 4px solid var(--color-warning);">
-                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                        ⚠️ <strong>Note:</strong> Hidden events can be viewed by changing the "Hidden Events" filter to "Show" or "Only Hidden".
-                        You can unhide events individually or in bulk if needed.
-                    </p>
-                </div>
-            </div>
-            
-            <!-- Progress Phase -->
-            <div id="hideKGProgressPhase" style="display: none;">
-                <div style="text-align: center; margin-bottom: var(--spacing-lg);">
-                    <div class="spinner" style="margin: 0 auto var(--spacing-md) auto;"></div>
-                    <h4 id="hideKGProgressTitle" style="margin-bottom: var(--spacing-sm);">Scanning Events...</h4>
-                    <p id="hideKGProgressMessage" style="color: var(--color-text-muted); margin: 0;">
-                        Initializing...
-                    </p>
-                </div>
-                
-                <div style="background: var(--color-background-secondary); border-radius: var(--border-radius); padding: var(--spacing-md);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
-                        <span id="hideKGProgressLabel">Progress</span>
-                        <span id="hideKGProgressPercent">0%</span>
-                    </div>
-                    <div style="background: var(--color-background-tertiary); border-radius: 4px; height: 20px; overflow: hidden;">
-                        <div id="hideKGProgressBar" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin-top: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.85rem;">
-                        <span id="hideKGProgressProcessed">0 events processed</span>
-                        <span id="hideKGProgressFound">0 matches found</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Results Phase -->
-            <div id="hideKGResultsPhase" style="display: none;">
-                <div id="hideKGResultsContent" style="text-align: center;">
-                    <!-- Filled by JavaScript -->
-                </div>
-            </div>
-            
-        </div>
-        <div class="modal-footer">
-            <button type="button" onclick="closeHideKnownGoodModal()" class="btn btn-secondary" id="hideKGCloseBtn">Cancel</button>
-            <button type="button" onclick="startHideKnownGood()" id="hideKGStartBtn" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
-                🛡️ Start Hiding
-            </button>
-        </div>
-    </div>
-</div>
-
-<!-- Hide Noise Modal -->
-<div id="hideNoiseModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 600px;">
-        <div class="modal-header" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);">
-            <h2 class="modal-title" style="color: white;">🔇 Hide Noise Events</h2>
-            <button type="button" class="modal-close" onclick="closeHideNoiseModal()" style="color: white;">✕</button>
-        </div>
-        <div class="modal-body">
-            
-            <!-- Confirm Phase -->
-            <div id="hideNoiseConfirmPhase">
-                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-warning);">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-warning);">What This Does</h4>
-                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                        This will scan all events and hide common noise patterns that obscure actual incidents:
-                    </p>
-                    <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
-                        <li><strong>System Processes:</strong> WmiPrvSE, svchost, SearchIndexer, etc.</li>
-                        <li><strong>Machine Accounts:</strong> SYSTEM, LOCAL SERVICE, NETWORK SERVICE</li>
-                        <li><strong>Routine Commands:</strong> Windows telemetry, scheduled tasks</li>
-                        <li><strong>Firewall Logs:</strong> Repetitive allow/block entries</li>
-                    </ul>
-                </div>
-                
-                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg);">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">📊 Noise Categories</h4>
-                    <div id="hideNoiseCategoriesSummary" style="color: var(--color-text-muted); font-size: 0.9rem;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm);">
-                            <div>✓ Noise Processes (50+ patterns)</div>
-                            <div>✓ Machine Accounts</div>
-                            <div>✓ Routine Commands</div>
-                            <div>✓ Firewall Noise</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="background: rgba(255, 193, 7, 0.1); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 4px solid var(--color-warning);">
-                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                        ⚠️ <strong>Note:</strong> Noise hiding uses built-in patterns that don't require configuration.
-                        Hidden events can be viewed by changing the "Hidden Events" filter.
-                    </p>
-                </div>
-            </div>
-            
-            <!-- Progress Phase -->
-            <div id="hideNoiseProgressPhase" style="display: none;">
-                <div style="text-align: center; margin-bottom: var(--spacing-lg);">
-                    <div class="spinner" style="margin: 0 auto var(--spacing-md) auto;"></div>
-                    <h4 id="hideNoiseProgressTitle" style="margin-bottom: var(--spacing-sm);">Scanning Events...</h4>
-                    <p id="hideNoiseProgressMessage" style="color: var(--color-text-muted); margin: 0;">
-                        Initializing...
-                    </p>
-                </div>
-                
-                <div style="background: var(--color-background-secondary); border-radius: var(--border-radius); padding: var(--spacing-md);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
-                        <span id="hideNoiseProgressLabel">Progress</span>
-                        <span id="hideNoiseProgressPercent">0%</span>
-                    </div>
-                    <div style="background: var(--color-background-tertiary); border-radius: 4px; height: 20px; overflow: hidden;">
-                        <div id="hideNoiseProgressBar" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin-top: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.85rem;">
-                        <span id="hideNoiseProgressProcessed">0 events processed</span>
-                        <span id="hideNoiseProgressFound">0 matches found</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Results Phase -->
-            <div id="hideNoiseResultsPhase" style="display: none;">
-                <div id="hideNoiseResultsContent" style="text-align: center;">
-                    <!-- Filled by JavaScript -->
-                </div>
-            </div>
-            
-        </div>
-        <div class="modal-footer">
-            <button type="button" onclick="closeHideNoiseModal()" class="btn btn-secondary" id="hideNoiseCloseBtn">Cancel</button>
-            <button type="button" onclick="startHideNoise()" id="hideNoiseStartBtn" class="btn" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); color: white;">
-                🔇 Start Hiding
-            </button>
-        </div>
-    </div>
-</div>
 
 <!-- Results Header -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
@@ -848,7 +453,7 @@
             {% endif %}
             {% if excluded_ids|length > 0 %}
             <span style="margin-left: var(--spacing-md);">
-                <button onclick="showExclusionsModal()" class="btn btn-sm" style="background: var(--color-secondary); font-size: 0.75rem; padding: 2px 8px;" title="Events excluded from Phase 3 auto-tagging">
+                <button onclick="showExclusionsModal()" class="btn btn-sm btn-secondary" style="font-size: 0.75rem; padding: 2px 8px;" title="Events excluded from Phase 3 auto-tagging">
                     🚫 {{ excluded_ids|length }} excluded
                 </button>
             </span>
@@ -866,13 +471,13 @@
                 <button onclick="bulkSetStatus('new')" class="btn btn-sm btn-secondary" title="Mark as New">
                     New
                 </button>
-                <button onclick="bulkSetStatus('hunted')" class="btn btn-sm" style="background: #9b59b6; color: white;" title="Mark as Hunted">
+                <button onclick="bulkSetStatus('hunted')" class="btn btn-sm btn-purple" title="Mark as Hunted">
                     🎯 Hunted
                 </button>
-                <button onclick="bulkSetStatus('confirmed')" class="btn btn-sm" style="background: #c0392b; color: white;" title="Mark as Confirmed">
+                <button onclick="bulkSetStatus('confirmed')" class="btn btn-sm btn-danger" title="Mark as Confirmed">
                     ✓ Confirmed
                 </button>
-                <button onclick="bulkSetStatus('noise')" class="btn btn-sm" style="background: #7f8c8d; color: white;" title="Mark as Noise">
+                <button onclick="bulkSetStatus('noise')" class="btn btn-sm btn-secondary" title="Mark as Noise">
                     🔇 Noise
                 </button>
                 <button onclick="clearSelection()" class="btn btn-sm btn-secondary" style="margin-left: var(--spacing-sm);">
@@ -883,7 +488,7 @@
             
             <!-- Sync Tagged Events to DFIR-IRIS Button (always visible when DFIR-IRIS enabled) -->
             {% if dfir_iris_enabled %}
-            <button onclick="syncTimelineToIRIS()" class="btn btn-sm" style="background: var(--color-primary);" title="Sync all tagged events in this case to DFIR-IRIS timeline">
+            <button onclick="syncTimelineToIRIS()" class="btn btn-sm btn-primary" title="Sync all tagged events in this case to DFIR-IRIS timeline">
                 <span>🔄</span>
                 <span>Sync to DFIR-IRIS</span>
             </button>
@@ -957,12 +562,10 @@
                             <input type="checkbox" class="event-checkbox" value="{{ event._id }}">
                         </td>
                         <td class="status-cell" data-event-id="{{ event._id }}">
-                            <select class="status-dropdown" onchange="setEventStatus('{{ event._id }}', this.value)" 
-                                    style="font-size: 0.75rem; padding: 2px 4px; border-radius: 4px; min-width: 90px;
-                                           {% if event_status == 'hunted' %}background: #9b59b6; color: white;
+                            <select class="status-dropdown dropdown-compact" onchange="setEventStatus('{{ event._id }}', this.value)" 
+                                    style="{% if event_status == 'hunted' %}background: #9b59b6; color: white;
                                            {% elif event_status == 'confirmed' %}background: #c0392b; color: white;
-                                           {% elif event_status == 'noise' %}background: #7f8c8d; color: white;
-                                           {% else %}background: var(--color-bg-tertiary);{% endif %}">
+                                           {% elif event_status == 'noise' %}background: #7f8c8d; color: white;{% endif %}">
                                 <option value="new" {% if event_status == 'new' %}selected{% endif %}>New</option>
                                 <option value="hunted" {% if event_status == 'hunted' %}selected{% endif %}>🎯 Hunted</option>
                                 <option value="confirmed" {% if event_status == 'confirmed' %}selected{% endif %}>✓ Confirmed</option>
@@ -2444,7 +2047,7 @@ function showLoginsOK() {
                 </div>
                 
                 <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
-                    <button id="bulkAddLoginsOK" onclick="bulkAddLoginsOK()" class="btn" style="background: var(--color-primary); color: white; padding: 8px 16px;" disabled>
+                    <button id="bulkAddLoginsOK" onclick="bulkAddLoginsOK()" class="btn btn-primary" style="padding: 8px 16px;" disabled>
                         📌 Add Selected as IOCs (<span id="countLoginsOK">0</span>)
                     </button>
                 </div>
@@ -2669,7 +2272,7 @@ function showLoginsFailed() {
                 </div>
                 
                 <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
-                    <button id="bulkAddLoginsFailed" onclick="bulkAddLoginsFailed()" class="btn" style="background: var(--color-error); color: white; padding: 8px 16px;" disabled>
+                    <button id="bulkAddLoginsFailed" onclick="bulkAddLoginsFailed()" class="btn btn-primary" style="padding: 8px 16px;" disabled>
                         📌 Add Selected as IOCs (<span id="countLoginsFailed">0</span>)
                     </button>
                 </div>
@@ -2893,7 +2496,7 @@ function showRDPConnections() {
                 </div>
                 
                 <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
-                    <button id="bulkAddRDP" onclick="bulkAddRDP()" class="btn" style="background: var(--color-success); color: white; padding: 8px 16px;" disabled>
+                    <button id="bulkAddRDP" onclick="bulkAddRDP()" class="btn btn-primary" style="padding: 8px 16px;" disabled>
                         📌 Add Selected as IOCs (<span id="countRDP">0</span>)
                     </button>
                 </div>
@@ -3117,7 +2720,7 @@ function showConsoleLogins() {
                 </div>
                 
                 <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
-                    <button id="bulkAddConsole" onclick="bulkAddConsole()" class="btn" style="background: var(--color-warning); color: white; padding: 8px 16px;" disabled>
+                    <button id="bulkAddConsole" onclick="bulkAddConsole()" class="btn btn-primary" style="padding: 8px 16px;" disabled>
                         📌 Add Selected as IOCs (<span id="countConsole">0</span>)
                     </button>
                 </div>
@@ -3421,7 +3024,7 @@ function fetchVPNAuths(firewallIp, firewallName) {
                 </div>
                 
                 <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
-                    <button id="bulkAddVPNAuth" onclick="bulkAddVPNAuth()" class="btn" style="background: var(--color-primary); color: white; padding: 8px 16px;" disabled>
+                    <button id="bulkAddVPNAuth" onclick="bulkAddVPNAuth()" class="btn btn-primary" style="padding: 8px 16px;" disabled>
                         📌 Add Selected as IOCs (<span id="countVPNAuth">0</span>)
                     </button>
                 </div>
@@ -3696,7 +3299,7 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
                 </div>
                 
                 <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
-                    <button id="bulkAddFailedVPN" onclick="bulkAddFailedVPN()" class="btn" style="background: var(--color-error); color: white; padding: 8px 16px;" disabled>
+                    <button id="bulkAddFailedVPN" onclick="bulkAddFailedVPN()" class="btn btn-primary" style="padding: 8px 16px;" disabled>
                         📌 Add Selected as IOCs (<span id="countFailedVPN">0</span>)
                     </button>
                 </div>
@@ -3955,7 +3558,7 @@ function showSaveSearchModal() {
                 </div>
                 <div style="display: flex; gap: var(--spacing-md); justify-content: flex-end;">
                     <button onclick="closeSaveSearchModal()" class="btn btn-secondary">Cancel</button>
-                    <button onclick="saveCurrentSearch()" class="btn btn-success">💾 Save Search</button>
+                    <button onclick="saveCurrentSearch()" class="btn btn-primary">💾 Save Search</button>
                 </div>
             </div>
         `;
@@ -4072,7 +3675,7 @@ function showManageSearchesModal() {
                                     Created: ${search.created_at}
                                 </div>
                             </div>
-                            <button onclick="deleteSavedSearch(${search.id}, '${search.title.replace(/'/g, "\\'")}')" class="btn btn-sm" style="background: var(--color-error); color: white;">
+                            <button onclick="deleteSavedSearch(${search.id}, '${search.title.replace(/'/g, "\\'")}')" class="btn btn-sm btn-danger">
                                 🗑️ Delete
                             </button>
                         </div>
@@ -4381,732 +3984,7 @@ function clearAIEvidence() {
     window.location.href = `/case/${caseId}/search`;
 }
 
-// ===== AI TRIAGE SEARCH FUNCTIONS (v1.39.0) =====
-
-function showTriageModal() {
-    const modal = document.getElementById('triageReportModal');
-    modal.style.display = 'flex';
-    const caseId = {{ case.id }};
-    
-    // Reset all phases - hide everything first
-    document.getElementById('triageLoadingPhase').style.display = 'block';
-    document.getElementById('triageNoSystemsPhase').style.display = 'none';
-    document.getElementById('triageNoReportPhase').style.display = 'none';
-    document.getElementById('triageInputPhase').style.display = 'none';
-    document.getElementById('triageProgressPhase').style.display = 'none';
-    document.getElementById('triageResultsPhase').style.display = 'none';
-    document.getElementById('triageStartBtn').style.display = 'none';
-    document.getElementById('triageStartBtn').disabled = false;
-    document.getElementById('triageViewResultsBtn').style.display = 'none';
-    document.getElementById('triageProgressLog').innerHTML = '';
-    
-    // Reset phase indicators
-    for (let i = 1; i <= 9; i++) {
-        document.getElementById('phaseInd' + i).style.background = 'var(--color-background-tertiary)';
-    }
-    
-    // Call pre-check endpoint to verify requirements (v1.43.2)
-    fetch(`/case/${caseId}/ai-triage-search/pre-check`, {
-        credentials: 'same-origin'
-    })
-    .then(response => response.json())
-    .then(data => {
-        // Hide loading
-        document.getElementById('triageLoadingPhase').style.display = 'none';
-        
-        if (data.error) {
-            alert('Error checking triage requirements: ' + data.error);
-            closeTriageModal();
-            return;
-        }
-        
-        // Check 1: Systems must be discovered first
-        if (!data.systems_discovered) {
-            document.getElementById('triageNoSystemsPhase').style.display = 'block';
-            document.getElementById('triageStartBtn').style.display = 'none';
-            return;
-        }
-        
-        // Check 2: EDR report must exist
-        if (!data.has_edr_report) {
-            document.getElementById('triageNoReportPhase').style.display = 'block';
-            document.getElementById('triageStartBtn').style.display = 'none';
-            return;
-        }
-        
-        // All checks passed - show input phase
-        document.getElementById('triageInputPhase').style.display = 'block';
-        document.getElementById('triageStartBtn').style.display = 'inline-flex';
-        
-        // Populate report preview
-        const edrReport = data.edr_report_preview || '';
-        document.getElementById('triageReportInput').value = edrReport;
-        
-        const preview = edrReport.length > 800 
-            ? edrReport.substring(0, 800) + '\n\n... [more content]'
-            : edrReport;
-        document.getElementById('triageReportPreview').textContent = preview;
-        
-        // Show systems count in a badge (optional enhancement)
-        console.log(`[AI Triage] Pre-check passed: ${data.auto_discovered_count} auto-discovered systems, ${data.total_systems} total`);
-    })
-    .catch(err => {
-        console.error('Failed to check triage requirements:', err);
-        document.getElementById('triageLoadingPhase').style.display = 'none';
-        alert('Failed to check triage requirements. Please try again.');
-        closeTriageModal();
-    });
-}
-
-function closeTriageModal() {
-    document.getElementById('triageReportModal').style.display = 'none';
-}
-
-function startAITriageSearch() {
-    const caseId = {{ case.id }};
-    const startBtn = document.getElementById('triageStartBtn');
-    const closeBtn = document.getElementById('triageCloseBtn');
-    
-    // Switch to progress phase
-    document.getElementById('triageInputPhase').style.display = 'none';
-    document.getElementById('triageProgressPhase').style.display = 'block';
-    startBtn.style.display = 'none';
-    closeBtn.textContent = 'Close';
-    
-    // Start the AI Triage Search via Celery
-    fetch(`/case/${caseId}/ai-triage-search/run`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        credentials: 'same-origin'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            showTriageError(data.error);
-            return;
-        }
-        
-        if (data.search_id) {
-            // Poll for task status
-            pollAITriageStatus(caseId, data.search_id);
-        }
-    })
-    .catch(error => {
-        showTriageError('Failed to start AI Triage Search: ' + error.message);
-    });
-}
-
-function pollAITriageStatus(caseId, searchId) {
-    const progressTitle = document.getElementById('triageProgressTitle');
-    const progressMessage = document.getElementById('triageProgressMessage');
-    const progressBar = document.getElementById('triageProgressBar');
-    const progressPercent = document.getElementById('triagePhasePercent');
-    const phaseLabel = document.getElementById('triagePhaseLabel');
-    const progressLog = document.getElementById('triageProgressLog');
-    
-    fetch(`/case/${caseId}/ai-triage-search/${searchId}/status`)
-    .then(response => response.json())
-    .then(data => {
-        // Update phase indicators
-        if (data.phase) {
-            for (let i = 1; i <= 9; i++) {
-                const ind = document.getElementById('phaseInd' + i);
-                if (i < data.phase) {
-                    ind.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-                } else if (i === data.phase) {
-                    ind.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
-                } else {
-                    ind.style.background = 'var(--color-background-tertiary)';
-                }
-            }
-        }
-        
-        // Update progress bar
-        progressBar.style.width = (data.percent || 0) + '%';
-        progressPercent.textContent = (data.percent || 0) + '%';
-        
-        // Update phase label
-        if (data.phase_name) {
-            phaseLabel.textContent = `Phase ${data.phase}: ${data.phase_name}`;
-        }
-        
-        // Update message
-        progressTitle.textContent = data.phase_name || 'Processing...';
-        progressMessage.textContent = data.message || 'Working...';
-        
-        // Add to log
-        if (data.message && data.message !== progressLog.lastMessage) {
-            const phaseColor = getPhaseColor(data.phase);
-            progressLog.innerHTML += `<div style="margin-top: 2px;"><span style="color: ${phaseColor};">[Phase ${data.phase}]</span> ${data.message}</div>`;
-            progressLog.scrollTop = progressLog.scrollHeight;
-            progressLog.lastMessage = data.message;
-        }
-        
-        switch (data.status) {
-            case 'pending':
-            case 'running':
-                setTimeout(() => pollAITriageStatus(caseId, searchId), 1000);
-                break;
-                
-            case 'completed':
-                showTriageResults(data);
-                break;
-                
-            case 'failed':
-                showTriageError(data.error_message || 'AI Triage Search failed');
-                break;
-                
-            default:
-                setTimeout(() => pollAITriageStatus(caseId, searchId), 1000);
-        }
-    })
-    .catch(error => {
-        showTriageError('Lost connection to server: ' + error.message);
-    });
-}
-
-function getPhaseColor(phase) {
-    const colors = {
-        1: '#667eea', 2: '#764ba2', 3: '#f093fb', 4: '#f5576c',
-        5: '#2ecc71', 6: '#3498db', 7: '#f39c12', 8: '#e74c3c', 9: '#9b59b6'
-    };
-    return colors[phase] || '#667eea';
-}
-
-function showTriageResults(data) {
-    const progressPhase = document.getElementById('triageProgressPhase');
-    const resultsPhase = document.getElementById('triageResultsPhase');
-    const resultsContent = document.getElementById('triageResultsContent');
-    const viewResultsBtn = document.getElementById('triageViewResultsBtn');
-    
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'block';
-    viewResultsBtn.style.display = 'inline-flex';
-    
-    let html = `
-        <div style="background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%); border-radius: 8px; padding: 16px; margin-bottom: 16px; border-left: 4px solid #667eea;">
-            <h3 style="margin: 0 0 12px 0; color: #667eea;">✅ AI Triage Search Complete</h3>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: center;">
-                <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #667eea;">${data.iocs_extracted || 0}</div>
-                    <div style="font-size: 0.8rem; color: var(--color-text-muted);">IOCs Extracted</div>
-                </div>
-                <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #2ecc71;">${data.iocs_discovered || 0}</div>
-                    <div style="font-size: 0.8rem; color: var(--color-text-muted);">IOCs Discovered</div>
-                </div>
-                <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #9b59b6;">${data.auto_tagged || 0}</div>
-                    <div style="font-size: 0.8rem; color: var(--color-text-muted);">Events Tagged</div>
-                </div>
-            </div>
-        </div>
-        
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px;">
-            <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 4px;">Events Analyzed</div>
-                <div style="font-size: 1.2rem; font-weight: bold;">${(data.events_analyzed || 0).toLocaleString()}</div>
-            </div>
-            <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 4px;">MITRE Techniques</div>
-                <div style="font-size: 1.2rem; font-weight: bold;">${data.techniques_found || 0}</div>
-            </div>
-            <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 4px;">Process Trees</div>
-                <div style="font-size: 1.2rem; font-weight: bold;">${data.process_trees || 0}</div>
-            </div>
-            <div style="background: var(--color-background-tertiary); padding: 12px; border-radius: 8px;">
-                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 4px;">Timeline Events</div>
-                <div style="font-size: 1.2rem; font-weight: bold;">${data.timeline_events || 0}</div>
-            </div>
-        </div>
-        
-        <div style="background: rgba(155,89,182,0.1); padding: 12px; border-radius: 8px; border-left: 4px solid #9b59b6;">
-            <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-secondary);">
-                🎯 <strong>${data.auto_tagged || 0} timeline events</strong> have been auto-tagged with a <span style="color: #9b59b6;">purple</span> color.
-                View them on the case dashboard or filter by "Tagged Events" in search.
-            </p>
-        </div>
-    `;
-    
-    resultsContent.innerHTML = html;
-}
-
-function showTriageError(message) {
-    const progressPhase = document.getElementById('triageProgressPhase');
-    const resultsPhase = document.getElementById('triageResultsPhase');
-    const resultsContent = document.getElementById('triageResultsContent');
-    
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'block';
-    
-    resultsContent.innerHTML = `
-        <div style="text-align: center;">
-            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">❌</div>
-            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-error);">Error</h4>
-            <p style="color: var(--color-text-muted);">${message}</p>
-        </div>
-    `;
-}
-
 // ============================================================================
-// HIDE KNOWN GOOD FUNCTIONS
-// ============================================================================
-
-function showHideKnownGoodModal() {
-    const modal = document.getElementById('hideKnownGoodModal');
-    const noExclusionsPhase = document.getElementById('hideKGNoExclusionsPhase');
-    const confirmPhase = document.getElementById('hideKGConfirmPhase');
-    const progressPhase = document.getElementById('hideKGProgressPhase');
-    const resultsPhase = document.getElementById('hideKGResultsPhase');
-    const startBtn = document.getElementById('hideKGStartBtn');
-    const closeBtn = document.getElementById('hideKGCloseBtn');
-    
-    // Reset phases
-    noExclusionsPhase.style.display = 'none';
-    confirmPhase.style.display = 'none';
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'none';
-    startBtn.style.display = 'inline-block';
-    startBtn.disabled = false;
-    closeBtn.textContent = 'Cancel';
-    
-    modal.style.display = 'flex';
-    
-    // Check if exclusions are defined
-    fetch('/settings/system-tools/api/has-exclusions')
-        .then(response => response.json())
-        .then(data => {
-            if (data.has_exclusions) {
-                confirmPhase.style.display = 'block';
-                loadExclusionsSummary();
-            } else {
-                noExclusionsPhase.style.display = 'block';
-                startBtn.style.display = 'none';
-            }
-        })
-        .catch(error => {
-            console.error('Error checking exclusions:', error);
-            noExclusionsPhase.style.display = 'block';
-            startBtn.style.display = 'none';
-        });
-}
-
-function loadExclusionsSummary() {
-    const summaryDiv = document.getElementById('hideKGExclusionsSummary');
-    
-    fetch('/settings/system-tools/api/exclusions')
-        .then(response => response.json())
-        .then(data => {
-            let html = '<ul style="margin: 0; padding-left: var(--spacing-lg);">';
-            
-            if (data.rmm_executables && data.rmm_executables.length > 0) {
-                html += `<li><strong>RMM Tools:</strong> ${data.rmm_executables.slice(0, 5).join(', ')}`;
-                if (data.rmm_executables.length > 5) {
-                    html += ` (+${data.rmm_executables.length - 5} more)`;
-                }
-                html += '</li>';
-            }
-            
-            if (data.remote_tools && data.remote_tools.length > 0) {
-                const toolNames = data.remote_tools.map(t => t.name).join(', ');
-                const totalIds = data.remote_tools.reduce((sum, t) => sum + (t.known_good_ids ? t.known_good_ids.length : 0), 0);
-                html += `<li><strong>Remote Tools:</strong> ${toolNames} (${totalIds} known-good IDs)</li>`;
-            }
-            
-            if (data.known_good_ips && data.known_good_ips.length > 0) {
-                html += `<li><strong>Known-Good IPs:</strong> ${data.known_good_ips.slice(0, 3).join(', ')}`;
-                if (data.known_good_ips.length > 3) {
-                    html += ` (+${data.known_good_ips.length - 3} more)`;
-                }
-                html += '</li>';
-            }
-            
-            if (!data.rmm_executables?.length && !data.remote_tools?.length && !data.known_good_ips?.length) {
-                html = '<p style="margin: 0;">No exclusions configured</p>';
-            } else {
-                html += '</ul>';
-            }
-            
-            summaryDiv.innerHTML = html;
-        })
-        .catch(error => {
-            summaryDiv.innerHTML = '<p style="color: var(--color-error);">Error loading exclusions</p>';
-        });
-}
-
-function closeHideKnownGoodModal() {
-    document.getElementById('hideKnownGoodModal').style.display = 'none';
-}
-
-function startHideKnownGood() {
-    const caseId = {{ case.id }};
-    const confirmPhase = document.getElementById('hideKGConfirmPhase');
-    const progressPhase = document.getElementById('hideKGProgressPhase');
-    const resultsPhase = document.getElementById('hideKGResultsPhase');
-    const startBtn = document.getElementById('hideKGStartBtn');
-    const closeBtn = document.getElementById('hideKGCloseBtn');
-    
-    // Switch to progress phase
-    confirmPhase.style.display = 'none';
-    progressPhase.style.display = 'block';
-    startBtn.style.display = 'none';
-    closeBtn.textContent = 'Close';
-    
-    // Start the hide operation using Celery background task
-    fetch(`/settings/system-tools/case/${caseId}/hide-known-good`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            showHideKnownGoodError(data.error);
-            return;
-        }
-        
-        if (data.task_id) {
-            // Poll for task status
-            pollHideKnownGoodStatus(caseId, data.task_id);
-        }
-    })
-    .catch(error => {
-        showHideKnownGoodError('Failed to start task: ' + error.message);
-    });
-}
-
-function pollHideKnownGoodStatus(caseId, taskId) {
-    const progressTitle = document.getElementById('hideKGProgressTitle');
-    const progressMessage = document.getElementById('hideKGProgressMessage');
-    const progressBar = document.getElementById('hideKGProgressBar');
-    const progressPercent = document.getElementById('hideKGProgressPercent');
-    const progressLabel = document.getElementById('hideKGProgressLabel');
-    const progressProcessed = document.getElementById('hideKGProgressProcessed');
-    const progressFound = document.getElementById('hideKGProgressFound');
-    
-    fetch(`/settings/system-tools/case/${caseId}/hide-known-good/status/${taskId}`)
-    .then(response => response.json())
-    .then(data => {
-        switch (data.status) {
-            case 'pending':
-                progressTitle.textContent = 'Queued...';
-                progressMessage.textContent = 'Starting 8 parallel workers... Progress updates as each completes.';
-                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
-                break;
-            
-            case 'starting':
-                progressTitle.textContent = 'Starting...';
-                progressMessage.textContent = data.message || 'Initializing...';
-                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
-                break;
-                
-            case 'scanning':
-                progressTitle.textContent = 'Scanning Events...';
-                const workersInfo = data.workers_complete ? ` (${data.workers_complete} workers done)` : '';
-                progressMessage.textContent = `Checking ${(data.total || 0).toLocaleString()} events for known-good patterns${workersInfo}`;
-                progressBar.style.width = (data.percent || 0) + '%';
-                progressPercent.textContent = (data.percent || 0) + '%';
-                progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
-                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
-                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
-                break;
-                
-            case 'hiding':
-                // v1.43.8: Show actual hiding progress
-                progressTitle.textContent = 'Hiding Events...';
-                const hideProgress = data.hide_progress || `${(data.hidden || 0).toLocaleString()} / ${(data.found || 0).toLocaleString()}`;
-                progressMessage.textContent = `Hiding ${hideProgress} matching events`;
-                progressBar.style.width = (data.percent || 0) + '%';
-                progressPercent.textContent = (data.percent || 0) + '%';
-                progressLabel.textContent = 'Hiding Progress';
-                progressProcessed.textContent = `${(data.hidden || 0).toLocaleString()} events hidden`;
-                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
-                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 500);  // Poll faster during hiding
-                break;
-                
-            case 'complete':
-            case 'success':
-                showHideKnownGoodResults(data);
-                break;
-                
-            case 'error':
-                showHideKnownGoodError(data.message || 'Task failed');
-                break;
-                
-            default:
-                // Keep polling for unknown states
-                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
-        }
-    })
-    .catch(error => {
-        showHideKnownGoodError('Lost connection to server: ' + error.message);
-    });
-}
-
-function showHideKnownGoodResults(data) {
-    const progressPhase = document.getElementById('hideKGProgressPhase');
-    const resultsPhase = document.getElementById('hideKGResultsPhase');
-    const resultsContent = document.getElementById('hideKGResultsContent');
-    
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'block';
-    
-    let html = '';
-    
-    if (data.hidden > 0) {
-        // v1.43.8: Show found vs hidden if they differ
-        const foundCount = data.found || data.hidden;
-        const mismatchNote = (foundCount > data.hidden) 
-            ? `<p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-md);">
-                ⚠️ Note: ${foundCount.toLocaleString()} events matched patterns, but only ${data.hidden.toLocaleString()} were successfully hidden.
-               </p>`
-            : '';
-        
-        html = `
-            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">✅</div>
-            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-success);">Successfully Hidden</h4>
-            <p style="font-size: 1.5rem; font-weight: bold; margin-bottom: var(--spacing-sm);">
-                ${data.hidden.toLocaleString()} events
-            </p>
-            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                Scanned ${data.processed.toLocaleString()} events • Found ${foundCount.toLocaleString()} matches
-            </p>
-            ${mismatchNote}
-            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
-                    💡 <strong>Tip:</strong> To view hidden events, change the "Hidden Events" filter above to "Show" or "Only Hidden".
-                </p>
-            </div>
-        `;
-    } else {
-        html = `
-            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">ℹ️</div>
-            <h4 style="margin-bottom: var(--spacing-md);">No Events to Hide</h4>
-            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                Scanned ${data.processed.toLocaleString()} events but none matched your exclusion patterns.
-            </p>
-            <p style="color: var(--color-text-muted); font-size: 0.9rem;">
-                This could mean:
-            </p>
-            <ul style="text-align: left; display: inline-block; color: var(--color-text-muted); font-size: 0.9rem;">
-                <li>All known-good events are already hidden</li>
-                <li>No events match your configured patterns</li>
-                <li>You may need to add more exclusion patterns</li>
-            </ul>
-        `;
-    }
-    
-    resultsContent.innerHTML = html;
-}
-
-function showHideKnownGoodError(message) {
-    const progressPhase = document.getElementById('hideKGProgressPhase');
-    const resultsPhase = document.getElementById('hideKGResultsPhase');
-    const resultsContent = document.getElementById('hideKGResultsContent');
-    
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'block';
-    
-    resultsContent.innerHTML = `
-        <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">❌</div>
-        <h4 style="margin-bottom: var(--spacing-md); color: var(--color-error);">Error</h4>
-        <p style="color: var(--color-text-muted);">${message}</p>
-    `;
-}
-
-// ============================================================================
-// HIDE NOISE EVENTS FUNCTIONS (v1.44.0)
-// ============================================================================
-
-function showHideNoiseModal() {
-    const modal = document.getElementById('hideNoiseModal');
-    
-    // Reset to confirm phase
-    document.getElementById('hideNoiseConfirmPhase').style.display = 'block';
-    document.getElementById('hideNoiseProgressPhase').style.display = 'none';
-    document.getElementById('hideNoiseResultsPhase').style.display = 'none';
-    document.getElementById('hideNoiseStartBtn').style.display = 'inline-flex';
-    document.getElementById('hideNoiseCloseBtn').textContent = 'Cancel';
-    
-    modal.style.display = 'flex';
-}
-
-function closeHideNoiseModal() {
-    document.getElementById('hideNoiseModal').style.display = 'none';
-}
-
-function startHideNoise() {
-    const caseId = {{ case.id }};
-    const confirmPhase = document.getElementById('hideNoiseConfirmPhase');
-    const progressPhase = document.getElementById('hideNoiseProgressPhase');
-    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
-    const startBtn = document.getElementById('hideNoiseStartBtn');
-    const closeBtn = document.getElementById('hideNoiseCloseBtn');
-    
-    // Switch to progress phase
-    confirmPhase.style.display = 'none';
-    progressPhase.style.display = 'block';
-    startBtn.style.display = 'none';
-    closeBtn.textContent = 'Close';
-    
-    // Start the hide operation using Celery background task
-    fetch(`/settings/system-tools/case/${caseId}/hide-noise`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            showHideNoiseError(data.error);
-            return;
-        }
-        
-        if (data.task_id) {
-            // Poll for task status
-            pollHideNoiseStatus(caseId, data.task_id);
-        }
-    })
-    .catch(error => {
-        showHideNoiseError('Failed to start task: ' + error.message);
-    });
-}
-
-function pollHideNoiseStatus(caseId, taskId) {
-    const progressTitle = document.getElementById('hideNoiseProgressTitle');
-    const progressMessage = document.getElementById('hideNoiseProgressMessage');
-    const progressBar = document.getElementById('hideNoiseProgressBar');
-    const progressPercent = document.getElementById('hideNoiseProgressPercent');
-    const progressProcessed = document.getElementById('hideNoiseProgressProcessed');
-    const progressFound = document.getElementById('hideNoiseProgressFound');
-    
-    fetch(`/settings/system-tools/case/${caseId}/hide-noise/status/${taskId}`)
-    .then(response => response.json())
-    .then(data => {
-        switch (data.status) {
-            case 'pending':
-                progressTitle.textContent = 'Queued...';
-                progressMessage.textContent = 'Starting 8 parallel workers... Progress updates as each completes.';
-                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
-                break;
-            
-            case 'dispatching':
-                progressTitle.textContent = 'Starting...';
-                progressMessage.textContent = 'Dispatching workers...';
-                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
-                break;
-                
-            case 'scanning':
-                progressTitle.textContent = 'Scanning Events...';
-                const workersInfo = data.workers_complete ? ` (${data.workers_complete} workers done)` : '';
-                progressMessage.textContent = `Checking ${(data.total || 0).toLocaleString()} events for noise patterns${workersInfo}`;
-                progressBar.style.width = (data.percent || 0) + '%';
-                progressPercent.textContent = (data.percent || 0) + '%';
-                progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
-                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
-                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
-                break;
-                
-            case 'complete':
-            case 'success':
-                showHideNoiseResults(data);
-                break;
-                
-            case 'error':
-                showHideNoiseError(data.message || 'Task failed');
-                break;
-                
-            default:
-                // Keep polling for unknown states
-                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
-        }
-    })
-    .catch(error => {
-        showHideNoiseError('Lost connection to server: ' + error.message);
-    });
-}
-
-function showHideNoiseResults(data) {
-    const progressPhase = document.getElementById('hideNoiseProgressPhase');
-    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
-    const resultsContent = document.getElementById('hideNoiseResultsContent');
-    
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'block';
-    
-    let html = '';
-    
-    if (data.hidden > 0) {
-        // Build category breakdown
-        let categoryHtml = '';
-        if (data.by_category) {
-            const cats = data.by_category;
-            categoryHtml = `
-                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); text-align: left;">
-                    <h5 style="margin: 0 0 var(--spacing-sm) 0;">📊 Breakdown</h5>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-xs); font-size: 0.9rem; color: var(--color-text-muted);">
-                        <div>🔧 Noise Processes: ${(cats.noise_process || 0).toLocaleString()}</div>
-                        <div>⌨️ Noise Commands: ${(cats.noise_command || 0).toLocaleString()}</div>
-                        <div>🔥 Firewall Noise: ${(cats.firewall_noise || 0).toLocaleString()}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        html = `
-            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">✅</div>
-            <h4 style="margin-bottom: var(--spacing-md); color: var(--color-success);">Successfully Hidden</h4>
-            <p style="font-size: 1.5rem; font-weight: bold; margin-bottom: var(--spacing-sm);">
-                ${data.hidden.toLocaleString()} noise events
-            </p>
-            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                Scanned ${(data.processed || 0).toLocaleString()} events • Found ${(data.found || data.hidden).toLocaleString()} matches
-            </p>
-            ${categoryHtml}
-            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); text-align: left;">
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
-                    💡 <strong>Tip:</strong> To view hidden events, change the "Hidden Events" filter to "Show" or "Only Hidden".
-                </p>
-            </div>
-        `;
-    } else {
-        html = `
-            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">ℹ️</div>
-            <h4 style="margin-bottom: var(--spacing-md);">No Noise Events Found</h4>
-            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
-                Scanned ${(data.processed || 0).toLocaleString()} events but none matched noise patterns.
-            </p>
-            <p style="color: var(--color-text-muted); font-size: 0.9rem;">
-                This could mean:
-            </p>
-            <ul style="text-align: left; display: inline-block; color: var(--color-text-muted); font-size: 0.9rem;">
-                <li>All noise events are already hidden</li>
-                <li>This case has minimal system noise</li>
-                <li>Events don't match current noise patterns</li>
-            </ul>
-        `;
-    }
-    
-    resultsContent.innerHTML = html;
-}
-
-function showHideNoiseError(message) {
-    const progressPhase = document.getElementById('hideNoiseProgressPhase');
-    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
-    const resultsContent = document.getElementById('hideNoiseResultsContent');
-    
-    progressPhase.style.display = 'none';
-    resultsPhase.style.display = 'block';
-    
-    resultsContent.innerHTML = `
-        <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">❌</div>
-        <h4 style="margin-bottom: var(--spacing-md); color: var(--color-error);">Error</h4>
-        <p style="color: var(--color-text-muted);">${message}</p>
-    `;
-}
 
 // Old triage functions removed - replaced by AI Triage Search (v1.39.0)
 
@@ -5157,11 +4035,11 @@ function showAIEventsInSearchResults_OLD() {
         const isExcluded = event.is_excluded || false;
         rows += `<td class="tag-cell" data-event-id="${_id}" data-index-name="${_index}">`;
         if (isTagged) {
-            rows += `<button onclick="untagEvent('${_id}', '${_index}')" class="btn btn-sm tag-btn" style="background: var(--color-warning); padding: 4px 8px;" title="Untag event">⭐</button>`;
-            rows += `<button onclick="excludeFromTagging('${_id}', '${_index}')" class="btn btn-sm exclude-btn" style="background: var(--color-danger); padding: 4px 8px; margin-left: 2px;" title="Exclude from auto-tagging">✕</button>`;
+            rows += `<button onclick="untagEvent('${_id}', '${_index}')" class="btn btn-sm btn-warning" style="padding: 4px 8px;" title="Untag event">⭐</button>`;
+            rows += `<button onclick="excludeFromTagging('${_id}', '${_index}')" class="btn btn-sm btn-danger" style="padding: 4px 8px; margin-left: 2px;" title="Exclude from auto-tagging">✕</button>`;
         } else if (isExcluded) {
             rows += `<button onclick="tagEvent('${_id}', '${_index}')" class="btn btn-sm tag-btn" style="padding: 4px 8px; opacity: 0.5;" title="Tag event (will remove exclusion)">☆</button>`;
-            rows += `<button onclick="removeExclusion('${_id}', '${_index}')" class="btn btn-sm" style="background: var(--color-secondary); padding: 4px 8px; margin-left: 2px;" title="Event excluded - click to allow auto-tagging">🚫</button>`;
+            rows += `<button onclick="removeExclusion('${_id}', '${_index}')" class="btn btn-sm btn-secondary" style="padding: 4px 8px; margin-left: 2px;" title="Event excluded - click to allow auto-tagging">🚫</button>`;
         } else {
             rows += `<button onclick="tagEvent('${_id}', '${_index}')" class="btn btn-sm btn-secondary tag-btn" style="padding: 4px 8px;" title="Tag event">☆</button>`;
         }
@@ -5206,7 +4084,7 @@ function showAIEventsInSearchResults_OLD() {
         
         // Actions column
         rows += `<td>
-            <button onclick="showEventDetail('${_id}', '${_index}')" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; margin-right: 4px;">View</button>
+            <button onclick="showEventDetail('${_id}', '${_index}')" class="btn btn-sm btn-purple" style="margin-right: 4px;">View</button>
             <button onclick="hideEvent('${_id}', '${_index}')" class="btn btn-sm btn-secondary">Hide</button>
         </td>`;
         

@@ -45,6 +45,7 @@ def load_exclusions() -> Dict:
     
     exclusions = {
         'rmm_executables': [],
+        'rmm_paths': [],  # List of RMM installation paths
         'remote_tools': [],
         'edr_tools': [],
         'known_good_ips': []
@@ -58,6 +59,12 @@ def load_exclusions() -> Dict:
                 # RMM tools: comma-separated executable patterns
                 patterns = [p.strip().lower() for p in s.executable_pattern.split(',') if p.strip()]
                 exclusions['rmm_executables'].extend(patterns)
+                
+                # RMM paths: Add installation path if specified
+                if s.rmm_path:
+                    path = s.rmm_path.strip().lower()
+                    if path:
+                        exclusions['rmm_paths'].append(path)
                 
             elif s.setting_type == 'remote_tool':
                 # Remote tools: pattern + list of known-good session IDs
@@ -165,76 +172,56 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
         exclusions = get_cached_exclusions()
     
     blob = (search_blob or '').lower()
+    rmm_patterns = exclusions.get('rmm_executables', [])
     
+    # DEBUG: Log first time we see exclusions
+    if rmm_patterns and not hasattr(is_known_good_event, '_logged_exclusions'):
+        logger.info(f"[KNOWN_GOOD] DEBUG: Loaded {len(rmm_patterns)} RMM patterns: {rmm_patterns[:5]}")
+        logger.info(f"[KNOWN_GOOD] DEBUG: Loaded {len(exclusions.get('edr_tools', []))} EDR tools")
+        logger.info(f"[KNOWN_GOOD] DEBUG: Loaded {len(exclusions.get('remote_tools', []))} Remote tools")
+        is_known_good_event._logged_exclusions = True
     
     # =========================================================================
-    # CHECK 1: RMM Tools
+    # CHECK 1: RMM Tools - EXE or PATH
     # =========================================================================
-    # Match executable patterns AND path patterns.
-    # Wildcards require .exe context to avoid matching URLs
-    for rmm_pattern in exclusions.get('rmm_executables', []):
+    # 1. If RMM EXE found in blob = noise
+    # 2. If RMM path found in blob = noise
+    for rmm_pattern in rmm_patterns:
         if '*' in rmm_pattern:
             # Wildcard: "labtech*.exe" → need prefix + .exe in blob
             prefix = rmm_pattern.split('*')[0]
             if prefix and prefix in blob and '.exe' in blob:
-                logger.debug(f"[KNOWN_GOOD] RMM match: {rmm_pattern}")
+                logger.info(f"[KNOWN_GOOD] RMM EXE match: {rmm_pattern}")
                 return True
         else:
             # Exact: "ltsvc.exe" must be in blob
             if rmm_pattern in blob:
-                logger.debug(f"[KNOWN_GOOD] RMM match: {rmm_pattern}")
+                logger.info(f"[KNOWN_GOOD] RMM EXE match: {rmm_pattern}")
                 return True
     
-    # Also check for RMM installation paths (v1.44.2)
-    # This catches events that reference the RMM path but not the exact executable
-    RMM_PATH_INDICATORS = [
-        '\\ltsvc\\',       # LabTech/ConnectWise Automate path
-        '\\labtech\\',     # Alternative LabTech path
-        '\\datto\\',       # Datto RMM
-        '\\aemag\\',       # Datto AEM Agent
-        '\\kaseya\\',      # Kaseya
-        '\\ninjarmmag\\',  # NinjaRMM
-        '\\syncro\\',      # Syncro
-        '\\atera\\',       # Atera
-        '\\n-central\\',   # N-able
-    ]
-    for path_indicator in RMM_PATH_INDICATORS:
-        if path_indicator in blob:
-            logger.debug(f"[KNOWN_GOOD] RMM path match: {path_indicator}")
-            return True
-    
-    # Check for RMM service names in Service Control Manager events (v1.44.2)
-    # These appear as "servicename running/stopped" without .exe
-    RMM_SERVICE_NAMES = [
-        'ltservice',       # LabTech service
-        'ltsvcmon',        # LabTech service monitor  
-        'lttray',          # LabTech tray
-        'labvnc',          # LabTech VNC
-        'dattoservice',    # Datto
-        'kaseyaservice',   # Kaseya
-    ]
-    for svc_name in RMM_SERVICE_NAMES:
-        # Match "servicename running" or "servicename stopped" patterns
-        if f'{svc_name} running' in blob or f'{svc_name} stopped' in blob:
-            logger.debug(f"[KNOWN_GOOD] RMM service name match: {svc_name}")
+    # Check configured RMM paths from database
+    for rmm_path in exclusions.get('rmm_paths', []):
+        if rmm_path and rmm_path in blob:
+            logger.info(f"[KNOWN_GOOD] RMM PATH match: {rmm_path}")
             return True
     
     # =========================================================================
-    # CHECK 2: Remote Tools (e.g., TeamViewer, AnyDesk)
+    # CHECK 2: Remote Tools - EXE + ID
     # =========================================================================
-    # Must have BOTH the tool pattern AND a known-good session ID
+    # If remote tool EXE AND ID in blob = noise
     for tool_config in exclusions.get('remote_tools', []):
         pattern = tool_config.get('pattern', '')
         if pattern and pattern in blob:
             for known_id in tool_config.get('known_good_ids', []):
                 if known_id and known_id in blob:
-                    logger.debug(f"[KNOWN_GOOD] Remote tool match: {tool_config['name']} + {known_id}")
+                    logger.info(f"[KNOWN_GOOD] Remote tool match: {tool_config['name']} + {known_id}")
                     return True
     
     # =========================================================================
-    # CHECK 3: EDR Tools (e.g., Huntress, CrowdStrike, SentinelOne)
+    # CHECK 3: EDR Tools - EXE + Routine Keyword
     # =========================================================================
-    # Hide routine health checks, KEEP response/isolation actions
+    # If EDR tool EXE AND noise keyword(s) in blob = noise
+    # (unless response pattern also present → keep it, not noise!)
     for edr_config in exclusions.get('edr_tools', []):
         edr_executables = edr_config.get('executables', [])
         
@@ -255,20 +242,21 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
                     break
         
         if edr_in_blob:
-            # Check for response action - DON'T hide these (attacker activity!)
+            # Check for response action - DON'T mark as noise (attacker activity!)
             if edr_config.get('keep_responses', True):
                 response_patterns = edr_config.get('response_patterns', [])
                 if any(pattern in blob for pattern in response_patterns if pattern):
                     logger.debug(f"[KNOWN_GOOD] EDR response action, keeping: {matched_exe}")
-                    continue  # Don't hide, check other rules
+                    continue  # Don't mark as noise, check other rules
             
-            # Check for routine command - HIDE
+            # Check for routine command - MARK AS NOISE
             if edr_config.get('exclude_routine', True):
                 routine_commands = edr_config.get('routine_commands', [])
                 for routine in routine_commands:
-                    # Routine must be present as .exe to avoid partial matches
-                    if routine and f"{routine}.exe" in blob:
-                        logger.debug(f"[KNOWN_GOOD] EDR routine: {matched_exe} + {routine}.exe")
+                    # Routine keyword must be present anywhere in blob
+                    # This is safe because we already verified EDR exe is present above
+                    if routine and routine in blob:
+                        logger.info(f"[KNOWN_GOOD] EDR routine match: exe={matched_exe}, keyword={routine}")
                         return True
     
     # =========================================================================
@@ -348,6 +336,7 @@ def process_slice(
     batch_size = 1000
     
     # Sliced scroll query - each slice gets 1/N of events
+    # Exclude events that already have status='noise' to avoid re-processing
     query = {
         "size": batch_size,
         "slice": {
@@ -358,7 +347,7 @@ def process_slice(
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"is_hidden": True}}
+                    {"term": {"event_status": "noise"}}
                 ]
             }
         }
@@ -420,16 +409,16 @@ def bulk_hide_events(
     case_id: int = None
 ) -> int:
     """
-    Bulk update events to set is_hidden=True and status='noise'.
+    Bulk update event status to 'noise' for known-good events.
     
     Args:
         events_to_hide: List of dicts with {_id, _index}
-        opensearch_client: OpenSearch client instance
-        index_name: Index name for refresh
+        opensearch_client: OpenSearch client instance (not used anymore, kept for compatibility)
+        index_name: Index name (used to extract case_id if not provided)
         case_id: Case ID for status updates (optional, extracted from index_name if not provided)
     
     Returns:
-        Number of events successfully hidden
+        Number of events successfully marked as noise
     """
     if not events_to_hide:
         return 0
@@ -441,40 +430,27 @@ def bulk_hide_events(
         except (IndexError, ValueError):
             pass
     
-    hidden_count = 0
+    if not case_id:
+        logger.error("[KNOWN_GOOD] Cannot set event status without case_id")
+        return 0
+    
+    marked_count = 0
     bulk_batch_size = 500
     
+    # Update database EventStatus to 'noise' for all matched events
     for i in range(0, len(events_to_hide), bulk_batch_size):
         batch = events_to_hide[i:i + bulk_batch_size]
         
-        # Update OpenSearch is_hidden field
-        bulk_body = []
-        for evt in batch:
-            bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
-            bulk_body.append({"doc": {"is_hidden": True}})
-        
         try:
-            bulk_result = opensearch_client.bulk(body=bulk_body, refresh=False)
-            if not bulk_result.get('errors'):
-                hidden_count += len(batch)
-            else:
-                # Count successful updates
-                for item in bulk_result.get('items', []):
-                    if item.get('update', {}).get('status') in [200, 201]:
-                        hidden_count += 1
+            from event_status import bulk_set_status, STATUS_NOISE
+            event_ids = [evt['_id'] for evt in batch]
+            bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-marked as known-good")
+            marked_count += len(event_ids)
+            logger.info(f"[KNOWN_GOOD] Marked {len(event_ids)} events as noise (batch {i // bulk_batch_size + 1})")
         except Exception as e:
-            logger.error(f"[KNOWN_GOOD] Bulk hide failed: {e}")
-        
-        # Also update database EventStatus to 'noise'
-        if case_id:
-            try:
-                from event_status import bulk_set_status, STATUS_NOISE
-                event_ids = [evt['_id'] for evt in batch]
-                bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-hidden as known-good")
-            except Exception as e:
-                logger.warning(f"[KNOWN_GOOD] Failed to update EventStatus for batch: {e}")
+            logger.error(f"[KNOWN_GOOD] Failed to update EventStatus for batch: {e}")
     
-    return hidden_count
+    return marked_count
 
 
 # =============================================================================
@@ -537,11 +513,11 @@ def hide_known_good_events(
     
     query = {
         "size": batch_size,
-        "_source": ["search_blob", "source", "host", "process", "is_hidden"],
+        "_source": ["search_blob", "source", "host", "process", "event_status"],
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"is_hidden": True}}
+                    {"term": {"event_status": "noise"}}
                 ]
             }
         }
@@ -612,10 +588,11 @@ def hide_known_good_events(
             if progress_callback:
                 progress_callback('hiding', hidden_count, total_to_hide, total_to_hide)
             
+            # Update OpenSearch documents to set event_status='noise'
             bulk_body = []
             for evt in batch:
                 bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
-                bulk_body.append({"doc": {"is_hidden": True}})
+                bulk_body.append({"doc": {"event_status": "noise", "status_reason": "auto_known_good"}})
             
             try:
                 bulk_result = opensearch_client.bulk(body=bulk_body, refresh=False)
@@ -628,6 +605,15 @@ def hide_known_good_events(
                             hidden_count += 1
             except Exception as e:
                 result['errors'].append(f"Bulk update failed: {e}")
+            
+            # Update database EventStatus to 'noise'
+            try:
+                from event_status import bulk_set_status, STATUS_NOISE
+                event_ids = [evt['_id'] for evt in batch]
+                bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-marked as known-good")
+            except Exception as e:
+                logger.warning(f"[KNOWN_GOOD] Failed to update EventStatus for batch: {e}")
+
         
         # Final refresh
         try:
@@ -650,7 +636,7 @@ def hide_known_good_events(
 
 def unhide_all_events(case_id: int) -> Dict[str, Any]:
     """
-    Unhide all hidden events in a case (reset is_hidden to False).
+    Reset all noise events back to 'new' status in a case.
     
     Args:
         case_id: The case ID to process
@@ -674,16 +660,16 @@ def unhide_all_events(case_id: int) -> Dict[str, Any]:
     index_name = f"case_{case_id}"
     
     try:
-        # Update by query - set is_hidden=False for all hidden events
+        # Update by query - set event_status='new' for all noise events
         update_result = opensearch_client.update_by_query(
             index=index_name,
             body={
                 "script": {
-                    "source": "ctx._source.is_hidden = false",
+                    "source": "ctx._source.event_status = 'new'; ctx._source.status_reason = '';",
                     "lang": "painless"
                 },
                 "query": {
-                    "term": {"is_hidden": True}
+                    "term": {"event_status": "noise"}
                 }
             },
             refresh=True
@@ -691,10 +677,20 @@ def unhide_all_events(case_id: int) -> Dict[str, Any]:
         
         result['total_unhidden'] = update_result.get('updated', 0)
         result['success'] = True
-        logger.info(f"[KNOWN_GOOD] Unhid {result['total_unhidden']:,} events in case {case_id}")
+        logger.info(f"[KNOWN_GOOD] Reset {result['total_unhidden']:,} events from noise to new in case {case_id}")
+        
+        # Update database EventStatus - delete all noise status records for this case
+        try:
+            from event_status import db, EventStatus
+            deleted_count = EventStatus.query.filter_by(case_id=case_id, status='noise').delete()
+            db.session.commit()
+            logger.info(f"[KNOWN_GOOD] Deleted {deleted_count} noise EventStatus records from database")
+        except Exception as e:
+            logger.warning(f"[KNOWN_GOOD] Failed to delete EventStatus records: {e}")
         
     except Exception as e:
         result['errors'].append(f"Unhide failed: {e}")
+
     
     return result
 
@@ -704,7 +700,7 @@ def unhide_all_events(case_id: int) -> Dict[str, Any]:
 # =============================================================================
 
 def hide_event(case_id: int, event_id: str) -> bool:
-    """Hide a single event by ID."""
+    """Mark a single event as noise by ID."""
     from file_processing import get_opensearch_client
     
     opensearch_client = get_opensearch_client()
@@ -712,20 +708,26 @@ def hide_event(case_id: int, event_id: str) -> bool:
         return False
     
     try:
+        # Update OpenSearch document
         opensearch_client.update(
             index=f"case_{case_id}",
             id=event_id,
-            body={"doc": {"is_hidden": True}},
+            body={"doc": {"event_status": "noise", "status_reason": "manual"}},
             refresh=True
         )
+        
+        # Update database EventStatus
+        from event_status import bulk_set_status, STATUS_NOISE
+        bulk_set_status(case_id, [event_id], STATUS_NOISE, user_id=None, notes="Manually marked as noise")
+        
         return True
     except Exception as e:
-        logger.error(f"[KNOWN_GOOD] Failed to hide event {event_id}: {e}")
+        logger.error(f"[KNOWN_GOOD] Failed to mark event {event_id} as noise: {e}")
         return False
 
 
 def unhide_event(case_id: int, event_id: str) -> bool:
-    """Unhide a single event by ID."""
+    """Mark a single event as new (remove noise status) by ID."""
     from file_processing import get_opensearch_client
     
     opensearch_client = get_opensearch_client()
@@ -733,15 +735,21 @@ def unhide_event(case_id: int, event_id: str) -> bool:
         return False
     
     try:
+        # Update OpenSearch document
         opensearch_client.update(
             index=f"case_{case_id}",
             id=event_id,
-            body={"doc": {"is_hidden": False}},
+            body={"doc": {"event_status": "new", "status_reason": ""}},
             refresh=True
         )
+        
+        # Update database EventStatus
+        from event_status import bulk_set_status, STATUS_NEW
+        bulk_set_status(case_id, [event_id], STATUS_NEW, user_id=None, notes="Manually unmarked from noise")
+        
         return True
     except Exception as e:
-        logger.error(f"[KNOWN_GOOD] Failed to unhide event {event_id}: {e}")
+        logger.error(f"[KNOWN_GOOD] Failed to unmark event {event_id}: {e}")
         return False
 
 
@@ -750,7 +758,7 @@ def unhide_event(case_id: int, event_id: str) -> bool:
 # =============================================================================
 
 def get_hidden_count(case_id: int) -> int:
-    """Get the count of hidden events in a case."""
+    """Get the count of noise events in a case."""
     from file_processing import get_opensearch_client
     
     opensearch_client = get_opensearch_client()
@@ -762,7 +770,7 @@ def get_hidden_count(case_id: int) -> int:
             index=f"case_{case_id}",
             body={
                 "query": {
-                    "term": {"is_hidden": True}
+                    "term": {"event_status": "noise"}
                 }
             }
         )
@@ -772,7 +780,7 @@ def get_hidden_count(case_id: int) -> int:
 
 
 def get_visible_count(case_id: int) -> int:
-    """Get the count of visible (non-hidden) events in a case."""
+    """Get the count of non-noise events in a case."""
     from file_processing import get_opensearch_client
     
     opensearch_client = get_opensearch_client()
@@ -786,7 +794,7 @@ def get_visible_count(case_id: int) -> int:
                 "query": {
                     "bool": {
                         "must_not": [
-                            {"term": {"is_hidden": True}}
+                            {"term": {"event_status": "noise"}}
                         ]
                     }
                 }
