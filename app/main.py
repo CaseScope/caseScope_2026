@@ -2149,6 +2149,198 @@ def _redirect_refresh_descriptions_global():
         return redirect(url_for('dashboard'))
 
 
+# ============================================================================
+# TRIAGE PAGE (v1.46.0)
+# Pre-requisites and triage workflow management
+# ============================================================================
+
+@app.route('/case/<int:case_id>/triage')
+@login_required
+def triage_page(case_id):
+    """
+    Triage Page - Shows prerequisites and workflow for AI Triage.
+    
+    Prerequisites:
+    1. System Scan - Are systems defined for the case?
+    2. EDR Report - Is there an EDR report pasted?
+    3. IOCs Defined - Are there IOCs to hunt?
+    4. Tagged Events - Are there events tagged for timeline?
+    5. Date Set - Is a triage date configured?
+    """
+    from models import System, IOC, TimelineTag, AITriageSearch
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # === PREREQUISITE CHECKS ===
+    
+    # 1. System Scan Check - Are systems defined?
+    system_count = db.session.query(System).filter_by(
+        case_id=case_id,
+        hidden=False
+    ).count()
+    systems_configured = system_count > 0
+    
+    # 2. EDR Report Check - Is there an EDR report?
+    has_edr_report = bool(case.edr_report and case.edr_report.strip())
+    
+    # 3. IOC Check - Are there active IOCs?
+    ioc_count = db.session.query(IOC).filter_by(
+        case_id=case_id,
+        is_active=True
+    ).count()
+    has_iocs = ioc_count > 0
+    
+    # 4. Tagged Events Check - Are there timeline tags?
+    tag_count = db.session.query(TimelineTag).filter_by(
+        case_id=case_id
+    ).count()
+    has_tagged_events = tag_count > 0
+    
+    # 5. Triage Date Check - Is triage date set on the case?
+    # Check if any prior triage has been done with a date
+    last_triage = db.session.query(AITriageSearch).filter_by(
+        case_id=case_id
+    ).order_by(AITriageSearch.created_at.desc()).first()
+    
+    has_triage_date = bool(last_triage and last_triage.search_date)
+    triage_date = last_triage.search_date if last_triage else None
+    
+    # Get previous triage results if any
+    previous_triages = db.session.query(AITriageSearch).filter_by(
+        case_id=case_id
+    ).order_by(AITriageSearch.created_at.desc()).limit(5).all()
+    
+    # Check if AI is enabled
+    from routes.settings import get_setting
+    ai_enabled = get_setting('ai_enabled', 'false') == 'true'
+    
+    return render_template('triage.html',
+        case=case,
+        # Prerequisite data
+        systems_configured=systems_configured,
+        system_count=system_count,
+        has_edr_report=has_edr_report,
+        has_iocs=has_iocs,
+        ioc_count=ioc_count,
+        has_tagged_events=has_tagged_events,
+        tag_count=tag_count,
+        has_triage_date=has_triage_date,
+        triage_date=triage_date,
+        # Previous triages
+        previous_triages=previous_triages,
+        # AI settings
+        ai_enabled=ai_enabled
+    )
+
+
+@app.route('/case/<int:case_id>/triage/extract-iocs', methods=['POST'])
+@login_required
+def triage_extract_iocs(case_id):
+    """
+    Extract IOCs from the case's EDR report.
+    Uses AI if enabled, otherwise falls back to regex.
+    """
+    from ai_triage_edr_ioc import extract_iocs_from_report, get_ioc_summary
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    if not case.edr_report or not case.edr_report.strip():
+        return jsonify({'success': False, 'error': 'No EDR report configured for this case'}), 400
+    
+    try:
+        # Extract IOCs using the modular function
+        iocs = extract_iocs_from_report(case.edr_report)
+        summary = get_ioc_summary(iocs)
+        
+        logger.info(f"[TRIAGE] Extracted {summary['total_count']} IOCs from case {case_id} EDR report (method: {summary['extraction_method']})")
+        
+        return jsonify({
+            'success': True,
+            'iocs': iocs,
+            'summary': summary
+        })
+    except Exception as e:
+        logger.error(f"[TRIAGE] IOC extraction failed for case {case_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/case/<int:case_id>/triage/add-extracted-iocs', methods=['POST'])
+@login_required
+def triage_add_extracted_iocs(case_id):
+    """
+    Add extracted IOCs to the case's IOC database.
+    """
+    from models import IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json()
+    if not data or 'iocs' not in data:
+        return jsonify({'success': False, 'error': 'No IOCs provided'}), 400
+    
+    iocs = data['iocs']
+    added_count = 0
+    
+    try:
+        # Map IOC types to our IOC model types
+        type_mapping = {
+            'ips': 'ip',
+            'hostnames': 'hostname',
+            'usernames': 'username',
+            'sids': 'user_sid',
+            'paths': 'filepath',
+            'processes': 'filename',
+            'hashes': 'hash',
+            'commands': 'command',
+            'tools': 'tool',
+            'domains': 'domain'
+        }
+        
+        for ioc_type, ioc_type_db in type_mapping.items():
+            values = iocs.get(ioc_type, [])
+            for value in values:
+                if not value or not value.strip():
+                    continue
+                    
+                # Check if IOC already exists
+                existing = IOC.query.filter_by(
+                    case_id=case_id,
+                    ioc_type=ioc_type_db,
+                    ioc_value=value[:500]  # Truncate long values
+                ).first()
+                
+                if not existing:
+                    new_ioc = IOC(
+                        case_id=case_id,
+                        ioc_type=ioc_type_db,
+                        ioc_value=value[:500],
+                        description='Extracted from EDR Report',
+                        is_active=True,
+                        created_by=current_user.id
+                    )
+                    db.session.add(new_ioc)
+                    added_count += 1
+        
+        db.session.commit()
+        logger.info(f"[TRIAGE] Added {added_count} IOCs to case {case_id} from EDR extraction")
+        
+        return jsonify({
+            'success': True,
+            'added_count': added_count
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[TRIAGE] Failed to add IOCs to case {case_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/case/<int:case_id>/search')
 @login_required
 def search_events(case_id):
