@@ -133,23 +133,30 @@
                     </div>
                 </div>
             </div>
-            <div class="stat-grid-case" style="grid-template-columns: repeat(3, 1fr); margin-top: var(--spacing-sm);">
+            <!-- Event Status Counts -->
+            <div class="stat-grid-case" style="grid-template-columns: repeat(4, 1fr); margin-top: var(--spacing-sm);">
                 <div class="stat-item">
-                    <div class="stat-item-label">Hidden Events</div>
-                    <div id="stat-hidden-events" class="stat-item-value-large" style="color: var(--color-muted);">
-                        {{ '{:,}'.format(total_hidden_events|default(0)) }}
+                    <div class="stat-item-label">New</div>
+                    <div class="stat-item-value-large" style="color: var(--color-text-secondary);">
+                        {{ '{:,}'.format(status_counts.new|default(0)) }}
                     </div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-item-label">Tagged Events</div>
-                    <div id="stat-tagged-events" class="stat-item-value-large" style="color: var(--color-warning);">
-                        {{ '{:,}'.format(tagged_events_count|default(0)) }}
+                    <div class="stat-item-label">🎯 Hunted</div>
+                    <div class="stat-item-value-large" style="color: #9b59b6;">
+                        {{ '{:,}'.format(status_counts.hunted|default(0)) }}
                     </div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-item-label">Excluded from Tagging</div>
-                    <div id="stat-excluded-events" class="stat-item-value-large" style="color: var(--color-secondary);">
-                        {{ '{:,}'.format(excluded_events_count|default(0)) }}
+                    <div class="stat-item-label">✓ Confirmed</div>
+                    <div class="stat-item-value-large" style="color: #c0392b;">
+                        {{ '{:,}'.format(status_counts.confirmed|default(0)) }}
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">🔇 Noise</div>
+                    <div class="stat-item-value-large" style="color: var(--color-muted);">
+                        {{ '{:,}'.format(status_counts.noise|default(0)) }}
                     </div>
                 </div>
             </div>
