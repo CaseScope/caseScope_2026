@@ -40,16 +40,23 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
     Called during indexing (initial, reindex, bulk) to automatically hide
     known-good events (RMM tools, EDR health checks, etc.)
     
-    v1.46.0: Sets event_status='noise' (not is_hidden). Uses events_known_good 
-    module for consistent detection logic across indexing and manual hide operations.
+    v1.46.0: Sets event_status='noise' in OpenSearch if matches exclusions.
+    Database EventStatus records are created after bulk indexing completes
+    by querying OpenSearch for all noise events and syncing to database.
     
     Args:
         event: Event dictionary (must have search_blob already populated)
         exclusions: Pre-loaded exclusions dict (optional, will load if None)
     
     Returns:
-        Event with event_status='noise' if it matches exclusions
+        Event with event_status='noise' if it matches exclusions, 
+        or 'new' if no status is set (default for non-noise events)
     """
+    # Initialize event_status to 'new' if not already set
+    # This ensures all events have an explicit status in OpenSearch
+    if 'event_status' not in event:
+        event['event_status'] = 'new'
+    
     # Skip if no search_blob (can't check patterns)
     search_blob = event.get('search_blob', '')
     if not search_blob:
@@ -80,8 +87,6 @@ def apply_auto_hide(event: dict, exclusions: dict = None) -> dict:
             # Mark in OpenSearch document for immediate filtering
             event['event_status'] = 'noise'
             event['status_reason'] = 'auto_known_good'
-            # Note: Database EventStatus records are created by bulk_hide_events() 
-            # when "Hide Known Good" is run manually
     except Exception as e:
         logger.debug(f"[AUTO_HIDE] Error checking event: {e}")
     
@@ -100,13 +105,16 @@ def apply_auto_hide_noise(event: dict) -> dict:
     noise events (system processes, monitoring commands, firewall logs).
     
     v1.46.0: Uses events_known_noise module for consistent detection logic
-    across indexing and the Hide Noise button.
+    across indexing and the Hide Noise button. Sets event_status='noise' in
+    OpenSearch, then database EventStatus records are synced after bulk 
+    indexing completes.
     
     Args:
         event: Event dictionary (must have search_blob already populated)
     
     Returns:
-        Event with event_status='noise' if it matches noise patterns
+        Event with event_status='noise' if it matches noise patterns,
+        or unchanged if already has a status or doesn't match patterns
     """
     # Skip if already marked as noise (don't overwrite known-good reason)
     if event.get('event_status') == 'noise':
@@ -1297,6 +1305,36 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 logger.error(f"[INDEX FILE] Final bulk index error: {e}")
         
         logger.info(f"[INDEX FILE] ✓ Parsed {event_count:,} events, indexed {indexed_count:,} to {index_name} ({auto_hidden_count:,} auto-hidden)")
+        
+        # STEP 2.5: Sync event statuses to database (v1.46.0)
+        # Query OpenSearch for all events marked as 'noise' and create EventStatus records
+        # This ensures database counts match OpenSearch filtering
+        if indexed_count > 0:
+            try:
+                logger.info(f"[INDEX FILE] Syncing event statuses to database...")
+                noise_query = {
+                    "size": 10000,  # Max batch size
+                    "_source": False,  # Only need IDs
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"term": {"file_id": file_id}},
+                                {"term": {"event_status": "noise"}}
+                            ]
+                        }
+                    }
+                }
+                
+                noise_response = opensearch_client.search(index=index_name, body=noise_query)
+                noise_event_ids = [hit['_id'] for hit in noise_response['hits']['hits']]
+                
+                if noise_event_ids:
+                    from event_status import bulk_set_status, STATUS_NOISE
+                    bulk_set_status(case_id, noise_event_ids, STATUS_NOISE, user_id=None, 
+                                  notes="Auto-set during indexing")
+                    logger.info(f"[INDEX FILE] ✓ Synced {len(noise_event_ids):,} noise events to database")
+            except Exception as e:
+                logger.warning(f"[INDEX FILE] Failed to sync event statuses to database: {e}")
         
         # Verify indexing success
         if indexed_count == 0 and event_count > 0:
