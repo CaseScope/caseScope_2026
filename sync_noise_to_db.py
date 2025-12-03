@@ -5,13 +5,14 @@ Fixes the missing EventStatus records from reindex with buggy code
 """
 
 import sys
-sys.path.insert(0, '/opt/casescope')
+import os
+
+# Change to app directory
+os.chdir('/opt/casescope/app')
+sys.path.insert(0, '/opt/casescope/app')
 
 from opensearchpy import OpenSearch
 from opensearchpy.helpers import scan
-from event_status import bulk_set_status, STATUS_NOISE
-from models import db
-from main import app
 
 def sync_noise_events_to_db(case_id: int):
     """Query OpenSearch for all noise events and sync to database"""
@@ -54,6 +55,11 @@ def sync_noise_events_to_db(case_id: int):
         
         # Sync to database using batched bulk_set_status
         print(f"\nSyncing {len(noise_event_ids):,} events to database...")
+        
+        # Import after path is set
+        from event_status import bulk_set_status, STATUS_NOISE
+        from main import app
+        
         with app.app_context():
             result = bulk_set_status(
                 case_id=case_id,

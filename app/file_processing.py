@@ -1336,7 +1336,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
             try:
                 from event_status import bulk_set_status, STATUS_NOISE
                 result = bulk_set_status(case_id, noise_event_ids, STATUS_NOISE, user_id=None, 
-                              notes="Auto-set during indexing")
+                              notes="Auto-set during indexing", db_session=db.session)
                 logger.info(f"[INDEX FILE] ✓ Synced {len(noise_event_ids):,} noise events to database - Result: {result}")
             except Exception as e:
                 logger.error(f"[INDEX FILE] FAILED to sync event statuses to database: {e}", exc_info=True)

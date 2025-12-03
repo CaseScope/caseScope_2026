@@ -145,7 +145,8 @@ def set_status(case_id: int, event_id: str, status: str,
 
 
 def bulk_set_status(case_id: int, event_ids: List[str], status: str,
-                    user_id: Optional[int] = None, notes: Optional[str] = None) -> Dict[str, int]:
+                    user_id: Optional[int] = None, notes: Optional[str] = None,
+                    db_session=None) -> Dict[str, int]:
     """
     Set status for multiple events efficiently with batching for large lists.
     
@@ -155,12 +156,17 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
         status: One of: new, noise, hunted, confirmed
         user_id: User making the change (None for system actions)
         notes: Optional notes about the status change
+        db_session: Optional database session (for Celery workers)
     
     Returns:
         Dict with 'updated' and 'created' counts
     """
     from models import EventStatus
-    from main import db  # Use the main app's db session
+    
+    # Use provided session or get from main app
+    if db_session is None:
+        from main import db
+        db_session = db.session
     
     if status not in VALID_STATUSES:
         logger.error(f"[EVENT_STATUS] Invalid status: {status}")
@@ -184,7 +190,7 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
             batch = event_ids[i:i + BATCH_SIZE]
             
             # Get existing records for this batch
-            existing = db.session.query(EventStatus).filter(
+            existing = db_session.query(EventStatus).filter(
                 EventStatus.case_id == case_id,
                 EventStatus.event_id.in_(batch)
             ).all()
@@ -215,11 +221,11 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
                         updated_at=now,
                         notes=notes
                     )
-                    db.session.add(record)
+                    db_session.add(record)
                     created_count += 1
             
             # Commit this batch
-            db.session.commit()
+            db_session.commit()
             total_updated += updated_count
             total_created += created_count
             
@@ -232,7 +238,7 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
         
     except Exception as e:
         logger.error(f"[EVENT_STATUS] Bulk set failed: {e}", exc_info=True)
-        db.session.rollback()
+        db_session.rollback()
         return {'updated': 0, 'created': 0, 'error': str(e)}
 
 
