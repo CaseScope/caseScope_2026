@@ -161,11 +161,11 @@
                     <span>AI Question</span>
                 </button>
                 
-                <!-- Triage from Report Button -->
-                <button type="button" onclick="showTriageModal()" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;" title="Extract IOCs from EDR/MDR report">
-                    <span>📋</span>
-                    <span>Triage Report</span>
-                </button>
+                <!-- Triage Page Button -->
+                <a href="{{ url_for('triage_page', case_id=case.id) }}" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;" title="Open Triage workflow page">
+                    <span>🔍</span>
+                    <span>Triage</span>
+                </a>
                 
                 <!-- Hide Known Good Button -->
                 <button type="button" onclick="showHideKnownGoodModal()" class="btn" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;" title="Hide events from known-good sources (RMM tools, internal IPs)">

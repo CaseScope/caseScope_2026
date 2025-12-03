@@ -1,0 +1,915 @@
+{% extends "base.html" %}
+
+{% block title %}Triage - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🔍 Triage - {{ case.name }}</h1>
+        <p class="text-secondary">Case ID: {{ case.id }} • Prepare and run AI-powered attack chain analysis</p>
+    </div>
+    <div>
+        <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- ============================================================================
+     PREREQUISITES TILE (Full Width)
+     Shows what needs to be configured before running triage
+     ============================================================================ -->
+
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">📋 Triage Prerequisites</h2>
+    </div>
+    <div class="card-body">
+        
+        <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-info);">
+            <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">ℹ️ Why Prerequisites Matter</h4>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                AI Triage works best when it has context about your investigation. Systems help identify lateral movement, 
+                EDR reports provide IOCs to hunt, and tagged events anchor the timeline. Complete these steps for optimal results.
+            </p>
+        </div>
+        
+        <!-- Prerequisites Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--spacing-lg);">
+            
+            <!-- ============================================
+                 PREREQ 1: System Scan
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if systems_configured %}var(--color-success){% else %}var(--color-warning){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if systems_configured %}✅{% else %}⚠️{% endif %}
+                            1. System Scan
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Identify servers, workstations, and network devices in case
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if systems_configured %}badge-pill-success{% else %}badge-pill-warning{% endif %}">
+                        {{ system_count }} Systems
+                    </span>
+                </div>
+                
+                {% if systems_configured %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ Systems configured - triage can identify lateral movement between hosts
+                </p>
+                <a href="{{ url_for('systems.systems_management', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🖥️</span>
+                    <span>View Systems</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⚠️ No systems defined - lateral movement detection will be limited
+                </p>
+                <a href="{{ url_for('systems.systems_management', case_id=case.id) }}" class="btn btn-primary btn-sm">
+                    <span>🖥️</span>
+                    <span>Configure Systems</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 2: EDR Report
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_edr_report %}var(--color-success){% else %}var(--color-error){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_edr_report %}✅{% else %}❌{% endif %}
+                            2. EDR Report
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Paste EDR/MDR alert report to extract IOCs automatically
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_edr_report %}badge-pill-success{% else %}badge-pill-error{% endif %}">
+                        {% if has_edr_report %}Set{% else %}Not Set{% endif %}
+                    </span>
+                </div>
+                
+                {% if has_edr_report %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ EDR report configured - IOCs will be extracted automatically
+                </p>
+                <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>📋</span>
+                    <span>View/Edit Report</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-error); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ❌ No EDR report - configure IOCs manually or set triage date
+                </p>
+                <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" class="btn btn-primary btn-sm">
+                    <span>📋</span>
+                    <span>Paste EDR Report</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 3: IOCs Defined (Alternative to EDR)
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_iocs %}var(--color-success){% elif has_edr_report %}var(--color-text-muted){% else %}var(--color-warning){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_iocs %}✅{% elif has_edr_report %}⏭️{% else %}⚠️{% endif %}
+                            3. IOCs Defined
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Alternative: Manually define IOCs if no EDR report available
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_iocs %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
+                        {{ ioc_count }} IOCs
+                    </span>
+                </div>
+                
+                {% if has_iocs %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ {{ ioc_count }} IOCs ready for hunting
+                </p>
+                <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🎯</span>
+                    <span>View IOCs</span>
+                </a>
+                {% elif has_edr_report %}
+                <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⏭️ EDR report will auto-extract IOCs - manual entry optional
+                </p>
+                <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🎯</span>
+                    <span>Add IOCs Manually</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⚠️ No IOCs defined - add manually or paste EDR report
+                </p>
+                <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" class="btn btn-primary btn-sm">
+                    <span>🎯</span>
+                    <span>Add IOCs</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 4: Tagged Events (Optional Enhancement)
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_tagged_events %}var(--color-success){% else %}var(--color-text-muted){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_tagged_events %}✅{% else %}💡{% endif %}
+                            4. Tagged Events
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Optional: Pre-tag known malicious events as anchors
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_tagged_events %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
+                        {{ tag_count }} Tagged
+                    </span>
+                </div>
+                
+                {% if has_tagged_events %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ {{ tag_count }} events tagged - will be used as timeline anchors
+                </p>
+                <a href="{{ url_for('search_events', case_id=case.id, filter='tagged') }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🏷️</span>
+                    <span>View Tagged</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    💡 No tagged events yet - triage will auto-tag based on IOC matches
+                </p>
+                <a href="{{ url_for('search_events', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🔍</span>
+                    <span>Search & Tag Events</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 5: Triage Date (For IOC-only hunting)
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_triage_date %}var(--color-success){% elif has_edr_report %}var(--color-text-muted){% else %}var(--color-warning){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_triage_date %}✅{% elif has_edr_report %}⏭️{% else %}⚠️{% endif %}
+                            5. Triage Date
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Focus date for IOC hunting (typically incident date)
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_triage_date %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
+                        {% if has_triage_date %}{{ triage_date.strftime('%Y-%m-%d') }}{% else %}Not Set{% endif %}
+                    </span>
+                </div>
+                
+                {% if has_triage_date %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ Triage will focus on events around {{ triage_date.strftime('%B %d, %Y') }}
+                </p>
+                <button onclick="showSetDateModal()" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>📅</span>
+                    <span>Change Date</span>
+                </button>
+                {% elif has_edr_report %}
+                <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⏭️ EDR report timestamps will be used - manual date optional
+                </p>
+                <button onclick="showSetDateModal()" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>📅</span>
+                    <span>Set Date</span>
+                </button>
+                {% else %}
+                <p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⚠️ No date set - required for IOC-only hunting (no EDR report)
+                </p>
+                <button onclick="showSetDateModal()" class="btn btn-primary btn-sm">
+                    <span>📅</span>
+                    <span>Set Triage Date</span>
+                </button>
+                {% endif %}
+            </div>
+            
+        </div>
+        
+    </div>
+</div>
+
+<!-- ============================================================================
+     TRIAGE ACTIONS Section
+     Individual phase buttons that can be run manually
+     ============================================================================ -->
+
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">🎯 Triage Actions</h2>
+    </div>
+    <div class="card-body">
+        
+        <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+            Run individual triage phases manually. Each phase can be executed independently as prerequisites are met.
+        </p>
+        
+        <!-- Phase 1: Extract IOCs from EDR Report -->
+        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 1: IOC Extraction</h4>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                    {% if has_edr_report %}
+                    Extract IOCs from the configured EDR report using {% if ai_enabled %}AI (with regex fallback){% else %}regex patterns{% endif %}.
+                    {% else %}
+                    Requires an EDR report to be configured. <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" style="color: var(--color-primary);">Add report →</a>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                {% if has_edr_report %}
+                <button onclick="extractIOCs()" class="btn btn-sm btn-primary" id="extractIocsBtn">
+                    <span>📋</span>
+                    <span>Extract IOCs from EDR Report</span>
+                </button>
+                {% else %}
+                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
+                    <span>📋</span>
+                    <span>Extract IOCs from EDR Report</span>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Phase 2: Find Potential IOCs (Snowball Hunting) -->
+        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 2: Find Potential IOCs</h4>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                    {% if has_iocs %}
+                    Search events containing existing IOCs to discover new related indicators (snowball hunting).
+                    Filters out known systems and IPs.
+                    {% else %}
+                    Requires IOCs to be defined first. Extract from EDR report or <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" style="color: var(--color-primary);">add manually →</a>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                {% if has_iocs %}
+                <button onclick="findPotentialIOCs()" class="btn btn-sm btn-primary" id="findIocsBtn">
+                    <span>🔍</span>
+                    <span>Find Potential IOCs</span>
+                </button>
+                {% else %}
+                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
+                    <span>🔍</span>
+                    <span>Find Potential IOCs</span>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- More phases will be added here as they are modularized -->
+        <div style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic; text-align: center; padding: var(--spacing-md);">
+            Additional triage phases coming soon...
+        </div>
+        
+    </div>
+</div>
+
+<!-- IOC Extraction Result Modal -->
+<div id="iocExtractionModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2 class="modal-title">📋 IOC Extraction Results</h2>
+            <button type="button" class="modal-close" onclick="closeIocModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="iocExtractionProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted);">Extracting IOCs from EDR report...</p>
+                    <p id="iocExtractionMethod" style="font-size: 0.85rem; color: var(--color-text-muted);"></p>
+                </div>
+            </div>
+            <div id="iocExtractionResults" style="display: none;">
+                <div id="iocResultsSummary"></div>
+                <div id="iocResultsDetail" style="margin-top: var(--spacing-lg);"></div>
+            </div>
+            <div id="iocExtractionError" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <p id="iocErrorMessage">An error occurred during extraction.</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeIocModal()" class="btn btn-secondary">Close</button>
+            <button type="button" onclick="addExtractedIOCs()" class="btn btn-primary" id="addIocsBtn" style="display: none;">
+                <span>➕</span>
+                <span>Add IOCs to Case</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Find Potential IOCs Modal (Snowball Hunting) -->
+<div id="findIocsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🔍 Potential IOCs Discovered</h2>
+            <button type="button" class="modal-close" onclick="closeFindIocsModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="findIocsProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted);">Searching events for related IOCs...</p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);">This may take a moment for large datasets.</p>
+                </div>
+            </div>
+            <div id="findIocsResults" style="display: none;">
+                <div id="findIocsSummary"></div>
+                <div id="findIocsDetail" style="margin-top: var(--spacing-lg); max-height: 400px; overflow-y: auto;"></div>
+            </div>
+            <div id="findIocsError" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <p id="findIocsErrorMessage">An error occurred during search.</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeFindIocsModal()" class="btn btn-secondary">Close</button>
+            <button type="button" onclick="addFoundIOCs()" class="btn btn-primary" id="addFoundIocsBtn" style="display: none;">
+                <span>➕</span>
+                <span>Add Selected IOCs to Case</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     Previous Triages Section (if any)
+     ============================================================================ -->
+
+{% if previous_triages %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📜 Previous Triage Results</h2>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>IOCs Found</th>
+                        <th>Events Tagged</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for triage in previous_triages %}
+                    <tr>
+                        <td>{{ triage.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            {% if triage.status == 'completed' %}
+                            <span style="color: var(--color-success);">✅ Completed</span>
+                            {% elif triage.status == 'running' %}
+                            <span style="color: var(--color-warning);">🔄 Running</span>
+                            {% elif triage.status == 'failed' %}
+                            <span style="color: var(--color-error);">❌ Failed</span>
+                            {% else %}
+                            <span style="color: var(--color-text-muted);">{{ triage.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ triage.iocs_discovered_count or 0 }}</td>
+                        <td>{{ triage.auto_tagged_count or 0 }}</td>
+                        <td>
+                            <a href="{{ url_for('triage_report.view_ai_triage_search', search_id=triage.id) }}" class="btn btn-sm btn-secondary">
+                                View Results
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ============================================================================
+     Set Date Modal
+     ============================================================================ -->
+
+<div id="setDateModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 class="modal-title">📅 Set Triage Date</h2>
+            <button type="button" class="modal-close" onclick="closeSetDateModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                Set the focus date for IOC hunting. This is typically the date of the incident or when malicious activity was first detected.
+            </p>
+            <div style="margin-bottom: var(--spacing-md);">
+                <label class="form-label">Triage Focus Date</label>
+                <input type="date" id="triageDateInput" class="form-input" style="width: 100%;">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeSetDateModal()" class="btn btn-secondary">Cancel</button>
+            <button type="button" onclick="saveTriageDate()" class="btn btn-primary">
+                <span>💾</span>
+                <span>Save Date</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+const CASE_ID = {{ case.id }};
+let extractedIOCs = null;
+
+// ============================================================================
+// SET DATE MODAL
+// ============================================================================
+
+function showSetDateModal() {
+    document.getElementById('setDateModal').style.display = 'flex';
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('triageDateInput').value = today;
+}
+
+function closeSetDateModal() {
+    document.getElementById('setDateModal').style.display = 'none';
+}
+
+function saveTriageDate() {
+    const dateValue = document.getElementById('triageDateInput').value;
+    if (!dateValue) {
+        alert('Please select a date');
+        return;
+    }
+    localStorage.setItem(`triage_date_${CASE_ID}`, dateValue);
+    closeSetDateModal();
+    location.reload();
+}
+
+// ============================================================================
+// IOC EXTRACTION
+// ============================================================================
+
+function extractIOCs() {
+    // Show modal with progress
+    document.getElementById('iocExtractionModal').style.display = 'flex';
+    document.getElementById('iocExtractionProgress').style.display = 'block';
+    document.getElementById('iocExtractionResults').style.display = 'none';
+    document.getElementById('iocExtractionError').style.display = 'none';
+    document.getElementById('addIocsBtn').style.display = 'none';
+    
+    // Update method text
+    const methodText = '{% if ai_enabled %}Using AI extraction (QWEN) with regex fallback...{% else %}Using regex pattern extraction...{% endif %}';
+    document.getElementById('iocExtractionMethod').textContent = methodText;
+    
+    // Disable button during extraction
+    const btn = document.getElementById('extractIocsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Extracting...</span>';
+    }
+    
+    // Call API
+    fetch(`/case/${CASE_ID}/triage/extract-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('iocExtractionProgress').style.display = 'none';
+        
+        if (data.success) {
+            extractedIOCs = data.iocs;
+            showIOCResults(data);
+        } else {
+            document.getElementById('iocExtractionError').style.display = 'block';
+            document.getElementById('iocErrorMessage').textContent = data.error || 'Unknown error';
+        }
+    })
+    .catch(error => {
+        document.getElementById('iocExtractionProgress').style.display = 'none';
+        document.getElementById('iocExtractionError').style.display = 'block';
+        document.getElementById('iocErrorMessage').textContent = error.message;
+    })
+    .finally(() => {
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>📋</span> <span>Extract IOCs from EDR Report</span>';
+        }
+    });
+}
+
+function showIOCResults(data) {
+    document.getElementById('iocExtractionResults').style.display = 'block';
+    
+    const summary = data.summary;
+    const iocs = data.iocs;
+    
+    // Build summary HTML
+    let summaryHtml = `
+        <div style="display: flex; gap: var(--spacing-lg); flex-wrap: wrap; margin-bottom: var(--spacing-md);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary);">${summary.total_count}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Total IOCs</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: ${summary.malware_indicated ? 'var(--color-error)' : 'var(--color-success)'};">
+                    ${summary.malware_indicated ? '⚠️' : '✓'}
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Malware ${summary.malware_indicated ? 'Indicated' : 'Not Indicated'}</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 1rem; font-weight: bold; color: var(--color-info);">${summary.extraction_method}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Method</div>
+            </div>
+        </div>
+    `;
+    
+    // Type breakdown
+    if (Object.keys(summary.by_type).length > 0) {
+        summaryHtml += '<div style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm);">';
+        for (const [type, count] of Object.entries(summary.by_type)) {
+            summaryHtml += `<span class="badge-pill badge-pill-info">${type}: ${count}</span>`;
+        }
+        summaryHtml += '</div>';
+    }
+    
+    document.getElementById('iocResultsSummary').innerHTML = summaryHtml;
+    
+    // Build detail HTML (collapsible sections)
+    let detailHtml = '';
+    const typeOrder = ['ips', 'hostnames', 'usernames', 'processes', 'paths', 'hashes', 'commands', 'tools', 'domains', 'sids', 'timestamps'];
+    
+    for (const type of typeOrder) {
+        const items = iocs[type];
+        if (items && items.length > 0) {
+            detailHtml += `
+                <details style="margin-bottom: var(--spacing-sm);">
+                    <summary style="cursor: pointer; padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                        <strong>${type.charAt(0).toUpperCase() + type.slice(1)}</strong> (${items.length})
+                    </summary>
+                    <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
+                        ${items.map(item => `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`).join('')}
+                    </div>
+                </details>
+            `;
+        }
+    }
+    
+    document.getElementById('iocResultsDetail').innerHTML = detailHtml;
+    
+    // Show add button if we have IOCs
+    if (summary.total_count > 0) {
+        document.getElementById('addIocsBtn').style.display = 'inline-flex';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function closeIocModal() {
+    document.getElementById('iocExtractionModal').style.display = 'none';
+}
+
+function addExtractedIOCs() {
+    if (!extractedIOCs) return;
+    
+    const btn = document.getElementById('addIocsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Adding...</span>';
+    
+    fetch(`/case/${CASE_ID}/triage/add-extracted-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ iocs: extractedIOCs })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Successfully added ${data.added_count} IOCs to the case!`);
+            closeIocModal();
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to add IOCs'));
+            btn.disabled = false;
+            btn.innerHTML = '<span>➕</span> <span>Add IOCs to Case</span>';
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<span>➕</span> <span>Add IOCs to Case</span>';
+    });
+}
+
+// ============================================================================
+// FIND POTENTIAL IOCs (Snowball Hunting)
+// ============================================================================
+
+let foundIOCs = null;
+
+function findPotentialIOCs() {
+    // Show modal with progress
+    document.getElementById('findIocsModal').style.display = 'flex';
+    document.getElementById('findIocsProgress').style.display = 'block';
+    document.getElementById('findIocsResults').style.display = 'none';
+    document.getElementById('findIocsError').style.display = 'none';
+    document.getElementById('addFoundIocsBtn').style.display = 'none';
+    
+    // Disable button during search
+    const btn = document.getElementById('findIocsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Searching...</span>';
+    }
+    
+    // Call API
+    fetch(`/case/${CASE_ID}/triage/find-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('findIocsProgress').style.display = 'none';
+        
+        if (data.success) {
+            foundIOCs = data.potential_iocs;
+            showFoundIOCResults(data);
+        } else {
+            document.getElementById('findIocsError').style.display = 'block';
+            document.getElementById('findIocsErrorMessage').textContent = data.error || 'Unknown error';
+        }
+    })
+    .catch(error => {
+        document.getElementById('findIocsProgress').style.display = 'none';
+        document.getElementById('findIocsError').style.display = 'block';
+        document.getElementById('findIocsErrorMessage').textContent = error.message;
+    })
+    .finally(() => {
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>🔍</span> <span>Find Potential IOCs</span>';
+        }
+    });
+}
+
+function showFoundIOCResults(data) {
+    document.getElementById('findIocsResults').style.display = 'block';
+    
+    const summary = data.summary;
+    const iocs = data.potential_iocs;
+    
+    // Build summary HTML
+    let summaryHtml = `
+        <div style="display: flex; gap: var(--spacing-lg); flex-wrap: wrap; margin-bottom: var(--spacing-md);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary);">${summary.total_found}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Potential IOCs</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-info);">${data.events_searched}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Events Searched</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-text-muted);">${data.existing_ioc_count}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Existing IOCs</div>
+            </div>
+        </div>
+    `;
+    
+    // Type breakdown
+    if (Object.keys(summary.by_type).length > 0) {
+        summaryHtml += '<div style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm);">';
+        for (const [type, count] of Object.entries(summary.by_type)) {
+            summaryHtml += `<span class="badge-pill badge-pill-info">${type}: ${count}</span>`;
+        }
+        summaryHtml += '</div>';
+    } else {
+        summaryHtml += '<p style="color: var(--color-text-muted);">No new potential IOCs discovered. This could mean existing IOCs have already covered the related events.</p>';
+    }
+    
+    document.getElementById('findIocsSummary').innerHTML = summaryHtml;
+    
+    // Build detail HTML (collapsible sections with checkboxes)
+    let detailHtml = '';
+    const typeOrder = ['usernames', 'hostnames', 'ips', 'processes', 'commands', 'paths'];
+    
+    for (const type of typeOrder) {
+        const items = iocs[type];
+        if (items && items.length > 0) {
+            detailHtml += `
+                <details style="margin-bottom: var(--spacing-sm);" open>
+                    <summary style="cursor: pointer; padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                        <strong>${type.charAt(0).toUpperCase() + type.slice(1)}</strong> (${items.length})
+                        <label style="float: right; font-weight: normal;" onclick="event.stopPropagation();">
+                            <input type="checkbox" class="select-all-${type}" onchange="toggleSelectAll('${type}', this.checked)"> Select All
+                        </label>
+                    </summary>
+                    <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
+                        ${items.map((item, idx) => `
+                            <div style="padding: 2px 0; word-break: break-all;">
+                                <label>
+                                    <input type="checkbox" class="ioc-checkbox ioc-${type}" data-type="${type}" data-value="${escapeHtml(item)}" checked>
+                                    ${escapeHtml(item)}
+                                </label>
+                            </div>
+                        `).join('')}
+                    </div>
+                </details>
+            `;
+        }
+    }
+    
+    document.getElementById('findIocsDetail').innerHTML = detailHtml;
+    
+    // Show add button if we have IOCs
+    if (summary.total_found > 0) {
+        document.getElementById('addFoundIocsBtn').style.display = 'inline-flex';
+    }
+}
+
+function toggleSelectAll(type, checked) {
+    document.querySelectorAll(`.ioc-${type}`).forEach(cb => {
+        cb.checked = checked;
+    });
+}
+
+function closeFindIocsModal() {
+    document.getElementById('findIocsModal').style.display = 'none';
+}
+
+function addFoundIOCs() {
+    // Gather selected IOCs
+    const selectedIOCs = {
+        usernames: [],
+        hostnames: [],
+        ips: [],
+        processes: [],
+        commands: [],
+        paths: []
+    };
+    
+    document.querySelectorAll('.ioc-checkbox:checked').forEach(cb => {
+        const type = cb.dataset.type;
+        const value = cb.dataset.value;
+        if (selectedIOCs[type]) {
+            selectedIOCs[type].push(value);
+        }
+    });
+    
+    // Count total selected
+    const totalSelected = Object.values(selectedIOCs).reduce((sum, arr) => sum + arr.length, 0);
+    if (totalSelected === 0) {
+        alert('Please select at least one IOC to add.');
+        return;
+    }
+    
+    const btn = document.getElementById('addFoundIocsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Adding...</span>';
+    
+    fetch(`/case/${CASE_ID}/triage/add-found-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ iocs: selectedIOCs })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Successfully added ${data.added_count} IOCs to the case!`);
+            closeFindIocsModal();
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to add IOCs'));
+            btn.disabled = false;
+            btn.innerHTML = '<span>➕</span> <span>Add Selected IOCs to Case</span>';
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<span>➕</span> <span>Add Selected IOCs to Case</span>';
+    });
+}
+
+// ============================================================================
+// MODAL BACKGROUND CLICKS
+// ============================================================================
+
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'setDateModal') {
+        closeSetDateModal();
+    }
+    if (e.target.id === 'iocExtractionModal') {
+        closeIocModal();
+    }
+    if (e.target.id === 'findIocsModal') {
+        closeFindIocsModal();
+    }
+});
+</script>
+
+{% endblock %}
+

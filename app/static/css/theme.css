@@ -706,6 +706,47 @@ tbody tr:last-child td {
     color: var(--color-info);
 }
 
+/* Pill Badge - Rounded pill-shaped status indicators */
+.badge-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-pill-success {
+    background: var(--color-success);
+    color: white;
+}
+
+.badge-pill-warning {
+    background: var(--color-warning);
+    color: white;
+}
+
+.badge-pill-error {
+    background: var(--color-error);
+    color: white;
+}
+
+.badge-pill-muted {
+    background: var(--color-text-muted);
+    color: white;
+}
+
+.badge-pill-info {
+    background: var(--color-info);
+    color: white;
+}
+
+.badge-pill-purple {
+    background: var(--color-purple);
+    color: white;
+}
+
 
 /* ============================================================================
    ANIMATIONS

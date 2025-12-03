@@ -2341,6 +2341,111 @@ def triage_add_extracted_iocs(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/case/<int:case_id>/triage/find-iocs', methods=['POST'])
+@login_required
+def triage_find_iocs(case_id):
+    """
+    Find potential IOCs by searching events containing existing IOCs.
+    Snowball hunting - discover new IOCs from related events.
+    """
+    from ai_triage_find_iocs import find_potential_iocs, get_ioc_discovery_summary
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        result = find_potential_iocs(case_id)
+        
+        if result.get('success'):
+            summary = get_ioc_discovery_summary(result)
+            return jsonify({
+                'success': True,
+                'potential_iocs': result.get('potential_iocs', {}),
+                'summary': summary,
+                'events_searched': result.get('events_searched', 0),
+                'existing_ioc_count': result.get('existing_ioc_count', 0)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error'),
+                'potential_iocs': {},
+                'events_searched': 0
+            })
+    except Exception as e:
+        logger.error(f"[TRIAGE] Find IOCs failed for case {case_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/case/<int:case_id>/triage/add-found-iocs', methods=['POST'])
+@login_required
+def triage_add_found_iocs(case_id):
+    """
+    Add found potential IOCs to the case's IOC database.
+    """
+    from models import IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json()
+    if not data or 'iocs' not in data:
+        return jsonify({'success': False, 'error': 'No IOCs provided'}), 400
+    
+    iocs = data['iocs']
+    added_count = 0
+    
+    try:
+        # Map IOC types to our IOC model types
+        type_mapping = {
+            'ips': 'ip',
+            'hostnames': 'hostname',
+            'usernames': 'username',
+            'processes': 'filename',
+            'commands': 'command',
+            'paths': 'filepath'
+        }
+        
+        for ioc_type, ioc_type_db in type_mapping.items():
+            values = iocs.get(ioc_type, [])
+            for value in values:
+                if not value or not value.strip():
+                    continue
+                    
+                # Check if IOC already exists
+                existing = IOC.query.filter_by(
+                    case_id=case_id,
+                    ioc_type=ioc_type_db,
+                    ioc_value=value[:500]
+                ).first()
+                
+                if not existing:
+                    new_ioc = IOC(
+                        case_id=case_id,
+                        ioc_type=ioc_type_db,
+                        ioc_value=value[:500],
+                        description='Discovered via IOC Snowball Hunting',
+                        is_active=True,
+                        created_by=current_user.id
+                    )
+                    db.session.add(new_ioc)
+                    added_count += 1
+        
+        db.session.commit()
+        logger.info(f"[TRIAGE] Added {added_count} discovered IOCs to case {case_id}")
+        
+        return jsonify({
+            'success': True,
+            'added_count': added_count
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[TRIAGE] Failed to add found IOCs to case {case_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/case/<int:case_id>/search')
 @login_required
 def search_events(case_id):

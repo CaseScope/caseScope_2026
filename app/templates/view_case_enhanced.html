@@ -63,6 +63,10 @@
                     <span>Unlock Case</span>
                 </button>
             </form>
+            <a href="{{ url_for('triage_page', case_id=case.id) }}" class="btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
+                <span>🔍</span>
+                <span>Triage</span>
+            </a>
             <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
                 <span>📅</span>
                 <span>AI Case Timeline</span>

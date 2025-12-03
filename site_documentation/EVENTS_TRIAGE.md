@@ -1,12 +1,26 @@
 # Events Triage - Technical Reference
 
-Complete documentation for the Triage system, including the prerequisites page and modular IOC extraction. This document provides enough detail to reconstruct the entire system.
+Complete documentation for the Triage system. Each phase is documented separately for easy reference and updates.
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Triage Page & Prerequisites](#triage-page--prerequisites)
+4. [Phase 1: EDR IOC Extraction](#phase-1-edr-ioc-extraction)
+5. [Phase 2: Find Potential IOCs (Snowball Hunting)](#phase-2-find-potential-iocs-snowball-hunting)
+6. [Routes Reference](#routes-reference)
+7. [Database Models](#database-models)
+8. [Reconstruction Checklist](#reconstruction-checklist)
+9. [Version History](#version-history)
 
 ---
 
 ## Overview
 
-The Triage system provides a guided workflow for AI-powered attack chain analysis. Instead of a monolithic "run everything" approach, it breaks triage into individual phases that can be run manually as prerequisites are met. Each phase is a standalone module that can be triggered independently.
+The Triage system provides a guided workflow for AI-powered attack chain analysis. Instead of a monolithic "run everything" approach, it breaks triage into individual phases that can be run manually as prerequisites are met.
 
 ### Key Concepts
 
@@ -14,9 +28,10 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 |------|-------------|
 | **Triage** | Automated analysis to identify attack chains from event data |
 | **Prerequisites** | Required configuration before running triage phases |
-| **Phase** | An individual triage step (e.g., IOC Extraction, Snowball Hunting) |
+| **Phase** | An individual triage step (IOC Extraction, Snowball Hunting, etc.) |
 | **EDR Report** | Analyst-pasted security report from EDR/MDR vendor |
 | **IOC** | Indicator of Compromise (IP, hash, hostname, username, etc.) |
+| **Snowball Hunting** | Using known IOCs to discover new related indicators |
 
 ---
 
@@ -36,16 +51,23 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         MODULE LAYER                                     │
-│  app/ai_triage_edr_ioc.py (Phase 1 - IOC Extraction)                   │
+│                                                                          │
+│  Phase 1: app/ai_triage_edr_ioc.py                                      │
 │  ├── is_ai_enabled() - Check AI system setting                         │
 │  ├── extract_iocs_with_llm() - AI extraction (QWEN)                    │
 │  ├── extract_iocs_with_regex() - Regex fallback                        │
 │  └── extract_iocs_from_report() - Main entry point                     │
-│                                                                         │
-│  Future modules:                                                        │
-│  ├── ai_triage_snowball.py (Phase 2 - Snowball Hunting)                │
-│  ├── ai_triage_patterns.py (Phase 3 - Attack Pattern Detection)        │
-│  └── ai_triage_timeline.py (Phase 4 - Timeline Generation)             │
+│                                                                          │
+│  Phase 2: app/ai_triage_find_iocs.py                                    │
+│  ├── get_case_context() - Load case data for filtering                 │
+│  ├── search_events_with_iocs() - OpenSearch query                      │
+│  ├── extract_iocs_from_events() - Extract from matched events          │
+│  ├── check_managed_tool() - RMM/EDR tool ID verification               │
+│  └── find_potential_iocs() - Main entry point                          │
+│                                                                          │
+│  Future phases:                                                         │
+│  ├── ai_triage_patterns.py (Attack Pattern Detection)                  │
+│  └── ai_triage_timeline.py (Timeline Generation)                       │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -53,14 +75,16 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 │                         ROUTES LAYER                                     │
 │  app/main.py                                                            │
 │  ├── GET  /case/<id>/triage - Triage page                              │
-│  ├── POST /case/<id>/triage/extract-iocs - Run IOC extraction          │
-│  └── POST /case/<id>/triage/add-extracted-iocs - Save IOCs to DB       │
+│  ├── POST /case/<id>/triage/extract-iocs - Phase 1: Extract IOCs       │
+│  ├── POST /case/<id>/triage/add-extracted-iocs - Save extracted IOCs   │
+│  ├── POST /case/<id>/triage/find-iocs - Phase 2: Find potential IOCs   │
+│  └── POST /case/<id>/triage/add-found-iocs - Save found IOCs           │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         STORAGE LAYER                                    │
-│  PostgreSQL: IOC table (extracted IOCs)                                 │
+│  PostgreSQL: IOC table (extracted & discovered IOCs)                    │
 │  PostgreSQL: AITriageSearch table (triage history)                      │
 │  OpenSearch: case_{id} index (event data for hunting)                   │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -68,11 +92,9 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 
 ---
 
-## Triage Page Template
+## Triage Page & Prerequisites
 
 ### File: `app/templates/triage.html`
-
-The triage page displays prerequisites status and provides action buttons for each phase.
 
 ### Template Variables
 
@@ -87,85 +109,25 @@ The triage page displays prerequisites status and provides action buttons for ea
 | `has_tagged_events` | bool | True if timeline tags exist |
 | `tag_count` | int | Number of tagged events |
 | `has_triage_date` | bool | True if triage date is set |
-| `triage_date` | datetime | The configured triage date |
-| `previous_triages` | list | Recent AITriageSearch records |
 | `ai_enabled` | bool | True if AI is enabled in settings |
 
 ### Prerequisite Cards
 
-Each prerequisite is displayed as a card with:
-- **Status icon**: ✅ (complete), ⚠️ (warning), ❌ (missing), 💡 (optional)
-- **Status badge**: Pill badge showing count or status (uses `.badge-pill` CSS class)
-- **Action button**: Link to configure or view the prerequisite
-- **Conditional styling**: Border color indicates status (success/warning/error/muted)
-
-```html
-<div class="prereq-card" style="
-    background: var(--color-background-secondary);
-    border-radius: var(--border-radius);
-    padding: var(--spacing-lg);
-    border-left: 4px solid {% if condition %}var(--color-success){% else %}var(--color-warning){% endif %};
-">
-    <!-- Header with title and badge -->
-    <div style="display: flex; justify-content: space-between; ...">
-        <h4>{% if condition %}✅{% else %}⚠️{% endif %} 1. System Scan</h4>
-        <span class="badge-pill {% if condition %}badge-pill-success{% else %}badge-pill-warning{% endif %}">
-            {{ count }} Systems
-        </span>
-    </div>
-    
-    <!-- Status message and action button -->
-    {% if condition %}
-        <p style="color: var(--color-success);">✓ Systems configured</p>
-        <a href="..." class="btn btn-secondary btn-sm" style="opacity: 0.7;">View Systems</a>
-    {% else %}
-        <p style="color: var(--color-warning);">⚠️ No systems defined</p>
-        <a href="..." class="btn btn-primary btn-sm">Configure Systems</a>
-    {% endif %}
-</div>
-```
-
-### Triage Actions Section
-
-Individual phase buttons that can be run manually:
-
-```html
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">🎯 Triage Actions</h2>
-    </div>
-    <div class="card-body">
-        <!-- Phase 1: IOC Extraction -->
-        <div style="display: flex; align-items: center; gap: var(--spacing-md); ...">
-            <div style="flex: 1;">
-                <h4>Phase 1: IOC Extraction</h4>
-                <p>Extract IOCs using {% if ai_enabled %}AI{% else %}regex{% endif %}</p>
-            </div>
-            <div>
-                {% if has_edr_report %}
-                    <button onclick="extractIOCs()" class="btn btn-sm btn-primary">
-                        📋 Extract IOCs from EDR Report
-                    </button>
-                {% else %}
-                    <button disabled class="btn btn-sm" style="opacity: 0.5;">
-                        📋 Extract IOCs from EDR Report
-                    </button>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-</div>
-```
+Each prerequisite displays:
+- **Status icon**: ✅ (complete), ⚠️ (warning), ❌ (missing)
+- **Status badge**: Pill badge with count (`.badge-pill` CSS class)
+- **Action button**: Link to configure or view
+- **Conditional styling**: Border color indicates status
 
 ---
 
-## IOC Extraction Module
+## Phase 1: EDR IOC Extraction
 
 ### File: `app/ai_triage_edr_ioc.py`
 
-Standalone module for extracting IOCs from EDR/MDR reports. Supports AI extraction (QWEN) with regex fallback.
+Extracts IOCs from EDR/MDR reports. Supports AI extraction (QWEN) with regex fallback.
 
-### Module Functions
+### Functions
 
 | Function | Purpose |
 |----------|---------|
@@ -182,205 +144,246 @@ Standalone module for extracting IOCs from EDR/MDR reports. Supports AI extracti
 ```python
 def extract_iocs_from_report(report_text: str, force_regex: bool = False) -> Dict:
     """
-    Flow:
     1. If force_regex=True → skip AI, use regex
     2. Check is_ai_enabled() from system settings
     3. If AI enabled → try LLM, fall back to regex on failure
     4. If AI disabled → use regex directly
     """
-    if force_regex:
-        iocs = extract_iocs_with_regex(report_text)
-        iocs['extraction_method'] = 'regex'
-        return iocs
-    
-    if is_ai_enabled():
-        iocs = extract_iocs_with_llm(report_text)
-        if iocs:
-            iocs['extraction_method'] = 'llm'
-            return iocs
-        else:
-            # LLM failed, fall back
-            iocs = extract_iocs_with_regex(report_text)
-            iocs['extraction_method'] = 'regex_fallback'
-            return iocs
-    else:
-        iocs = extract_iocs_with_regex(report_text)
-        iocs['extraction_method'] = 'regex'
-        return iocs
 ```
 
 ### LLM Extraction
 
-**Model:** `dfir-qwen:latest` (hardcoded for best IOC extraction accuracy)
+**Model:** `dfir-qwen:latest`
 
-**Prompt Structure:**
-```
-Extract IOCs from the following EDR/security report. Return ONLY valid JSON.
+**Prompt extracts:**
+- usernames, sids, ips, hostnames, domains
+- processes, paths, commands, hashes
+- timestamps, registry_keys, tools, services
+- threat_types, malware_indicated
 
-SCHEMA (use empty arrays [] if none found):
-{
-  "usernames": ["exact usernames only"],
-  "sids": ["S-1-5-21-... format only"],
-  "ips": ["IP addresses - defang: 91.236.230[.]136 becomes 91.236.230.136"],
-  "hostnames": ["computer names like SERVER01, DC1"],
-  "domains": ["domain names like evil.com"],
-  "processes": ["executable names like nltest.exe"],
-  "paths": ["file/folder paths like C:\\Users\\..."],
-  "commands": ["full command lines executed"],
-  "hashes": ["SHA256, SHA1, or MD5 hashes"],
-  "timestamps": ["ISO 8601 format"],
-  "registry_keys": ["HKLM\\..., HKCU\\..."],
-  "tools": ["tool names: WinSCP, Mimikatz, BlueVPS"],
-  "services": ["network services: RDP, SMB, WinRM"],
-  "threat_types": ["enumeration", "lateral_movement", etc.],
-  "malware_indicated": true or false
-}
+### Regex Extraction Patterns
 
-Report:
-{report_text}
-```
-
-### Regex Extraction
-
-Patterns extracted:
-
-| Type | Pattern | Example |
-|------|---------|---------|
-| `ips` | `\b(?:(?:25[0-5]|...)\.\){3}(?:...)\b` | `192.168.1.50` |
-| `hashes` | SHA256 (64 hex), SHA1 (40 hex), MD5 (32 hex) | `a1b2c3...` |
-| `sids` | `S-1-5-21-[\d-]+` | `S-1-5-21-123456-789` |
-| `usernames` | Context patterns: `user "..."`, `account "..."` | `BButler` |
-| `hostnames` | Context patterns: `host "..."`, `machine "..."` | `SERVER01` |
-| `paths` | `[A-Za-z]:\\(?:[^\s\\/:*?"<>|']+\\)+` | `C:\Users\Admin\` |
-| `processes` | `(?:executed|ran|...) "([a-zA-Z0-9_\-]+\.exe)"` | `nltest.exe` |
-| `commands` | PowerShell, nltest, net commands | `nltest /dclist` |
-| `tools` | Known tool list (WinSCP, Mimikatz, etc.) | `WinSCP` |
-| `timestamps` | `\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}` | `2025-01-15T10:30:00` |
+| Type | Example |
+|------|---------|
+| `ips` | `192.168.1.50` |
+| `hashes` | SHA256 (64 hex), SHA1 (40 hex), MD5 (32 hex) |
+| `sids` | `S-1-5-21-123456-789` |
+| `usernames` | Context: `user "BButler"` |
+| `hostnames` | Context: `host "SERVER01"` |
+| `paths` | `C:\Users\Admin\Documents\` |
+| `processes` | `nltest.exe` |
+| `commands` | `nltest /dclist` |
+| `tools` | WinSCP, Mimikatz, etc. |
 
 ### Output Structure
 
 ```python
 {
-    'usernames': ['BButler', 'Admin'],
-    'ips': ['192.168.1.50', '10.0.0.100'],
-    'hostnames': ['SERVER01', 'DC1'],
-    'processes': ['nltest.exe', 'WinSCP.exe'],
-    'paths': ['C:\\Users\\Admin\\Documents\\'],
-    'hashes': ['a1b2c3d4e5f6...'],
-    'commands': ['nltest /dclist:domain.local'],
-    'tools': ['WinSCP', 'Advanced IP Scanner'],
-    'timestamps': ['2025-01-15T10:30:00Z'],
-    'sids': ['S-1-5-21-123456789-987654321'],
-    'domains': ['evil.com'],
-    'registry_keys': [],
-    'services': [],
-    'threat_types': ['enumeration', 'lateral_movement'],
-    'malware_indicated': True,
+    'usernames': ['BButler'],
+    'ips': ['192.168.1.50'],
+    'hostnames': ['SERVER01'],
+    'processes': ['nltest.exe'],
+    'paths': ['C:\\Users\\Admin\\'],
+    'commands': ['nltest /dclist'],
+    'tools': ['WinSCP'],
     'extraction_method': 'llm'  # or 'regex', 'regex_fallback'
+}
+```
+
+### Routes
+
+| Route | Method | Function |
+|-------|--------|----------|
+| `/case/<id>/triage/extract-iocs` | POST | Extract IOCs from EDR report |
+| `/case/<id>/triage/add-extracted-iocs` | POST | Save extracted IOCs to database |
+
+### JavaScript Function
+
+```javascript
+function extractIOCs() {
+    // 1. Show modal with progress spinner
+    // 2. POST to /case/{id}/triage/extract-iocs
+    // 3. Display results in modal
+    // 4. User clicks "Add IOCs" to save
 }
 ```
 
 ---
 
-## Routes
+## Phase 2: Find Potential IOCs (Snowball Hunting)
+
+### File: `app/ai_triage_find_iocs.py`
+
+Searches events containing existing IOCs and extracts additional potential IOCs from those events. This is "snowball hunting" - using known IOCs to discover new related indicators.
+
+### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `get_case_context(case_id)` | Load case data: systems, IOCs, known IPs, managed tools |
+| `search_events_with_iocs(case_id, iocs)` | Query OpenSearch for events matching IOCs |
+| `extract_iocs_from_events(events, context)` | Extract potential IOCs with filtering |
+| `check_managed_tool(proc, blob, tools)` | Verify RMM/EDR/Remote tool session IDs |
+| `contains_existing_ioc(value, existing)` | Check if value contains existing IOC |
+| `find_potential_iocs(case_id)` | **Main entry point** |
+| `get_ioc_discovery_summary(result)` | Generate summary for UI display |
+
+### Flow Logic
+
+```python
+def find_potential_iocs(case_id: int) -> Dict:
+    """
+    1. Load case context (systems, existing IOCs, managed tools, etc.)
+    2. Build OpenSearch query for events matching existing IOCs
+    3. Query excludes hidden events (is_hidden: true)
+    4. Use scroll API to get ALL matching events (no limit)
+    5. Extract potential IOCs from matched events
+    6. Apply extensive filtering (see below)
+    7. Return results (max 100 per IOC type)
+    """
+```
+
+### Filtering Logic
+
+The module applies extensive filtering to avoid noise:
+
+#### 1. Hidden Events
+- OpenSearch query includes `"must_not": [{"term": {"is_hidden": True}}]`
+- Events marked by "Hide Known Good" or "Hide Noise" are excluded
+
+#### 2. Known Systems Filtering
+- Systems with type other than `actor_system` are filtered
+- Their associated IPs are also filtered
+- Actor systems are NOT filtered (they're interesting)
+
+#### 3. Known-Good IP Filtering
+- IPs from `SystemToolsSetting.known_good_ips` are filtered
+- Example: DNS servers, domain controllers
+
+#### 4. Existing IOC Filtering
+- Values already in the case's IOC list are filtered
+- Uses `contains_existing_ioc()` for commands/paths (substring match)
+- Uses exact match for usernames/hostnames/processes
+
+#### 5. Managed Tool Filtering (RMM/EDR/Remote)
+Loads from `SystemToolsSetting`:
+- `rmm_tools`, `edr_tools`, `remote_tools`
+
+For each tool with `executable_pattern` and optional `known_good_ids`:
+- If process matches tool pattern:
+  - If `known_good_ids` configured AND ID found in event → **SKIP** (legitimate use)
+  - If `known_good_ids` configured AND ID NOT found → **KEEP** (attacker using tool!)
+  - If no `known_good_ids` configured → **SKIP** (trust the tool)
+
+#### 6. Noise Filtering
+
+**Noise Users (filtered):**
+```python
+NOISE_USERS = {
+    'system', 'network service', 'local service', 'anonymous logon',
+    'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
+    'umfd-0', 'umfd-1', 'font driver host', 'guest', 'defaultaccount',
+    'nt authority\\system', 'nt authority\\local service', ...
+}
+```
+
+**Noise Processes (filtered):**
+- Browser processes (chrome.exe, msedge.exe, firefox.exe)
+- Adobe processes (acrord32.exe, acrobat.exe, adobearm.exe)
+- Windows background (runtimebroker.exe, taskhostw.exe, searchindexer.exe)
+- Common apps (teams.exe, slack.exe, zoom.exe, spotify.exe)
+- Many more (~100+ processes)
+
+**Noise Paths (filtered):**
+- `c:\windows\system32\`
+- `c:\program files\`
+- `appdata\local\google\chrome`
+- `appdata\local\microsoft\edge`
+- Adobe, Office, browser paths
+
+### Extraction Fields
+
+| IOC Type | Source Fields |
+|----------|---------------|
+| `usernames` | `forensic_SubjectUserName`, `forensic_TargetUserName`, `Event.EventData.*` |
+| `hostnames` | `forensic_Workstation`, `Event.EventData.Workstation`, `computer_name` |
+| `ips` | `forensic_IpAddress`, `Event.EventData.IpAddress` (excludes link-local IPv6) |
+| `processes` | Process name extracted from path |
+| `commands` | `command_line` (>20 chars, not noise) |
+| `paths` | Extracted from command_line via regex |
+
+### Output Structure
+
+```python
+{
+    'success': True,
+    'potential_iocs': {
+        'usernames': ['abecirovic', 'ckern'],
+        'hostnames': ['PACKERP-8162S11'],
+        'ips': ['10.5.2.100'],
+        'processes': ['Made2Manage.exe'],
+        'commands': ['C:\\Windows\\System32\\logoff.exe'],
+        'paths': ['Z:\\IT\\Network\\TFC']
+    },
+    'events_searched': 3206,
+    'existing_ioc_count': 16,
+    'total_found': 45
+}
+```
+
+### Routes
+
+| Route | Method | Function |
+|-------|--------|----------|
+| `/case/<id>/triage/find-iocs` | POST | Find potential IOCs from events |
+| `/case/<id>/triage/add-found-iocs` | POST | Save found IOCs to database |
+
+### JavaScript Function
+
+```javascript
+function findPotentialIOCs() {
+    // 1. Show modal with progress spinner
+    // 2. POST to /case/{id}/triage/find-iocs
+    // 3. Display categorized results in modal
+    // 4. User reviews and clicks "Add Selected IOCs"
+}
+```
+
+---
+
+## Routes Reference
 
 ### File: `app/main.py`
 
 ### GET `/case/<int:case_id>/triage`
 
-**Function:** `triage_page(case_id)`
+**Function:** `triage_page(case_id)` (line ~2157)
 
 Renders the triage prerequisites page.
 
-**Data Fetched:**
-```python
-# 1. System Scan Check
-system_count = db.session.query(System).filter_by(case_id=case_id, hidden=False).count()
-systems_configured = system_count > 0
-
-# 2. EDR Report Check
-has_edr_report = bool(case.edr_report and case.edr_report.strip())
-
-# 3. IOC Check
-ioc_count = db.session.query(IOC).filter_by(case_id=case_id, is_active=True).count()
-has_iocs = ioc_count > 0
-
-# 4. Tagged Events Check
-tag_count = db.session.query(TimelineTag).filter_by(case_id=case_id).count()
-has_tagged_events = tag_count > 0
-
-# 5. Triage Date Check
-last_triage = db.session.query(AITriageSearch).filter_by(case_id=case_id).order_by(...).first()
-has_triage_date = bool(last_triage and last_triage.search_date)
-
-# 6. AI Setting
-ai_enabled = get_setting('ai_enabled', 'false') == 'true'
-```
-
 ### POST `/case/<int:case_id>/triage/extract-iocs`
 
-**Function:** `triage_extract_iocs(case_id)`
-
-Extracts IOCs from the case's EDR report.
-
-**Request:** None (uses case.edr_report)
+**Function:** `triage_extract_iocs(case_id)` (line ~2239)
 
 **Response:**
 ```json
 {
     "success": true,
-    "iocs": {
-        "usernames": [...],
-        "ips": [...],
-        ...
-    },
-    "summary": {
-        "total_count": 25,
-        "by_type": {"ips": 5, "usernames": 3, ...},
-        "malware_indicated": true,
-        "extraction_method": "llm"
-    }
+    "iocs": { "usernames": [...], "ips": [...], ... },
+    "summary": { "total_count": 25, "by_type": {...}, "extraction_method": "llm" }
 }
 ```
 
 ### POST `/case/<int:case_id>/triage/add-extracted-iocs`
 
-**Function:** `triage_add_extracted_iocs(case_id)`
-
-Adds extracted IOCs to the case's IOC database.
-
-**Request:**
-```json
-{
-    "iocs": {
-        "usernames": ["BButler"],
-        "ips": ["192.168.1.50"],
-        ...
-    }
-}
-```
-
-**Response:**
-```json
-{
-    "success": true,
-    "added_count": 15
-}
-```
+**Function:** `triage_add_extracted_iocs(case_id)` (line ~2272)
 
 **Type Mapping:**
 ```python
 type_mapping = {
-    'ips': 'ip',
-    'hostnames': 'hostname',
-    'usernames': 'username',
-    'sids': 'user_sid',
-    'paths': 'filepath',
-    'processes': 'filename',
-    'hashes': 'hash',
-    'commands': 'command',
-    'tools': 'tool',
-    'domains': 'domain'
+    'ips': 'ip', 'hostnames': 'hostname', 'usernames': 'username',
+    'sids': 'user_sid', 'paths': 'filepath', 'processes': 'filename',
+    'hashes': 'hash', 'commands': 'command', 'tools': 'tool', 'domains': 'domain'
 }
 ```
 
@@ -390,137 +393,55 @@ new_ioc = IOC(
     case_id=case_id,
     ioc_type=ioc_type_db,
     ioc_value=value[:500],
-    description='Extracted from EDR Report',  # Use 'description', NOT 'ioc_source'
+    description='Extracted from EDR Report',  # NOT 'ioc_source'
     is_active=True,
     created_by=current_user.id
 )
 ```
 
----
+### POST `/case/<int:case_id>/triage/find-iocs`
 
-## JavaScript Functions
+**Function:** `triage_find_iocs(case_id)` (line ~2344)
 
-### File: `app/templates/triage.html` (script block)
-
-| Function | Purpose |
-|----------|---------|
-| `extractIOCs()` | Calls `/triage/extract-iocs`, shows modal with results |
-| `showIOCResults(data)` | Renders extraction results in modal |
-| `closeIocModal()` | Closes the IOC extraction modal |
-| `addExtractedIOCs()` | Calls `/triage/add-extracted-iocs` to save IOCs |
-| `escapeHtml(text)` | Escapes HTML for safe display |
-
-### IOC Extraction Flow
-
-```javascript
-function extractIOCs() {
-    // 1. Show modal with progress spinner
-    document.getElementById('iocExtractionModal').style.display = 'flex';
-    document.getElementById('iocExtractionProgress').style.display = 'block';
-    
-    // 2. Call API
-    fetch(`/case/${CASE_ID}/triage/extract-iocs`, { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                extractedIOCs = data.iocs;  // Store for adding later
-                showIOCResults(data);
-            } else {
-                // Show error
-            }
-        });
-}
-
-function addExtractedIOCs() {
-    fetch(`/case/${CASE_ID}/triage/add-extracted-iocs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ iocs: extractedIOCs })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert(`Added ${data.added_count} IOCs`);
-            location.reload();
-        }
-    });
+**Response:**
+```json
+{
+    "success": true,
+    "potential_iocs": { "usernames": [...], "hostnames": [...], ... },
+    "summary": { "total_found": 45, "by_type": {...} },
+    "events_searched": 3206,
+    "existing_ioc_count": 16
 }
 ```
 
----
+### POST `/case/<int:case_id>/triage/add-found-iocs`
 
-## CSS Classes Used
+**Function:** `triage_add_found_iocs(case_id)` (line ~2381)
 
-### Badge Pills (from `theme.css`)
-
-```css
-.badge-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: var(--spacing-xs) var(--spacing-md);
-    border-radius: 999px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.badge-pill-success { background: var(--color-success); color: white; }
-.badge-pill-warning { background: var(--color-warning); color: white; }
-.badge-pill-error   { background: var(--color-error); color: white; }
-.badge-pill-muted   { background: var(--color-text-muted); color: white; }
-.badge-pill-info    { background: var(--color-info); color: white; }
-```
-
-### Button Styles
-
-```css
-.btn-sm {
-    padding: 6px var(--spacing-md);
-    font-size: 0.875rem;
-}
-
-/* Disabled state */
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-```
+**Description field:** `'Discovered via IOC hunting'`
 
 ---
 
 ## Database Models
 
-### IOC Table (for storing extracted IOCs)
+### IOC Table
 
-**File:** `app/models.py` (line 170)
+**File:** `app/models.py`
 
 ```python
 class IOC(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
-    ioc_type = db.Column(db.String(50), nullable=False)  # 'ip', 'username', 'user_sid', 'hostname', 'fqdn', 'command', 'filename', 'hash', etc.
-    ioc_value = db.Column(db.String(500), nullable=False, index=True)
-    description = db.Column(db.Text)  # 'Extracted from EDR Report'
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), index=True)
+    ioc_type = db.Column(db.String(50))  # ip, username, hostname, command, etc.
+    ioc_value = db.Column(db.String(500), index=True)
+    description = db.Column(db.Text)  # 'Extracted from EDR Report' or 'Discovered via IOC hunting'
     threat_level = db.Column(db.String(20), default='medium')
     is_active = db.Column(db.Boolean, default=True)
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # OpenCTI integration
-    opencti_enrichment = db.Column(db.Text)
-    opencti_enriched_at = db.Column(db.DateTime)
-    
-    # DFIR-IRIS integration
-    dfir_iris_synced = db.Column(db.Boolean, default=False)
-    dfir_iris_sync_date = db.Column(db.DateTime)
-    dfir_iris_ioc_id = db.Column(db.String(100))
 ```
 
-**Note:** When adding IOCs from EDR extraction, use `description='Extracted from EDR Report'` (NOT `ioc_source`).
-
-### AITriageSearch Table (triage history)
-
-**File:** `app/models.py`
+### AITriageSearch Table
 
 ```python
 class AITriageSearch(db.Model):
@@ -529,86 +450,9 @@ class AITriageSearch(db.Model):
     status = db.Column(db.String(50))  # 'running', 'completed', 'failed'
     search_date = db.Column(db.DateTime)
     iocs_extracted_count = db.Column(db.Integer, default=0)
-    iocs_extracted_json = db.Column(db.Text)
     iocs_discovered_count = db.Column(db.Integer, default=0)
-    auto_tagged_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 ```
-
----
-
-## System Settings
-
-### AI Enabled Setting
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `ai_enabled` | `'false'` | Enable/disable AI features |
-| `ollama_host` | `'http://localhost:11434'` | Ollama API endpoint |
-
-**Checking AI Status:**
-```python
-from routes.settings import get_setting
-ai_enabled = get_setting('ai_enabled', 'false') == 'true'
-```
-
----
-
-## Usage Examples
-
-### Extract IOCs from Report (Python)
-
-```python
-from ai_triage_edr_ioc import extract_iocs_from_report, get_ioc_summary
-
-report = """
-On 2025-01-15, the threat actor BButler accessed SERVER01 from 192.168.1.50.
-They executed nltest.exe /dclist:domain.local and exfiltrated data using WinSCP.
-"""
-
-iocs = extract_iocs_from_report(report)
-summary = get_ioc_summary(iocs)
-
-print(f"Extracted {summary['total_count']} IOCs via {summary['extraction_method']}")
-print(f"Malware indicated: {summary['malware_indicated']}")
-```
-
-### Force Regex Mode
-
-```python
-# Skip AI entirely, use regex only
-iocs = extract_iocs_from_report(report, force_regex=True)
-```
-
-### Check AI Setting Before Calling
-
-```python
-from ai_triage_edr_ioc import is_ai_enabled
-
-if is_ai_enabled():
-    print("AI extraction will be used")
-else:
-    print("Regex extraction will be used")
-```
-
----
-
-## Future Phases (Planned Modules)
-
-| Phase | Module | Description |
-|-------|--------|-------------|
-| 1 | `ai_triage_edr_ioc.py` | ✅ IOC Extraction from EDR Report |
-| 2 | `ai_triage_snowball.py` | Snowball hunting - discover related IOCs |
-| 3 | `ai_triage_patterns.py` | Attack pattern detection (uses `events_attack_patterns.py`) |
-| 4 | `ai_triage_malware.py` | AV/EDR malware log analysis |
-| 5 | `ai_triage_timeline.py` | Timeline generation and tagging |
-| 6 | `ai_triage_report.py` | LLM-generated analysis report |
-
-Each module will follow the same pattern:
-- Standalone file in `/app/`
-- Main entry function that can be called directly
-- Route in `main.py` for manual trigger
-- Button in triage page with enable/disable logic
 
 ---
 
@@ -616,32 +460,40 @@ Each module will follow the same pattern:
 
 To rebuild this system:
 
-1. **Triage Page** (`templates/triage.html`)
-   - Create prerequisite cards with conditional styling
-   - Add badge pills for status indicators
-   - Add triage actions section with phase buttons
-   - Add modals for progress and results
+### 1. Triage Page (`templates/triage.html`)
+- [ ] Prerequisite cards with conditional styling
+- [ ] Badge pills for status indicators
+- [ ] Phase 1 button: "Extract IOCs from EDR Report"
+- [ ] Phase 2 button: "Find Potential IOCs"
+- [ ] Modals for progress and results
 
-2. **IOC Extraction Module** (`ai_triage_edr_ioc.py`)
-   - Implement `is_ai_enabled()` to check system settings
-   - Implement `extract_iocs_with_llm()` with QWEN prompt
-   - Implement `extract_iocs_with_regex()` with pattern matching
-   - Implement `extract_iocs_from_report()` with flow logic
+### 2. Phase 1 Module (`ai_triage_edr_ioc.py`)
+- [ ] `is_ai_enabled()` to check system settings
+- [ ] `extract_iocs_with_llm()` with QWEN prompt
+- [ ] `extract_iocs_with_regex()` with pattern matching
+- [ ] `extract_iocs_from_report()` flow logic
 
-3. **Routes** (`main.py`)
-   - Add `triage_page()` route to render prerequisites
-   - Add `triage_extract_iocs()` route for extraction
-   - Add `triage_add_extracted_iocs()` route to save IOCs
-   - **Important:** Use `description` field for IOC source, NOT `ioc_source`
+### 3. Phase 2 Module (`ai_triage_find_iocs.py`)
+- [ ] `get_case_context()` to load filtering data
+- [ ] `search_events_with_iocs()` with scroll API
+- [ ] `extract_iocs_from_events()` with all filters
+- [ ] `check_managed_tool()` for RMM/EDR ID verification
+- [ ] `contains_existing_ioc()` for duplicate detection
+- [ ] Noise filtering constants (NOISE_USERS, NOISE_PROCESSES, etc.)
 
-4. **CSS** (`theme.css`)
-   - Add `.badge-pill` classes for status indicators
-   - Ensure `.btn-sm` is defined for small buttons
+### 4. Routes (`main.py`)
+- [ ] `triage_page()` route
+- [ ] `triage_extract_iocs()` route
+- [ ] `triage_add_extracted_iocs()` route
+- [ ] `triage_find_iocs()` route
+- [ ] `triage_add_found_iocs()` route
+- [ ] **Important:** Use `description` field, NOT `ioc_source`
 
-5. **JavaScript**
-   - Implement `extractIOCs()` for API call and modal
-   - Implement `addExtractedIOCs()` to save to database
-   - Handle progress states and error display
+### 5. JavaScript
+- [ ] `extractIOCs()` for Phase 1
+- [ ] `addExtractedIOCs()` to save Phase 1 results
+- [ ] `findPotentialIOCs()` for Phase 2
+- [ ] `addFoundIOCs()` to save Phase 2 results
 
 ---
 
@@ -650,8 +502,10 @@ To rebuild this system:
 | Version | Changes |
 |---------|---------|
 | v1.46.0 | Initial triage page with prerequisites |
-| v1.46.0 | Created `ai_triage_edr_ioc.py` module |
+| v1.46.0 | Created `ai_triage_edr_ioc.py` (Phase 1) |
 | v1.46.0 | Added IOC extraction routes and UI |
-| v1.46.0 | Added `.badge-pill` CSS classes to `theme.css` |
-| v1.46.2 | Fixed IOC creation bug: changed `ioc_source` to `description` field |
-
+| v1.46.2 | Fixed IOC creation: use `description` not `ioc_source` |
+| v1.46.3 | Created `ai_triage_find_iocs.py` (Phase 2) |
+| v1.46.3 | Added snowball hunting with managed tool filtering |
+| v1.46.3 | Added scroll API for unlimited event search |
+| v1.46.3 | Added `contains_existing_ioc()` for duplicate filtering |
