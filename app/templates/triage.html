@@ -69,7 +69,7 @@
             <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">ℹ️ Why Prerequisites Matter</h4>
             <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
                 AI Triage works best when it has context about your investigation. Systems help identify lateral movement, 
-                EDR reports provide IOCs to hunt, and tagged events anchor the timeline. Complete these steps for optimal results.
+                EDR reports provide IOCs to hunt, and events marked as hunted/confirmed provide investigation focus. Complete these steps for optimal results.
             </p>
         </div>
         
@@ -214,7 +214,7 @@
             </div>
             
             <!-- ============================================
-                 PREREQ 4: Tagged Events (Optional Enhancement)
+                 PREREQ 4: Hunted/Confirmed Events (Optional Enhancement)
                  ============================================ -->
             <div class="prereq-card" style="
                 background: var(--color-background-secondary);
@@ -226,32 +226,32 @@
                     <div>
                         <h4 style="margin: 0 0 var(--spacing-xs) 0;">
                             {% if has_tagged_events %}✅{% else %}💡{% endif %}
-                            4. Tagged Events
+                            4. Hunted/Confirmed Events
                         </h4>
                         <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
-                            Optional: Pre-tag known malicious events as anchors
+                            Optional: Events marked for investigation
                         </p>
                     </div>
                     <span class="badge-pill {% if has_tagged_events %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
-                        {{ tag_count }} Tagged
+                        {{ tag_count }} Marked
                     </span>
                 </div>
                 
                 {% if has_tagged_events %}
                 <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
-                    ✓ {{ tag_count }} events tagged - will be used as timeline anchors
+                    ✓ {{ tag_count }} events marked as hunted or confirmed
                 </p>
-                <a href="{{ url_for('search_events', case_id=case.id, filter='tagged') }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
-                    <span>🏷️</span>
-                    <span>View Tagged</span>
+                <a href="{{ url_for('search_events', case_id=case.id, status_filter='hunted,confirmed') }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🎯</span>
+                    <span>View Hunted/Confirmed</span>
                 </a>
                 {% else %}
                 <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
-                    💡 No tagged events yet - triage will auto-tag based on IOC matches
+                    💡 No hunted events yet - triage will auto-mark based on IOC matches
                 </p>
                 <a href="{{ url_for('search_events', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
                     <span>🔍</span>
-                    <span>Search & Tag Events</span>
+                    <span>Search & Mark Events</span>
                 </a>
                 {% endif %}
             </div>
@@ -382,13 +382,13 @@
             </div>
         </div>
         
-        <!-- Phase 3: Tag High-Confidence Events -->
+        <!-- Phase 3: Mark High-Confidence Events as 'Hunted' -->
         <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
             <div style="flex: 1;">
-                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 3: Tag Highly Likely Events</h4>
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 3: Mark Highly Likely Events</h4>
                 <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
                     {% if has_iocs %}
-                    Auto-tag events matching commands, actor IPs/hostnames, and high-threat IOCs for timeline.
+                    Auto-mark events as 'hunted' when they match 3+ IOCs, attack patterns, or high-confidence indicators.
                     {% else %}
                     <span style="color: var(--color-warning);">Requires IOCs defined first.</span>
                     {% endif %}
@@ -397,13 +397,13 @@
             <div>
                 {% if has_iocs %}
                 <button onclick="tagHighConfidenceEvents()" class="btn btn-sm btn-primary" id="tagEventsBtn">
-                    <span>🏷️</span>
-                    <span>Tag Highly Likely Events</span>
+                    <span>🎯</span>
+                    <span>Mark Highly Likely Events</span>
                 </button>
                 {% else %}
                 <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
-                    <span>🏷️</span>
-                    <span>Tag Highly Likely Events</span>
+                    <span>🎯</span>
+                    <span>Mark Highly Likely Events</span>
                 </button>
                 {% endif %}
             </div>
@@ -489,11 +489,11 @@
     </div>
 </div>
 
-<!-- Tag High-Confidence Events Modal -->
+<!-- Mark High-Confidence Events Modal -->
 <div id="tagEventsModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 600px;">
         <div class="modal-header">
-            <h2 class="modal-title">🏷️ Auto-Tag Results</h2>
+            <h2 class="modal-title">🎯 Mark Events as 'Hunted'</h2>
             <button type="button" class="modal-close" onclick="closeTagEventsModal()">✕</button>
         </div>
         <div class="modal-body">
@@ -501,7 +501,7 @@
                 <div style="text-align: center; padding: var(--spacing-xl);">
                     <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
                     <p style="color: var(--color-text-muted);">Searching for high-confidence events...</p>
-                    <p style="font-size: 0.85rem; color: var(--color-text-muted);">Matching commands, actor IPs, and high-threat IOCs.</p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);">Matching 3+ IOCs, attack patterns, and high-threat indicators.</p>
                 </div>
             </div>
             <div id="tagEventsResults" style="display: none;">
@@ -510,15 +510,15 @@
             <div id="tagEventsError" style="display: none;">
                 <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
                     <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
-                    <p id="tagEventsErrorMessage">An error occurred during tagging.</p>
+                    <p id="tagEventsErrorMessage">An error occurred during marking.</p>
                 </div>
             </div>
         </div>
         <div class="modal-footer">
             <button type="button" onclick="closeTagEventsModal()" class="btn btn-secondary">Close</button>
-            <a href="{{ url_for('search_events', case_id=case.id) }}?filter=tagged" class="btn btn-primary" id="viewTaggedBtn" style="display: none;">
+            <a href="{{ url_for('search_events', case_id=case.id) }}?status_filter=hunted" class="btn btn-primary" id="viewTaggedBtn" style="display: none;">
                 <span>👁️</span>
-                <span>View Tagged Events</span>
+                <span>View Hunted Events</span>
             </a>
         </div>
     </div>
@@ -1005,11 +1005,11 @@ function tagHighConfidenceEvents() {
     document.getElementById('tagEventsError').style.display = 'none';
     document.getElementById('viewTaggedBtn').style.display = 'none';
     
-    // Disable button during tagging
+    // Disable button during processing
     const btn = document.getElementById('tagEventsBtn');
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Tagging...</span>';
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Marking...</span>';
     }
     
     // Call API
@@ -1039,7 +1039,7 @@ function tagHighConfidenceEvents() {
         // Re-enable button
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '<span>🏷️</span> <span>Tag Highly Likely Events</span>';
+            btn.innerHTML = '<span>🎯</span> <span>Mark Highly Likely Events</span>';
         }
     });
 }
@@ -1047,46 +1047,64 @@ function tagHighConfidenceEvents() {
 function showTagEventsResults(data) {
     document.getElementById('tagEventsResults').style.display = 'block';
     
-    const summary = data.summary;
+    const hunted_count = data.hunted_count || 0;
+    const already_hunted = data.already_hunted || 0;
+    const noise_filtered = data.noise_filtered || 0;
+    const pattern_matches = data.pattern_matches || 0;
+    const multi_ioc_matches = data.multi_ioc_matches || 0;
+    const events_found = data.events_found || 0;
+    const ioc_count = data.ioc_count || 0;
+    const actor_count = data.actor_count || 0;
     
     // Build summary HTML
     let summaryHtml = `
         <div style="text-align: center; padding: var(--spacing-lg);">
             <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">
-                ${data.tagged_count > 0 ? '✅' : '📋'}
+                ${hunted_count > 0 ? '✅' : '📋'}
             </div>
             <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary); margin-bottom: var(--spacing-sm);">
-                ${data.tagged_count} Events Tagged
+                ${hunted_count.toLocaleString()} Events Marked as 'Hunted'
             </div>
             ${data.message ? `<p style="color: var(--color-text-muted);">${data.message}</p>` : ''}
         </div>
         
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-lg);">
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
-                <div style="font-size: 1.5rem; font-weight: bold;">${summary.events_found}</div>
+                <div style="font-size: 1.5rem; font-weight: bold;">${events_found.toLocaleString()}</div>
                 <div style="font-size: 0.8rem; color: var(--color-text-muted);">Events Found</div>
             </div>
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
-                <div style="font-size: 1.5rem; font-weight: bold;">${summary.already_tagged}</div>
-                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Already Tagged</div>
+                <div style="font-size: 1.5rem; font-weight: bold;">${already_hunted.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Already Hunted</div>
             </div>
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
-                <div style="font-size: 1.5rem; font-weight: bold;">${summary.noise_filtered}</div>
+                <div style="font-size: 1.5rem; font-weight: bold;">${noise_filtered.toLocaleString()}</div>
                 <div style="font-size: 0.8rem; color: var(--color-text-muted);">Noise Filtered</div>
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-md);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold; color: var(--color-primary);">${pattern_matches.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Attack Pattern Matches</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold; color: var(--color-primary);">${multi_ioc_matches.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Multi-IOC Matches (3+)</div>
             </div>
         </div>
         
         <div style="margin-top: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
             <div style="font-size: 0.9rem; color: var(--color-text-muted);">
-                <strong>Sources:</strong> ${summary.ioc_count} high-confidence IOCs, ${summary.actor_count} actor systems
+                <strong>Sources:</strong> ${ioc_count} high-confidence IOCs, ${actor_count} actor systems
             </div>
         </div>
     `;
     
     document.getElementById('tagEventsSummary').innerHTML = summaryHtml;
     
-    // Show view button if events were tagged
-    if (data.tagged_count > 0) {
+    // Show view button if events were marked
+    if (hunted_count > 0) {
         document.getElementById('viewTaggedBtn').style.display = 'inline-flex';
     }
 }

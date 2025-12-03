@@ -2193,9 +2193,11 @@ def triage_page(case_id):
     ).count()
     has_iocs = ioc_count > 0
     
-    # 4. Tagged Events Check - Are there timeline tags?
-    tag_count = db.session.query(TimelineTag).filter_by(
-        case_id=case_id
+    # 4. Hunted/Confirmed Events Check - Are there events marked for investigation?
+    from event_status import EventStatus, STATUS_HUNTED, STATUS_CONFIRMED
+    tag_count = db.session.query(EventStatus).filter(
+        EventStatus.case_id == case_id,
+        EventStatus.status.in_([STATUS_HUNTED, STATUS_CONFIRMED])
     ).count()
     has_tagged_events = tag_count > 0
     
