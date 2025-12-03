@@ -56,12 +56,13 @@ HIGH_CONFIDENCE_IOC_TYPES = {
     'url',               # Malicious URLs
     'domain',            # C2 domains
     'ip',                # External IPs (checked separately)
+    'filename',          # Executable names (nltest.exe, WinSCP.exe) - always tag
+    'tool',              # Known attack tools - always tag
 }
 
 # These types are high confidence if threat_level is high/critical
 CONDITIONAL_IOC_TYPES = {
     'hostname',          # Hostnames marked as high threat
-    'filename',          # Suspicious executables
     'filepath',          # Suspicious paths
     'username',          # Compromised accounts
 }
@@ -193,12 +194,18 @@ def is_noise_event(event: Dict) -> bool:
     """
     Check if event is likely noise and should not be tagged.
     
-    Only returns True if we have positive evidence of noise.
+    IMPORTANT: For attack detection, we should NOT filter events just because
+    the parent is cmd.exe/powershell.exe - attackers USE these to run commands!
+    
+    We only filter:
+    1. Events with noise event IDs (process termination, service state changes)
+    2. Events where ONLY system users are involved AND no interesting process
+    
     Missing data (None/empty) is NOT considered noise.
     """
     source = event.get('_source', {})
     
-    # Check Event ID
+    # Check Event ID - these are truly noise regardless of other factors
     event_id = None
     if 'Event' in source and 'System' in source['Event']:
         event_id = source['Event']['System'].get('EventID')
@@ -211,30 +218,41 @@ def is_noise_event(event: Dict) -> bool:
         except (ValueError, TypeError):
             pass
     
-    # Check parent process (only if present)
-    parent = source.get('process', {}).get('parent', {})
-    parent_name = parent.get('name') or parent.get('executable')
-    if parent_name:  # Only check if we have a parent process
-        parent_base = parent_name.split('\\')[-1].split('/')[-1].lower()
-        if parent_base in NOISE_PARENT_PROCESSES:
-            return True
+    # NOTE: We deliberately do NOT filter based on parent process!
+    # Attackers run commands from cmd.exe and powershell.exe - this is expected.
+    # The old code filtered events with parent in NOISE_PARENT_PROCESSES,
+    # which incorrectly filtered legitimate attack activity like:
+    #   - nltest.exe /dclist (parent: cmd.exe)
+    #   - WinSCP.exe (parent: explorer.exe or cmd.exe)
     
-    # Check user (only if present and not empty)
-    # We explicitly check that user is a non-empty string
+    # Only filter if ALL users in the event are system/noise users
+    # AND there's no interesting process name
+    users_in_event = []
+    
     user = source.get('user', {}).get('name')
     if user and isinstance(user, str) and user.strip():
-        user_lower = user.lower().strip()
-        # Skip the empty string check - only check actual noise users
-        if user_lower and user_lower in NOISE_USERS and user_lower != '':
-            return True
+        users_in_event.append(user.lower().strip())
     
-    # Also check forensic fields (only if present and not empty)
     for field in ['forensic_SubjectUserName', 'forensic_TargetUserName']:
         user_val = source.get(field)
         if user_val and isinstance(user_val, str) and user_val.strip():
-            user_lower = user_val.lower().strip()
-            if user_lower and user_lower in NOISE_USERS and user_lower != '':
-                return True
+            users_in_event.append(user_val.lower().strip())
+    
+    # If we have users, check if ALL of them are noise users
+    if users_in_event:
+        all_noise_users = all(u in NOISE_USERS for u in users_in_event)
+        if all_noise_users:
+            # Even with noise users, don't filter if there's an interesting process
+            proc = source.get('process', {})
+            proc_name = proc.get('name') or proc.get('executable') or ''
+            command_line = proc.get('command_line') or ''
+            
+            # If there's a command line or process name, keep it (IOC matched for a reason)
+            if command_line or proc_name:
+                return False
+            
+            # No process info and only noise users - likely noise
+            return True
     
     return False
 
