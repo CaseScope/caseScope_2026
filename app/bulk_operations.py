@@ -346,12 +346,11 @@ def clear_event_statuses(db, scope: str = 'case', case_id: Optional[int] = None,
         Number of EventStatus records deleted
     """
     from models import EventStatus
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     from utils import make_index_name
     
     if scope == 'file' and file_ids:
         # File-specific: Need to get event IDs from OpenSearch first
-        opensearch_client = get_opensearch_client()
         index_name = make_index_name(case_id)
         
         all_event_ids = []
