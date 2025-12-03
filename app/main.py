@@ -2848,32 +2848,6 @@ def search_events(case_id):
             except:
                 pass
     
-    # Status-based filtering: get event IDs to exclude based on status_filter
-    # If status_filter doesn't include a status, we need to exclude those events
-    from event_status import get_event_ids_by_status, STATUS_NEW, STATUS_NOISE, STATUS_HUNTED, STATUS_CONFIRMED
-    
-    # Get events to EXCLUDE (events with statuses NOT in status_filter)
-    statuses_to_exclude = []
-    if 'noise' not in status_filter:
-        statuses_to_exclude.append(STATUS_NOISE)
-    
-    exclude_event_ids = set()
-    if statuses_to_exclude:
-        exclude_event_ids = get_event_ids_by_status(case_id, statuses_to_exclude)
-        logger.debug(f"[SEARCH] Excluding {len(exclude_event_ids)} events with status in {statuses_to_exclude}")
-    
-    # For status-specific filtering (only show events with certain statuses)
-    # This is used when user only checks some status boxes
-    status_include_ids = None
-    if set(status_filter) != {'new', 'noise', 'hunted', 'confirmed'}:
-        # Not all statuses selected, need to filter
-        statuses_to_include = [s for s in status_filter if s != 'new']  # 'new' means no status record
-        if statuses_to_include:
-            status_include_ids = get_event_ids_by_status(case_id, statuses_to_include)
-            # If 'new' is in filter, we can't filter by IDs (new = no record)
-            if 'new' not in status_filter:
-                logger.debug(f"[SEARCH] Including only {len(status_include_ids)} events with status in {statuses_to_include}")
-    
     # Legacy: handle AI evidence mode
     tagged_event_ids = None
     if filter_type == 'ai_evidence':
@@ -2919,7 +2893,7 @@ def search_events(case_id):
         # Simple match_all for performance (only if all 5 file types selected AND showing all events including hidden) v1.14.0: Changed 4→5 (added IIS)
         query_dsl = {"query": {"match_all": {}}}
     else:
-        # Build proper query with hidden filter applied
+        # Build proper query with status filter applied
         query_dsl = build_search_query(
             search_text=search_text,
             filter_type=filter_type,
@@ -2930,8 +2904,7 @@ def search_events(case_id):
             custom_date_end=custom_date_end,
             latest_event_timestamp=latest_event_timestamp,
             hidden_filter=hidden_filter,
-            exclude_event_ids=exclude_event_ids,
-            include_only_event_ids=status_include_ids
+            status_filter=status_filter
         )
     
     # Execute search

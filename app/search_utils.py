@@ -76,6 +76,7 @@ def build_search_query(
     tagged_event_ids: Optional[List[str]] = None,
     latest_event_timestamp: Optional[datetime] = None,
     hidden_filter: str = "hide",
+    status_filter: Optional[List[str]] = None,
     exclude_event_ids: Optional[Set[str]] = None,
     include_only_event_ids: Optional[Set[str]] = None
 ) -> Dict[str, Any]:
@@ -93,8 +94,9 @@ def build_search_query(
         tagged_event_ids: List of event IDs for 'ai_evidence' filter
         latest_event_timestamp: Latest event timestamp in case (for relative date filters)
         hidden_filter: 'hide' (exclude hidden), 'show' (include all), 'only' (only hidden)
-        exclude_event_ids: Set of event IDs to exclude (e.g., noise events)
-        include_only_event_ids: Set of event IDs to include (for status filtering)
+        status_filter: List of statuses to include ['new', 'hunted', 'confirmed', 'noise']. Default: ['new', 'hunted', 'confirmed']
+        exclude_event_ids: Set of event IDs to exclude (legacy, prefer status_filter)
+        include_only_event_ids: Set of event IDs to include (legacy, prefer status_filter)
     
     Returns:
         OpenSearch query DSL dictionary
@@ -107,12 +109,68 @@ def build_search_query(
         }
     }
     
-    # Exclude specific event IDs (status-based filtering)
+    # Status-based filtering (NEW - v1.46.0)
+    # Filter by event_status field directly in OpenSearch (fast, no DB lookup)
+    if status_filter is not None:
+        # Default to showing new, hunted, confirmed (not noise)
+        if not status_filter:
+            status_filter = ['new', 'hunted', 'confirmed']
+        
+        # If all statuses are included, no filter needed
+        all_statuses = {'new', 'noise', 'hunted', 'confirmed'}
+        if set(status_filter) != all_statuses:
+            # 'new' means events WITHOUT a status field (or status='new')
+            # Other statuses have explicit field values
+            
+            if 'new' in status_filter and len(status_filter) == 1:
+                # Only show 'new' events (no status field or status='new')
+                query["bool"]["must_not"].extend([
+                    {"term": {"event_status": "noise"}},
+                    {"term": {"event_status": "hunted"}},
+                    {"term": {"event_status": "confirmed"}}
+                ])
+            elif 'new' not in status_filter:
+                # Exclude 'new' events, show only specific statuses
+                explicit_statuses = [s for s in status_filter if s != 'new']
+                if explicit_statuses:
+                    query["bool"]["filter"].append({
+                        "terms": {"event_status": explicit_statuses}
+                    })
+            else:
+                # 'new' + other statuses: show 'new' OR specific statuses
+                # Use should clause with minimum_should_match
+                explicit_statuses = [s for s in status_filter if s != 'new']
+                should_clauses = []
+                
+                # Include events with no status field or status not set
+                should_clauses.append({
+                    "bool": {
+                        "must_not": [
+                            {"exists": {"field": "event_status"}}
+                        ]
+                    }
+                })
+                
+                # Include events with explicit statuses
+                if explicit_statuses:
+                    should_clauses.append({
+                        "terms": {"event_status": explicit_statuses}
+                    })
+                
+                query["bool"]["filter"].append({
+                    "bool": {
+                        "should": should_clauses,
+                        "minimum_should_match": 1
+                    }
+                })
+    
+    # Legacy: Exclude specific event IDs (deprecated - use status_filter instead)
     if exclude_event_ids and len(exclude_event_ids) > 0:
-        # Exclude events by ID
-        query["bool"]["must_not"].append({
-            "ids": {"values": list(exclude_event_ids)}
-        })
+        # Only use if status_filter not provided (backward compatibility)
+        if status_filter is None:
+            query["bool"]["must_not"].append({
+                "ids": {"values": list(exclude_event_ids)}
+            })
     
     # Text search - hybrid approach for performance + UX
     # v1.43.7: Optimized search with fields parameter for speed
