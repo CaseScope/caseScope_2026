@@ -2470,18 +2470,24 @@ def triage_tag_events(case_id):
         result = tag_high_confidence_events(case_id, current_user.id)
         
         if result.get('success'):
-            summary = get_tagging_summary(result)
             return jsonify({
                 'success': True,
-                'tagged_count': result.get('tagged_count', 0),
-                'summary': summary,
-                'message': result.get('message')
+                'hunted_count': result.get('hunted_count', 0),
+                'events_found': result.get('events_found', 0),
+                'already_hunted': result.get('already_hunted', 0),
+                'noise_filtered': result.get('noise_filtered', 0),
+                'pattern_matches': result.get('pattern_matches', 0),
+                'multi_ioc_matches': result.get('multi_ioc_matches', 0),
+                'ioc_count': result.get('ioc_count', 0),
+                'actor_count': result.get('actor_count', 0),
+                'message': result.get('message', '')
             })
         else:
             return jsonify({
                 'success': False,
                 'error': result.get('error', 'Unknown error'),
-                'tagged_count': 0
+                'hunted_count': 0,
+                'events_found': 0
             })
     except Exception as e:
         logger.error(f"[TRIAGE] Tag events failed for case {case_id}: {e}")
