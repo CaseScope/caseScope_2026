@@ -2531,7 +2531,6 @@ def exclude_from_tagging(case_id):
 @login_required
 def bulk_exclude_from_tagging(case_id):
     """Bulk exclude events from Phase 3 auto-tagging."""
-    from ai_triage_tag_iocs import add_exclusion
     from models import TimelineTag, TagExclusion
     
     if current_user.role == 'read-only':
@@ -2581,12 +2580,29 @@ def bulk_exclude_from_tagging(case_id):
             db.session.delete(existing_tag)
             untagged_count += 1
         
-        # Add exclusion
-        if add_exclusion(case_id, event_id, index_name, current_user.id, reason):
+        # Add exclusion directly (don't call add_exclusion to avoid nested commits)
+        try:
+            exclusion = TagExclusion(
+                case_id=case_id,
+                event_id=event_id,
+                index_name=index_name,
+                reason=reason,
+                excluded_by=current_user.id
+            )
+            db.session.add(exclusion)
             excluded_count += 1
+        except Exception as e:
+            logger.error(f"[BULK EXCLUDE] Failed to add exclusion for {event_id}: {e}")
+            continue
     
-    db.session.commit()
-    logger.info(f"[BULK EXCLUDE] User {current_user.id} excluded {excluded_count} events in case {case_id}")
+    # Commit all changes at once
+    try:
+        db.session.commit()
+        logger.info(f"[BULK EXCLUDE] User {current_user.id} excluded {excluded_count} events, untagged {untagged_count} in case {case_id}")
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[BULK EXCLUDE] Commit failed: {e}")
+        return jsonify({'success': False, 'error': 'Database commit failed'}), 500
     
     return jsonify({
         'success': True,
