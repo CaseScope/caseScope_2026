@@ -856,6 +856,10 @@
                     <span>☆</span>
                     <span>Untag</span>
                 </button>
+                <button onclick="bulkExcludeSelected()" class="btn btn-sm" style="background: #dc3545; color: white;">
+                    <span>✗</span>
+                    <span>Exclude</span>
+                </button>
                 <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary">
                     <span>👁️</span>
                     <span>Hide</span>
@@ -953,9 +957,9 @@
                             </button>
                             <button onclick="excludeFromTagging('{{ event._id }}', '{{ event._index }}')" 
                                     class="btn btn-sm exclude-btn" 
-                                    style="background: var(--color-danger); padding: 4px 8px; margin-left: 2px;"
+                                    style="background: #dc3545; color: white; padding: 4px 8px; margin-left: 2px; font-weight: bold;"
                                     title="Exclude from auto-tagging (Phase 3 won't re-tag this)">
-                                ✕
+                                ✗
                             </button>
                             {% elif event._id in excluded_ids %}
                             <button onclick="tagEvent('{{ event._id }}', '{{ event._index }}')" 
@@ -966,7 +970,7 @@
                             </button>
                             <button onclick="removeExclusion('{{ event._id }}', '{{ event._index }}')" 
                                     class="btn btn-sm" 
-                                    style="background: var(--color-secondary); padding: 4px 8px; margin-left: 2px;"
+                                    style="background: #6c757d; color: white; padding: 4px 8px; margin-left: 2px;"
                                     title="Event excluded - click to allow auto-tagging again">
                                 🚫
                             </button>
@@ -1576,6 +1580,44 @@ function bulkUntagSelected() {
     bulkActionRequest('bulk-untag', 'Untagged', events, `Remove timeline tag from ${events.length} event(s)?`);
 }
 
+function bulkExcludeSelected() {
+    const events = getSelectedEvents();
+    if (events.length === 0) {
+        alert('No events selected');
+        return;
+    }
+    
+    if (!confirm(`Exclude ${events.length} event(s) from Phase 3 auto-tagging?\n\nThese events will be untagged and Phase 3 will not re-tag them in the future.`)) {
+        return;
+    }
+    
+    // Show progress
+    const selectedCountEl = document.getElementById('selectedCount');
+    const originalText = selectedCountEl.textContent;
+    selectedCountEl.textContent = 'Excluding...';
+    
+    fetch(`/case/{{ case.id }}/search/bulk-exclude`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: events, reason: 'Bulk excluded by user' })
+    })
+    .then(response => response.json())
+    .then(data => {
+        selectedCountEl.textContent = originalText;
+        if (data.success) {
+            alert(`✅ Excluded ${data.excluded} event(s) from auto-tagging\n(${data.untagged} were untagged, ${data.already_excluded} already excluded)`);
+            window.location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        selectedCountEl.textContent = originalText;
+        console.error('Bulk exclude error:', error);
+        alert('❌ Failed to exclude events');
+    });
+}
+
 function syncTimelineToIRIS() {
     if (!confirm('Sync all tagged events in this case to DFIR-IRIS timeline?\n\nThis will create timeline entries in DFIR-IRIS for all tagged events.')) {
         return;
@@ -1926,24 +1968,15 @@ function excludeFromTagging(eventId, indexName) {
         return;
     }
     
-    // First untag, then exclude
-    fetch(`/case/${CASE_ID}/search/untag`, {
+    // Backend auto-untags if currently tagged
+    fetch(`/case/${CASE_ID}/search/exclude-from-tagging`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event_id: eventId, index_name: indexName})
-    })
-    .then(response => response.json())
-    .then(data => {
-        // Now add to exclusion list
-        return fetch(`/case/${CASE_ID}/search/exclude-from-tagging`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                event_id: eventId, 
-                index_name: indexName,
-                reason: 'Manually excluded by user'
-            })
-        });
+        body: JSON.stringify({
+            event_id: eventId, 
+            index_name: indexName,
+            reason: 'Manually excluded by user'
+        })
     })
     .then(response => response.json())
     .then(data => {
@@ -1952,6 +1985,10 @@ function excludeFromTagging(eventId, indexName) {
         } else {
             alert(data.error || 'Failed to exclude event');
         }
+    })
+    .catch(err => {
+        console.error('Exclude error:', err);
+        alert('Failed to exclude event');
     });
 }
 
@@ -1988,8 +2025,8 @@ function updateTagCell(eventId, indexName, state) {
                     title="Untag event">⭐</button>
             <button onclick="excludeFromTagging('${eventId}', '${indexName}')" 
                     class="btn btn-sm exclude-btn" 
-                    style="background: var(--color-danger); padding: 4px 8px; margin-left: 2px;"
-                    title="Exclude from auto-tagging">✕</button>
+                    style="background: #dc3545; color: white; padding: 4px 8px; margin-left: 2px; font-weight: bold;"
+                    title="Exclude from auto-tagging">✗</button>
         `;
     } else if (state === 'excluded') {
         tagCell.innerHTML = `
@@ -1999,7 +2036,7 @@ function updateTagCell(eventId, indexName, state) {
                     title="Tag event (will remove exclusion)">☆</button>
             <button onclick="removeExclusion('${eventId}', '${indexName}')" 
                     class="btn btn-sm" 
-                    style="background: var(--color-secondary); padding: 4px 8px; margin-left: 2px;"
+                    style="background: #6c757d; color: white; padding: 4px 8px; margin-left: 2px;"
                     title="Event excluded - click to allow auto-tagging">🚫</button>
         `;
     } else {

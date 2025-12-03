@@ -222,8 +222,8 @@ def build_search_query(
                 ]
             }
         })
-    elif filter_type == "tagged" or filter_type == "ai_evidence":
-        # Filter to only show events that have timeline tags or AI evidence IDs
+    elif filter_type == "tagged" or filter_type == "ai_evidence" or filter_type == "excluded":
+        # Filter to only show events that have timeline tags, AI evidence IDs, or are excluded
         if tagged_event_ids and len(tagged_event_ids) > 0:
             query["bool"]["filter"].append({
                 "ids": {
@@ -231,8 +231,8 @@ def build_search_query(
                 }
             })
         else:
-            # No tagged events - return empty result set
-            query["bool"]["filter"].append({"term": {"_id": "no_tagged_events_found"}})
+            # No matching events - return empty result set
+            query["bool"]["filter"].append({"term": {"_id": "no_matching_events_found"}})
     
     # Filter by file types (with structure-based detection for backward compatibility)
     if file_types and len(file_types) > 0 and len(file_types) < 5:

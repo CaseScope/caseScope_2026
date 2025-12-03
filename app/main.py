@@ -2488,8 +2488,9 @@ def triage_tag_events(case_id):
 @app.route('/case/<int:case_id>/search/exclude-from-tagging', methods=['POST'])
 @login_required
 def exclude_from_tagging(case_id):
-    """Exclude an event from Phase 3 auto-tagging."""
+    """Exclude an event from Phase 3 auto-tagging (and auto-untag if tagged)."""
     from ai_triage_tag_iocs import add_exclusion
+    from models import TimelineTag
     
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot exclude events'}), 403
@@ -2506,10 +2507,93 @@ def exclude_from_tagging(case_id):
     if not event_id:
         return jsonify({'success': False, 'error': 'Event ID required'}), 400
     
+    # Auto-untag if currently tagged
+    existing_tag = db.session.query(TimelineTag).filter_by(
+        case_id=case_id,
+        event_id=event_id,
+        index_name=index_name
+    ).first()
+    
+    untagged = False
+    if existing_tag:
+        db.session.delete(existing_tag)
+        db.session.commit()
+        untagged = True
+        logger.info(f"[EXCLUDE] Auto-untagged event {event_id} before exclusion")
+    
     if add_exclusion(case_id, event_id, index_name, current_user.id, reason):
-        return jsonify({'success': True, 'message': 'Event excluded from auto-tagging'})
+        return jsonify({'success': True, 'message': 'Event excluded from auto-tagging', 'untagged': untagged})
     else:
         return jsonify({'success': False, 'error': 'Already excluded or failed to add'})
+
+
+@app.route('/case/<int:case_id>/search/bulk-exclude', methods=['POST'])
+@login_required
+def bulk_exclude_from_tagging(case_id):
+    """Bulk exclude events from Phase 3 auto-tagging."""
+    from ai_triage_tag_iocs import add_exclusion
+    from models import TimelineTag, TagExclusion
+    
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot exclude events'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json() or {}
+    events = data.get('events', [])
+    reason = data.get('reason', 'Bulk excluded by user')
+    
+    if not events:
+        return jsonify({'success': False, 'error': 'No events provided'}), 400
+    
+    excluded_count = 0
+    untagged_count = 0
+    already_excluded = 0
+    
+    for event in events:
+        event_id = event.get('event_id')
+        index_name = event.get('index_name', f'case_{case_id}')
+        
+        if not event_id:
+            continue
+        
+        # Check if already excluded
+        existing_exclusion = db.session.query(TagExclusion).filter_by(
+            case_id=case_id,
+            event_id=event_id,
+            index_name=index_name
+        ).first()
+        
+        if existing_exclusion:
+            already_excluded += 1
+            continue
+        
+        # Auto-untag if currently tagged
+        existing_tag = db.session.query(TimelineTag).filter_by(
+            case_id=case_id,
+            event_id=event_id,
+            index_name=index_name
+        ).first()
+        
+        if existing_tag:
+            db.session.delete(existing_tag)
+            untagged_count += 1
+        
+        # Add exclusion
+        if add_exclusion(case_id, event_id, index_name, current_user.id, reason):
+            excluded_count += 1
+    
+    db.session.commit()
+    logger.info(f"[BULK EXCLUDE] User {current_user.id} excluded {excluded_count} events in case {case_id}")
+    
+    return jsonify({
+        'success': True,
+        'excluded': excluded_count,
+        'untagged': untagged_count,
+        'already_excluded': already_excluded
+    })
 
 
 @app.route('/case/<int:case_id>/search/remove-exclusion', methods=['POST'])
