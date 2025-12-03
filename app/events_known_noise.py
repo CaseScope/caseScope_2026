@@ -155,6 +155,7 @@ def process_slice(
     batch_size = 1000
     
     # Sliced scroll query - each slice gets 1/N of events
+    # Exclude events that already have status='noise' to avoid re-processing
     query = {
         "size": batch_size,
         "slice": {
@@ -165,7 +166,7 @@ def process_slice(
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"is_hidden": True}}
+                    {"term": {"event_status": "noise"}}
                 ]
             }
         }
@@ -259,7 +260,7 @@ def bulk_hide_events(
     case_id: int = None
 ) -> int:
     """
-    Bulk update events to set is_hidden=True and status='noise'.
+    Bulk update events to set event_status='noise' in both OpenSearch and database.
     
     Args:
         events_to_hide: List of dicts with {_id, _index, category}
@@ -268,7 +269,7 @@ def bulk_hide_events(
         case_id: Case ID for status updates (optional, extracted from index_name if not provided)
     
     Returns:
-        Number of events successfully hidden
+        Number of events successfully marked as noise
     """
     if not events_to_hide:
         return 0
@@ -286,11 +287,14 @@ def bulk_hide_events(
     for i in range(0, len(events_to_hide), bulk_batch_size):
         batch = events_to_hide[i:i + bulk_batch_size]
         
-        # Update OpenSearch is_hidden field
+        # Update OpenSearch event_status field
         bulk_body = []
         for evt in batch:
             bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
-            bulk_body.append({"doc": {"is_hidden": True, "hidden_reason": f"noise_{evt.get('category', 'general')}"}})
+            bulk_body.append({"doc": {
+                "event_status": "noise",
+                "status_reason": f"noise_{evt.get('category', 'general')}"
+            }})
         
         try:
             bulk_result = opensearch_client.bulk(body=bulk_body, refresh=False)
@@ -375,11 +379,11 @@ def hide_noise_events(
     
     query = {
         "size": batch_size,
-        "_source": ["process", "search_blob", "is_hidden"],
+        "_source": ["process", "search_blob", "event_status"],
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"is_hidden": True}}
+                    {"term": {"event_status": "noise"}}
                 ]
             }
         }
@@ -478,10 +482,14 @@ def hide_noise_events(
             if progress_callback:
                 progress_callback('hiding', hidden_count, total_to_hide, total_to_hide)
             
+            # Update OpenSearch event_status field
             bulk_body = []
             for evt in batch:
                 bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
-                bulk_body.append({"doc": {"is_hidden": True, "hidden_reason": f"noise_{evt['category']}"}})
+                bulk_body.append({"doc": {
+                    "event_status": "noise",
+                    "status_reason": f"noise_{evt['category']}"
+                }})
             
             try:
                 bulk_result = opensearch_client.bulk(body=bulk_body, refresh=False)
@@ -493,6 +501,15 @@ def hide_noise_events(
                             hidden_count += 1
             except Exception as e:
                 result['errors'].append(f"Bulk update failed: {e}")
+            
+            # Update database EventStatus to 'noise'
+            try:
+                from event_status import bulk_set_status, STATUS_NOISE
+                event_ids = [evt['_id'] for evt in batch]
+                bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-hidden as noise")
+            except Exception as e:
+                logger.warning(f"[NOISE] Failed to update EventStatus for batch: {e}")
+
         
         # Final refresh
         try:
@@ -548,7 +565,7 @@ def get_noise_estimate(case_id: int) -> Dict[str, int]:
                                 {"wildcard": {"process.name.keyword": f"*{proc}*"}}
                             ],
                             "must_not": [
-                                {"term": {"is_hidden": True}}
+                                {"term": {"event_status": "noise"}}
                             ]
                         }
                     }
@@ -569,7 +586,7 @@ def get_noise_estimate(case_id: int) -> Dict[str, int]:
                             {"query_string": {"query": "firewall OR deny OR drop OR block", "default_field": "search_blob"}}
                         ],
                         "must_not": [
-                            {"term": {"is_hidden": True}}
+                            {"term": {"event_status": "noise"}}
                         ]
                     }
                 }

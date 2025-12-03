@@ -7,7 +7,7 @@ from those events. This is the "snowball" hunting concept - using known IOCs
 to discover new related indicators.
 
 Filtering:
-- Does NOT search hidden events
+- Does NOT search events with event_status='noise'
 - Filters out known systems (unless they are actor_system type)
 - Filters out known IPs from systems
 - Filters out VPN IP ranges
@@ -378,7 +378,7 @@ def get_case_context(case_id: int) -> Dict:
 def search_events_with_iocs(case_id: int, iocs: Dict[str, List[str]], limit: int = None) -> List[Dict]:
     """
     Search OpenSearch for events containing any of the given IOCs.
-    Only searches visible (non-hidden) events.
+    Only searches events without event_status='noise'.
     
     Uses scroll API to retrieve ALL matching events (no 10K limit).
     If limit is provided, stops after that many events.
@@ -408,12 +408,12 @@ def search_events_with_iocs(case_id: int, iocs: Dict[str, List[str]], limit: int
         logger.warning("[FIND_IOC] No valid IOCs to search for")
         return []
     
-    # Query: must NOT be hidden, should match at least one IOC
+    # Query: must NOT have event_status='noise', should match at least one IOC
     query = {
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"is_hidden": True}}
+                    {"term": {"event_status": "noise"}}
                 ],
                 "should": should_clauses,
                 "minimum_should_match": 1
@@ -794,7 +794,7 @@ def find_potential_iocs(case_id: int) -> Dict[str, Any]:
     
     Flow:
     1. Load case context (systems, existing IOCs, etc.)
-    2. Search for events containing existing IOCs (excluding hidden)
+    2. Search for events containing existing IOCs (excluding event_status='noise')
     3. Extract potential new IOCs from those events
     4. Filter out known systems and IPs
     5. Return results

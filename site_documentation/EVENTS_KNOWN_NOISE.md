@@ -1,28 +1,28 @@
 # Events Known Noise - Technical Reference
 
-Complete documentation for the Known-Noise Events detection and hiding system. This document provides enough detail to reconstruct the entire system.
+Complete documentation for the Known-Noise Events detection and marking system. This document provides enough detail to reconstruct the entire system.
 
 ---
 
 ## Overview
 
-The Known-Noise Events system identifies and hides events that are routine Windows system operations, monitoring loops, and non-security-relevant activity. Events are marked with `is_hidden: true` in OpenSearch but remain searchable when analysts enable "Show Hidden" filter.
+The Known-Noise Events system identifies and marks events that are routine Windows system operations, monitoring loops, and non-security-relevant activity. Events are marked with `event_status='noise'` in both OpenSearch and the database, and remain searchable when analysts enable the "Noise" status filter.
 
 ### Key Concepts
 
 | Term | Description |
 |------|-------------|
 | **Known-Noise** | Events from routine Windows operations, monitoring loops, system accounts |
-| **Hidden Event** | Event with `is_hidden: true` field in OpenSearch |
+| **Noise Event** | Event with `event_status='noise'` in OpenSearch AND `status='noise'` in database |
 | **Noise Pattern** | Hardcoded pattern identifying system noise (not configurable) |
-| **hidden_reason** | Field indicating why event was hidden (see Hidden Reason Values) |
+| **status_reason** | Field indicating why event was marked as noise (see Status Reason Values) |
 
 ### Difference from Known-Good
 
 | System | Configuration | Purpose |
 |--------|---------------|---------|
-| **Known-Good** | Database (System Settings) | Hide events from TRUSTED tools (RMM, EDR) |
-| **Known-Noise** | Hardcoded patterns | Hide routine SYSTEM noise (Windows processes, monitoring) |
+| **Known-Good** | Database (System Settings) | Mark events from TRUSTED tools (RMM, EDR) |
+| **Known-Noise** | Hardcoded patterns | Mark routine SYSTEM noise (Windows processes, monitoring) |
 
 ---
 
@@ -66,9 +66,11 @@ The Known-Noise Events system identifies and hides events that are routine Windo
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         STORAGE LAYER                                    │
+│                         STORAGE LAYER (DUAL SYSTEM)                      │
 │  OpenSearch: case_{id} index                                            │
-│  Event document: { ..., "is_hidden": true, "hidden_reason": "noise_*" }│
+│  └─ Event doc: { ..., "event_status": "noise", "status_reason": "..." }│
+│  PostgreSQL: event_status table                                         │
+│  └─ Record: { case_id, event_id, status: "noise", notes: "..." }      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -396,7 +398,7 @@ Imports from `noise_filters.py` and adds module-specific logic for event detecti
 | `is_noise_event(event)` | **Core detection** - combines all rules |
 | `is_firewall_noise(event)` | Check for firewall keywords |
 | `process_slice(case_id, slice_id, max_slices, client)` | Process 1/N slice for parallel workers |
-| `bulk_hide_events(events_list, client, index)` | Bulk update to set is_hidden=True |
+| `bulk_hide_events(events_list, client, index, case_id)` | Bulk update to set event_status='noise' in both OpenSearch and database |
 | `hide_noise_events(case_id, callback)` | Legacy single-threaded bulk hide |
 | `get_noise_estimate(case_id)` | Preview counts before hiding |
 | `is_valid_hostname(hostname, ip_set)` | Validation helper |
@@ -436,7 +438,7 @@ Applies auto-hide noise during file indexing.
 
 | Function | Purpose |
 |----------|---------|
-| `apply_auto_hide_noise(event)` | Check event against noise patterns, set `is_hidden=True` |
+| `apply_auto_hide_noise(event)` | Check event against noise patterns, set `event_status='noise'` |
 
 **Usage in indexing loop:**
 ```python
@@ -444,12 +446,12 @@ from events_known_noise import is_noise_event, is_firewall_noise
 
 # Called AFTER apply_auto_hide() for known-good
 event = apply_auto_hide(event, auto_hide_exclusions)  # Known-good first
-event = apply_auto_hide_noise(event)                   # Noise second (skips if already hidden)
+event = apply_auto_hide_noise(event)                   # Noise second (skips if already marked)
 ```
 
 **Order of operations:**
 1. `apply_auto_hide()` → Check known-good patterns (RMM, EDR, IPs)
-2. `apply_auto_hide_noise()` → Check noise patterns (**skips if already hidden**)
+2. `apply_auto_hide_noise()` → Check noise patterns (**skips if event_status already set**)
 
 ### 6. `app/tasks.py`
 
@@ -475,7 +477,7 @@ group_result = slice_tasks.apply_async()
 # Each slice uses OpenSearch sliced scroll
 query = {
     "slice": {"id": slice_id, "max": max_slices},
-    "query": {"bool": {"must_not": [{"term": {"is_hidden": True}}]}}
+    "query": {"bool": {"must_not": [{"term": {"event_status": "noise"}}]}}
 }
 ```
 
@@ -490,22 +492,29 @@ Routes for triggering bulk hide and polling status.
 
 ---
 
-## OpenSearch Field
+## OpenSearch and Database Fields
 
-Events are marked hidden with category-specific reason:
+Events are marked as noise with category-specific reason in BOTH systems:
 
+### OpenSearch Document
 ```json
 {
   "_source": {
     "process": { ... },
     "host": { ... },
-    "is_hidden": true,
-    "hidden_reason": "noise_auto_index"
+    "event_status": "noise",
+    "status_reason": "noise_auto_index"
   }
 }
 ```
 
-### Hidden Reason Values
+### PostgreSQL EventStatus Record
+```sql
+INSERT INTO event_status (case_id, event_id, status, notes, user_id, created_at)
+VALUES (25, 'abc123...', 'noise', 'Auto-hidden as noise', NULL, NOW());
+```
+
+### Status Reason Values
 
 | Reason | Source | Meaning |
 |--------|--------|---------|
@@ -529,22 +538,22 @@ Events are marked hidden with category-specific reason:
 def apply_auto_hide_noise(event: dict) -> dict:
     """
     Check if event should be auto-hidden as noise.
-    Called AFTER apply_auto_hide() - skips if already hidden.
+    Called AFTER apply_auto_hide() - skips if event_status already set.
     """
-    # Skip if already hidden (don't overwrite known-good reason)
-    if event.get('is_hidden'):
+    # Skip if already marked as noise (don't overwrite known-good reason)
+    if event.get('event_status') == 'noise':
         return event
     
     # Check for noise process/command
     if is_noise_event(event):
-        event['is_hidden'] = True
-        event['hidden_reason'] = 'noise_auto_index'
+        event['event_status'] = 'noise'
+        event['status_reason'] = 'noise_auto_index'
         return event
     
     # Check for firewall noise
     if is_firewall_noise(event):
-        event['is_hidden'] = True
-        event['hidden_reason'] = 'firewall_noise_auto_index'
+        event['event_status'] = 'noise'
+        event['status_reason'] = 'firewall_noise_auto_index'
         return event
     
     return event
@@ -565,8 +574,11 @@ def apply_auto_hide_noise(event: dict) -> dict:
 3. Coordinator dispatches 8 parallel `hide_noise_slice_task` workers
 4. Each worker uses OpenSearch sliced scroll to process 1/8 of events
 5. Workers call `is_noise_event()` and `is_firewall_noise()` from `events_known_noise.py`
-6. Results aggregated with category breakdown
-7. Progress updates sent as each worker completes
+6. For matched events:
+   - Update OpenSearch: set `event_status='noise'` and `status_reason`
+   - Update database: create `EventStatus` record with `status='noise'`
+7. Results aggregated with category breakdown
+8. Progress updates sent as each worker completes
 
 ### 3. AI Triage Timeline Filtering
 
@@ -711,6 +723,8 @@ is_valid_hostname('AB', set())          # False - too short
 | v1.46.0 | Parallel processing with 8 Celery workers, UI button, routes |
 | v1.46.1 | Auto-hide noise during indexing (after known-good) |
 | v1.46.3 | Centralized noise_filters.py as single source of truth |
+| v1.46.0 | **BREAKING: Removed all `is_hidden` references** |
+| v1.46.0 | **Now uses `event_status='noise'` exclusively in both OpenSearch and PostgreSQL** |
 
 ---
 
@@ -759,8 +773,9 @@ To rebuild this system:
    - "Hide Noise" button on Search Events page
    - Modal with progress and results display
 
-8. **OpenSearch**
-   - Set `is_hidden: true` with `hidden_reason: noise_*`
+8. **OpenSearch and Database**
+   - OpenSearch: Set `event_status='noise'` with `status_reason: noise_*`
+   - Database: Create `EventStatus` record with `status='noise'`
    - Use same filtering as Known-Good events
 
 ---
@@ -776,8 +791,9 @@ To rebuild this system:
 | **Primary Module** | `events_known_good.py` | `events_known_noise.py` |
 | **Centralized Constants** | N/A | `noise_filters.py` (shared with triage) |
 | **Context-aware** | Yes (session IDs, response patterns) | Yes (parent process) |
-| **Auto-hide on Index** | Yes (`apply_auto_hide`) | Yes (`apply_auto_hide_noise`) |
-| **Indexing Order** | First | Second (skips if already hidden) |
-| **hidden_reason** | `auto_hide_index` | `noise_auto_index`, `firewall_noise_auto_index` |
+| **Auto-mark on Index** | Yes (`apply_auto_hide`) | Yes (`apply_auto_hide_noise`) |
+| **Indexing Order** | First | Second (skips if already marked) |
+| **status_reason** | `auto_known_good` | `noise_auto_index`, `firewall_noise_auto_index` |
 | **Parallel Workers** | 8 (sliced scroll) | 8 (sliced scroll) |
 | **UI Button** | "Hide Known Good" (🛡️) | "Hide Noise" (🔇) |
+| **Storage** | OpenSearch `event_status` + Database `EventStatus` | OpenSearch `event_status` + Database `EventStatus` |

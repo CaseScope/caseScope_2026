@@ -254,7 +254,7 @@ def find_potential_iocs(case_id: int) -> Dict:
     """
     1. Load case context (systems, existing IOCs, managed tools, etc.)
     2. Build OpenSearch query for events matching existing IOCs
-    3. Query excludes hidden events (is_hidden: true)
+    3. Query excludes events with event_status='noise'
     4. Use scroll API to get ALL matching events (no limit)
     5. Extract potential IOCs from matched events
     6. Apply extensive filtering (see below)
@@ -266,8 +266,8 @@ def find_potential_iocs(case_id: int) -> Dict:
 
 The module applies extensive filtering to avoid noise. **All noise constants are imported from `app/noise_filters.py`** (centralized source of truth).
 
-#### 1. Hidden Events
-- OpenSearch query includes `"must_not": [{"term": {"is_hidden": True}}]`
+#### 1. Noise Events
+- OpenSearch query includes `"must_not": [{"term": {"event_status": "noise"}}]`
 - Events marked by "Hide Known Good" or "Hide Noise" are excluded
 
 #### 2. Known Systems Filtering
@@ -407,7 +407,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
     1. Get high-confidence IOCs from database
     2. Get actor system hostnames/IPs
     3. Build OpenSearch query for events matching IOCs
-    4. Query excludes hidden events (is_hidden: true)
+    4. Query excludes events with event_status='noise'
     5. Use scroll API to get ALL matching events (no limit)
     6. Filter noise events (system users, background processes)
     7. Skip already-tagged events
@@ -418,8 +418,8 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
 
 ### Filtering Logic (from `noise_filters.py`)
 
-#### 1. Hidden Events
-- OpenSearch query includes `"must_not": [{"term": {"is_hidden": True}}]`
+#### 1. Noise Events
+- OpenSearch query includes `"must_not": [{"term": {"event_status": "noise"}}]`
 
 #### 2. Already Tagged Events
 - Events with existing `TimelineTag` entries are skipped
@@ -706,3 +706,6 @@ To rebuild this system:
 | v1.46.4 | **FIX:** Moved `filename` and `tool` to HIGH_CONFIDENCE_IOC_TYPES |
 | v1.46.4 | **FIX:** Removed parent process filtering from is_noise_event() |
 | v1.46.4 | **FIX:** Attack commands from cmd.exe/powershell.exe now correctly tagged |
+| v1.46.0 | **BREAKING: Removed all `is_hidden` references** |
+| v1.46.0 | **Now uses `event_status='noise'` exclusively** |
+| v1.46.0 | **Query filters changed from `is_hidden: true` to `event_status: 'noise'`** |
