@@ -1323,27 +1323,29 @@ def file_stats_case(case_id):
         
         # ========================================================================
         # EVENT COUNTS (for Event Statistics tile)
+        # Must match get_file_stats_with_hidden() to avoid flickering
         # ========================================================================
-        # Total events
+        # Total events (sum of event_count from visible files)
         total_events = int(db.session.query(func.sum(CaseFile.event_count)).filter_by(
             case_id=case_id,
             is_deleted=False,
             is_hidden=False
         ).scalar() or 0)
         
-        # SIGMA violation events (distinct events with has_sigma=True)
-        from models import SigmaViolation
-        sigma_events = db.session.query(func.count(func.distinct(SigmaViolation.event_id))).filter_by(
-            case_id=case_id
-        ).scalar() or 0
-        sigma_events = int(sigma_events)
+        # SIGMA events (sum of violation_count from visible files)
+        # This is the ACTIVE field - matches initial page load
+        sigma_events = int(db.session.query(func.sum(CaseFile.violation_count)).filter_by(
+            case_id=case_id,
+            is_deleted=False,
+            is_hidden=False
+        ).scalar() or 0)
         
-        # IOC match events (distinct events with has_ioc=True)
-        from models import IOCMatch
-        ioc_events = db.session.query(func.count(func.distinct(IOCMatch.event_id))).filter_by(
-            case_id=case_id
-        ).scalar() or 0
-        ioc_events = int(ioc_events)
+        # IOC events (sum of ioc_event_count from visible files)
+        ioc_events = int(db.session.query(func.sum(CaseFile.ioc_event_count)).filter_by(
+            case_id=case_id,
+            is_deleted=False,
+            is_hidden=False
+        ).scalar() or 0)
         
         # ========================================================================
         # EVENT STATUS COUNTS (for status breakdown)
