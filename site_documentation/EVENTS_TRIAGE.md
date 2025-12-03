@@ -363,11 +363,24 @@ function findPotentialIOCs() {
 
 ---
 
-## Phase 3: Tag Highly Likely Events
+## Phase 3: Mark Highly Likely Events as 'Hunted'
 
 ### File: `app/ai_triage_tag_iocs.py`
 
-Automatically tags events containing high-confidence IOCs. Creates `TimelineTag` entries for events that match commands, external IPs, actor systems, and other definitive indicators.
+Automatically marks events with `status='hunted'` when they contain high-confidence IOCs or match attack patterns. This replaces the old timeline tagging system with direct event status management.
+
+### Criteria for Marking as 'Hunted'
+
+Events are marked with `status='hunted'` if they meet ANY of these criteria:
+
+| Criterion | Description |
+|-----------|-------------|
+| **3+ IOC Matches** | Event matches 3 or more different IOCs from the case |
+| **Attack Pattern Match** | Event matches TIER1, TIER2, or TIER3 patterns from `events_attack_patterns.py` |
+| **High-Confidence IOC** | Event contains commands, hashes, external IPs, malware names, URLs, domains, filenames, tools |
+| **Actor Systems** | Event involves systems marked as `actor_system` type |
+
+**No Limit:** ALL matching events are marked, including duplicates if they match criteria.
 
 ### High-Confidence IOC Criteria
 
@@ -396,8 +409,9 @@ Automatically tags events containing high-confidence IOCs. Creates `TimelineTag`
 | `get_actor_systems(case_id)` | Get hostnames/IPs of actor systems |
 | `search_events_for_tagging(case_id, query)` | Query OpenSearch with scroll API (no limit) |
 | `is_noise_event(event)` | Check if event should be filtered as noise |
-| `tag_event(case_id, user_id, event, match)` | Create TimelineTag entry |
-| `tag_high_confidence_events(case_id, user_id)` | **Main entry point** |
+| `determine_match_reason(event, iocs, ...)` | Count IOC matches and check attack patterns |
+| `tag_event(case_id, user_id, event, ...)` | Set event status to 'hunted' |
+| `tag_high_confidence_events(case_id, user_id)` | **Main entry point** - marks ALL matching events |
 
 ### Flow Logic
 
@@ -409,10 +423,14 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
     3. Build OpenSearch query for events matching IOCs
     4. Query excludes events with event_status='noise'
     5. Use scroll API to get ALL matching events (no limit)
-    6. Filter noise events (system users, background processes)
-    7. Skip already-tagged events
-    8. Create TimelineTag entries for remaining events
-    9. Return summary with tagged count
+    6. For each event:
+       a. Count how many IOCs match
+       b. Check if matches attack patterns (TIER1/2/3)
+       c. If 3+ IOCs OR pattern match → mark as 'hunted'
+    7. Filter noise events (system users, background processes)
+    8. Skip already-hunted/confirmed events
+    9. Set event status to 'hunted' for remaining events
+   10. Return summary with counts
     """
 ```
 
@@ -443,20 +461,15 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
 ```python
 {
     'success': True,
-    'tagged_count': 42,
-    'events_found': 156,
-    'events_filtered': 114,
-    'already_tagged': 12,
-    'iocs_used': 18,
-    'tags_created': [
-        {
-            'event_id': 'abc123',
-            'timestamp': '2024-01-15T10:30:00',
-            'matched_ioc': 'nltest.exe /dclist',
-            'ioc_type': 'command'
-        },
-        ...
-    ]
+    'hunted_count': 42,              # Events marked as 'hunted'
+    'events_found': 156,             # Total events matching query
+    'already_hunted': 12,            # Events already marked hunted/confirmed
+    'noise_filtered': 102,           # Events filtered as noise
+    'user_excluded': 0,              # Events manually marked as noise by user
+    'ioc_count': 18,                 # High-confidence IOCs used
+    'actor_count': 2,                # Actor systems involved
+    'pattern_matches': 25,           # Events matching attack patterns
+    'multi_ioc_matches': 17          # Events matching 3+ IOCs
 }
 ```
 
@@ -464,7 +477,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
 
 | Route | Method | Function |
 |-------|--------|----------|
-| `/case/<id>/triage/tag-events` | POST | Tag events with high-confidence IOCs |
+| `/case/<id>/triage/tag-events` | POST | Mark events with high-confidence IOCs as 'hunted' |
 
 ### JavaScript Function
 
@@ -472,8 +485,8 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
 function tagHighlyLikelyEvents() {
     // 1. Show modal with progress spinner
     // 2. POST to /case/{id}/triage/tag-events
-    // 3. Display results in modal (tagged count, filters applied)
-    // 4. Refresh page to update tagged events count
+    // 3. Display results in modal (hunted count, filters applied, pattern matches)
+    // 4. Refresh page to update hunted events count
 }
 ```
 
@@ -709,3 +722,7 @@ To rebuild this system:
 | v1.46.0 | **BREAKING: Removed all `is_hidden` references** |
 | v1.46.0 | **Now uses `event_status='noise'` exclusively** |
 | v1.46.0 | **Query filters changed from `is_hidden: true` to `event_status: 'noise'`** |
+| v1.47.0 | **BREAKING: Phase 3 now marks events as 'hunted' instead of creating TimelineTag** |
+| v1.47.0 | **Added attack pattern detection (TIER1/2/3) from events_attack_patterns.py** |
+| v1.47.0 | **Added 3+ IOC match criterion - marks ALL matching events** |
+| v1.47.0 | **No limit on events processed - marks all matching events including duplicates** |

@@ -2,20 +2,21 @@
 AI Triage - Tag IOC Events Module
 ==================================
 
-Automatically tags events that contain highly suspicious IOCs.
-This module finds events matching high-confidence indicators and tags them
-for timeline analysis.
+Automatically marks events with 'hunted' status when they contain highly suspicious IOCs
+or match attack patterns. This module finds events and sets their status for investigation.
 
-High-Confidence IOCs (90%+ likely attack-related):
-- Commands (full command lines from EDR/forensics)
-- Actor IPs (external IPs associated with attacker)
-- Actor hostnames (attacker-controlled systems)
-- High threat level IOCs (explicitly marked as high/critical)
-- Malware hashes and names
-- Suspicious processes/filenames
+High-Confidence Criteria (auto-mark as 'hunted'):
+1. Event matches 3+ different IOCs
+2. Event matches attack patterns (TIER1, TIER2, TIER3 from events_attack_patterns)
+3. Commands (full command lines from EDR/forensics)
+4. Actor IPs (external IPs associated with attacker)
+5. Actor hostnames (attacker-controlled systems)
+6. High threat level IOCs (explicitly marked as high/critical)
+7. Malware hashes and names
+8. Suspicious processes/filenames
 
 Filtering:
-- Excludes hidden events
+- Excludes events with event_status='noise'
 - Applies noise filtering to avoid false positives
 - Checks against known good systems
 
@@ -23,7 +24,7 @@ Usage:
     from ai_triage_tag_iocs import tag_high_confidence_events
     
     result = tag_high_confidence_events(case_id, user_id)
-    # Returns: {'success': bool, 'tagged_count': int, 'events_found': int, ...}
+    # Returns: {'success': bool, 'hunted_count': int, 'events_found': int, ...}
 """
 
 import re
@@ -39,6 +40,9 @@ from noise_filters import (
     GENERIC_PARENTS,
     is_external_ip,
 )
+
+# Import from attack patterns module
+from events_attack_patterns import match_pattern_tier
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +264,7 @@ def is_noise_event(event: Dict) -> bool:
 def build_ioc_search_query(iocs: List[Dict], actor_hostnames: Set[str], actor_ips: Set[str]) -> Dict:
     """
     Build OpenSearch query to find events matching high-confidence IOCs.
-    Excludes hidden events.
+    Excludes events with event_status='noise'.
     """
     should_clauses = []
     
@@ -310,7 +314,7 @@ def build_ioc_search_query(iocs: List[Dict], actor_hostnames: Set[str], actor_ip
                 "should": should_clauses,
                 "minimum_should_match": 1,
                 "must_not": [
-                    {"term": {"is_hidden": True}}
+                    {"term": {"event_status": "noise"}}
                 ]
             }
         },
@@ -417,10 +421,13 @@ def tag_event(case_id: int, user_id: int, event: Dict, index_name: str, reason: 
         return False
 
 
-def determine_match_reason(event: Dict, iocs: List[Dict], actor_hostnames: Set[str], actor_ips: Set[str]) -> Optional[str]:
+def determine_match_reason(event: Dict, iocs: List[Dict], actor_hostnames: Set[str], actor_ips: Set[str]) -> Optional[Tuple[str, int, Optional[Tuple]]]:
     """
-    Determine which IOC(s) matched this event.
-    Returns a description string or None if no match found.
+    Determine which IOC(s) matched this event and if it matches attack patterns.
+    
+    Returns:
+        Tuple of (reason_string, ioc_match_count, pattern_match) or None if no match
+        pattern_match is (tier, category, pattern) or None
     """
     source = event.get('_source', {})
     search_blob = str(source.get('search_blob', '')).lower()
@@ -434,30 +441,49 @@ def determine_match_reason(event: Dict, iocs: List[Dict], actor_hostnames: Set[s
     
     combined_text = f"{search_blob} {cmd_line} {forensic_cmd}"
     
-    matched = []
+    matched_iocs = []
+    ioc_count = 0
     
     # Check IOCs
     for ioc in iocs:
         value_lower = ioc['value'].lower()
         if value_lower in combined_text:
-            matched.append(f"IOC:{ioc['type']}='{ioc['value'][:50]}'")
-            if len(matched) >= 3:
+            matched_iocs.append(f"{ioc['type']}='{ioc['value'][:50]}'")
+            ioc_count += 1
+            if len(matched_iocs) >= 5:  # Limit to 5 for display
                 break
     
     # Check actor hostnames
     for hostname in actor_hostnames:
         if hostname in combined_text:
-            matched.append(f"Actor hostname: {hostname}")
+            matched_iocs.append(f"Actor hostname: {hostname}")
+            ioc_count += 1
             break
     
     # Check actor IPs
     for ip in actor_ips:
         if ip in combined_text:
-            matched.append(f"Actor IP: {ip}")
+            matched_iocs.append(f"Actor IP: {ip}")
+            ioc_count += 1
             break
     
-    if matched:
-        return "; ".join(matched[:3])
+    # Check attack patterns
+    pattern_match = None
+    if search_blob:
+        pattern_match = match_pattern_tier(search_blob)
+    
+    # Build reason string
+    reasons = []
+    if ioc_count >= 3:
+        reasons.append(f"{ioc_count} IOCs matched")
+    if matched_iocs:
+        reasons.append("; ".join(matched_iocs[:3]))  # Show first 3
+    if pattern_match:
+        tier, category, pattern = pattern_match
+        reasons.append(f"Tier{tier}:{category}")
+    
+    if reasons or ioc_count >= 3 or pattern_match:
+        return ("; ".join(reasons), ioc_count, pattern_match)
     
     return None
 
@@ -468,21 +494,30 @@ def determine_match_reason(event: Dict, iocs: List[Dict], actor_hostnames: Set[s
 
 def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
     """
-    Main entry point for tagging high-confidence IOC events.
+    Main entry point for marking high-confidence IOC events as 'hunted'.
+    
+    Criteria for marking as 'hunted':
+    1. Event matches 3+ different IOCs
+    2. Event matches attack patterns (TIER1, TIER2, or TIER3)
+    3. Event matches high-confidence IOC types (commands, hashes, external IPs)
+    
+    No limit on number of events processed - marks ALL matching events.
     
     Args:
         case_id: Case ID to process
-        user_id: User ID for tag attribution
+        user_id: User ID for status attribution
     
     Returns:
         {
             'success': bool,
-            'tagged_count': int,
+            'hunted_count': int,
             'events_found': int,
-            'already_tagged': int,
+            'already_hunted': int,
             'noise_filtered': int,
             'ioc_count': int,
             'actor_count': int,
+            'pattern_matches': int,
+            'multi_ioc_matches': int,
             'error': str (if failed)
         }
     """
@@ -505,7 +540,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             return {
                 'success': False,
                 'error': 'No high-confidence IOCs or actor systems found. Add commands, hashes, or mark IOCs as high threat level.',
-                'tagged_count': 0,
+                'hunted_count': 0,
                 'events_found': 0,
                 'ioc_count': 0,
                 'actor_count': 0
@@ -520,7 +555,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             return {
                 'success': False,
                 'error': 'Could not build search query',
-                'tagged_count': 0,
+                'hunted_count': 0,
                 'events_found': 0,
                 'ioc_count': len(iocs),
                 'actor_count': actor_count
@@ -533,35 +568,37 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             return {
                 'success': True,
                 'message': 'No matching events found',
-                'tagged_count': 0,
+                'hunted_count': 0,
                 'events_found': 0,
                 'ioc_count': len(iocs),
                 'actor_count': actor_count
             }
         
-        # Get already tagged events
+        # Get already hunted/confirmed events
         existing_tags = get_existing_tags(case_id)
         
-        # Get manually excluded events (user excluded from auto-tagging)
+        # Get manually excluded events (marked as noise by user)
         excluded_events = get_excluded_events(case_id)
-        logger.info(f"[TAG_IOC] {len(excluded_events)} events excluded by users")
+        logger.info(f"[TAG_IOC] {len(excluded_events)} events marked as noise by users")
         
         # Process events
         index_name = f"case_{case_id}"
-        tagged_count = 0
-        already_tagged = 0
+        hunted_count = 0
+        already_hunted = 0
         noise_filtered = 0
         user_excluded = 0
+        pattern_matches = 0
+        multi_ioc_matches = 0
         
         for event in events:
             event_id = event.get('_id')
             
-            # Skip if already tagged
+            # Skip if already hunted/confirmed
             if event_id in existing_tags:
-                already_tagged += 1
+                already_hunted += 1
                 continue
             
-            # Skip if user manually excluded from auto-tagging
+            # Skip if user manually marked as noise
             if event_id in excluded_events:
                 user_excluded += 1
                 continue
@@ -571,30 +608,57 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
                 noise_filtered += 1
                 continue
             
-            # Determine match reason
-            reason = determine_match_reason(event, iocs, actor_hostnames, actor_ips)
-            if not reason:
+            # Determine match reason and criteria
+            match_result = determine_match_reason(event, iocs, actor_hostnames, actor_ips)
+            if not match_result:
                 continue
             
-            # Tag the event
-            if tag_event(case_id, user_id, event, index_name, reason):
-                tagged_count += 1
-                existing_tags.add(event_id)  # Track to avoid duplicates
+            reason, ioc_count, pattern_match = match_result
+            
+            # Determine if event should be marked as 'hunted'
+            should_mark = False
+            
+            # Criterion 1: 3+ IOC matches
+            if ioc_count >= 3:
+                should_mark = True
+                multi_ioc_matches += 1
+                logger.debug(f"[TAG_IOC] Event {event_id[:8]} matched {ioc_count} IOCs")
+            
+            # Criterion 2: Attack pattern match
+            if pattern_match:
+                should_mark = True
+                pattern_matches += 1
+                tier, category, pattern = pattern_match
+                logger.debug(f"[TAG_IOC] Event {event_id[:8]} matched Tier{tier} pattern: {category}")
+            
+            if not should_mark:
+                # Also mark if it matches high-confidence IOC types (commands, hashes, external IPs)
+                # But we already got those in the query, so if we're here, mark it
+                should_mark = True
+            
+            # Mark the event as 'hunted'
+            if should_mark and tag_event(case_id, user_id, event, index_name, reason):
+                hunted_count += 1
+                existing_tags.add(event_id)  # Track to avoid duplicates in same run
         
-        # Commit all tags
+        # Commit all status changes
         db.session.commit()
         
-        logger.info(f"[TAG_IOC] Completed: tagged {tagged_count}, already tagged {already_tagged}, noise filtered {noise_filtered}, user excluded {user_excluded}")
+        logger.info(f"[TAG_IOC] Completed: hunted {hunted_count}, already hunted {already_hunted}, "
+                   f"noise filtered {noise_filtered}, user excluded {user_excluded}, "
+                   f"pattern matches {pattern_matches}, multi-IOC matches {multi_ioc_matches}")
         
         return {
             'success': True,
-            'tagged_count': tagged_count,
+            'hunted_count': hunted_count,
             'events_found': len(events),
-            'already_tagged': already_tagged,
+            'already_hunted': already_hunted,
             'noise_filtered': noise_filtered,
             'user_excluded': user_excluded,
             'ioc_count': len(iocs),
-            'actor_count': actor_count
+            'actor_count': actor_count,
+            'pattern_matches': pattern_matches,
+            'multi_ioc_matches': multi_ioc_matches
         }
         
     except Exception as e:
@@ -602,7 +666,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
         return {
             'success': False,
             'error': str(e),
-            'tagged_count': 0,
+            'hunted_count': 0,
             'events_found': 0,
             'ioc_count': 0,
             'actor_count': 0
@@ -612,13 +676,15 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
 def get_tagging_summary(result: Dict) -> Dict:
     """Generate summary for UI display."""
     return {
-        'tagged_count': result.get('tagged_count', 0),
+        'hunted_count': result.get('hunted_count', 0),
         'events_found': result.get('events_found', 0),
-        'already_tagged': result.get('already_tagged', 0),
+        'already_hunted': result.get('already_hunted', 0),
         'noise_filtered': result.get('noise_filtered', 0),
         'user_excluded': result.get('user_excluded', 0),
         'ioc_count': result.get('ioc_count', 0),
-        'actor_count': result.get('actor_count', 0)
+        'actor_count': result.get('actor_count', 0),
+        'pattern_matches': result.get('pattern_matches', 0),
+        'multi_ioc_matches': result.get('multi_ioc_matches', 0)
     }
 
 
