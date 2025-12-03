@@ -384,6 +384,48 @@ class TagExclusion(db.Model):
     )
 
 
+class EventStatus(db.Model):
+    """Unified event status tracking.
+    
+    Replaces the fragmented system of is_hidden, TimelineTag, and TagExclusion
+    with a single status field per event.
+    
+    Statuses:
+    - new: Fresh event, just indexed (default)
+    - noise: Flagged by known-good/noise processes, excluded from searches
+    - hunted: Tagged by Phase 3 triage as potentially interesting
+    - confirmed: Analyst reviewed and confirmed as relevant to investigation
+    """
+    __tablename__ = 'event_status'
+    
+    # Valid status values
+    STATUS_NEW = 'new'
+    STATUS_NOISE = 'noise'
+    STATUS_HUNTED = 'hunted'
+    STATUS_CONFIRMED = 'confirmed'
+    VALID_STATUSES = [STATUS_NEW, STATUS_NOISE, STATUS_HUNTED, STATUS_CONFIRMED]
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    event_id = db.Column(db.String(150), nullable=False, index=True)  # OpenSearch document _id
+    status = db.Column(db.String(20), default=STATUS_NEW, nullable=False, index=True)
+    updated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Null for system actions
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    notes = db.Column(db.Text)  # Optional analyst notes
+    
+    # Relationships
+    case = db.relationship('Case', backref='event_statuses')
+    user = db.relationship('User', backref='event_status_updates', foreign_keys=[updated_by])
+    
+    # Unique constraint: one status per event per case
+    __table_args__ = (
+        db.UniqueConstraint('case_id', 'event_id', name='_event_status_uc'),
+    )
+    
+    def __repr__(self):
+        return f'<EventStatus {self.event_id}: {self.status}>'
+
+
 class AuditLog(db.Model):
     """Audit trail for user actions"""
     __tablename__ = 'audit_log'

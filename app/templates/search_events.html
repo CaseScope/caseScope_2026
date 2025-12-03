@@ -206,8 +206,6 @@
                         <option value="ioc_2plus" {% if filter_type == 'ioc_2plus' %}selected{% endif %}>2+ IOC Events Only</option>
                         <option value="ioc_3plus" {% if filter_type == 'ioc_3plus' %}selected{% endif %}>3+ IOC Events Only</option>
                         <option value="sigma_and_ioc" {% if filter_type == 'sigma_and_ioc' %}selected{% endif %}>IOC + SIGMA Events Only</option>
-                        <option value="tagged" {% if filter_type == 'tagged' %}selected{% endif %}>Tagged Events Only</option>
-                        <option value="excluded" {% if filter_type == 'excluded' %}selected{% endif %}>Excluded from Tagging</option>
                     </select>
                 </div>
                 
@@ -269,15 +267,31 @@
                     </button>
                 </div>
                 
-                <!-- Hidden Events Filter -->
+                <!-- Event Status Filter -->
                 <div>
-                    <label class="form-label">Visibility</label>
-                    <select name="hidden_filter" class="form-input" onchange="resetToPageOne()">
-                        <option value="hide" {% if hidden_filter == 'hide' %}selected{% endif %}>Hide Hidden Events</option>
-                        <option value="show" {% if hidden_filter == 'show' %}selected{% endif %}>Show All Events</option>
-                        <option value="only" {% if hidden_filter == 'only' %}selected{% endif %}>Hidden Events Only</option>
-                    </select>
+                    <label class="form-label">Status Filter</label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; padding: 0.25rem; border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-bg-secondary);">
+                        <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer; padding: 0.25rem;">
+                            <input type="checkbox" name="status_filter" value="new" onchange="resetToPageOne()" {% if 'new' in request.args.getlist('status_filter') or not request.args.getlist('status_filter') %}checked{% endif %}>
+                            <span>New</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer; padding: 0.25rem; color: #9b59b6;">
+                            <input type="checkbox" name="status_filter" value="hunted" onchange="resetToPageOne()" {% if 'hunted' in request.args.getlist('status_filter') or not request.args.getlist('status_filter') %}checked{% endif %}>
+                            <span>🎯 Hunted</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer; padding: 0.25rem; color: #e74c3c;">
+                            <input type="checkbox" name="status_filter" value="confirmed" onchange="resetToPageOne()" {% if 'confirmed' in request.args.getlist('status_filter') or not request.args.getlist('status_filter') %}checked{% endif %}>
+                            <span>✓ Confirmed</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer; padding: 0.25rem; color: var(--color-text-muted);">
+                            <input type="checkbox" name="status_filter" value="noise" onchange="resetToPageOne()" {% if 'noise' in request.args.getlist('status_filter') %}checked{% endif %}>
+                            <span>🔇 Noise</span>
+                        </label>
+                    </div>
                 </div>
+                
+                <!-- Hidden - keep for backward compat -->
+                <input type="hidden" name="hidden_filter" value="{{ hidden_filter }}"
             </div>
             
             <!-- Row 3: Quick Analysis Buttons -->
@@ -847,28 +861,21 @@
                 <span>Back to Search</span>
             </button>
             {% endif %}
-            <div id="bulkActions" style="display: none; gap: var(--spacing-xs);">
-                <button onclick="bulkTagSelected()" class="btn btn-sm" style="background: var(--color-warning);">
-                    <span>⭐</span>
-                    <span>Tag</span>
+            <div id="bulkActions" style="display: none; gap: var(--spacing-xs); align-items: center;">
+                <span class="text-muted" style="font-size: 0.85rem;">Set Status:</span>
+                <button onclick="bulkSetStatus('new')" class="btn btn-sm btn-secondary" title="Mark as New">
+                    New
                 </button>
-                <button onclick="bulkUntagSelected()" class="btn btn-sm btn-secondary">
-                    <span>☆</span>
-                    <span>Untag</span>
+                <button onclick="bulkSetStatus('hunted')" class="btn btn-sm" style="background: #9b59b6; color: white;" title="Mark as Hunted">
+                    🎯 Hunted
                 </button>
-                <button onclick="bulkExcludeSelected()" class="btn btn-sm" style="background: #dc3545; color: white;">
-                    <span>✗</span>
-                    <span>Exclude</span>
+                <button onclick="bulkSetStatus('confirmed')" class="btn btn-sm" style="background: #c0392b; color: white;" title="Mark as Confirmed">
+                    ✓ Confirmed
                 </button>
-                <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary">
-                    <span>👁️</span>
-                    <span>Hide</span>
+                <button onclick="bulkSetStatus('noise')" class="btn btn-sm" style="background: #7f8c8d; color: white;" title="Mark as Noise">
+                    🔇 Noise
                 </button>
-                <button onclick="bulkUnhideSelected()" class="btn btn-sm" style="background: var(--color-success);">
-                    <span>👁️‍🗨️</span>
-                    <span>Unhide</span>
-                </button>
-                <button onclick="clearSelection()" class="btn btn-sm btn-secondary">
+                <button onclick="clearSelection()" class="btn btn-sm btn-secondary" style="margin-left: var(--spacing-sm);">
                     <span>✖</span>
                 </button>
                 <span class="text-muted" id="selectedCount" style="margin-left: 0.5rem;">0 selected</span>
@@ -943,45 +950,24 @@
                 </thead>
                 <tbody>
                     {% for event in events %}
-                    <tr data-event-id="{{ event._id }}" data-index="{{ event._index }}">
+                    {% set event_status = 'confirmed' if event._id in confirmed_event_ids else ('hunted' if event._id in hunted_event_ids else ('noise' if event._id in noise_event_ids else 'new')) %}
+                    <tr data-event-id="{{ event._id }}" data-index="{{ event._index }}" data-status="{{ event_status }}"
+                        style="{% if event_status == 'hunted' %}background: rgba(155, 89, 182, 0.2);{% elif event_status == 'confirmed' %}background: rgba(231, 76, 60, 0.2);{% elif event_status == 'noise' %}opacity: 0.5;{% endif %}">
                         <td>
                             <input type="checkbox" class="event-checkbox" value="{{ event._id }}">
                         </td>
-                        <td class="tag-cell" data-event-id="{{ event._id }}" data-index-name="{{ event._index }}">
-                            {% if event._id in tagged_ids %}
-                            <button onclick="untagEvent('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm tag-btn" 
-                                    style="background: var(--color-warning); padding: 4px 8px;"
-                                    title="Untag event">
-                                ⭐
-                            </button>
-                            <button onclick="excludeFromTagging('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm exclude-btn" 
-                                    style="background: #dc3545; color: white; padding: 4px 8px; margin-left: 2px; font-weight: bold;"
-                                    title="Exclude from auto-tagging (Phase 3 won't re-tag this)">
-                                ✗
-                            </button>
-                            {% elif event._id in excluded_ids %}
-                            <button onclick="tagEvent('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm tag-btn" 
-                                    style="padding: 4px 8px; opacity: 0.5;"
-                                    title="Tag event (will remove exclusion)">
-                                ☆
-                            </button>
-                            <button onclick="removeExclusion('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm" 
-                                    style="background: #6c757d; color: white; padding: 4px 8px; margin-left: 2px;"
-                                    title="Event excluded - click to allow auto-tagging again">
-                                🚫
-                            </button>
-                            {% else %}
-                            <button onclick="tagEvent('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm btn-secondary tag-btn" 
-                                    style="padding: 4px 8px;"
-                                    title="Tag event">
-                                ☆
-                            </button>
-                            {% endif %}
+                        <td class="status-cell" data-event-id="{{ event._id }}">
+                            <select class="status-dropdown" onchange="setEventStatus('{{ event._id }}', this.value)" 
+                                    style="font-size: 0.75rem; padding: 2px 4px; border-radius: 4px; min-width: 90px;
+                                           {% if event_status == 'hunted' %}background: #9b59b6; color: white;
+                                           {% elif event_status == 'confirmed' %}background: #c0392b; color: white;
+                                           {% elif event_status == 'noise' %}background: #7f8c8d; color: white;
+                                           {% else %}background: var(--color-bg-tertiary);{% endif %}">
+                                <option value="new" {% if event_status == 'new' %}selected{% endif %}>New</option>
+                                <option value="hunted" {% if event_status == 'hunted' %}selected{% endif %}>🎯 Hunted</option>
+                                <option value="confirmed" {% if event_status == 'confirmed' %}selected{% endif %}>✓ Confirmed</option>
+                                <option value="noise" {% if event_status == 'noise' %}selected{% endif %}>🔇 Noise</option>
+                            </select>
                         </td>
                         
                         {% for col in columns %}
@@ -1543,79 +1529,17 @@ function getSelectedEvents() {
     return selected;
 }
 
+// Legacy bulk functions - redirect to new status system
 function bulkTagSelected() {
-    const events = getSelectedEvents();
-    if (events.length === 0) {
-        alert('No events selected');
-        return;
-    }
-    
-    if (!confirm(`Tag ${events.length} event(s) for timeline?`)) {
-        return;
-    }
-    
-    fetch(`/case/{{ case.id }}/search/bulk-tag`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: events, tag_color: 'blue' })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert(`✅ Tagged ${data.tagged} event(s) (${data.skipped} already tagged)`);
-            // Reload page to show correct tag state
-            window.location.reload();
-        } else {
-            alert(`❌ Error: ${data.error}`);
-        }
-    })
-    .catch(error => {
-        console.error('Bulk tag error:', error);
-        alert('❌ Failed to tag events');
-    });
+    bulkSetStatus('hunted');
 }
 
 function bulkUntagSelected() {
-    const events = getSelectedEvents();
-    bulkActionRequest('bulk-untag', 'Untagged', events, `Remove timeline tag from ${events.length} event(s)?`);
+    bulkSetStatus('new');
 }
 
 function bulkExcludeSelected() {
-    const events = getSelectedEvents();
-    if (events.length === 0) {
-        alert('No events selected');
-        return;
-    }
-    
-    if (!confirm(`Exclude ${events.length} event(s) from Phase 3 auto-tagging?\n\nThese events will be untagged and Phase 3 will not re-tag them in the future.`)) {
-        return;
-    }
-    
-    // Show progress
-    const selectedCountEl = document.getElementById('selectedCount');
-    const originalText = selectedCountEl.textContent;
-    selectedCountEl.textContent = 'Excluding...';
-    
-    fetch(`/case/{{ case.id }}/search/bulk-exclude`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: events, reason: 'Bulk excluded by user' })
-    })
-    .then(response => response.json())
-    .then(data => {
-        selectedCountEl.textContent = originalText;
-        if (data.success) {
-            alert(`✅ Excluded ${data.excluded} event(s) from auto-tagging\n(${data.untagged} were untagged, ${data.already_excluded} already excluded)`);
-            window.location.reload();
-        } else {
-            alert(`❌ Error: ${data.error}`);
-        }
-    })
-    .catch(error => {
-        selectedCountEl.textContent = originalText;
-        console.error('Bulk exclude error:', error);
-        alert('❌ Failed to exclude events');
-    });
+    bulkSetStatus('noise');
 }
 
 function syncTimelineToIRIS() {
@@ -1929,125 +1853,148 @@ function closeEventModal() {
     document.getElementById('eventModal').style.display = 'none';
 }
 
-// Tag/untag events
-function tagEvent(eventId, indexName) {
-    fetch(`/case/${CASE_ID}/search/tag`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event_id: eventId, index_name: indexName})
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Update UI without full page reload (faster!)
-            updateTagCell(eventId, indexName, 'tagged');
-        } else {
-            alert(data.error || 'Failed to tag event');
-        }
-    });
-}
+// ============================================================================
+// EVENT STATUS SYSTEM (Unified status management)
+// ============================================================================
 
-function untagEvent(eventId, indexName) {
-    fetch(`/case/${CASE_ID}/search/untag`, {
+// Set status for a single event (called by dropdown)
+function setEventStatus(eventId, status) {
+    fetch(`/case/${CASE_ID}/event-status`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event_id: eventId, index_name: indexName})
+        body: JSON.stringify({event_id: eventId, status: status})
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Update UI without full page reload (faster!)
-            updateTagCell(eventId, indexName, 'untagged');
-        }
-    });
-}
-
-// Exclude event from auto-tagging (Phase 3 won't re-tag this)
-function excludeFromTagging(eventId, indexName) {
-    if (!confirm('Exclude this event from Phase 3 auto-tagging?\n\nThis event will be untagged and Phase 3 will not re-tag it in the future.')) {
-        return;
-    }
-    
-    // Backend auto-untags if currently tagged
-    fetch(`/case/${CASE_ID}/search/exclude-from-tagging`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            event_id: eventId, 
-            index_name: indexName,
-            reason: 'Manually excluded by user'
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            updateTagCell(eventId, indexName, 'excluded');
+            updateEventRowStatus(eventId, status);
         } else {
-            alert(data.error || 'Failed to exclude event');
+            alert(data.error || 'Failed to update status');
+            // Revert dropdown
+            window.location.reload();
         }
     })
     .catch(err => {
-        console.error('Exclude error:', err);
-        alert('Failed to exclude event');
+        console.error('Status update error:', err);
+        alert('Failed to update status');
     });
 }
 
-// Remove event from exclusion list
-function removeExclusion(eventId, indexName) {
-    fetch(`/case/${CASE_ID}/search/remove-exclusion`, {
+// Bulk set status for selected events
+function bulkSetStatus(status) {
+    const events = getSelectedEvents();
+    if (events.length === 0) {
+        alert('No events selected');
+        return;
+    }
+    
+    const statusNames = {
+        'new': 'New',
+        'hunted': 'Hunted',
+        'confirmed': 'Confirmed',
+        'noise': 'Noise'
+    };
+    
+    if (!confirm(`Set ${events.length} event(s) to "${statusNames[status]}"?`)) {
+        return;
+    }
+    
+    // Show progress
+    const selectedCountEl = document.getElementById('selectedCount');
+    const originalText = selectedCountEl.textContent;
+    selectedCountEl.textContent = 'Updating...';
+    
+    fetch(`/case/${CASE_ID}/event-status/bulk`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event_id: eventId, index_name: indexName})
+        body: JSON.stringify({events: events, status: status})
     })
     .then(response => response.json())
     .then(data => {
+        selectedCountEl.textContent = originalText;
         if (data.success) {
-            updateTagCell(eventId, indexName, 'untagged');
+            alert(`✅ Updated ${data.total} event(s) to "${statusNames[status]}"`);
+            window.location.reload();
         } else {
-            alert(data.error || 'Failed to remove exclusion');
+            alert(`❌ Error: ${data.error}`);
         }
+    })
+    .catch(error => {
+        selectedCountEl.textContent = originalText;
+        console.error('Bulk status error:', error);
+        alert('❌ Failed to update status');
     });
 }
 
-// Update the tag cell UI based on state
-function updateTagCell(eventId, indexName, state) {
+// Update row styling and dropdown after status change
+function updateEventRowStatus(eventId, status) {
     const row = document.querySelector(`tr[data-event-id="${eventId}"]`);
     if (!row) return;
     
-    const tagCell = row.querySelector('td.tag-cell');
-    if (!tagCell) return;
+    // Update row data attribute
+    row.dataset.status = status;
     
-    if (state === 'tagged') {
-        tagCell.innerHTML = `
-            <button onclick="untagEvent('${eventId}', '${indexName}')" 
-                    class="btn btn-sm tag-btn" 
-                    style="background: var(--color-warning); padding: 4px 8px;"
-                    title="Untag event">⭐</button>
-            <button onclick="excludeFromTagging('${eventId}', '${indexName}')" 
-                    class="btn btn-sm exclude-btn" 
-                    style="background: #dc3545; color: white; padding: 4px 8px; margin-left: 2px; font-weight: bold;"
-                    title="Exclude from auto-tagging">✗</button>
-        `;
-    } else if (state === 'excluded') {
-        tagCell.innerHTML = `
-            <button onclick="tagEvent('${eventId}', '${indexName}')" 
-                    class="btn btn-sm tag-btn" 
-                    style="padding: 4px 8px; opacity: 0.5;"
-                    title="Tag event (will remove exclusion)">☆</button>
-            <button onclick="removeExclusion('${eventId}', '${indexName}')" 
-                    class="btn btn-sm" 
-                    style="background: #6c757d; color: white; padding: 4px 8px; margin-left: 2px;"
-                    title="Event excluded - click to allow auto-tagging">🚫</button>
-        `;
+    // Update row background color
+    if (status === 'hunted') {
+        row.style.background = 'rgba(155, 89, 182, 0.2)';
+        row.style.opacity = '1';
+    } else if (status === 'confirmed') {
+        row.style.background = 'rgba(231, 76, 60, 0.2)';
+        row.style.opacity = '1';
+    } else if (status === 'noise') {
+        row.style.background = '';
+        row.style.opacity = '0.5';
     } else {
-        // untagged
-        tagCell.innerHTML = `
-            <button onclick="tagEvent('${eventId}', '${indexName}')" 
-                    class="btn btn-sm btn-secondary tag-btn" 
-                    style="padding: 4px 8px;"
-                    title="Tag event">☆</button>
-        `;
+        row.style.background = '';
+        row.style.opacity = '1';
     }
+    
+    // Update dropdown styling
+    const dropdown = row.querySelector('.status-dropdown');
+    if (dropdown) {
+        dropdown.value = status;
+        if (status === 'hunted') {
+            dropdown.style.background = '#9b59b6';
+            dropdown.style.color = 'white';
+        } else if (status === 'confirmed') {
+            dropdown.style.background = '#c0392b';
+            dropdown.style.color = 'white';
+        } else if (status === 'noise') {
+            dropdown.style.background = '#7f8c8d';
+            dropdown.style.color = 'white';
+        } else {
+            dropdown.style.background = 'var(--color-bg-tertiary)';
+            dropdown.style.color = '';
+        }
+    }
+}
+
+// Legacy functions kept for backward compatibility (will be removed)
+function tagEvent(eventId, indexName) {
+    setEventStatus(eventId, 'hunted');
+}
+
+function untagEvent(eventId, indexName) {
+    setEventStatus(eventId, 'new');
+}
+
+function excludeFromTagging(eventId, indexName) {
+    setEventStatus(eventId, 'noise');
+}
+
+function removeExclusion(eventId, indexName) {
+    setEventStatus(eventId, 'new');
+}
+
+// Legacy - kept for backward compat
+function updateTagCell(eventId, indexName, state) {
+    // Map old states to new statuses
+    const statusMap = {
+        'tagged': 'hunted',
+        'untagged': 'new',
+        'excluded': 'noise'
+    };
+    updateEventRowStatus(eventId, statusMap[state] || 'new');
 }
 
 // Add field as IOC - Show modal with dropdown

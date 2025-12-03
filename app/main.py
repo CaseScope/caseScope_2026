@@ -2658,6 +2658,123 @@ def get_tagging_exclusions(case_id):
     })
 
 
+# ============================================================================
+# EVENT STATUS ROUTES (Unified status system)
+# ============================================================================
+
+@app.route('/case/<int:case_id>/event-status', methods=['POST'])
+@login_required
+def set_event_status(case_id):
+    """Set status for a single event."""
+    from event_status import set_status, VALID_STATUSES
+    
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot change event status'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json() or {}
+    event_id = data.get('event_id')
+    status = data.get('status')
+    notes = data.get('notes')
+    
+    if not event_id:
+        return jsonify({'success': False, 'error': 'Event ID required'}), 400
+    
+    if not status or status not in VALID_STATUSES:
+        return jsonify({'success': False, 'error': f'Invalid status. Must be one of: {VALID_STATUSES}'}), 400
+    
+    if set_status(case_id, event_id, status, current_user.id, notes):
+        logger.info(f"[EVENT_STATUS] User {current_user.id} set event {event_id[:30]}... to '{status}' in case {case_id}")
+        return jsonify({'success': True, 'status': status})
+    else:
+        return jsonify({'success': False, 'error': 'Failed to update status'}), 500
+
+
+@app.route('/case/<int:case_id>/event-status/bulk', methods=['POST'])
+@login_required
+def bulk_set_event_status(case_id):
+    """Set status for multiple events."""
+    from event_status import bulk_set_status, VALID_STATUSES
+    
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot change event status'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json() or {}
+    events = data.get('events', [])  # List of {event_id: ...}
+    status = data.get('status')
+    notes = data.get('notes')
+    
+    if not events:
+        return jsonify({'success': False, 'error': 'No events provided'}), 400
+    
+    if not status or status not in VALID_STATUSES:
+        return jsonify({'success': False, 'error': f'Invalid status. Must be one of: {VALID_STATUSES}'}), 400
+    
+    # Extract event IDs
+    event_ids = [e.get('event_id') for e in events if e.get('event_id')]
+    
+    if not event_ids:
+        return jsonify({'success': False, 'error': 'No valid event IDs found'}), 400
+    
+    result = bulk_set_status(case_id, event_ids, status, current_user.id, notes)
+    
+    if 'error' in result:
+        return jsonify({'success': False, 'error': result['error']}), 500
+    
+    logger.info(f"[EVENT_STATUS] User {current_user.id} bulk set {len(event_ids)} events to '{status}' in case {case_id}")
+    
+    return jsonify({
+        'success': True,
+        'status': status,
+        'updated': result['updated'],
+        'created': result['created'],
+        'total': len(event_ids)
+    })
+
+
+@app.route('/case/<int:case_id>/event-status/counts')
+@login_required
+def get_event_status_counts(case_id):
+    """Get count of events in each status for a case."""
+    from event_status import get_status_counts
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    counts = get_status_counts(case_id)
+    
+    return jsonify({
+        'success': True,
+        'counts': counts
+    })
+
+
+@app.route('/case/<int:case_id>/event-status/<event_id>')
+@login_required
+def get_single_event_status(case_id, event_id):
+    """Get status details for a single event."""
+    from event_status import get_event_details
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    details = get_event_details(case_id, event_id)
+    
+    return jsonify({
+        'success': True,
+        **details
+    })
+
+
 @app.route('/case/<int:case_id>/search')
 @login_required
 def search_events(case_id):
@@ -2684,12 +2801,17 @@ def search_events(case_id):
     
     # Get search parameters
     search_text = request.args.get('q', '')
-    filter_type = request.args.get('filter', 'ai_evidence' if session.get('ai_evidence_mode') else 'all')  # all, sigma, ioc, sigma_and_ioc, tagged, ai_evidence
+    filter_type = request.args.get('filter', 'ai_evidence' if session.get('ai_evidence_mode') else 'all')  # all, sigma, ioc, sigma_and_ioc, ai_evidence
     date_range = request.args.get('date_range', 'all')
     file_types = request.args.getlist('file_types')  # ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
     if not file_types:  # Default: all types checked
         file_types = ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
-    hidden_filter = request.args.get('hidden_filter', 'hide')  # 'hide', 'show', 'only'
+    hidden_filter = request.args.get('hidden_filter', 'hide')  # Legacy - kept for backward compat
+    
+    # New status filter system
+    status_filter = request.args.getlist('status_filter')
+    if not status_filter:  # Default: show new, hunted, confirmed (not noise)
+        status_filter = ['new', 'hunted', 'confirmed']
     sort_field = request.args.get('sort', 'normalized_timestamp')  # Use normalized field
     sort_order = request.args.get('order', 'desc')
     page = request.args.get('page', 1, type=int)
@@ -2717,19 +2839,35 @@ def search_events(case_id):
             except:
                 pass
     
-    # If filtering by tagged events, AI evidence, or excluded events, get the list of event IDs
+    # Status-based filtering: get event IDs to exclude based on status_filter
+    # If status_filter doesn't include a status, we need to exclude those events
+    from event_status import get_event_ids_by_status, STATUS_NEW, STATUS_NOISE, STATUS_HUNTED, STATUS_CONFIRMED
+    
+    # Get events to EXCLUDE (events with statuses NOT in status_filter)
+    statuses_to_exclude = []
+    if 'noise' not in status_filter:
+        statuses_to_exclude.append(STATUS_NOISE)
+    
+    exclude_event_ids = set()
+    if statuses_to_exclude:
+        exclude_event_ids = get_event_ids_by_status(case_id, statuses_to_exclude)
+        logger.debug(f"[SEARCH] Excluding {len(exclude_event_ids)} events with status in {statuses_to_exclude}")
+    
+    # For status-specific filtering (only show events with certain statuses)
+    # This is used when user only checks some status boxes
+    status_include_ids = None
+    if set(status_filter) != {'new', 'noise', 'hunted', 'confirmed'}:
+        # Not all statuses selected, need to filter
+        statuses_to_include = [s for s in status_filter if s != 'new']  # 'new' means no status record
+        if statuses_to_include:
+            status_include_ids = get_event_ids_by_status(case_id, statuses_to_include)
+            # If 'new' is in filter, we can't filter by IDs (new = no record)
+            if 'new' not in status_filter:
+                logger.debug(f"[SEARCH] Including only {len(status_include_ids)} events with status in {statuses_to_include}")
+    
+    # Legacy: handle AI evidence mode
     tagged_event_ids = None
-    if filter_type == 'tagged':
-        from models import TimelineTag
-        tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
-        tagged_event_ids = [tag.event_id for tag in tagged_events]
-        logger.debug(f"[SEARCH] Found {len(tagged_event_ids)} tagged events for case {case_id}")
-    elif filter_type == 'excluded':
-        from models import TagExclusion
-        excluded_events = TagExclusion.query.filter_by(case_id=case_id).all()
-        tagged_event_ids = [exc.event_id for exc in excluded_events]
-        logger.debug(f"[SEARCH] Found {len(tagged_event_ids)} excluded events for case {case_id}")
-    elif filter_type == 'ai_evidence':
+    if filter_type == 'ai_evidence':
         # Get AI evidence event IDs from session
         if session.get('ai_evidence_case_id') == case_id and session.get('ai_evidence_ids'):
             tagged_event_ids = session.get('ai_evidence_ids')
@@ -2782,7 +2920,9 @@ def search_events(case_id):
             custom_date_start=custom_date_start,
             custom_date_end=custom_date_end,
             latest_event_timestamp=latest_event_timestamp,
-            hidden_filter=hidden_filter
+            hidden_filter=hidden_filter,
+            exclude_event_ids=exclude_event_ids,
+            include_only_event_ids=status_include_ids
         )
     
     # Execute search
@@ -2845,12 +2985,20 @@ def search_events(case_id):
     # Calculate pagination
     total_pages = (total_count + per_page - 1) // per_page
     
-    # Get tagged event IDs for this case
-    tagged_ids = {tag.event_id for tag in db.session.query(TimelineTag).filter_by(case_id=case_id).all()}
+    # Get event statuses for this case (new unified system)
+    from event_status import get_status_counts, get_event_ids_by_status, STATUS_NOISE, STATUS_HUNTED, STATUS_CONFIRMED
     
-    # Get excluded event IDs for this case (excluded from auto-tagging)
-    from ai_triage_tag_iocs import get_excluded_events
-    excluded_ids = get_excluded_events(case_id)
+    # Get status counts for display
+    status_counts = get_status_counts(case_id)
+    
+    # Get event IDs by status for row coloring
+    noise_event_ids = get_event_ids_by_status(case_id, [STATUS_NOISE])
+    hunted_event_ids = get_event_ids_by_status(case_id, [STATUS_HUNTED])
+    confirmed_event_ids = get_event_ids_by_status(case_id, [STATUS_CONFIRMED])
+    
+    # Legacy compatibility - will be removed after full migration
+    tagged_ids = hunted_event_ids | confirmed_event_ids  # Events that are "interesting"
+    excluded_ids = noise_event_ids  # Events to hide
     
     # Get recent searches for this user and case
     recent_searches_raw = db.session.query(SearchHistory).filter_by(
@@ -2929,6 +3077,12 @@ def search_events(case_id):
         total_count=total_count,
         total_pages=total_pages,
         columns=columns,
+        # New unified status system
+        status_counts=status_counts,
+        noise_event_ids=noise_event_ids,
+        hunted_event_ids=hunted_event_ids,
+        confirmed_event_ids=confirmed_event_ids,
+        # Legacy (for backward compatibility during migration)
         tagged_ids=tagged_ids,
         excluded_ids=excluded_ids,
         recent_searches=recent_searches,

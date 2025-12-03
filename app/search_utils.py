@@ -6,7 +6,7 @@ Modular functions for OpenSearch event searching with pagination, sorting, filte
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Set
 
 logger = logging.getLogger(__name__)
 
@@ -75,22 +75,26 @@ def build_search_query(
     additional_filters: Optional[Dict] = None,
     tagged_event_ids: Optional[List[str]] = None,
     latest_event_timestamp: Optional[datetime] = None,
-    hidden_filter: str = "hide"
+    hidden_filter: str = "hide",
+    exclude_event_ids: Optional[Set[str]] = None,
+    include_only_event_ids: Optional[Set[str]] = None
 ) -> Dict[str, Any]:
     """
     Build OpenSearch query DSL based on search parameters
     
     Args:
         search_text: Free-text search query
-        filter_type: 'all', 'sigma', 'ioc', 'ioc_2plus', 'ioc_3plus', 'sigma_and_ioc', 'tagged'
+        filter_type: 'all', 'sigma', 'ioc', 'ioc_2plus', 'ioc_3plus', 'sigma_and_ioc', 'ai_evidence'
         date_range: '24h', '7d', '30d', 'custom', 'all'
         custom_date_start: Custom start date
         custom_date_end: Custom end date
         file_types: List of file types to include ['EVTX', 'EDR', 'JSON', 'CSV']
         additional_filters: Additional field filters (e.g., {'EventID': '4624'})
-        tagged_event_ids: List of event IDs that have timeline tags (for 'tagged' filter)
+        tagged_event_ids: List of event IDs for 'ai_evidence' filter
         latest_event_timestamp: Latest event timestamp in case (for relative date filters)
         hidden_filter: 'hide' (exclude hidden), 'show' (include all), 'only' (only hidden)
+        exclude_event_ids: Set of event IDs to exclude (e.g., noise events)
+        include_only_event_ids: Set of event IDs to include (for status filtering)
     
     Returns:
         OpenSearch query DSL dictionary
@@ -98,9 +102,17 @@ def build_search_query(
     query = {
         "bool": {
             "must": [],
-            "filter": []
+            "filter": [],
+            "must_not": []
         }
     }
+    
+    # Exclude specific event IDs (status-based filtering)
+    if exclude_event_ids and len(exclude_event_ids) > 0:
+        # Exclude events by ID
+        query["bool"]["must_not"].append({
+            "ids": {"values": list(exclude_event_ids)}
+        })
     
     # Text search - hybrid approach for performance + UX
     # v1.43.7: Optimized search with fields parameter for speed
@@ -376,6 +388,14 @@ def build_search_query(
             })
     
     # Hidden events filter
+    # Include only specific event IDs (status-based filtering)
+    if include_only_event_ids is not None and len(include_only_event_ids) > 0:
+        query["bool"]["filter"].append({
+            "ids": {"values": list(include_only_event_ids)}
+        })
+        logger.debug(f"[SEARCH] Including only {len(include_only_event_ids)} events by status")
+    
+    # Hidden filter (legacy - still used for is_hidden field in OpenSearch)
     if hidden_filter == "hide":
         # Exclude hidden events - only show events where is_hidden doesn't exist OR is_hidden is false
         query["bool"]["filter"].append({
