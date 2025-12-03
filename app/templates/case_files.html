@@ -1367,46 +1367,72 @@ function showHideKnownGoodModal() {
     if (confirmPhase) confirmPhase.style.display = 'none';
     if (progressPhase) progressPhase.style.display = 'none';
     if (resultsPhase) resultsPhase.style.display = 'none';
-    if (startBtn) startBtn.style.display = 'none';
-    if (closeBtn) closeBtn.textContent = 'Close';
-    
-    // Fetch exclusion summary
-    fetch(`/settings/system-tools/case/${CASE_ID}/hide-known-good/summary`)
-    .then(response => response.json())
-    .then(data => {
-        if (data.total_tools === 0) {
-            noExclusionsPhase.style.display = 'block';
-        } else {
-            confirmPhase.style.display = 'block';
-            startBtn.style.display = 'inline-flex';
-            closeBtn.textContent = 'Cancel';
-            
-            // Update summary
-            document.getElementById('hideKGToolSummary').innerHTML = `
-                <strong>${data.total_tools}</strong> tools configured with 
-                <strong>${data.total_patterns}</strong> patterns
-            `;
-            
-            // Update tool list
-            let listHtml = '';
-            if (data.rmm_tools && data.rmm_tools.length > 0) {
-                listHtml += `<div style="margin-bottom: var(--spacing-xs);"><strong>RMM:</strong> ${data.rmm_tools.join(', ')}</div>`;
-            }
-            if (data.edr_tools && data.edr_tools.length > 0) {
-                listHtml += `<div style="margin-bottom: var(--spacing-xs);"><strong>EDR:</strong> ${data.edr_tools.join(', ')}</div>`;
-            }
-            if (data.remote_tools && data.remote_tools.length > 0) {
-                listHtml += `<div><strong>Remote:</strong> ${data.remote_tools.join(', ')}</div>`;
-            }
-            document.getElementById('hideKGToolList').innerHTML = listHtml || '<em>No tools configured</em>';
-        }
-    })
-    .catch(error => {
-        console.error('Failed to fetch exclusion summary:', error);
-        noExclusionsPhase.style.display = 'block';
-    });
+    if (startBtn) startBtn.style.display = 'inline-block';
+    if (startBtn) startBtn.disabled = false;
+    if (closeBtn) closeBtn.textContent = 'Cancel';
     
     modal.style.display = 'flex';
+    
+    // Check if exclusions are defined
+    fetch('/settings/system-tools/api/has-exclusions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.has_exclusions) {
+                confirmPhase.style.display = 'block';
+                loadExclusionsSummary();
+            } else {
+                noExclusionsPhase.style.display = 'block';
+                startBtn.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('Error checking exclusions:', error);
+            noExclusionsPhase.style.display = 'block';
+            startBtn.style.display = 'none';
+        });
+}
+
+function loadExclusionsSummary() {
+    const summaryDiv = document.getElementById('hideKGExclusionsSummary');
+    
+    fetch('/settings/system-tools/api/exclusions')
+        .then(response => response.json())
+        .then(data => {
+            let html = '<ul style="margin: 0; padding-left: var(--spacing-lg);">';
+            
+            if (data.rmm_executables && data.rmm_executables.length > 0) {
+                html += `<li><strong>RMM Tools:</strong> ${data.rmm_executables.slice(0, 5).join(', ')}`;
+                if (data.rmm_executables.length > 5) {
+                    html += ` (+${data.rmm_executables.length - 5} more)`;
+                }
+                html += '</li>';
+            }
+            
+            if (data.remote_tools && data.remote_tools.length > 0) {
+                const toolNames = data.remote_tools.map(t => t.name).join(', ');
+                const totalIds = data.remote_tools.reduce((sum, t) => sum + (t.known_good_ids ? t.known_good_ids.length : 0), 0);
+                html += `<li><strong>Remote Tools:</strong> ${toolNames} (${totalIds} known-good IDs)</li>`;
+            }
+            
+            if (data.known_good_ips && data.known_good_ips.length > 0) {
+                html += `<li><strong>Known-Good IPs:</strong> ${data.known_good_ips.slice(0, 3).join(', ')}`;
+                if (data.known_good_ips.length > 3) {
+                    html += ` (+${data.known_good_ips.length - 3} more)`;
+                }
+                html += '</li>';
+            }
+            
+            if (!data.rmm_executables?.length && !data.remote_tools?.length && !data.known_good_ips?.length) {
+                html = '<p style="margin: 0;">No exclusions configured</p>';
+            } else {
+                html += '</ul>';
+            }
+            
+            summaryDiv.innerHTML = html;
+        })
+        .catch(error => {
+            summaryDiv.innerHTML = '<p style="color: var(--color-error);">Error loading exclusions</p>';
+        });
 }
 
 function closeHideKnownGoodModal() {
@@ -1677,20 +1703,30 @@ document.addEventListener('click', function(e) {
             
             <!-- Confirm Phase -->
             <div id="hideKGConfirmPhase" style="display: none;">
-                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid #11998e;">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: #11998e;">What This Does</h4>
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-info);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">What This Does</h4>
                     <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                        Scans all events and hides those from configured RMM, EDR, and Remote tools.
+                        This will scan all events in the case and hide any that match your configured exclusions:
                     </p>
+                    <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
+                        <li>Events spawned by RMM tools (parent process matches)</li>
+                        <li>Remote tool sessions with known-good IDs</li>
+                        <li>Events from known-good IP addresses</li>
+                    </ul>
                 </div>
+                
                 <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg);">
-                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">📋 Configured Tools</h4>
-                    <div id="hideKGToolSummary" style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0;">📊 Current Exclusions</h4>
+                    <div id="hideKGExclusionsSummary" style="color: var(--color-text-muted); font-size: 0.9rem;">
                         Loading...
                     </div>
-                    <div id="hideKGToolList" style="color: var(--color-text-muted); font-size: 0.85rem; background: var(--color-background-tertiary); padding: var(--spacing-sm); border-radius: var(--border-radius);">
-                        Loading...
-                    </div>
+                </div>
+                
+                <div style="background: rgba(255, 193, 7, 0.1); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 4px solid var(--color-warning);">
+                    <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                        ⚠️ <strong>Note:</strong> Hidden events can be viewed by changing the "Hidden Events" filter to "Show" or "Only Hidden".
+                        You can unhide events individually or in bulk if needed.
+                    </p>
                 </div>
             </div>
             
