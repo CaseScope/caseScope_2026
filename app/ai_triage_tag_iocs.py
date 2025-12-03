@@ -384,6 +384,14 @@ def get_existing_tags(case_id: int) -> Set[str]:
     return {tag.event_id for tag in tags}
 
 
+def get_excluded_events(case_id: int) -> Set[str]:
+    """Get set of event IDs excluded from auto-tagging by users."""
+    from models import TagExclusion
+    
+    exclusions = TagExclusion.query.filter_by(case_id=case_id).all()
+    return {exc.event_id for exc in exclusions}
+
+
 def tag_event(case_id: int, user_id: int, event: Dict, index_name: str, reason: str) -> bool:
     """
     Create a timeline tag for an event.
@@ -565,11 +573,16 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
         # Get already tagged events
         existing_tags = get_existing_tags(case_id)
         
+        # Get manually excluded events (user excluded from auto-tagging)
+        excluded_events = get_excluded_events(case_id)
+        logger.info(f"[TAG_IOC] {len(excluded_events)} events excluded by users")
+        
         # Process events
         index_name = f"case_{case_id}"
         tagged_count = 0
         already_tagged = 0
         noise_filtered = 0
+        user_excluded = 0
         
         for event in events:
             event_id = event.get('_id')
@@ -577,6 +590,11 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             # Skip if already tagged
             if event_id in existing_tags:
                 already_tagged += 1
+                continue
+            
+            # Skip if user manually excluded from auto-tagging
+            if event_id in excluded_events:
+                user_excluded += 1
                 continue
             
             # Skip noise events
@@ -597,7 +615,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
         # Commit all tags
         db.session.commit()
         
-        logger.info(f"[TAG_IOC] Completed: tagged {tagged_count}, already tagged {already_tagged}, noise filtered {noise_filtered}")
+        logger.info(f"[TAG_IOC] Completed: tagged {tagged_count}, already tagged {already_tagged}, noise filtered {noise_filtered}, user excluded {user_excluded}")
         
         return {
             'success': True,
@@ -605,6 +623,7 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             'events_found': len(events),
             'already_tagged': already_tagged,
             'noise_filtered': noise_filtered,
+            'user_excluded': user_excluded,
             'ioc_count': len(iocs),
             'actor_count': actor_count
         }
@@ -628,7 +647,88 @@ def get_tagging_summary(result: Dict) -> Dict:
         'events_found': result.get('events_found', 0),
         'already_tagged': result.get('already_tagged', 0),
         'noise_filtered': result.get('noise_filtered', 0),
+        'user_excluded': result.get('user_excluded', 0),
         'ioc_count': result.get('ioc_count', 0),
         'actor_count': result.get('actor_count', 0)
     }
+
+
+def get_exclusion_count(case_id: int) -> int:
+    """Get count of excluded events for a case."""
+    from models import TagExclusion
+    return TagExclusion.query.filter_by(case_id=case_id).count()
+
+
+def get_exclusions(case_id: int) -> List[Dict]:
+    """Get list of excluded events for a case."""
+    from models import TagExclusion, User
+    
+    exclusions = TagExclusion.query.filter_by(case_id=case_id).order_by(TagExclusion.excluded_at.desc()).all()
+    
+    result = []
+    for exc in exclusions:
+        user = User.query.get(exc.excluded_by)
+        result.append({
+            'id': exc.id,
+            'event_id': exc.event_id,
+            'index_name': exc.index_name,
+            'reason': exc.reason,
+            'excluded_by': user.username if user else 'Unknown',
+            'excluded_at': exc.excluded_at.isoformat() if exc.excluded_at else None
+        })
+    
+    return result
+
+
+def add_exclusion(case_id: int, event_id: str, index_name: str, user_id: int, reason: str = None) -> bool:
+    """Add an event to the exclusion list."""
+    from models import TagExclusion, db
+    
+    # Check if already excluded
+    existing = TagExclusion.query.filter_by(
+        case_id=case_id,
+        event_id=event_id,
+        index_name=index_name
+    ).first()
+    
+    if existing:
+        return False  # Already excluded
+    
+    try:
+        exclusion = TagExclusion(
+            case_id=case_id,
+            event_id=event_id,
+            index_name=index_name,
+            reason=reason,
+            excluded_by=user_id
+        )
+        db.session.add(exclusion)
+        db.session.commit()
+        return True
+    except Exception as e:
+        logger.error(f"[TAG_IOC] Failed to add exclusion: {e}")
+        db.session.rollback()
+        return False
+
+
+def remove_exclusion(case_id: int, event_id: str, index_name: str) -> bool:
+    """Remove an event from the exclusion list."""
+    from models import TagExclusion, db
+    
+    try:
+        exclusion = TagExclusion.query.filter_by(
+            case_id=case_id,
+            event_id=event_id,
+            index_name=index_name
+        ).first()
+        
+        if exclusion:
+            db.session.delete(exclusion)
+            db.session.commit()
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"[TAG_IOC] Failed to remove exclusion: {e}")
+        db.session.rollback()
+        return False
 

@@ -170,6 +170,11 @@ def case_files(case_id):
     # Get comprehensive stats (includes hidden count)
     stats = get_file_stats_with_hidden(db.session, case_id)
     
+    # Get tagged events count
+    from models import TimelineTag, TagExclusion
+    tagged_events_count = db.session.query(TimelineTag).filter_by(case_id=case_id).count()
+    excluded_events_count = db.session.query(TagExclusion).filter_by(case_id=case_id).count()
+    
     return render_template('case_files.html',
                           case=case,
                           files=files,
@@ -183,6 +188,8 @@ def case_files(case_id):
                           total_sigma_events=stats['sigma_events'],
                           total_ioc_events=stats['ioc_events'],
                           total_hidden_events=stats.get('hidden_events', 0),
+                          tagged_events_count=tagged_events_count,
+                          excluded_events_count=excluded_events_count,
                           files_completed=stats.get('files_completed', 0),
                           files_queued=stats.get('files_queued', 0),
                           files_indexing=stats.get('files_indexing', 0),

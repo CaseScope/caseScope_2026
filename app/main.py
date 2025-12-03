@@ -2485,6 +2485,79 @@ def triage_tag_events(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/case/<int:case_id>/search/exclude-from-tagging', methods=['POST'])
+@login_required
+def exclude_from_tagging(case_id):
+    """Exclude an event from Phase 3 auto-tagging."""
+    from ai_triage_tag_iocs import add_exclusion
+    
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot exclude events'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json() or {}
+    event_id = data.get('event_id')
+    index_name = data.get('index_name', f'case_{case_id}')
+    reason = data.get('reason', 'Manually excluded')
+    
+    if not event_id:
+        return jsonify({'success': False, 'error': 'Event ID required'}), 400
+    
+    if add_exclusion(case_id, event_id, index_name, current_user.id, reason):
+        return jsonify({'success': True, 'message': 'Event excluded from auto-tagging'})
+    else:
+        return jsonify({'success': False, 'error': 'Already excluded or failed to add'})
+
+
+@app.route('/case/<int:case_id>/search/remove-exclusion', methods=['POST'])
+@login_required
+def remove_tagging_exclusion(case_id):
+    """Remove an event from the exclusion list."""
+    from ai_triage_tag_iocs import remove_exclusion
+    
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot modify exclusions'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.get_json() or {}
+    event_id = data.get('event_id')
+    index_name = data.get('index_name', f'case_{case_id}')
+    
+    if not event_id:
+        return jsonify({'success': False, 'error': 'Event ID required'}), 400
+    
+    if remove_exclusion(case_id, event_id, index_name):
+        return jsonify({'success': True, 'message': 'Exclusion removed'})
+    else:
+        return jsonify({'success': False, 'error': 'Exclusion not found'})
+
+
+@app.route('/case/<int:case_id>/search/exclusions')
+@login_required
+def get_tagging_exclusions(case_id):
+    """Get list of events excluded from auto-tagging."""
+    from ai_triage_tag_iocs import get_exclusions, get_exclusion_count
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    exclusions = get_exclusions(case_id)
+    count = get_exclusion_count(case_id)
+    
+    return jsonify({
+        'success': True,
+        'exclusions': exclusions,
+        'count': count
+    })
+
+
 @app.route('/case/<int:case_id>/search')
 @login_required
 def search_events(case_id):
@@ -2544,13 +2617,18 @@ def search_events(case_id):
             except:
                 pass
     
-    # If filtering by tagged events or AI evidence, get the list of event IDs
+    # If filtering by tagged events, AI evidence, or excluded events, get the list of event IDs
     tagged_event_ids = None
     if filter_type == 'tagged':
         from models import TimelineTag
         tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
         tagged_event_ids = [tag.event_id for tag in tagged_events]
         logger.debug(f"[SEARCH] Found {len(tagged_event_ids)} tagged events for case {case_id}")
+    elif filter_type == 'excluded':
+        from models import TagExclusion
+        excluded_events = TagExclusion.query.filter_by(case_id=case_id).all()
+        tagged_event_ids = [exc.event_id for exc in excluded_events]
+        logger.debug(f"[SEARCH] Found {len(tagged_event_ids)} excluded events for case {case_id}")
     elif filter_type == 'ai_evidence':
         # Get AI evidence event IDs from session
         if session.get('ai_evidence_case_id') == case_id and session.get('ai_evidence_ids'):
@@ -2670,6 +2748,10 @@ def search_events(case_id):
     # Get tagged event IDs for this case
     tagged_ids = {tag.event_id for tag in db.session.query(TimelineTag).filter_by(case_id=case_id).all()}
     
+    # Get excluded event IDs for this case (excluded from auto-tagging)
+    from ai_triage_tag_iocs import get_excluded_events
+    excluded_ids = get_excluded_events(case_id)
+    
     # Get recent searches for this user and case
     recent_searches_raw = db.session.query(SearchHistory).filter_by(
         user_id=current_user.id,
@@ -2748,6 +2830,7 @@ def search_events(case_id):
         total_pages=total_pages,
         columns=columns,
         tagged_ids=tagged_ids,
+        excluded_ids=excluded_ids,
         recent_searches=recent_searches,
         favorite_searches=favorite_searches,
         custom_date_start=custom_date_start_str,
@@ -2799,11 +2882,15 @@ def export_search_results(case_id):
             except:
                 pass
     
-    # Get tagged event IDs if filtering by tagged
+    # Get tagged event IDs if filtering by tagged or excluded
     tagged_event_ids = None
     if filter_type == 'tagged':
         tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
         tagged_event_ids = [tag.event_id for tag in tagged_events]
+    elif filter_type == 'excluded':
+        from models import TagExclusion
+        excluded_events = TagExclusion.query.filter_by(case_id=case_id).all()
+        tagged_event_ids = [exc.event_id for exc in excluded_events]
     
     # Build index name for case (1 index per case in v1.13.1+)
     index_pattern = f"case_{case_id}"
@@ -2970,6 +3057,19 @@ def tag_timeline_event(case_id):
         notes=notes
     )
     db.session.add(tag)
+    
+    # If event was excluded from auto-tagging, remove the exclusion
+    # (user explicitly wants it tagged)
+    from models import TagExclusion
+    exclusion = db.session.query(TagExclusion).filter_by(
+        case_id=case_id,
+        event_id=event_id,
+        index_name=index_name
+    ).first()
+    if exclusion:
+        db.session.delete(exclusion)
+        logger.info(f"[TIMELINE TAG] Removed exclusion for event {event_id} (user explicitly tagged)")
+    
     db.session.commit()
     
     logger.info(f"[TIMELINE TAG] User {current_user.id} tagged event {event_id} in case {case_id}")

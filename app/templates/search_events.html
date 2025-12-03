@@ -207,6 +207,7 @@
                         <option value="ioc_3plus" {% if filter_type == 'ioc_3plus' %}selected{% endif %}>3+ IOC Events Only</option>
                         <option value="sigma_and_ioc" {% if filter_type == 'sigma_and_ioc' %}selected{% endif %}>IOC + SIGMA Events Only</option>
                         <option value="tagged" {% if filter_type == 'tagged' %}selected{% endif %}>Tagged Events Only</option>
+                        <option value="excluded" {% if filter_type == 'excluded' %}selected{% endif %}>Excluded from Tagging</option>
                     </select>
                 </div>
                 
@@ -831,6 +832,13 @@
             <h2 class="card-title">📊 Search Results</h2>
             <span class="text-muted">{{ "{:,}".format(total_count) }} events found</span>
             {% endif %}
+            {% if excluded_ids|length > 0 %}
+            <span style="margin-left: var(--spacing-md);">
+                <button onclick="showExclusionsModal()" class="btn btn-sm" style="background: var(--color-secondary); font-size: 0.75rem; padding: 2px 8px;" title="Events excluded from Phase 3 auto-tagging">
+                    🚫 {{ excluded_ids|length }} excluded
+                </button>
+            </span>
+            {% endif %}
         </div>
         <div style="display: flex; gap: var(--spacing-md); align-items: center;">
             {% if session.get('ai_evidence_mode') %}
@@ -935,17 +943,38 @@
                         <td>
                             <input type="checkbox" class="event-checkbox" value="{{ event._id }}">
                         </td>
-                        <td>
+                        <td class="tag-cell" data-event-id="{{ event._id }}" data-index-name="{{ event._index }}">
                             {% if event._id in tagged_ids %}
                             <button onclick="untagEvent('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm" 
-                                    style="background: var(--color-warning); padding: 4px 8px;">
+                                    class="btn btn-sm tag-btn" 
+                                    style="background: var(--color-warning); padding: 4px 8px;"
+                                    title="Untag event">
                                 ⭐
+                            </button>
+                            <button onclick="excludeFromTagging('{{ event._id }}', '{{ event._index }}')" 
+                                    class="btn btn-sm exclude-btn" 
+                                    style="background: var(--color-danger); padding: 4px 8px; margin-left: 2px;"
+                                    title="Exclude from auto-tagging (Phase 3 won't re-tag this)">
+                                ✕
+                            </button>
+                            {% elif event._id in excluded_ids %}
+                            <button onclick="tagEvent('{{ event._id }}', '{{ event._index }}')" 
+                                    class="btn btn-sm tag-btn" 
+                                    style="padding: 4px 8px; opacity: 0.5;"
+                                    title="Tag event (will remove exclusion)">
+                                ☆
+                            </button>
+                            <button onclick="removeExclusion('{{ event._id }}', '{{ event._index }}')" 
+                                    class="btn btn-sm" 
+                                    style="background: var(--color-secondary); padding: 4px 8px; margin-left: 2px;"
+                                    title="Event excluded - click to allow auto-tagging again">
+                                🚫
                             </button>
                             {% else %}
                             <button onclick="tagEvent('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm btn-secondary" 
-                                    style="padding: 4px 8px;">
+                                    class="btn btn-sm btn-secondary tag-btn" 
+                                    style="padding: 4px 8px;"
+                                    title="Tag event">
                                 ☆
                             </button>
                             {% endif %}
@@ -1326,6 +1355,25 @@
         </div>
         <div class="modal-body" id="firewallSelectBodyFailed" style="padding: var(--spacing-lg);">
             <!-- Firewall list will be populated here -->
+        </div>
+    </div>
+</div>
+
+<!-- Tag Exclusions Modal -->
+<div id="exclusionsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🚫 Events Excluded from Auto-Tagging</h2>
+            <button onclick="closeExclusionsModal()" class="modal-close">✕</button>
+        </div>
+        <div class="modal-body" id="exclusionsModalBody" style="padding: var(--spacing-lg); max-height: 60vh; overflow-y: auto;">
+            <p class="text-muted" style="margin-bottom: var(--spacing-md);">
+                These events have been manually excluded from Phase 3 auto-tagging. 
+                They will not be re-tagged even if they match high-confidence IOCs.
+            </p>
+            <div id="exclusionsList">
+                <p class="text-center text-muted">Loading exclusions...</p>
+            </div>
         </div>
     </div>
 </div>
@@ -1850,13 +1898,7 @@ function tagEvent(eventId, indexName) {
     .then(data => {
         if (data.success) {
             // Update UI without full page reload (faster!)
-            const row = document.querySelector(`tr[data-event-id="${eventId}"]`);
-            if (row) {
-                const tagCell = row.querySelector('td:nth-child(2)');  // Tag column is 2nd
-                if (tagCell) {
-                    tagCell.innerHTML = `<button onclick="untagEvent('${eventId}', '${indexName}')" class="btn btn-sm" style="background: var(--color-warning); padding: 4px 8px;">⭐</button>`;
-                }
-            }
+            updateTagCell(eventId, indexName, 'tagged');
         } else {
             alert(data.error || 'Failed to tag event');
         }
@@ -1873,15 +1915,102 @@ function untagEvent(eventId, indexName) {
     .then(data => {
         if (data.success) {
             // Update UI without full page reload (faster!)
-            const row = document.querySelector(`tr[data-event-id="${eventId}"]`);
-            if (row) {
-                const tagCell = row.querySelector('td:nth-child(2)');  // Tag column is 2nd
-                if (tagCell) {
-                    tagCell.innerHTML = `<button onclick="tagEvent('${eventId}', '${indexName}')" class="btn btn-sm btn-secondary" style="padding: 4px 8px;">☆</button>`;
-                }
-            }
+            updateTagCell(eventId, indexName, 'untagged');
         }
     });
+}
+
+// Exclude event from auto-tagging (Phase 3 won't re-tag this)
+function excludeFromTagging(eventId, indexName) {
+    if (!confirm('Exclude this event from Phase 3 auto-tagging?\n\nThis event will be untagged and Phase 3 will not re-tag it in the future.')) {
+        return;
+    }
+    
+    // First untag, then exclude
+    fetch(`/case/${CASE_ID}/search/untag`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event_id: eventId, index_name: indexName})
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Now add to exclusion list
+        return fetch(`/case/${CASE_ID}/search/exclude-from-tagging`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                event_id: eventId, 
+                index_name: indexName,
+                reason: 'Manually excluded by user'
+            })
+        });
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateTagCell(eventId, indexName, 'excluded');
+        } else {
+            alert(data.error || 'Failed to exclude event');
+        }
+    });
+}
+
+// Remove event from exclusion list
+function removeExclusion(eventId, indexName) {
+    fetch(`/case/${CASE_ID}/search/remove-exclusion`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event_id: eventId, index_name: indexName})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateTagCell(eventId, indexName, 'untagged');
+        } else {
+            alert(data.error || 'Failed to remove exclusion');
+        }
+    });
+}
+
+// Update the tag cell UI based on state
+function updateTagCell(eventId, indexName, state) {
+    const row = document.querySelector(`tr[data-event-id="${eventId}"]`);
+    if (!row) return;
+    
+    const tagCell = row.querySelector('td.tag-cell');
+    if (!tagCell) return;
+    
+    if (state === 'tagged') {
+        tagCell.innerHTML = `
+            <button onclick="untagEvent('${eventId}', '${indexName}')" 
+                    class="btn btn-sm tag-btn" 
+                    style="background: var(--color-warning); padding: 4px 8px;"
+                    title="Untag event">⭐</button>
+            <button onclick="excludeFromTagging('${eventId}', '${indexName}')" 
+                    class="btn btn-sm exclude-btn" 
+                    style="background: var(--color-danger); padding: 4px 8px; margin-left: 2px;"
+                    title="Exclude from auto-tagging">✕</button>
+        `;
+    } else if (state === 'excluded') {
+        tagCell.innerHTML = `
+            <button onclick="tagEvent('${eventId}', '${indexName}')" 
+                    class="btn btn-sm tag-btn" 
+                    style="padding: 4px 8px; opacity: 0.5;"
+                    title="Tag event (will remove exclusion)">☆</button>
+            <button onclick="removeExclusion('${eventId}', '${indexName}')" 
+                    class="btn btn-sm" 
+                    style="background: var(--color-secondary); padding: 4px 8px; margin-left: 2px;"
+                    title="Event excluded - click to allow auto-tagging">🚫</button>
+        `;
+    } else {
+        // untagged
+        tagCell.innerHTML = `
+            <button onclick="tagEvent('${eventId}', '${indexName}')" 
+                    class="btn btn-sm btn-secondary tag-btn" 
+                    style="padding: 4px 8px;"
+                    title="Tag event">☆</button>
+        `;
+    }
 }
 
 // Add field as IOC - Show modal with dropdown
@@ -3659,13 +3788,91 @@ function closeFirewallSelectModalFailed() {
     document.getElementById('firewallSelectModalFailed').style.display = 'none';
 }
 
-// Close Failed VPN modals on background click
+// Exclusions Modal Functions
+function showExclusionsModal() {
+    document.getElementById('exclusionsModal').style.display = 'flex';
+    loadExclusions();
+}
+
+function closeExclusionsModal() {
+    document.getElementById('exclusionsModal').style.display = 'none';
+}
+
+function loadExclusions() {
+    const listDiv = document.getElementById('exclusionsList');
+    listDiv.innerHTML = '<p class="text-center text-muted">Loading exclusions...</p>';
+    
+    fetch(`/case/${CASE_ID}/search/exclusions`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                listDiv.innerHTML = '<p class="text-center text-muted">Failed to load exclusions</p>';
+                return;
+            }
+            
+            if (data.exclusions.length === 0) {
+                listDiv.innerHTML = '<p class="text-center text-muted">No events excluded</p>';
+                return;
+            }
+            
+            let html = '<table class="table" style="font-size: 0.85rem;">';
+            html += '<thead><tr><th>Event ID</th><th>Reason</th><th>Excluded By</th><th>Date</th><th>Action</th></tr></thead>';
+            html += '<tbody>';
+            
+            data.exclusions.forEach(exc => {
+                const date = exc.excluded_at ? new Date(exc.excluded_at).toLocaleString() : 'Unknown';
+                html += `<tr>
+                    <td style="font-family: monospace; font-size: 0.75rem;">${exc.event_id.substring(0, 20)}...</td>
+                    <td>${exc.reason || 'Manual exclusion'}</td>
+                    <td>${exc.excluded_by}</td>
+                    <td>${date}</td>
+                    <td>
+                        <button onclick="removeExclusionFromModal('${exc.event_id}', '${exc.index_name}')" 
+                                class="btn btn-sm btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;"
+                                title="Allow Phase 3 to tag this event again">
+                            Remove
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            listDiv.innerHTML = html;
+        })
+        .catch(err => {
+            listDiv.innerHTML = '<p class="text-center text-muted">Error loading exclusions</p>';
+            console.error('Failed to load exclusions:', err);
+        });
+}
+
+function removeExclusionFromModal(eventId, indexName) {
+    fetch(`/case/${CASE_ID}/search/remove-exclusion`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event_id: eventId, index_name: indexName})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadExclusions();  // Reload the list
+            // Also update the UI if the event is visible on the page
+            updateTagCell(eventId, indexName, 'untagged');
+        } else {
+            alert(data.error || 'Failed to remove exclusion');
+        }
+    });
+}
+
+// Close Failed VPN modals and Exclusions modal on background click
 document.addEventListener('click', function(e) {
     if (e.target.id === 'failedVPNModal') {
         closeFailedVPNModal();
     }
     if (e.target.id === 'firewallSelectModalFailed') {
         closeFirewallSelectModalFailed();
+    }
+    if (e.target.id === 'exclusionsModal') {
+        closeExclusionsModal();
     }
 });
 
@@ -4962,12 +5169,19 @@ function showAIEventsInSearchResults_OLD() {
         // Checkbox column
         rows += `<td><input type="checkbox" class="event-checkbox" value="${_id}"></td>`;
         
-        // Tag column
+        // Tag column with exclusion support
+        const isExcluded = event.is_excluded || false;
+        rows += `<td class="tag-cell" data-event-id="${_id}" data-index-name="${_index}">`;
         if (isTagged) {
-            rows += `<td><button onclick="untagEvent('${_id}', '${_index}')" class="btn btn-sm" style="background: var(--color-warning); padding: 4px 8px;">⭐</button></td>`;
+            rows += `<button onclick="untagEvent('${_id}', '${_index}')" class="btn btn-sm tag-btn" style="background: var(--color-warning); padding: 4px 8px;" title="Untag event">⭐</button>`;
+            rows += `<button onclick="excludeFromTagging('${_id}', '${_index}')" class="btn btn-sm exclude-btn" style="background: var(--color-danger); padding: 4px 8px; margin-left: 2px;" title="Exclude from auto-tagging">✕</button>`;
+        } else if (isExcluded) {
+            rows += `<button onclick="tagEvent('${_id}', '${_index}')" class="btn btn-sm tag-btn" style="padding: 4px 8px; opacity: 0.5;" title="Tag event (will remove exclusion)">☆</button>`;
+            rows += `<button onclick="removeExclusion('${_id}', '${_index}')" class="btn btn-sm" style="background: var(--color-secondary); padding: 4px 8px; margin-left: 2px;" title="Event excluded - click to allow auto-tagging">🚫</button>`;
         } else {
-            rows += `<td><button onclick="tagEvent('${_id}', '${_index}')" class="btn btn-sm btn-secondary" style="padding: 4px 8px;">☆</button></td>`;
+            rows += `<button onclick="tagEvent('${_id}', '${_index}')" class="btn btn-sm btn-secondary tag-btn" style="padding: 4px 8px;" title="Tag event">☆</button>`;
         }
+        rows += `</td>`;
         
         // Dynamic columns based on page configuration
         columns.forEach(col => {

@@ -113,7 +113,7 @@
             <h2 class="card-title">📊 Event Statistics</h2>
         </div>
         <div class="card-body">
-            <div class="stat-grid-case" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="stat-grid-case" style="grid-template-columns: repeat(3, 1fr);">
                 <div class="stat-item">
                     <div class="stat-item-label">Total Events</div>
                     <div id="stat-total-events" class="stat-item-value-large" style="color: var(--color-primary);">
@@ -132,10 +132,24 @@
                         {{ '{:,}'.format(total_ioc_events) }}
                     </div>
                 </div>
+            </div>
+            <div class="stat-grid-case" style="grid-template-columns: repeat(3, 1fr); margin-top: var(--spacing-sm);">
                 <div class="stat-item">
                     <div class="stat-item-label">Hidden Events</div>
                     <div id="stat-hidden-events" class="stat-item-value-large" style="color: var(--color-muted);">
                         {{ '{:,}'.format(total_hidden_events|default(0)) }}
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">Tagged Events</div>
+                    <div id="stat-tagged-events" class="stat-item-value-large" style="color: var(--color-warning);">
+                        {{ '{:,}'.format(tagged_events_count|default(0)) }}
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">Excluded from Tagging</div>
+                    <div id="stat-excluded-events" class="stat-item-value-large" style="color: var(--color-secondary);">
+                        {{ '{:,}'.format(excluded_events_count|default(0)) }}
                     </div>
                 </div>
             </div>

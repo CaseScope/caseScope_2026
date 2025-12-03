@@ -358,6 +358,32 @@ class TimelineTag(db.Model):
     )
 
 
+class TagExclusion(db.Model):
+    """Events excluded from Phase 3 auto-tagging.
+    
+    When a user manually untags an event and wants to prevent it from
+    being re-tagged by Phase 3, an exclusion record is created here.
+    """
+    __tablename__ = 'tag_exclusion'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    event_id = db.Column(db.String(64), nullable=False, index=True)  # OpenSearch document ID
+    index_name = db.Column(db.String(200), nullable=False, index=True)
+    reason = db.Column(db.String(200))  # Optional: "False positive", "Not relevant", etc.
+    excluded_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    excluded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    case = db.relationship('Case', backref='tag_exclusions')
+    user = db.relationship('User', backref='tag_exclusions', foreign_keys=[excluded_by])
+    
+    # Unique constraint: one exclusion per event per case
+    __table_args__ = (
+        db.UniqueConstraint('case_id', 'event_id', 'index_name', name='_tag_exclusion_uc'),
+    )
+
+
 class AuditLog(db.Model):
     """Audit trail for user actions"""
     __tablename__ = 'audit_log'
