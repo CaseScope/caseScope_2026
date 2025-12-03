@@ -1331,6 +1331,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         # STEP 2.5: Sync event statuses to database (v1.46.0 - OPTIMIZED)
         # Use tracked noise_event_ids instead of querying OpenSearch
         # This eliminates the expensive post-index query and improves performance
+        logger.info(f"[INDEX FILE] DEBUG: Collected {len(noise_event_ids):,} noise event IDs for database sync")
         if noise_event_ids:
             try:
                 from event_status import bulk_set_status, STATUS_NOISE
@@ -1339,6 +1340,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 logger.info(f"[INDEX FILE] ✓ Synced {len(noise_event_ids):,} noise events to database")
             except Exception as e:
                 logger.warning(f"[INDEX FILE] Failed to sync event statuses to database: {e}")
+        else:
+            logger.info(f"[INDEX FILE] No noise events to sync for this file")
         
         # Verify indexing success
         if indexed_count == 0 and event_count > 0:
