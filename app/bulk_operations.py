@@ -328,6 +328,93 @@ def clear_sigma_flags_in_opensearch(opensearch_client, files: List[Any],
 # DATABASE OPERATIONS (scope-aware)
 # ============================================================================
 
+def clear_event_statuses(db, scope: str = 'case', case_id: Optional[int] = None,
+                        file_ids: Optional[List[int]] = None) -> int:
+    """
+    Clear EventStatus records (unified for case/global/file-specific reindex)
+    
+    This ensures a TRUE fresh start during reindex - old event statuses
+    (noise, hunted, confirmed) are completely wiped before re-processing.
+    
+    Args:
+        db: Database session
+        scope: 'case', 'global', or 'file'
+        case_id: Required if scope='case' or 'file'
+        file_ids: Required if scope='file' (list of file IDs)
+    
+    Returns:
+        Number of EventStatus records deleted
+    """
+    from models import EventStatus
+    from file_processing import get_opensearch_client
+    from utils import make_index_name
+    
+    if scope == 'file' and file_ids:
+        # File-specific: Need to get event IDs from OpenSearch first
+        opensearch_client = get_opensearch_client()
+        index_name = make_index_name(case_id)
+        
+        all_event_ids = []
+        for file_id in file_ids:
+            try:
+                # Query OpenSearch for event IDs in this file
+                response = opensearch_client.search(
+                    index=index_name,
+                    body={
+                        "query": {"term": {"file_id": file_id}},
+                        "_source": False,
+                        "size": 10000
+                    },
+                    scroll='5m',
+                    ignore=[404]
+                )
+                
+                scroll_id = response.get('_scroll_id')
+                hits = response['hits']['hits']
+                
+                while hits:
+                    all_event_ids.extend([hit['_id'] for hit in hits])
+                    
+                    response = opensearch_client.scroll(scroll_id=scroll_id, scroll='5m')
+                    scroll_id = response.get('_scroll_id')
+                    hits = response['hits']['hits']
+                
+                # Clear scroll
+                if scroll_id:
+                    opensearch_client.clear_scroll(scroll_id=scroll_id)
+                    
+            except Exception as e:
+                logger.warning(f"[BULK OPS] Could not get event IDs for file {file_id}: {e}")
+        
+        # Delete EventStatus records for these event IDs
+        if all_event_ids:
+            deleted = EventStatus.query.filter(
+                EventStatus.case_id == case_id,
+                EventStatus.event_id.in_(all_event_ids)
+            ).delete(synchronize_session=False)
+            db.session.commit()
+            logger.info(f"[BULK OPS] [FILE] Cleared {deleted} EventStatus records for {len(file_ids)} file(s)")
+            return deleted
+        return 0
+    
+    elif scope == 'case':
+        # Case-specific: Clear all EventStatus for this case
+        deleted = EventStatus.query.filter_by(case_id=case_id).delete()
+        db.session.commit()
+        logger.info(f"[BULK OPS] [CASE] Cleared {deleted} EventStatus records from case {case_id}")
+        return deleted
+    
+    elif scope == 'global':
+        # Global: Clear all EventStatus across all cases
+        deleted = EventStatus.query.delete()
+        db.session.commit()
+        logger.info(f"[BULK OPS] [GLOBAL] Cleared {deleted} EventStatus records from all cases")
+        return deleted
+    
+    else:
+        raise ValueError(f"Invalid scope: {scope}")
+
+
 def clear_sigma_violations(db, scope: str = 'case', case_id: Optional[int] = None,
                           file_ids: Optional[List[int]] = None) -> int:
     """

@@ -4828,10 +4828,14 @@ def bulk_reindex_route(case_id):
     # STEP 1: Clear database entries (reset to fresh import state)
     steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
     
-    # Clear all SIGMA violations, IOC matches, and timeline tags for this case
+    # Clear all SIGMA violations, IOC matches, timeline tags, and EventStatus for this case
     sigma_deleted = clear_case_sigma_violations(db, case_id)
     ioc_deleted = clear_case_ioc_matches(db, case_id)
     tags_deleted = clear_case_timeline_tags(db, case_id)
+    
+    # v1.46.0: Clear EventStatus records for true fresh start
+    from bulk_operations import clear_event_statuses
+    statuses_deleted = clear_event_statuses(db, scope='case', case_id=case_id)
     
     # Reset all file metadata (including opensearch_key)
     for f in files:
@@ -4847,6 +4851,7 @@ def bulk_reindex_route(case_id):
     steps[-1]['sigma_deleted'] = sigma_deleted
     steps[-1]['ioc_deleted'] = ioc_deleted
     steps[-1]['tags_deleted'] = tags_deleted
+    steps[-1]['statuses_deleted'] = statuses_deleted
     steps[-1]['duration'] = round(time.time() - start_time, 2)
     
     # STEP 2: Clear OpenSearch entries (DELETE ENTIRE INDEX for clean slate)
@@ -4900,7 +4905,8 @@ def bulk_reindex_route(case_id):
             'indices_cleared': indices_deleted,
             'sigma_deleted': sigma_deleted,
             'ioc_deleted': ioc_deleted,
-            'tags_deleted': tags_deleted
+            'tags_deleted': tags_deleted,
+            'statuses_deleted': statuses_deleted
         })
     else:
         flash(f'✅ Re-indexing queued for {len(files)} file(s) ({worker_count} worker(s) available). All data will be cleared and rebuilt.', 'success')

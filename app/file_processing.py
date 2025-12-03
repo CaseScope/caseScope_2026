@@ -955,6 +955,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         event_count = 0  # Events parsed from file
         indexed_count = 0  # Events successfully indexed to OpenSearch
         auto_hidden_count = 0  # Events auto-hidden during indexing (v1.43.17)
+        noise_event_ids = []  # Track noise event IDs for database sync (v1.46.0)
         bulk_data = []
         
         # v1.45.0: Pre-load exclusions for auto-hide using events_known_good module
@@ -1039,6 +1040,13 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     if deduplicate_enabled:
                         doc_id = generate_event_document_id(case_id, event)
                         bulk_doc['_id'] = doc_id
+                    else:
+                        # Generate deterministic ID for tracking (even if dedup disabled)
+                        doc_id = generate_event_document_id(case_id, event)
+                    
+                    # Track noise events for database sync (v1.46.0)
+                    if event.get('event_status') == 'noise':
+                        noise_event_ids.append(doc_id)
                     
                     bulk_data.append(bulk_doc)
                     
@@ -1110,6 +1118,13 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 if deduplicate_enabled:
                     doc_id = generate_event_document_id(case_id, event)
                     bulk_doc['_id'] = doc_id
+                else:
+                    # Generate deterministic ID for tracking (even if dedup disabled)
+                    doc_id = generate_event_document_id(case_id, event)
+                
+                # Track noise events for database sync (v1.46.0)
+                if event.get('event_status') == 'noise':
+                    noise_event_ids.append(doc_id)
                 
                 bulk_data.append(bulk_doc)
                 event_count += 1
@@ -1243,6 +1258,13 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         if deduplicate_enabled:
                             doc_id = generate_event_document_id(case_id, event)
                             bulk_doc['_id'] = doc_id
+                        else:
+                            # Generate deterministic ID for tracking (even if dedup disabled)
+                            doc_id = generate_event_document_id(case_id, event)
+                        
+                        # Track noise events for database sync (v1.46.0)
+                        if event.get('event_status') == 'noise':
+                            noise_event_ids.append(doc_id)
                         
                         bulk_data.append(bulk_doc)
                         
@@ -1306,33 +1328,15 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         
         logger.info(f"[INDEX FILE] ✓ Parsed {event_count:,} events, indexed {indexed_count:,} to {index_name} ({auto_hidden_count:,} auto-hidden)")
         
-        # STEP 2.5: Sync event statuses to database (v1.46.0)
-        # Query OpenSearch for all events marked as 'noise' and create EventStatus records
-        # This ensures database counts match OpenSearch filtering
-        if indexed_count > 0:
+        # STEP 2.5: Sync event statuses to database (v1.46.0 - OPTIMIZED)
+        # Use tracked noise_event_ids instead of querying OpenSearch
+        # This eliminates the expensive post-index query and improves performance
+        if noise_event_ids:
             try:
-                logger.info(f"[INDEX FILE] Syncing event statuses to database...")
-                noise_query = {
-                    "size": 10000,  # Max batch size
-                    "_source": False,  # Only need IDs
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"term": {"file_id": file_id}},
-                                {"term": {"event_status": "noise"}}
-                            ]
-                        }
-                    }
-                }
-                
-                noise_response = opensearch_client.search(index=index_name, body=noise_query)
-                noise_event_ids = [hit['_id'] for hit in noise_response['hits']['hits']]
-                
-                if noise_event_ids:
-                    from event_status import bulk_set_status, STATUS_NOISE
-                    bulk_set_status(case_id, noise_event_ids, STATUS_NOISE, user_id=None, 
-                                  notes="Auto-set during indexing")
-                    logger.info(f"[INDEX FILE] ✓ Synced {len(noise_event_ids):,} noise events to database")
+                from event_status import bulk_set_status, STATUS_NOISE
+                bulk_set_status(case_id, noise_event_ids, STATUS_NOISE, user_id=None, 
+                              notes="Auto-set during indexing")
+                logger.info(f"[INDEX FILE] ✓ Synced {len(noise_event_ids):,} noise events to database")
             except Exception as e:
                 logger.warning(f"[INDEX FILE] Failed to sync event statuses to database: {e}")
         

@@ -958,9 +958,14 @@ def bulk_reindex_selected(case_id):
         clear_file_sigma_violations(db, file.id)
         clear_file_ioc_matches(db, file.id)
     
+    # v1.46.0: Clear EventStatus records for true fresh start
+    from bulk_operations import clear_event_statuses
+    statuses_deleted = clear_event_statuses(db, scope='file', case_id=case_id, file_ids=[f.id for f in files])
+    
     db.session.commit()
     steps[-1]['status'] = 'completed'
     steps[-1]['files_processed'] = len(files)
+    steps[-1]['statuses_deleted'] = statuses_deleted
     steps[-1]['duration'] = round(time.time() - start_time, 2)
     
     # STEP 2: Clear OpenSearch entries
@@ -1837,9 +1842,13 @@ def bulk_reindex_global_route():
         # STEP 1: Clear database entries (reset to fresh import state)
         steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
         
-        # Clear SIGMA and IOC data
+        # Clear SIGMA, IOC, and EventStatus data
         sigma_deleted = clear_sigma_violations(db, scope='global')
         ioc_deleted = clear_ioc_matches(db, scope='global')
+        
+        # v1.46.0: Clear EventStatus records for true fresh start
+        from bulk_operations import clear_event_statuses
+        statuses_deleted = clear_event_statuses(db, scope='global')
         
         # Prepare files for reindex
         prepare_files_for_reindex(db, files, scope='global')
@@ -1847,6 +1856,8 @@ def bulk_reindex_global_route():
         steps[-1]['status'] = 'completed'
         steps[-1]['files_processed'] = len(files)
         steps[-1]['sigma_deleted'] = sigma_deleted
+        steps[-1]['ioc_deleted'] = ioc_deleted
+        steps[-1]['statuses_deleted'] = statuses_deleted
         steps[-1]['ioc_deleted'] = ioc_deleted
         steps[-1]['duration'] = round(time.time() - start_time, 2)
         
@@ -2124,9 +2135,21 @@ def bulk_reindex_selected_global_route():
         # STEP 1: Clear database entries (reset to fresh import state)
         steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
         
-        # Clear data
+        # Clear SIGMA, IOC, and EventStatus data
         sigma_deleted = clear_sigma_violations(db, scope='global', file_ids=file_ids)
         ioc_deleted = clear_ioc_matches(db, scope='global', file_ids=file_ids)
+        
+        # v1.46.0: Clear EventStatus records - need to do per-case for file-specific
+        from bulk_operations import clear_event_statuses
+        statuses_deleted = 0
+        files_by_case = {}
+        for f in files:
+            if f.case_id not in files_by_case:
+                files_by_case[f.case_id] = []
+            files_by_case[f.case_id].append(f.id)
+        
+        for case_id, file_id_list in files_by_case.items():
+            statuses_deleted += clear_event_statuses(db, scope='file', case_id=case_id, file_ids=file_id_list)
         
         # Prepare files for reindex
         prepare_files_for_reindex(db, files, scope='global')
@@ -2135,6 +2158,7 @@ def bulk_reindex_selected_global_route():
         steps[-1]['files_processed'] = len(files)
         steps[-1]['sigma_deleted'] = sigma_deleted
         steps[-1]['ioc_deleted'] = ioc_deleted
+        steps[-1]['statuses_deleted'] = statuses_deleted
         if archived_count > 0:
             steps[-1]['archived_skipped'] = archived_count
         steps[-1]['duration'] = round(time.time() - start_time, 2)
