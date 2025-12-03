@@ -368,7 +368,7 @@ class TagExclusion(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
-    event_id = db.Column(db.String(64), nullable=False, index=True)  # OpenSearch document ID
+    event_id = db.Column(db.String(150), nullable=False, index=True)  # OpenSearch document ID (can be 100+ chars)
     index_name = db.Column(db.String(200), nullable=False, index=True)
     reason = db.Column(db.String(200))  # Optional: "False positive", "Not relevant", etc.
     excluded_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
