@@ -1158,6 +1158,7 @@ function updateModalWithSteps(steps) {
         if (step.sigma_deleted) details.push(`${step.sigma_deleted} SIGMA violations cleared`);
         if (step.ioc_deleted) details.push(`${step.ioc_deleted} IOC matches cleared`);
         if (step.tags_deleted) details.push(`${step.tags_deleted} timeline tags cleared`);
+        if (step.statuses_deleted) details.push(`${step.statuses_deleted} event statuses cleared`);
         if (step.indices_cleared) details.push(`${step.indices_cleared} indices cleared`);
         
         if (details.length > 0) {
@@ -1268,12 +1269,41 @@ function confirmReindex() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                // Show all completed steps
                 updateModalWithSteps(data.steps);
-                // Wait 2 seconds then close modal and refresh
+                
+                // Add success summary at the end
+                const stepsContainer = document.getElementById('reindexSteps');
+                if (stepsContainer && data.files_queued) {
+                    const summaryDiv = document.createElement('div');
+                    summaryDiv.style.cssText = `
+                        margin-top: var(--spacing-lg);
+                        padding: var(--spacing-md);
+                        background: var(--color-success-bg);
+                        border: 2px solid var(--color-success);
+                        border-radius: 8px;
+                        text-align: center;
+                    `;
+                    summaryDiv.innerHTML = `
+                        <div style="font-size: 1.1em; color: var(--color-success); margin-bottom: var(--spacing-xs);">
+                            <strong>✅ Preparation Complete!</strong>
+                        </div>
+                        <div style="color: var(--color-text); font-size: 0.95em;">
+                            ${data.files_queued} file(s) queued for reindexing<br>
+                            <span style="color: var(--color-text-muted); font-size: 0.875em;">
+                                Workers will begin processing shortly...<br>
+                                Page will refresh automatically
+                            </span>
+                        </div>
+                    `;
+                    stepsContainer.appendChild(summaryDiv);
+                }
+                
+                // Auto-close modal and refresh after showing completion (3 seconds)
                 setTimeout(() => {
                     closeReindexModal();
                     location.reload();
-                }, 2000);
+                }, 3000);
             } else {
                 // v1.19.8: Check for index version mismatch (shouldn't happen for bulk, but just in case)
                 if (data.error === 'index_version_mismatch') {
