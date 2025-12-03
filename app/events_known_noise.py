@@ -76,11 +76,12 @@ NOISE_PROCESSES = [
 ]
 
 # Usernames that are system noise
+# NOTE: Do NOT include '' - empty usernames are handled by is_noise_user() returning True for falsy values
 NOISE_USERS = {
     'system', 'network service', 'local service', 'anonymous logon',
     'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
     'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3',
-    '-', 'n/a', '', 'font driver host', 'defaultaccount', 
+    '-', 'n/a', 'font driver host', 'defaultaccount', 
     'guest', 'wdagutilityaccount'
 }
 

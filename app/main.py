@@ -2446,6 +2446,45 @@ def triage_add_found_iocs(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/case/<int:case_id>/triage/tag-events', methods=['POST'])
+@login_required
+def triage_tag_events(case_id):
+    """
+    Tag events containing high-confidence IOCs.
+    Auto-tags events matching commands, actor IPs/hostnames, high-threat IOCs.
+    """
+    from ai_triage_tag_iocs import tag_high_confidence_events, get_tagging_summary
+    
+    # Permission check
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot tag events'}), 403
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        result = tag_high_confidence_events(case_id, current_user.id)
+        
+        if result.get('success'):
+            summary = get_tagging_summary(result)
+            return jsonify({
+                'success': True,
+                'tagged_count': result.get('tagged_count', 0),
+                'summary': summary,
+                'message': result.get('message')
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error'),
+                'tagged_count': 0
+            })
+    except Exception as e:
+        logger.error(f"[TRIAGE] Tag events failed for case {case_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/case/<int:case_id>/search')
 @login_required
 def search_events(case_id):

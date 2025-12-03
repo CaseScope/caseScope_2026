@@ -32,11 +32,12 @@ logger = logging.getLogger(__name__)
 # NOISE FILTERING (copied from events_known_noise for standalone use)
 # ============================================================================
 
+# NOTE: Do NOT include '' - empty usernames are handled by is_noise_user() returning True for falsy values
 NOISE_USERS = {
     'system', 'network service', 'local service', 'anonymous logon',
     'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
     'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3',
-    '-', 'n/a', '', 'font driver host', 'defaultaccount', 
+    '-', 'n/a', 'font driver host', 'defaultaccount', 
     'guest', 'wdagutilityaccount', 'nt authority\\system',
     'nt authority\\local service', 'nt authority\\network service'
 }

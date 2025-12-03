@@ -345,7 +345,34 @@
             </div>
         </div>
         
-        <!-- More phases will be added here as they are modularized -->
+        <!-- Phase 3: Tag High-Confidence Events -->
+        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 3: Tag Highly Likely Events</h4>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                    {% if has_iocs %}
+                    Auto-tag events matching commands, actor IPs/hostnames, and high-threat IOCs for timeline.
+                    {% else %}
+                    <span style="color: var(--color-warning);">Requires IOCs defined first.</span>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                {% if has_iocs %}
+                <button onclick="tagHighConfidenceEvents()" class="btn btn-sm btn-primary" id="tagEventsBtn">
+                    <span>🏷️</span>
+                    <span>Tag Highly Likely Events</span>
+                </button>
+                {% else %}
+                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
+                    <span>🏷️</span>
+                    <span>Tag Highly Likely Events</span>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- More phases coming -->
         <div style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic; text-align: center; padding: var(--spacing-md);">
             Additional triage phases coming soon...
         </div>
@@ -421,6 +448,41 @@
                 <span>➕</span>
                 <span>Add Selected IOCs to Case</span>
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Tag High-Confidence Events Modal -->
+<div id="tagEventsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🏷️ Auto-Tag Results</h2>
+            <button type="button" class="modal-close" onclick="closeTagEventsModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="tagEventsProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted);">Searching for high-confidence events...</p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);">Matching commands, actor IPs, and high-threat IOCs.</p>
+                </div>
+            </div>
+            <div id="tagEventsResults" style="display: none;">
+                <div id="tagEventsSummary"></div>
+            </div>
+            <div id="tagEventsError" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <p id="tagEventsErrorMessage">An error occurred during tagging.</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeTagEventsModal()" class="btn btn-secondary">Close</button>
+            <a href="{{ url_for('search_events', case_id=case.id) }}?filter=tagged" class="btn btn-primary" id="viewTaggedBtn" style="display: none;">
+                <span>👁️</span>
+                <span>View Tagged Events</span>
+            </a>
         </div>
     </div>
 </div>
@@ -895,6 +957,108 @@ function addFoundIOCs() {
 }
 
 // ============================================================================
+// TAG HIGH-CONFIDENCE EVENTS
+// ============================================================================
+
+function tagHighConfidenceEvents() {
+    // Show modal with progress
+    document.getElementById('tagEventsModal').style.display = 'flex';
+    document.getElementById('tagEventsProgress').style.display = 'block';
+    document.getElementById('tagEventsResults').style.display = 'none';
+    document.getElementById('tagEventsError').style.display = 'none';
+    document.getElementById('viewTaggedBtn').style.display = 'none';
+    
+    // Disable button during tagging
+    const btn = document.getElementById('tagEventsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Tagging...</span>';
+    }
+    
+    // Call API
+    fetch(`/case/${CASE_ID}/triage/tag-events`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('tagEventsProgress').style.display = 'none';
+        
+        if (data.success) {
+            showTagEventsResults(data);
+        } else {
+            document.getElementById('tagEventsError').style.display = 'block';
+            document.getElementById('tagEventsErrorMessage').textContent = data.error || 'Unknown error';
+        }
+    })
+    .catch(error => {
+        document.getElementById('tagEventsProgress').style.display = 'none';
+        document.getElementById('tagEventsError').style.display = 'block';
+        document.getElementById('tagEventsErrorMessage').textContent = error.message;
+    })
+    .finally(() => {
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>🏷️</span> <span>Tag Highly Likely Events</span>';
+        }
+    });
+}
+
+function showTagEventsResults(data) {
+    document.getElementById('tagEventsResults').style.display = 'block';
+    
+    const summary = data.summary;
+    
+    // Build summary HTML
+    let summaryHtml = `
+        <div style="text-align: center; padding: var(--spacing-lg);">
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">
+                ${data.tagged_count > 0 ? '✅' : '📋'}
+            </div>
+            <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary); margin-bottom: var(--spacing-sm);">
+                ${data.tagged_count} Events Tagged
+            </div>
+            ${data.message ? `<p style="color: var(--color-text-muted);">${data.message}</p>` : ''}
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-lg);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold;">${summary.events_found}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Events Found</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold;">${summary.already_tagged}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Already Tagged</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold;">${summary.noise_filtered}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Noise Filtered</div>
+            </div>
+        </div>
+        
+        <div style="margin-top: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+            <div style="font-size: 0.9rem; color: var(--color-text-muted);">
+                <strong>Sources:</strong> ${summary.ioc_count} high-confidence IOCs, ${summary.actor_count} actor systems
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('tagEventsSummary').innerHTML = summaryHtml;
+    
+    // Show view button if events were tagged
+    if (data.tagged_count > 0) {
+        document.getElementById('viewTaggedBtn').style.display = 'inline-flex';
+    }
+}
+
+function closeTagEventsModal() {
+    document.getElementById('tagEventsModal').style.display = 'none';
+}
+
+// ============================================================================
 // MODAL BACKGROUND CLICKS
 // ============================================================================
 
@@ -907,6 +1071,9 @@ document.addEventListener('click', function(e) {
     }
     if (e.target.id === 'findIocsModal') {
         closeFindIocsModal();
+    }
+    if (e.target.id === 'tagEventsModal') {
+        closeTagEventsModal();
     }
 });
 </script>
