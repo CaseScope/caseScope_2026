@@ -147,7 +147,7 @@ def set_status(case_id: int, event_id: str, status: str,
 def bulk_set_status(case_id: int, event_ids: List[str], status: str,
                     user_id: Optional[int] = None, notes: Optional[str] = None) -> Dict[str, int]:
     """
-    Set status for multiple events efficiently.
+    Set status for multiple events efficiently with batching for large lists.
     
     Args:
         case_id: Case ID
@@ -168,47 +168,66 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
     if not event_ids:
         return {'updated': 0, 'created': 0}
     
+    # CRITICAL: Batch processing for large lists (v1.46.1)
+    # PostgreSQL IN clause has limits, and session.add() for 800k records will fail
+    # Process in chunks of 10,000 to avoid memory/performance issues
+    BATCH_SIZE = 10000
+    total_updated = 0
+    total_created = 0
+    
     try:
-        # Get existing records
-        existing = EventStatus.query.filter(
-            EventStatus.case_id == case_id,
-            EventStatus.event_id.in_(event_ids)
-        ).all()
-        
-        existing_ids = {r.event_id: r for r in existing}
-        
-        updated_count = 0
-        created_count = 0
         now = datetime.utcnow()
         
-        for event_id in event_ids:
-            if event_id in existing_ids:
-                # Update existing
-                record = existing_ids[event_id]
-                if record.status != status:  # Only update if different
-                    record.status = status
-                    record.updated_by = user_id
-                    record.updated_at = now
-                    if notes is not None:
-                        record.notes = notes
-                    updated_count += 1
-            else:
-                # Create new
-                record = EventStatus(
-                    case_id=case_id,
-                    event_id=event_id,
-                    status=status,
-                    updated_by=user_id,
-                    updated_at=now,
-                    notes=notes
-                )
-                db.session.add(record)
-                created_count += 1
+        # Process in batches
+        for i in range(0, len(event_ids), BATCH_SIZE):
+            batch = event_ids[i:i + BATCH_SIZE]
+            
+            # Get existing records for this batch
+            existing = EventStatus.query.filter(
+                EventStatus.case_id == case_id,
+                EventStatus.event_id.in_(batch)
+            ).all()
+            
+            existing_ids = {r.event_id: r for r in existing}
+            
+            updated_count = 0
+            created_count = 0
+            
+            for event_id in batch:
+                if event_id in existing_ids:
+                    # Update existing
+                    record = existing_ids[event_id]
+                    if record.status != status:  # Only update if different
+                        record.status = status
+                        record.updated_by = user_id
+                        record.updated_at = now
+                        if notes is not None:
+                            record.notes = notes
+                        updated_count += 1
+                else:
+                    # Create new
+                    record = EventStatus(
+                        case_id=case_id,
+                        event_id=event_id,
+                        status=status,
+                        updated_by=user_id,
+                        updated_at=now,
+                        notes=notes
+                    )
+                    db.session.add(record)
+                    created_count += 1
+            
+            # Commit this batch
+            db.session.commit()
+            total_updated += updated_count
+            total_created += created_count
+            
+            if (i + BATCH_SIZE) < len(event_ids):
+                logger.debug(f"[EVENT_STATUS] Batch {i//BATCH_SIZE + 1}: {updated_count} updated, {created_count} created")
         
-        db.session.commit()
-        logger.info(f"[EVENT_STATUS] Bulk set {len(event_ids)} events to '{status}': {updated_count} updated, {created_count} created")
+        logger.info(f"[EVENT_STATUS] Bulk set {len(event_ids):,} events to '{status}': {total_updated:,} updated, {total_created:,} created")
         
-        return {'updated': updated_count, 'created': created_count}
+        return {'updated': total_updated, 'created': total_created}
         
     except Exception as e:
         logger.error(f"[EVENT_STATUS] Bulk set failed: {e}")

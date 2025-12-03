@@ -119,8 +119,7 @@ class CaseFile(db.Model):
     # Event counts
     event_count = db.Column(db.Integer, default=0)
     estimated_event_count = db.Column(db.Integer, default=0)
-    violation_count = db.Column(db.Integer, default=0)
-    sigma_event_count = db.Column(db.Integer, default=0)
+    violation_count = db.Column(db.Integer, default=0)  # SIGMA violations count (active)
     ioc_event_count = db.Column(db.Integer, default=0)
     
     # OpenSearch integration

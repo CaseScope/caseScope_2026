@@ -371,7 +371,7 @@ def file_status(case_id, file_id):
         'is_indexed': file.is_indexed,
         'is_hidden': file.is_hidden,
         'event_count': file.event_count,
-        'sigma_event_count': file.sigma_event_count,
+        'violation_count': file.violation_count,
         'ioc_event_count': file.ioc_event_count
     })
 
