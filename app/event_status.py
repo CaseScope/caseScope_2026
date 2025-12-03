@@ -159,7 +159,8 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
     Returns:
         Dict with 'updated' and 'created' counts
     """
-    from models import EventStatus, db
+    from models import EventStatus
+    from main import db  # Use the main app's db session
     
     if status not in VALID_STATUSES:
         logger.error(f"[EVENT_STATUS] Invalid status: {status}")
@@ -183,7 +184,7 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
             batch = event_ids[i:i + BATCH_SIZE]
             
             # Get existing records for this batch
-            existing = EventStatus.query.filter(
+            existing = db.session.query(EventStatus).filter(
                 EventStatus.case_id == case_id,
                 EventStatus.event_id.in_(batch)
             ).all()
@@ -230,7 +231,7 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
         return {'updated': total_updated, 'created': total_created}
         
     except Exception as e:
-        logger.error(f"[EVENT_STATUS] Bulk set failed: {e}")
+        logger.error(f"[EVENT_STATUS] Bulk set failed: {e}", exc_info=True)
         db.session.rollback()
         return {'updated': 0, 'created': 0, 'error': str(e)}
 
