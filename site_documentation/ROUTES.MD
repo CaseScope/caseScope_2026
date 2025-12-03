@@ -167,31 +167,41 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 | `/case/<int:case_id>/search/vpn-authentications` | GET | Analyze VPN authentications (Event 6272) |
 | `/case/<int:case_id>/search/vpn-failed-attempts` | GET | Analyze failed VPN attempts |
 
-### Event Tagging & Status
+### Event Status Management
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/case/<int:case_id>/search/tag` | POST | Tag a single event |
-| `/case/<int:case_id>/search/untag` | POST | Untag a single event |
-| `/case/<int:case_id>/search/bulk-tag` | POST | Bulk tag selected events |
-| `/case/<int:case_id>/search/bulk-untag` | POST | Bulk untag selected events |
 | `/case/<int:case_id>/event-status` | POST | Set event status (new/hunted/confirmed/noise) |
 | `/case/<int:case_id>/event-status/bulk` | POST | Bulk set event status |
 | `/case/<int:case_id>/event-status/counts` | GET | Get event status counts (for stats display) |
 | `/case/<int:case_id>/event-status/<event_id>` | GET | Get status of a single event |
 
-### Event Hiding & Exclusions
+### Legacy Event Tagging (TimelineTag - Deprecated)
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/case/<int:case_id>/search/hide` | POST | Hide a single event |
-| `/case/<int:case_id>/search/unhide` | POST | Unhide a single event |
-| `/case/<int:case_id>/search/bulk-hide` | POST | Bulk hide selected events |
-| `/case/<int:case_id>/search/bulk-unhide` | POST | Bulk unhide selected events |
-| `/case/<int:case_id>/search/exclude-from-tagging` | POST | Exclude an event from AI triage auto-tagging |
-| `/case/<int:case_id>/search/bulk-exclude` | POST | Bulk exclude events from tagging |
-| `/case/<int:case_id>/search/remove-exclusion` | POST | Remove tagging exclusion from an event |
-| `/case/<int:case_id>/search/exclusions` | GET | List all tagging exclusions |
+| `/case/<int:case_id>/search/tag` | POST | ⚠️ LEGACY: Tag a single event for timeline (use event-status instead) |
+| `/case/<int:case_id>/search/untag` | POST | ⚠️ LEGACY: Untag a single event (use event-status instead) |
+| `/case/<int:case_id>/search/bulk-tag` | POST | ⚠️ LEGACY: Bulk tag selected events (use event-status/bulk instead) |
+| `/case/<int:case_id>/search/bulk-untag` | POST | ⚠️ LEGACY: Bulk untag selected events (use event-status/bulk instead) |
+
+### Event Hiding (Deprecated - Use event-status='noise')
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/case/<int:case_id>/search/hide` | POST | ⚠️ DEPRECATED: Hide a single event (use event-status='noise' instead) |
+| `/case/<int:case_id>/search/unhide` | POST | ⚠️ DEPRECATED: Unhide a single event (use event-status='new' instead) |
+| `/case/<int:case_id>/search/bulk-hide` | POST | ⚠️ DEPRECATED: Bulk hide selected events (use event-status/bulk instead) |
+| `/case/<int:case_id>/search/bulk-unhide` | POST | ⚠️ DEPRECATED: Bulk unhide selected events (use event-status/bulk instead) |
+
+### AI Triage Exclusions
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/case/<int:case_id>/search/exclude-from-tagging` | POST | Exclude an event from AI triage auto-marking (prevents setting hunted status) |
+| `/case/<int:case_id>/search/bulk-exclude` | POST | Bulk exclude events from AI triage auto-marking |
+| `/case/<int:case_id>/search/remove-exclusion` | POST | Remove AI triage exclusion from an event |
+| `/case/<int:case_id>/search/exclusions` | GET | List all AI triage exclusions |
 
 ### Saved Searches
 
@@ -281,12 +291,12 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/case/<int:case_id>/triage` | GET | Triage/Hunting page with prerequisites and quick analysis buttons |
-| `/case/<int:case_id>/triage/extract-iocs` | POST | Extract IOCs from EDR report using AI |
+| `/case/<int:case_id>/triage` | GET | Triage/Hunting page with prerequisites and AI analysis phases |
+| `/case/<int:case_id>/triage/extract-iocs` | POST | Phase 1: Extract IOCs from EDR report using AI |
 | `/case/<int:case_id>/triage/add-extracted-iocs` | POST | Add extracted IOCs to case IOC list |
-| `/case/<int:case_id>/triage/find-iocs` | POST | Find events matching extracted IOCs |
+| `/case/<int:case_id>/triage/find-iocs` | POST | Phase 2: Find events matching extracted IOCs (snowball hunting) |
 | `/case/<int:case_id>/triage/add-found-iocs` | POST | Add discovered IOCs from snowball hunting |
-| `/case/<int:case_id>/triage/tag-events` | POST | Auto-tag high-confidence suspicious events |
+| `/case/<int:case_id>/triage/tag-events` | POST | Phase 3: Auto-mark events as 'hunted' (3+ IOCs or attack patterns) |
 
 ### AI Triage Search (9-Phase Analysis)
 
@@ -321,7 +331,7 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/case/<int:case_id>/timeline/generate` | POST | Generate AI case timeline from tagged/confirmed events |
+| `/case/<int:case_id>/timeline/generate` | POST | Generate AI case timeline from hunted/confirmed events |
 | `/case/<int:case_id>/timeline/<int:timeline_id>` | GET | Get timeline data (JSON) |
 | `/case/<int:case_id>/timeline/<int:timeline_id>/view` | GET | View interactive timeline |
 | `/case/<int:case_id>/timeline/<int:timeline_id>/download` | GET | Download timeline as HTML |
@@ -353,19 +363,19 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/settings/system-tools/` | GET | System tools settings page (RMM, EDR, Remote tools) |
-| `/settings/system-tools/rmm/add` | POST | Add RMM tool exclusion pattern |
+| `/settings/system-tools/` | GET | System tools settings page (RMM, EDR, Remote tools, IP exclusions) |
+| `/settings/system-tools/rmm/add` | POST | Add RMM tool exclusion pattern with executable and path |
 | `/settings/system-tools/remote/add` | POST | Add remote tool with known-good session IDs |
-| `/settings/system-tools/edr/add` | POST | Add EDR tool with routine commands and response patterns |
+| `/settings/system-tools/edr/add` | POST | Add EDR tool with routine commands and response keywords |
 | `/settings/system-tools/ip/save` | POST | Add known-good IP/CIDR range |
 | `/settings/system-tools/setting/<int:setting_id>/toggle` | POST | Enable/disable an exclusion setting |
 | `/settings/system-tools/setting/<int:setting_id>/delete` | POST | Delete an exclusion setting |
-| `/settings/system-tools/setting/<int:setting_id>/edit` | POST | Edit an existing exclusion setting |
+| `/settings/system-tools/setting/<int:setting_id>/edit` | POST | Edit existing exclusion setting (RMM, Remote, EDR) |
 | `/settings/system-tools/api/exclusions` | GET | Get exclusions summary (JSON) |
 | `/settings/system-tools/api/has-exclusions` | GET | Check if any exclusions are configured |
-| `/settings/system-tools/case/<int:case_id>/hide-known-good` | POST | Start parallel hide known-good events task |
+| `/settings/system-tools/case/<int:case_id>/hide-known-good` | POST | Start parallel "Hide Known Good" task (sets event_status='noise') |
 | `/settings/system-tools/case/<int:case_id>/hide-known-good/status/<task_id>` | GET | Poll hide known-good task progress |
-| `/settings/system-tools/case/<int:case_id>/hide-noise` | POST | Start hide noise events task |
+| `/settings/system-tools/case/<int:case_id>/hide-noise` | POST | Start "Hide Noise" task (sets event_status='noise') |
 | `/settings/system-tools/case/<int:case_id>/hide-noise/status/<task_id>` | GET | Poll hide noise task progress |
 
 ---
@@ -421,8 +431,8 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 
 ## Summary Statistics
 
-- **Total Routes:** 252
-- **Main Application Routes:** 128 (in `main.py`)
+- **Total Routes:** ~265
+- **Main Application Routes:** ~140 (in `main.py`)
 - **File Management Routes:** 48 (in `routes/files.py`)
 - **System Tools Routes:** 14 (in `routes/system_tools.py`)
 - **Triage/AI Routes:** 18 (in `routes/triage_report.py`)
@@ -432,6 +442,8 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 - **Evidence Files Routes:** 7 (in `routes/evidence.py`)
 - **User Management Routes:** 8 (in `routes/users.py`)
 - **Case Management Routes:** 5 (in `routes/cases.py`)
+
+**Note:** Some legacy routes (event hiding, timeline tagging) are marked as deprecated in favor of the unified EventStatus system (`event_status='new'|'hunted'|'confirmed'|'noise'`).
 
 ---
 
@@ -461,5 +473,29 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 ---
 
 *Last Updated: December 2025*
-*Version: 1.45.x*
+*Version: 1.46.0*
 
+## Breaking Changes in v1.46.0
+
+### EventStatus System Migration
+- **New System:** All event visibility is now controlled by `event_status` field (new/hunted/confirmed/noise)
+- **Deprecated:** `is_hidden` field in OpenSearch (replaced by `event_status='noise'`)
+- **Deprecated:** Manual hide/unhide routes (use `/event-status` and `/event-status/bulk` instead)
+- **Deprecated:** `TimelineTag` table and tagging routes (use `event_status='hunted'` or `'confirmed'` instead)
+
+### "Hide Known Good" & "Hide Noise" Updates
+- Both operations now set `event_status='noise'` in both OpenSearch and PostgreSQL `EventStatus` table
+- No longer use `is_hidden` field
+- UI filters by `event_status` instead of `is_hidden`
+
+### AI Triage Phase 3 Updates
+- Phase 3 now "marks events as hunted" instead of "tagging"
+- Sets `event_status='hunted'` for events with:
+  - 3+ IOC matches
+  - Attack pattern matches (via `events_attack_patterns.py`)
+- Excludes events with `event_status='noise'`
+
+### System Tools Configuration
+- RMM tools now include both `executable_pattern` and `rmm_path` fields
+- Edit functionality added for RMM, Remote, and EDR tools
+- All exclusion rules now trigger `event_status='noise'` marking
