@@ -32,6 +32,14 @@ import logging
 from typing import Dict, List, Set, Optional, Any, Tuple
 from datetime import datetime
 
+# Import from centralized noise filters module
+from noise_filters import (
+    NOISE_USERS,
+    NOISE_EVENT_IDS,
+    GENERIC_PARENTS,
+    is_external_ip,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,49 +70,18 @@ CONDITIONAL_IOC_TYPES = {
 HIGH_THREAT_LEVELS = {'high', 'critical'}
 
 
-def is_external_ip(ip_str: str) -> bool:
-    """Check if IP is external (not private/internal)."""
-    import ipaddress
-    try:
-        ip = ipaddress.ip_address(ip_str)
-        return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
-    except ValueError:
-        return False
-
-
 # ============================================================================
-# NOISE FILTERING (prevent false positive tags)
+# MODULE-SPECIFIC CONSTANTS
 # ============================================================================
 
 # Events from these processes are usually noise even if IOC matches
-NOISE_PARENT_PROCESSES = {
-    'services.exe', 'svchost.exe', 'wmiprvse.exe', 'wmi.exe',
+# More specific than GENERIC_PARENTS - includes system processes
+NOISE_PARENT_PROCESSES = GENERIC_PARENTS | {
     'taskhost.exe', 'taskhostw.exe', 'runtimebroker.exe',
     'searchindexer.exe', 'searchhost.exe', 'searchprotocolhost.exe',
     'tiworker.exe', 'trustedinstaller.exe', 'msiexec.exe',
     'spoolsv.exe', 'lsass.exe', 'csrss.exe', 'wininit.exe',
-    'smss.exe', 'system', 'registry', 'fontdrvhost.exe',
-}
-
-# System users that are usually noise
-# NOTE: Do NOT include empty string - missing user data is not noise
-NOISE_USERS = {
-    'system', 'network service', 'local service', 'anonymous logon',
-    'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
-    'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3',
-    '-', 'n/a', 'font driver host', 'defaultaccount',
-    'guest', 'wdagutilityaccount', 'nt authority\\system',
-    'nt authority\\local service', 'nt authority\\network service',
-    'nt authority\\anonymous logon',
-}
-
-# Event IDs that are usually noise even with IOC matches
-# These are routine Windows events that may contain IOC strings coincidentally
-NOISE_EVENT_IDS = {
-    4689,   # Process termination (just shows process ended)
-    7036,   # Service state change
-    7040,   # Service start type changed
-    7045,   # New service installed (check carefully, but often noise)
+    'smss.exe', 'system', 'registry', 'fontdrvhost.exe', 'wmi.exe',
 }
 
 

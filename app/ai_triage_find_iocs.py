@@ -25,159 +25,65 @@ import logging
 from typing import Dict, List, Set, Optional, Any
 import ipaddress
 
+# Import from centralized noise filters module
+from noise_filters import (
+    # Constants
+    NOISE_USERS,
+    NOISE_PROCESSES,
+    NOISE_PATH_PATTERNS,
+    # Functions
+    is_noise_user,
+    is_machine_account,
+    is_noise_path,
+    is_valid_ip,
+    is_private_ip,
+    is_ip_in_range,
+)
+
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# NOISE FILTERING (copied from events_known_noise for standalone use)
+# MODULE-SPECIFIC NOISE FILTERING
 # ============================================================================
 
-# NOTE: Do NOT include '' - empty usernames are handled by is_noise_user() returning True for falsy values
-NOISE_USERS = {
-    'system', 'network service', 'local service', 'anonymous logon',
-    'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
-    'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3',
-    '-', 'n/a', 'font driver host', 'defaultaccount', 
-    'guest', 'wdagutilityaccount', 'nt authority\\system',
-    'nt authority\\local service', 'nt authority\\network service'
-}
-
-# Processes that generate lots of noise and are rarely attack-related
-# NOTE: All comparisons should be case-insensitive!
-NOISE_PROCESSES = {
-    # Browsers (background noise)
-    'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe',
-    'chromiumhelper', 'chromesetup.exe', 'update.exe', 'updater.exe',
-    'msedgewebview2.exe', 'wcchronenativemessaginghost.exe',
-    'wcchrome', 'chrmstp.exe',  # Chrome helpers
-    # Adobe - comprehensive list
-    'adobearm.exe', 'adobearm_ucb.exe', 'adobecollabsync.exe', 
-    'acrord32.exe', 'acrobat.exe', 'acrobat_sl.exe',
-    'acrocef.exe', 'acregl.exe', 'adobe desktop service.exe', 
-    'coresync.exe', 'ccxprocess.exe', 'adobeipcbroker.exe', 
-    'cefsharp.browsersubprocess.exe', 'armsvc.exe', 'acrotray.exe', 
-    'crlogtransport.exe', 'crwindowsclientservice.exe',
-    # Microsoft Office background
-    'officebackgroundtaskhandler.exe', 'officeclicktorun.exe',
-    'officec2rclient.exe', 'appvshnotify.exe',
-    'outlook.exe', 'excel.exe', 'winword.exe', 'powerpnt.exe',
-    # Windows background
-    'runtimebroker.exe', 'backgroundtaskhost.exe', 'sihost.exe',
-    'taskhostw.exe', 'searchprotocolhost.exe', 'searchfilterhost.exe',
-    'searchindexer.exe', 'smartscreen.exe', 'securityhealthservice.exe',
-    'msiexec.exe', 'trustedinstaller.exe', 'tiworker.exe',
-    'spoolsv.exe', 'audiodg.exe', 'wudfhost.exe', 'wlanext.exe',
-    'dismhost.exe', 'ie4uinit.exe', 'splwow64.exe', 'runonce.exe',
-    'unregmp2.exe', 'backgroundtransferhost.exe', 'ctfmon.exe',
-    'applicationframehost.exe', 'apphostregistrationverifier.exe',
-    'photos.exe', 'actionsserver.exe', 'mobsync.exe', 'prevhost.exe',
-    'atbroker.exe', 'opushutil.exe', 'sdiagnhost.exe',
-    'cleanmgr.exe', 'devicecensus.exe', 'msfeedssync.exe',
-    'video.ui.exe', 'windowspackagemanagerserver.exe',
-    # Common software 
-    'googleupdate.exe', 'dropbox.exe', 'onedrive.exe', 'teams.exe',
-    'slack.exe', 'zoom.exe', 'skypeapp.exe', 'spotify.exe',
-    # AV/Security (routine, not response)
-    'msmpeng.exe', 'msseces.exe', 'nissrv.exe',
-    'sentinelui.exe', 'sentinelagent.exe',
-    # Backup software
-    'veeam.endpoint.tray.exe',
-    # IE/Edge legacy
-    'iexplore.exe',
-}
-
-# Paths that are common noise - skip IOCs from these
-NOISE_PATH_PATTERNS = [
-    # Browsers
-    'google\\chrome\\application',
-    'mozilla firefox',
-    'microsoft\\edge\\application', 
-    'appdata\\local\\google\\chrome',
-    'appdata\\local\\microsoft\\edge',
-    'edgewebview',
-    # Adobe
-    'adobe\\',
-    'program files\\common files\\adobe',
-    'programdata\\adobe',
-    # Windows core
-    'windows\\system32\\',
-    'windows\\syswow64\\',
-    'windows\\winsxs\\',
-    'windows\\systemapps\\',  # Modern Windows apps
-    'windows\\explorer.exe',
-    'windows\\microsoft.net\\',  # .NET framework
-    'windows\\immersivecontrolpanel',
-    # Windows apps
-    'windowsapps\\',
-    'lockapp.exe',
-    'searchapp.exe',
-    'startmenuexperiencehost',
-    'shellexperiencehost',
-    'textinputhost.exe',
-    'systemsettings.exe',
-    # Common safe
-    'programdata\\microsoft\\windows',
-]
-
-
 def is_noise_process(proc_name: str) -> bool:
-    """Check if process name is background noise (case-insensitive)."""
+    """
+    Check if process name is background noise (case-insensitive).
+    Extended version with prefix/pattern matching for IOC discovery.
+    """
     if not proc_name:
         return False
     proc_lower = proc_name.lower().strip()
-    # Direct match
+    # Direct match against centralized list
     if proc_lower in NOISE_PROCESSES:
         return True
-    # Partial match for common patterns
+    # Also try without .exe
+    proc_no_ext = proc_lower.replace('.exe', '')
+    if proc_no_ext in {p.lower().replace('.exe', '') for p in NOISE_PROCESSES}:
+        return True
+    # Partial match for common patterns (module-specific extension)
     noise_prefixes = [
-        # Adobe/browsers
         'adobe', 'acro', 'chrome', 'msedge', 'firefox', 'sentinel', 'veeam',
-        'edgewebview', 'adnotification',
-        # Windows apps
-        'gamebar', 'lockapp', 'searchapp', 'searchui',
-        'startmenu', 'textinputhost', 'shellexperiencehost',
+        'edgewebview', 'adnotification', 'gamebar', 'lockapp', 'searchapp',
+        'searchui', 'startmenu', 'textinputhost', 'shellexperiencehost',
         'microsoft.msn.', 'onenote', 'sdxhelper', 'musnotify',
         'locationnotification', 'hxtsr', 'clipesu', 'bdeui',
         'compkgsrv', 'credentialui', 'installagent', 'ngentask',
-        'securityapp', 'microsoftsecurity', 'mpcmdrun',
-        'ielowutil', 'comppkgsrv',
-        # Hardware/drivers
-        'rtkaud', 'igfx', 'surfacedtx', 'surfaceapp',
-        # Windows utilities
-        'settingsync', 'spatialaudiolicense', 'spotifymigrator',
-        'useroobe', 'phoneexperience', 'yourphone',
-        'securityhealth', 'tabtip', 'tstheme', 'fsquirt',
-        'servermannager', 'dllhost',
+        'securityapp', 'microsoftsecurity', 'mpcmdrun', 'ielowutil',
+        'rtkaud', 'igfx', 'surfacedtx', 'surfaceapp', 'settingsync',
+        'spatialaudiolicense', 'spotifymigrator', 'useroobe',
+        'phoneexperience', 'yourphone', 'securityhealth', 'tabtip',
+        'tstheme', 'fsquirt', 'servermannager', 'dllhost',
     ]
     for prefix in noise_prefixes:
         if proc_lower.startswith(prefix):
             return True
-    # Also match patterns anywhere in name
     noise_contains = ['webview', 'update', 'setup', 'installer', 'ngen']
     for pattern in noise_contains:
         if pattern in proc_lower:
             return True
     return False
-
-
-def is_noise_path(path: str) -> bool:
-    """Check if path is from a noisy location."""
-    if not path:
-        return False
-    path_lower = path.lower()
-    return any(noise in path_lower for noise in NOISE_PATH_PATTERNS)
-
-
-def is_noise_user(username: str) -> bool:
-    """Check if username is system noise."""
-    if not username:
-        return True
-    return username.lower().strip() in NOISE_USERS
-
-
-def is_machine_account(username: str) -> bool:
-    """Check if username is a machine account (ends with $)."""
-    return username and username.strip().endswith('$')
 
 
 def is_noise_command(cmd: str) -> bool:
@@ -243,22 +149,7 @@ def is_noise_command(cmd: str) -> bool:
     return any(pattern in cmd_lower for pattern in noise_cmd_patterns)
 
 
-def is_valid_ip(ip_str: str) -> bool:
-    """Check if string is a valid IP address."""
-    try:
-        ipaddress.ip_address(ip_str)
-        return True
-    except ValueError:
-        return False
-
-
-def is_private_ip(ip_str: str) -> bool:
-    """Check if IP is private/internal."""
-    try:
-        ip = ipaddress.ip_address(ip_str)
-        return ip.is_private or ip.is_loopback or ip.is_link_local
-    except ValueError:
-        return False
+# is_valid_ip and is_private_ip are imported from noise_filters
 
 
 def contains_existing_ioc(value: str, existing_values: set) -> bool:

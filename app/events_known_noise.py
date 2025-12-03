@@ -21,171 +21,39 @@ Usage:
         # event is system noise
 
 Author: CaseScope
-Version: 1.0.0
+Version: 1.1.0 - Refactored to use centralized noise_filters.py
 """
 
 import logging
 import re
 from typing import Dict, List, Optional, Any, Set
 
+# Import from centralized noise filters module
+from noise_filters import (
+    # Constants
+    NOISE_USERS,
+    NOISE_PROCESSES,
+    NOISE_IOC_VALUES,
+    NOT_HOSTNAMES,
+    NOISE_COMMAND_PATTERNS,
+    GENERIC_PARENTS,
+    # Functions
+    is_noise_user,
+    is_noise_process,
+    is_noise_command,
+    is_noise_ioc_value,
+    is_noise_hostname,
+    is_machine_account,
+)
+
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# NOISE DEFINITIONS
+# MODULE-SPECIFIC CONSTANTS (not shared with other modules)
 # =============================================================================
 
-# Processes that are always noise (system management, not attack-related)
-NOISE_PROCESSES = [
-    # Windows system management
-    'auditpol.exe',      # Windows audit policy - often run by EDR/RMM
-    'gpupdate.exe',      # Group policy update
-    'wuauclt.exe',       # Windows Update
-    'msiexec.exe',       # Installer
-    'dism.exe',          # Deployment Image Service
-    'sppsvc.exe',        # Software Protection Platform
-    'winmgmt.exe',       # WMI service
-    
-    # Console/shell infrastructure (never useful alone)
-    'conhost.exe',       # Console host - spawned by every cmd.exe
-    'find.exe',          # Usually part of "command | find" pipes
-    'findstr.exe',       # Same as find.exe
-    'sort.exe',          # Pipe utility
-    'more.com',          # Pipe utility
-    
-    # Monitoring/health check processes
-    'tasklist.exe',      # Process listing (RMM monitoring loops)
-    'quser.exe',         # Session queries (RMM health checks)
-    'query.exe',         # Query commands
-    
-    # Windows runtime/background (system noise)
-    'runtimebroker.exe', # Windows Runtime Broker
-    'taskhostw.exe',     # Task Host Window
-    'backgroundtaskhost.exe',  # Background task host
-    'wmiprvse.exe',      # WMI Provider Host (when parent is system)
-    
-    # Update/maintenance processes
-    'huntressupdater.exe',     # Huntress updates
-    'microsoftedgeupdate.exe', # Edge updates
-    'fulltrustnotifier.exe',   # Adobe notifications
-    'filecoauth.exe',          # Office/OneDrive co-auth
-    
-    # Search indexing
-    'searchprotocolhost.exe',  # Windows Search
-    'searchfilterhost.exe',    # Windows Search
-]
-
-# Usernames that are system noise
-# NOTE: Do NOT include '' - empty usernames are handled by is_noise_user() returning True for falsy values
-NOISE_USERS = {
-    'system', 'network service', 'local service', 'anonymous logon',
-    'window manager', 'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4',
-    'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3',
-    '-', 'n/a', 'font driver host', 'defaultaccount', 
-    'guest', 'wdagutilityaccount'
-}
-
-# Values that should never be IOCs (system providers, generic terms)
-NOISE_IOC_VALUES = {
-    # Windows Event Providers
-    '.net runtime', 'microsoft-windows-security-auditing',
-    'microsoft-windows-powershell', 'microsoft-windows-sysmon',
-    'microsoft-windows-taskscheduler', 'microsoft-windows-dns-client',
-    'microsoft-windows-kernel-general', 'microsoft-windows-kernel-power',
-    'microsoft-windows-winlogon', 'microsoft-windows-user profiles service',
-    'microsoft-windows-groupolicy', 'microsoft-windows-windowsupdateclient',
-    'microsoft-windows-bits-client', 'microsoft-windows-eventlog',
-    'microsoft-windows-wmi', 'service control manager', 'schannel',
-    'application error', 'windows error reporting', 'volsnap',
-    
-    # Generic system terms
-    'security', 'system', 'application', 'setup', 'forwarded events',
-    'windows powershell', 'powershell', 'microsoft', 'windows',
-    
-    # Common noise strings
-    'n/a', 'na', 'none', 'null', 'unknown', 'undefined', '-', '--', '---',
-    'true', 'false', 'yes', 'no', '0', '1',
-    
-    # Local/loopback
-    '127.0.0.1', '::1', 'localhost',
-}
-
-# Strings that indicate non-hostname (shouldn't be treated as hostnames)
-NOT_HOSTNAMES = {
-    # Common words
-    'the', 'and', 'from', 'with', 'this', 'that', 'was', 'has', 'been', 'have', 'had',
-    'are', 'were', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-    'can', 'for', 'but', 'not', 'you', 'all', 'can', 'her', 'his', 'its', 'our', 'out',
-    'own', 'she', 'who', 'how', 'now', 'old', 'see', 'way', 'who', 'did', 'get', 'got',
-    'him', 'let', 'put', 'say', 'too', 'use', 'via', 'name', 'host', 'user', 'file',
-    
-    # IT/Security terms that aren't hostnames
-    'system', 'server', 'client', 'machine', 'computer', 'endpoint', 'device', 'network',
-    'domain', 'local', 'remote', 'internal', 'external', 'unknown', 'none', 'null', 'test',
-    'logging', 'security', 'event', 'events', 'alert', 'alerts', 'incident', 'malware',
-    'threat', 'attack', 'attacker', 'victim', 'target', 'source', 'destination',
-    'process', 'service', 'application', 'software', 'hardware', 'firewall', 'router',
-    'gateway', 'proxy', 'dns', 'dhcp', 'vpn', 'rdp', 'ssh', 'http', 'https', 'ftp',
-    'admin', 'administrator', 'root', 'guest', 'default', 'public', 'private',
-    'enabled', 'disabled', 'active', 'inactive', 'running', 'stopped', 'failed',
-    'success', 'error', 'warning', 'info', 'debug', 'critical', 'high', 'medium', 'low',
-    'true', 'false', 'yes', 'no', 'on', 'off', 'new', 'old', 'first', 'last',
-    'powershell', 'cmd', 'command', 'script', 'executed', 'execution', 'lateral',
-    'movement', 'persistence', 'credential', 'access', 'privilege', 'escalation',
-    'enumeration', 'discovery', 'exfiltration', 'reconnaissance', 'initial'
-}
-
-# Exact command patterns that are monitoring noise
-# Only excluded when parent is generic (cmd.exe, svchost.exe, etc.)
-NOISE_COMMAND_PATTERNS = [
-    # Network monitoring commands (run thousands of times by RMM/EDR)
-    'netstat -ano',
-    'netstat  -ano',
-    'netstat -an',
-    'netstat  -an',
-    'ipconfig /all',
-    'ipconfig  /all',
-    
-    # System info gathering (monitoring, not attacks)
-    'systeminfo',
-    'hostname',
-    
-    # Session/user queries (RMM health checks)
-    'quser',
-    '"quser"',
-    'query user',
-    
-    # Process listing (RMM monitoring loops)
-    'tasklist',
-    
-    # Pipe output filters
-    'find /i',
-    'find "',
-    'find  /i',
-    'find  "',
-    
-    # Audit policy commands (EDR continuously sets these)
-    'auditpol.exe /set',
-    'auditpol /set',
-    'auditpol.exe  /set',
-    
-    # Console host (spawned by every cmd.exe)
-    'conhost.exe 0xffffffff',
-    'conhost.exe  0xffffffff',
-    
-    # PowerShell monitoring - Defender checks
-    'get-mppreference',
-    'get-mpthreat',
-    'get-mpcomputerstatus',
-]
-
-# Generic parents - when command is noise AND parent is generic, it's safe to hide
-GENERIC_PARENTS = {
-    'cmd.exe', 'svchost.exe', 'services.exe', 'wmiprvse.exe',
-    'wmi provider host', 'powershell.exe', 'pwsh.exe'
-}
-
-# Firewall/network noise keywords (for filtering discovered IPs)
+# Firewall/network noise keywords (specific to this module)
 FIREWALL_NOISE_KEYWORDS = [
     'firewall', 'fw_', 'fw-', 'deny', 'drop', 'block', 'reject',
     'netflow', 'traffic', 'conn_state', 'action:deny', 'action:drop',
@@ -193,108 +61,8 @@ FIREWALL_NOISE_KEYWORDS = [
 
 
 # =============================================================================
-# DETECTION FUNCTIONS
+# DETECTION FUNCTIONS (using centralized noise_filters)
 # =============================================================================
-
-def is_noise_process(process_name: str) -> bool:
-    """Check if process name is a known noise process."""
-    if not process_name:
-        return False
-    name_lower = process_name.lower().replace('.exe', '')
-    return name_lower in [p.lower().replace('.exe', '') for p in NOISE_PROCESSES]
-
-
-def is_noise_user(username: str) -> bool:
-    """Check if username is a known system/noise account."""
-    if not username:
-        return True  # Empty username = noise
-    name_lower = username.lower()
-    
-    # Direct match
-    if name_lower in NOISE_USERS:
-        return True
-    
-    # Machine accounts (end with $)
-    if username.endswith('$'):
-        return True
-    
-    # DWM-N, UMFD-N patterns
-    if name_lower.startswith('dwm-') or name_lower.startswith('umfd-'):
-        return True
-    
-    return False
-
-
-def is_noise_hostname(hostname: str) -> bool:
-    """Check if hostname is a known noise/invalid hostname."""
-    if not hostname:
-        return True
-    
-    hostname_lower = hostname.lower()
-    
-    # Check blocklist
-    if hostname_lower in NOT_HOSTNAMES:
-        return True
-    
-    # Too short
-    if len(hostname) < 3:
-        return True
-    
-    return False
-
-
-def is_noise_ioc_value(value: str) -> bool:
-    """Check if IOC value is noise (system providers, generic terms, etc.)."""
-    if not value:
-        return True
-    
-    val_lower = value.lower().strip()
-    
-    # Direct match
-    if val_lower in NOISE_IOC_VALUES:
-        return True
-    
-    # Too short (less than 3 chars)
-    if len(val_lower) < 3:
-        return True
-    
-    # Starts with microsoft-windows- (provider names)
-    if val_lower.startswith('microsoft-windows-'):
-        return True
-    
-    return False
-
-
-def is_noise_command(command_line: str, parent_name: str = None) -> bool:
-    """
-    Check if command line is noise.
-    
-    A command is considered noise if:
-    1. It matches a NOISE_COMMAND_PATTERN exactly, AND
-    2. The parent process is generic (cmd.exe, svchost.exe, etc.)
-    
-    If parent is suspicious (e.g., powershell spawning netstat), we KEEP it.
-    """
-    if not command_line:
-        return False
-    
-    cmd_lower = command_line.lower().strip()
-    
-    # Check if command matches any noise pattern
-    is_noise_pattern = any(pattern in cmd_lower for pattern in NOISE_COMMAND_PATTERNS)
-    
-    if not is_noise_pattern:
-        return False
-    
-    # If parent is suspicious, keep the command
-    if parent_name:
-        parent_lower = parent_name.lower()
-        # Only hide if parent is generic
-        if parent_lower not in GENERIC_PARENTS:
-            return False  # Suspicious parent → keep this command
-    
-    return True
-
 
 def is_noise_event(event_data: Dict) -> bool:
     """
@@ -822,7 +590,5 @@ def is_valid_hostname(hostname: str, ip_set: Set[str] = None) -> bool:
     return True
 
 
-def is_machine_account(username: str) -> bool:
-    """Check if username is a machine account (ends with $)."""
-    return username.endswith('$') if username else False
+# is_machine_account is imported from noise_filters
 
