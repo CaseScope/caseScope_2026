@@ -379,9 +379,10 @@ Automatically tags events containing high-confidence IOCs. Creates `TimelineTag`
 | `malware_name` | Always high confidence |
 | `url` | Always high confidence |
 | `domain` | Always high confidence (C2 domains) |
+| `filename` | Always high confidence (attack tools like nltest.exe, WinSCP.exe) |
+| `tool` | Always high confidence (known attack tools) |
 | `ip` | High confidence **only if external** (not private/loopback) |
 | `hostname` | High confidence **only if threat_level is high/critical** |
-| `filename` | High confidence **only if threat_level is high/critical** |
 | `filepath` | High confidence **only if threat_level is high/critical** |
 | `username` | High confidence **only if threat_level is high/critical** |
 
@@ -425,23 +426,17 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict:
 
 #### 3. Noise Event Filtering
 
-**Noise Users:**
-- Imported from `noise_filters.NOISE_USERS`
-- Events with these users in relevant fields are filtered
-
-**Noise Parent Processes:**
-```python
-NOISE_PARENT_PROCESSES = GENERIC_PARENTS | {
-    'taskhostw.exe', 'runtimebroker.exe', 'searchindexer.exe',
-    'tiworker.exe', 'trustedinstaller.exe', 'msiexec.exe',
-    'spoolsv.exe', 'lsass.exe', 'csrss.exe', 'wininit.exe',
-    'smss.exe', 'system', 'registry', 'fontdrvhost.exe',
-}
-```
+**IMPORTANT:** Parent process is NOT filtered! Attackers run commands from `cmd.exe` and `powershell.exe` - this is expected behavior. Filtering by parent would incorrectly filter legitimate attack activity.
 
 **Noise Event IDs:**
 - Imported from `noise_filters.NOISE_EVENT_IDS`
 - Event IDs 4689, 7036, 7040, 7045 (process termination, service changes)
+
+**Noise Users (only if NO process info):**
+- Events are only filtered as noise if ALL of these are true:
+  1. ALL users in the event are system/noise users (from `NOISE_USERS`)
+  2. AND the event has no process name or command line
+- If an IOC matched, we keep the event even with noise users
 
 ### Output Structure
 
@@ -708,3 +703,6 @@ To rebuild this system:
 | v1.46.3 | Added high-confidence event tagging with TimelineTag |
 | v1.46.3 | Centralized noise filters into `noise_filters.py` |
 | v1.46.3 | All triage modules now import from centralized filters |
+| v1.46.4 | **FIX:** Moved `filename` and `tool` to HIGH_CONFIDENCE_IOC_TYPES |
+| v1.46.4 | **FIX:** Removed parent process filtering from is_noise_event() |
+| v1.46.4 | **FIX:** Attack commands from cmd.exe/powershell.exe now correctly tagged |
