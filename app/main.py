@@ -2194,7 +2194,8 @@ def triage_page(case_id):
     has_iocs = ioc_count > 0
     
     # 4. Hunted/Confirmed Events Check - Are there events marked for investigation?
-    from event_status import EventStatus, STATUS_HUNTED, STATUS_CONFIRMED
+    from models import EventStatus
+    from event_status import STATUS_HUNTED, STATUS_CONFIRMED
     tag_count = db.session.query(EventStatus).filter(
         EventStatus.case_id == case_id,
         EventStatus.status.in_([STATUS_HUNTED, STATUS_CONFIRMED])
