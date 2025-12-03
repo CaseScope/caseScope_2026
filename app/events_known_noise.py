@@ -255,15 +255,17 @@ def process_slice(
 def bulk_hide_events(
     events_to_hide: List[Dict],
     opensearch_client,
-    index_name: str
+    index_name: str,
+    case_id: int = None
 ) -> int:
     """
-    Bulk update events to set is_hidden=True.
+    Bulk update events to set is_hidden=True and status='noise'.
     
     Args:
         events_to_hide: List of dicts with {_id, _index, category}
         opensearch_client: OpenSearch client instance
         index_name: Index name for refresh
+        case_id: Case ID for status updates (optional, extracted from index_name if not provided)
     
     Returns:
         Number of events successfully hidden
@@ -271,12 +273,20 @@ def bulk_hide_events(
     if not events_to_hide:
         return 0
     
+    # Extract case_id from index_name if not provided
+    if case_id is None and index_name and index_name.startswith('case_'):
+        try:
+            case_id = int(index_name.split('_')[1])
+        except (IndexError, ValueError):
+            pass
+    
     hidden_count = 0
     bulk_batch_size = 500
     
     for i in range(0, len(events_to_hide), bulk_batch_size):
         batch = events_to_hide[i:i + bulk_batch_size]
         
+        # Update OpenSearch is_hidden field
         bulk_body = []
         for evt in batch:
             bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
@@ -293,6 +303,15 @@ def bulk_hide_events(
                         hidden_count += 1
         except Exception as e:
             logger.error(f"[NOISE] Bulk hide failed: {e}")
+        
+        # Also update database EventStatus to 'noise'
+        if case_id:
+            try:
+                from event_status import bulk_set_status, STATUS_NOISE
+                event_ids = [evt['_id'] for evt in batch]
+                bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-hidden as noise")
+            except Exception as e:
+                logger.warning(f"[NOISE] Failed to update EventStatus for batch: {e}")
     
     return hidden_count
 

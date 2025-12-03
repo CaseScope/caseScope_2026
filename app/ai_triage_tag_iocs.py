@@ -377,74 +377,43 @@ def search_events_for_tagging(case_id: int, query: Dict) -> List[Dict]:
 
 
 def get_existing_tags(case_id: int) -> Set[str]:
-    """Get set of already-tagged event IDs."""
-    from models import TimelineTag
+    """Get set of already-hunted or confirmed event IDs."""
+    from event_status import get_event_ids_by_status, STATUS_HUNTED, STATUS_CONFIRMED
     
-    tags = TimelineTag.query.filter_by(case_id=case_id).all()
-    return {tag.event_id for tag in tags}
+    hunted_ids = get_event_ids_by_status(case_id, [STATUS_HUNTED])
+    confirmed_ids = get_event_ids_by_status(case_id, [STATUS_CONFIRMED])
+    return hunted_ids | confirmed_ids
 
 
 def get_excluded_events(case_id: int) -> Set[str]:
-    """Get set of event IDs excluded from auto-tagging by users."""
-    from models import TagExclusion
+    """Get set of event IDs with status='noise' (excluded from auto-tagging)."""
+    from event_status import get_event_ids_by_status, STATUS_NOISE
     
-    exclusions = TagExclusion.query.filter_by(case_id=case_id).all()
-    return {exc.event_id for exc in exclusions}
+    return get_event_ids_by_status(case_id, [STATUS_NOISE])
 
 
 def tag_event(case_id: int, user_id: int, event: Dict, index_name: str, reason: str) -> bool:
     """
-    Create a timeline tag for an event.
-    Returns True if tagged, False if already exists or error.
+    Set event status to 'hunted' (Phase 3 auto-tagging).
+    Returns True if status set, False if already hunted/confirmed or error.
     """
-    from models import TimelineTag, db
+    from event_status import set_status, get_status, STATUS_HUNTED, STATUS_CONFIRMED
     
     event_id = event.get('_id')
-    source = event.get('_source', {})
     
-    # Check if already tagged
-    existing = TimelineTag.query.filter_by(
-        case_id=case_id,
-        event_id=event_id,
-        index_name=index_name
-    ).first()
+    # Check current status - don't overwrite 'confirmed' status
+    current_status = get_status(case_id, event_id)
+    if current_status == STATUS_HUNTED:
+        return False  # Already hunted
+    if current_status == STATUS_CONFIRMED:
+        return False  # Don't downgrade from confirmed
     
-    if existing:
-        return False
-    
-    # Create minimal event snapshot
-    event_snapshot = {
-        'timestamp': source.get('normalized_timestamp') or source.get('@timestamp'),
-        'computer': source.get('computer_name') or source.get('normalized_computer'),
-        'event_id': source.get('Event', {}).get('System', {}).get('EventID'),
-        'source_file': source.get('source_file'),
-    }
-    
-    # Add process info if available
-    proc = source.get('process', {})
-    if proc:
-        event_snapshot['process'] = proc.get('name') or proc.get('executable')
-        event_snapshot['command_line'] = proc.get('command_line', '')[:500]
-    
-    # Add forensic fields
-    for field in ['forensic_CommandLine', 'forensic_ProcessName', 'forensic_TargetUserName']:
-        if source.get(field):
-            event_snapshot[field] = str(source.get(field))[:500]
-    
-    try:
-        tag = TimelineTag(
-            case_id=case_id,
-            user_id=user_id,
-            event_id=event_id,
-            index_name=index_name,
-            event_data=json.dumps(event_snapshot),
-            tag_color='red',  # Red for auto-tagged suspicious
-            notes=f"[Auto-tagged] {reason}"
-        )
-        db.session.add(tag)
+    # Set status to 'hunted' with reason as notes
+    notes = f"[Phase 3 Auto] {reason}"
+    if set_status(case_id, event_id, STATUS_HUNTED, user_id, notes):
         return True
-    except Exception as e:
-        logger.error(f"[TAG_IOC] Failed to tag event {event_id}: {e}")
+    else:
+        logger.error(f"[TAG_IOC] Failed to set hunted status for event {event_id}")
         return False
 
 
