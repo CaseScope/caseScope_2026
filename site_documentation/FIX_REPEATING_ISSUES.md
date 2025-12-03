@@ -255,7 +255,100 @@ Centralize all button styling in `/app/static/css/theme.css` with clear variants
 
 ---
 
-## 4. [Future Issue Placeholder]
+## 4. Search Page Slow Load (30+ seconds) with Large Noise Event Counts
+
+**Symptoms:**
+- Search Events page takes 30+ seconds to load
+- Page becomes unusable with large cases (millions of events)
+- Database appears to be slow during page load
+- OpenSearch queries take 10+ seconds
+
+**Root Cause:**
+When displaying search results, the system was loading ALL event IDs with `status='noise'` from PostgreSQL into memory, then passing them to OpenSearch as an exclusion list:
+
+```python
+# ❌ BAD - Loads 820K event IDs from PostgreSQL
+exclude_event_ids = get_event_ids_by_status(case_id, [STATUS_NOISE])  # 820,980 records!
+query["must_not"].append({"ids": {"values": list(exclude_event_ids)}})  # Pass 820K IDs to OpenSearch
+```
+
+**Why this happens:**
+1. PostgreSQL query loads 820K+ `EventStatus` records (15 seconds)
+2. Python creates set with 820K event ID strings (~60MB memory)
+3. OpenSearch must check every document against 820K ID list (12 seconds)
+4. **Total:** 30+ seconds per page load
+
+**Solution:**
+Filter by `event_status` field directly in OpenSearch - no database lookup needed:
+
+```python
+# ✅ GOOD - Filter directly in OpenSearch (<1 second)
+query["must_not"].append({"term": {"event_status": "noise"}})
+```
+
+**Implementation Pattern:**
+
+**search_utils.py** - Add status_filter parameter:
+```python
+def build_search_query(
+    search_text: str = "",
+    filter_type: str = "all",
+    # ... other params ...
+    status_filter: Optional[List[str]] = None,  # NEW
+    exclude_event_ids: Optional[Set[str]] = None  # Legacy, deprecated
+) -> Dict[str, Any]:
+    """Build OpenSearch query with direct status filtering."""
+    
+    # Use status_filter to build OpenSearch term queries
+    if status_filter and 'noise' not in status_filter:
+        query["must_not"].append({"term": {"event_status": "noise"}})
+```
+
+**main.py** - Remove database ID loading:
+```python
+# ❌ REMOVE - Don't load event IDs from database
+# exclude_event_ids = get_event_ids_by_status(case_id, [STATUS_NOISE])
+
+# ✅ ADD - Pass status filter to query builder
+query_dsl = build_search_query(
+    search_text=search_text,
+    # ... other params ...
+    status_filter=status_filter  # ['new', 'hunted', 'confirmed']
+)
+```
+
+**Dual Storage Approach:**
+- **PostgreSQL `EventStatus`**: Source of truth for counts, audit trail (who set status, when, why)
+- **OpenSearch `event_status` field**: Indexed copy for fast filtering during searches
+- Both are updated when status changes (Known Good, Noise, Phase 3, Manual)
+
+**Performance Impact:**
+
+| Case Size | Before | After | Improvement |
+|-----------|--------|-------|-------------|
+| **2.7M events, 820K noise** | 30+ seconds | <1 second | **30x faster** |
+| **Database Query** | 15 seconds (820K records) | 0 seconds (eliminated) | **Eliminated** |
+| **OpenSearch Query** | 12 seconds (filter 820K IDs) | <0.5 seconds (term filter) | **24x faster** |
+| **Memory Usage** | ~60MB (820K strings) | ~1MB | **60x less** |
+
+**Files Affected:**
+- `app/search_utils.py` - Added `status_filter` parameter to `build_search_query()`
+- `app/main.py` - Removed `get_event_ids_by_status()` call from `search_events()` route
+- All queries now filter by `event_status` field directly in OpenSearch
+
+**Version History:**
+- **v1.46.0:** Performance optimization - filter by event_status field instead of loading IDs
+
+**Prevention:**
+- Never load large ID lists from database to pass to OpenSearch
+- Always filter by indexed fields directly in OpenSearch when possible
+- Use PostgreSQL for counts/stats, OpenSearch for search filtering
+- For features that filter by status: use `event_status` field in OpenSearch queries
+- Only use database ID lists for small, specific cases (< 1000 IDs)
+
+---
+
+## 5. [Future Issue Placeholder]
 
 When another repeating issue is identified, add it here following the same format:
 - Symptoms

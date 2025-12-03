@@ -103,9 +103,9 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         STORAGE LAYER                                    │
 │  PostgreSQL: IOC table (extracted & discovered IOCs)                    │
-│  PostgreSQL: TimelineTag table (tagged events from Phase 3)             │
+│  PostgreSQL: EventStatus table (event status: new/hunted/confirmed/noise)│
 │  PostgreSQL: AITriageSearch table (triage history)                      │
-│  OpenSearch: case_{id} index (event data for hunting)                   │
+│  OpenSearch: case_{id} index (event data with event_status field)      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -125,8 +125,8 @@ The Triage system provides a guided workflow for AI-powered attack chain analysi
 | `has_edr_report` | bool | True if EDR report exists |
 | `has_iocs` | bool | True if active IOCs exist |
 | `ioc_count` | int | Number of active IOCs |
-| `has_tagged_events` | bool | True if timeline tags exist |
-| `tag_count` | int | Number of tagged events |
+| `has_tagged_events` | bool | True if hunted/confirmed events exist |
+| `tag_count` | int | Number of hunted/confirmed events |
 | `has_triage_date` | bool | True if triage date is set |
 | `ai_enabled` | bool | True if AI is enabled in settings |
 

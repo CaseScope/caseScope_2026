@@ -499,3 +499,9 @@ Complete list of all HTTP routes/endpoints in the application with descriptions.
 - RMM tools now include both `executable_pattern` and `rmm_path` fields
 - Edit functionality added for RMM, Remote, and EDR tools
 - All exclusion rules now trigger `event_status='noise'` marking
+
+### Search Performance Optimization
+- **v1.46.0:** Search page now filters by `event_status` field directly in OpenSearch
+- **Removed:** PostgreSQL query that loaded 820K+ event IDs into memory
+- **Performance:** Page load time reduced from 30+ seconds to <1 second for large cases
+- **How:** Query uses `{"term": {"event_status": "noise"}}` instead of passing ID lists
