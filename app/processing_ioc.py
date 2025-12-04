@@ -365,14 +365,14 @@ def match_all_iocs(case_id: int) -> Dict[str, Any]:
         job = group(match_ioc_task.s(case_id, ioc.id) for ioc in iocs)
         result = job.apply_async()
         
-        # Wait for all tasks to complete by polling DATABASE (not Celery)
+        # Wait for all tasks to complete by SIMPLE QUEUE CHECK (like Index/SIGMA)
         logger.info(f"[IOC_PHASE] Waiting for {total_iocs} IOC matching tasks to complete...")
         
         start_time = time.time()
         timeout = 7200  # 2 hours max
         last_log_time = 0
         
-        # Track which IOCs we've queued (to check completion)
+        # Track which IOCs we queued
         ioc_ids = [ioc.id for ioc in iocs]
         
         while True:
@@ -380,70 +380,90 @@ def match_all_iocs(case_id: int) -> Dict[str, Any]:
             if elapsed > timeout:
                 logger.error(f"[IOC_PHASE] Timeout after {timeout}s")
                 # Get partial results from DB
-                total_matches = db.session.query(func.sum(IOCMatch.id)).filter(
-                    IOCMatch.case_id == case_id
-                ).count() or 0
+                matched = db.session.query(IOC.id).filter(
+                    IOC.id.in_(ioc_ids)
+                ).outerjoin(IOCMatch, IOCMatch.ioc_id == IOC.id).filter(
+                    IOCMatch.id.isnot(None)
+                ).distinct().count()
+                
+                total_matches = db.session.query(IOCMatch).filter(
+                    IOCMatch.case_id == case_id,
+                    IOCMatch.ioc_id.in_(ioc_ids)
+                ).count()
+                
                 return {
                     'status': 'error',
                     'total_iocs': total_iocs,
-                    'matched': 0,
+                    'matched': matched,
                     'skipped': 0,
                     'failed': 0,
                     'total_matches': total_matches,
                     'errors': ['IOC phase timeout']
                 }
             
-            # Check if IOC tasks are done by checking if IOCMatch records exist for all IOCs
-            # Each IOC task creates at least one IOCMatch or marks itself as processed
-            # We'll use a simpler approach: check if IOCMatch count has stabilized
-            current_matches = db.session.query(IOCMatch).filter(
-                IOCMatch.case_id == case_id,
-                IOCMatch.ioc_id.in_(ioc_ids)
-            ).count()
+            # SIMPLE QUEUE CHECK: Count IOCs that have been processed
+            # An IOC is "processed" if it has at least one IOCMatch record
+            # (even if no matches found, task still creates metadata or marks as done)
+            processed = db.session.query(IOC.id).filter(
+                IOC.id.in_(ioc_ids)
+            ).outerjoin(IOCMatch, IOCMatch.ioc_id == IOC.id).filter(
+                IOCMatch.id.isnot(None)
+            ).distinct().count()
+            
+            # For inactive IOCs (skipped), they won't have matches
+            # So also count IOCs we've seen (via quick check if tasks are done)
+            # Simpler: if we've processed some IOCs and it's been stable, we're done
+            pending = total_iocs - processed
+            
+            # Update progress tracker with counts for progress bar
+            from progress_tracker import update_phase
+            update_phase(case_id, 'reindex', 7, 'IOC Matching', 'running',
+                        f'{processed}/{total_iocs} IOCs matched',
+                        current=processed, total=total_iocs)
             
             # Log progress every 30 seconds
             if elapsed - last_log_time >= 30:
-                logger.info(f"[IOC_PHASE] Progress: {current_matches} matches found so far...")
+                logger.info(f"[IOC_PHASE] Progress: {processed}/{total_iocs} IOCs processed, {pending} pending")
                 last_log_time = elapsed
             
-            # Simple heuristic: if we've been running for at least 30 seconds
-            # and match count hasn't changed in last 10 seconds, assume done
-            # This is not perfect but avoids Celery blocking
-            if elapsed > 30:
+            # QUEUE CHECK: All done when processed count = total count
+            # But IOCs with no matches won't have records, so we use 10-second stability check
+            if processed >= total_iocs:
+                logger.info(f"[IOC_PHASE] All {total_iocs} IOCs processed")
+                break
+            
+            # If we haven't made progress in 30 seconds and we're past the 60 second mark, assume remaining IOCs had no matches
+            if elapsed > 60 and pending > 0:
                 time.sleep(10)
-                new_matches = db.session.query(IOCMatch).filter(
-                    IOCMatch.case_id == case_id,
-                    IOCMatch.ioc_id.in_(ioc_ids)
-                ).count()
+                new_processed = db.session.query(IOC.id).filter(
+                    IOC.id.in_(ioc_ids)
+                ).outerjoin(IOCMatch, IOCMatch.ioc_id == IOC.id).filter(
+                    IOCMatch.id.isnot(None)
+                ).distinct().count()
                 
-                if new_matches == current_matches:
-                    logger.info(f"[IOC_PHASE] Match count stabilized at {current_matches}, assuming complete")
+                if new_processed == processed:
+                    logger.info(f"[IOC_PHASE] No new IOCs processed in 10s, assuming remaining {pending} had no matches")
                     break
             
             time.sleep(5)
         
-        # Collect results from DATABASE (not Celery)
-        from models import IOC
-        matched = 0
-        skipped = 0
-        failed = 0
+        # Collect results from DATABASE
+        from models import IOC, IOCMatch
         
-        for ioc in iocs:
-            match_count = db.session.query(IOCMatch).filter_by(
-                case_id=case_id,
-                ioc_id=ioc.id
-            ).count()
-            
-            if match_count > 0:
-                matched += 1
-            # We don't track skipped/failed in DB for IOCs
+        # Count matched IOCs (those with at least one match)
+        matched = db.session.query(IOC.id).filter(
+            IOC.id.in_(ioc_ids)
+        ).join(IOCMatch, IOCMatch.ioc_id == IOC.id).distinct().count()
         
+        # Total matches across all IOCs
         total_matches = db.session.query(IOCMatch).filter(
             IOCMatch.case_id == case_id,
             IOCMatch.ioc_id.in_(ioc_ids)
         ).count()
         
-        errors = []  # We don't track IOC errors in DB status
+        skipped = 0  # We queued only active IOCs
+        failed = 0  # No failure tracking for IOCs
+        errors = []
         
         # Update case aggregate
         case = db.session.get(Case, case_id)

@@ -73,7 +73,8 @@ def start_progress(case_id: int, operation: str, total_phases: int, description:
 
 
 def update_phase(case_id: int, operation: str, phase_num: int, phase_name: str, 
-                 status: str, message: str = "", stats: Optional[Dict] = None) -> None:
+                 status: str, message: str = "", stats: Optional[Dict] = None,
+                 current: Optional[int] = None, total: Optional[int] = None) -> None:
     """
     Update progress for a specific phase.
     
@@ -85,6 +86,8 @@ def update_phase(case_id: int, operation: str, phase_num: int, phase_name: str,
         status: Phase status ('running', 'completed', 'failed', 'skipped')
         message: Optional status message
         stats: Optional phase statistics dict
+        current: Optional current item count (for progress bar)
+        total: Optional total item count (for progress bar)
     """
     if not redis_client:
         return
@@ -117,7 +120,9 @@ def update_phase(case_id: int, operation: str, phase_num: int, phase_name: str,
                 'message': message,
                 'stats': stats or {},
                 'start_time': time.time(),
-                'end_time': None
+                'end_time': None,
+                'current': current,
+                'total': total
             }
             progress['phases'].append(phase_entry)
         else:
@@ -125,6 +130,10 @@ def update_phase(case_id: int, operation: str, phase_num: int, phase_name: str,
             phase_entry['message'] = message
             if stats:
                 phase_entry['stats'].update(stats)
+            if current is not None:
+                phase_entry['current'] = current
+            if total is not None:
+                phase_entry['total'] = total
             if status in ['completed', 'failed', 'skipped']:
                 phase_entry['end_time'] = time.time()
         

@@ -266,7 +266,7 @@ def index_all_files_in_queue(case_id: int) -> Dict[str, Any]:
         job = group(index_file_task.s(f.id) for f in files)
         result = job.apply_async()
         
-        # Wait for all tasks to complete by polling DATABASE (not Celery)
+        # Wait for all tasks to complete by SIMPLE QUEUE CHECK
         logger.info(f"[INDEX_PHASE] Waiting for {total_files} indexing tasks to complete...")
         
         # Poll DATABASE for completion (with timeout)
@@ -280,11 +280,11 @@ def index_all_files_in_queue(case_id: int) -> Dict[str, Any]:
                 logger.error(f"[INDEX_PHASE] Timeout after {timeout}s")
                 # Get partial results from DB
                 completed = db.session.query(CaseFile).filter(
-                    CaseFile.id.in_([f.id for f in files]),
+                    CaseFile.case_id == case_id,
                     CaseFile.indexing_status.in_(['Indexed', 'Completed'])
                 ).count()
                 failed = db.session.query(CaseFile).filter(
-                    CaseFile.id.in_([f.id for f in files]),
+                    CaseFile.case_id == case_id,
                     CaseFile.indexing_status.like('Failed%')
                 ).count()
                 return {
@@ -296,37 +296,50 @@ def index_all_files_in_queue(case_id: int) -> Dict[str, Any]:
                     'errors': ['Indexing phase timeout']
                 }
             
-            # Check DB for completed files
-            completed = db.session.query(CaseFile).filter(
-                CaseFile.id.in_([f.id for f in files]),
-                CaseFile.indexing_status.in_(['Indexed', 'Completed'])
+            # SIMPLE QUEUE CHECK: Count files that are still queued or indexing
+            in_progress = db.session.query(CaseFile).filter(
+                CaseFile.case_id == case_id,
+                CaseFile.indexing_status.in_(['Queued', 'Indexing'])
             ).count()
             
-            failed = db.session.query(CaseFile).filter(
-                CaseFile.id.in_([f.id for f in files]),
-                CaseFile.indexing_status.like('Failed%')
-            ).count()
+            # Calculate completed for progress bar
+            completed_count = total_files - in_progress
+            
+            # Update progress tracker with counts for progress bar
+            from progress_tracker import update_phase
+            update_phase(case_id, 'reindex', 3, 'Indexing Files', 'running', 
+                        f'{completed_count}/{total_files} files indexed',
+                        current=completed_count, total=total_files)
             
             # Log progress every 30 seconds
             if elapsed - last_log_time >= 30:
-                logger.info(f"[INDEX_PHASE] Progress: {completed}/{total_files} files completed, {failed} failed")
+                logger.info(f"[INDEX_PHASE] Progress: {in_progress} files still in queue, {completed_count}/{total_files} done")
                 last_log_time = elapsed
             
-            # Check if all done
-            if completed + failed >= total_files:
-                logger.info(f"[INDEX_PHASE] All tasks complete: {completed} indexed, {failed} failed")
+            # QUEUE CHECK: All done when nothing in queue!
+            if in_progress == 0:
+                logger.info(f"[INDEX_PHASE] Queue empty, all files processed")
                 break
             
             time.sleep(5)
         
-        # Collect results from DATABASE (not Celery)
-        indexed = completed
-        skipped = 0  # We don't track skipped in DB status
+        # Collect results from DATABASE
+        indexed = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.indexing_status.in_(['Indexed', 'Completed'])
+        ).count()
+        
+        failed = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.indexing_status.like('Failed%')
+        ).count()
+        
         failed_files = db.session.query(CaseFile).filter(
-            CaseFile.id.in_([f.id for f in files]),
+            CaseFile.case_id == case_id,
             CaseFile.indexing_status.like('Failed%')
         ).all()
         
+        skipped = 0  # We don't track skipped in DB status
         errors = [f.error_message or f.indexing_status for f in failed_files if f.error_message or 'Failed' in f.indexing_status]
         
         logger.info(f"[INDEX_PHASE] ✓ Indexing complete: {indexed} indexed, {skipped} skipped, {failed} failed")

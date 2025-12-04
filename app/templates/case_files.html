@@ -1160,7 +1160,7 @@ function updateProgressPhases(phases) {
     /**
      * Update progress modal with phase information
      * 
-     * @param {Array} phases - Array of phase objects with {phase_num, name, status, message, stats}
+     * @param {Array} phases - Array of phase objects with {phase_num, name, status, message, stats, current, total}
      */
     const container = document.getElementById('progressPhases');
     if (!container) return;
@@ -1171,6 +1171,22 @@ function updateProgressPhases(phases) {
         const icon = getPhaseIcon(phase.status);
         const statusClass = getPhaseStatusClass(phase.status);
         
+        // Build progress bar if current/total available
+        let progressBarHtml = '';
+        if (phase.current !== undefined && phase.total !== undefined && phase.total > 0) {
+            const percent = Math.round((phase.current / phase.total) * 100);
+            progressBarHtml = `
+                <div style="margin: 8px 0 5px 35px;">
+                    <div style="background: var(--color-bg-tertiary); border-radius: 4px; height: 20px; position: relative; overflow: hidden;">
+                        <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: ${percent}%; height: 100%; transition: width 0.3s ease;"></div>
+                        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75em; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">
+                            ${phase.current}/${phase.total} - ${percent}%
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
         html += `
             <div class="phase-item" style="padding: 12px; background: var(--color-bg-secondary); border-radius: 6px; margin-bottom: 10px;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
@@ -1178,6 +1194,7 @@ function updateProgressPhases(phases) {
                     <strong style="color: var(--color-text);">${phase.name}</strong>
                     <span class="${statusClass}" style="margin-left: auto; font-size: 0.9em;">${phase.status.toUpperCase()}</span>
                 </div>
+                ${progressBarHtml}
                 ${phase.message ? `<div style="color: var(--color-text-secondary); margin-left: 35px; font-size: 0.9em;">${phase.message}</div>` : ''}
                 ${formatPhaseStats(phase.stats)}
             </div>
@@ -1457,15 +1474,23 @@ function updateProcessingStatusPhase(phase) {
     const phaseInfo = phaseMap[phase.name] || { icon: '⚙️', text: phase.name };
     
     if (phase.status === 'running') {
-        showProcessingStatusPhase(phaseInfo.icon, phaseInfo.text, 'running');
+        // Pass progress counts if available
+        showProcessingStatusPhase(
+            phaseInfo.icon, 
+            phaseInfo.text, 
+            'running',
+            phase.current,
+            phase.total
+        );
     } else if (phase.status === 'completed') {
         showProcessingStatusPhase('✅', phaseInfo.text + ' - Complete', 'success');
     }
 }
 
-function showProcessingStatusPhase(icon, text, status = 'running') {
+function showProcessingStatusPhase(icon, text, status = 'running', current = null, total = null) {
     /**
      * Show the current operation phase in the Processing Status tile
+     * Now with optional progress bar support
      */
     const phaseContainer = document.getElementById('current-operation-phase');
     const phaseIcon = document.getElementById('operation-phase-icon');
@@ -1473,15 +1498,25 @@ function showProcessingStatusPhase(icon, text, status = 'running') {
     
     if (phaseContainer && phaseIcon && phaseText) {
         phaseIcon.textContent = icon;
-        phaseText.textContent = text;
         
-        // Update background color based on status
-        if (status === 'running') {
-            phaseContainer.style.background = 'var(--color-info)';
-        } else if (status === 'success') {
-            phaseContainer.style.background = 'var(--color-success)';
-        } else if (status === 'error') {
-            phaseContainer.style.background = 'var(--color-error)';
+        // If progress info available, add it to the text
+        if (current !== null && total !== null && total > 0) {
+            const percent = Math.round((current / total) * 100);
+            phaseText.textContent = `${text} - ${current}/${total} (${percent}%)`;
+            
+            // Add progress bar as background gradient
+            phaseContainer.style.background = `linear-gradient(90deg, var(--color-info) ${percent}%, var(--color-bg-secondary) ${percent}%)`;
+        } else {
+            phaseText.textContent = text;
+            
+            // Update background color based on status (no progress bar)
+            if (status === 'running') {
+                phaseContainer.style.background = 'var(--color-info)';
+            } else if (status === 'success') {
+                phaseContainer.style.background = 'var(--color-success)';
+            } else if (status === 'error') {
+                phaseContainer.style.background = 'var(--color-error)';
+            }
         }
         
         phaseContainer.style.display = 'block';

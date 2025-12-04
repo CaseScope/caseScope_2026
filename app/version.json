@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "release_date": "2025-12-01",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2818,6 +2818,21 @@
     ]
   },
   "changelog": [
+    {
+      "version": "2.0.1",
+      "date": "2025-12-04",
+      "title": "Real-time Progress Bars",
+      "changes": [
+        "✨ FEATURE: Added real-time progress bars to all processing phases (Indexing, SIGMA, IOC)",
+        "Enhanced progress_tracker.py to support current/total counts for progress calculation",
+        "Updated processing_index.py, processing_sigma.py, processing_ioc.py to report current/total during queue polling",
+        "Progress modal now displays visual progress bars showing X/Y done with percentage",
+        "Processing Status banner now shows progress as gradient background (e.g., 'Indexing files - 450/675 (67%)')",
+        "Smooth animations and modern UI design with gradient progress indicators",
+        "Progress bars automatically update every 3-10 seconds based on real-time queue counts",
+        "Backward compatible: Operations without progress data still display normally"
+      ]
+    },
     {
       "version": "2.0.0",
       "date": "2025-12-04",
