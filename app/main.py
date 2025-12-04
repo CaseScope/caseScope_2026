@@ -138,6 +138,7 @@ from routes.archive import archive_bp
 from routes.ai_search import ai_search_bp
 from routes.triage_report import triage_report_bp
 from routes.system_tools import system_tools_bp
+from routes.progress import progress_bp
 app.register_blueprint(files_bp)
 app.register_blueprint(cases_bp)
 app.register_blueprint(api_stats_bp)
@@ -149,6 +150,7 @@ app.register_blueprint(archive_bp)
 app.register_blueprint(ai_search_bp)
 app.register_blueprint(triage_report_bp)
 app.register_blueprint(system_tools_bp)
+app.register_blueprint(progress_bp)
 
 # Apply rate limiting to AI search endpoint AFTER blueprint registration
 # Get the view function and wrap it with the rate limiter
@@ -4776,15 +4778,21 @@ def clear_all_files(case_id):
 @app.route('/case/<int:case_id>/bulk_reindex', methods=['POST'])
 @login_required
 def bulk_reindex_route(case_id):
-    """Re-index all files in a case"""
+    """
+    Re-index all files in a case using NEW modular system (v2.0.0).
+    
+    Uses coordinator_reindex.py to orchestrate:
+    1. Clear metadata
+    2. Index files
+    3. SIGMA detection
+    4. Known-good events
+    5. Known-noise events
+    6. IOC detection
+    
+    v2.0.0: Switched to modular coordinator system
+    """
     from celery_health import check_workers_available
-    from bulk_operations import (
-        get_case_files, clear_case_opensearch_indices, 
-        clear_case_sigma_violations, clear_case_ioc_matches,
-        clear_case_timeline_tags, reset_file_metadata, queue_file_processing
-    )
-    from tasks import process_file
-    import time
+    from coordinator_reindex import reindex_files_task
     
     # Check if request wants JSON (for modal updates) or redirect (for backward compat)
     wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
@@ -4796,7 +4804,7 @@ def bulk_reindex_route(case_id):
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
-    # Archive guard (v1.18.0): Prevent re-indexing archived cases
+    # Archive guard: Prevent re-indexing archived cases
     from archive_utils import is_case_archived
     if is_case_archived(case):
         if wants_json:
@@ -4812,105 +4820,104 @@ def bulk_reindex_route(case_id):
         flash(f'⚠️ Cannot start bulk operation: {error_msg}. Please check Celery workers.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Track steps for modal updates
-    steps = []
-    start_time = time.time()
+    # Start the reindex operation in background thread
+    # Note: coordinator runs synchronously but in background to not block the HTTP response
+    from threading import Thread
+    from coordinator_reindex import reindex_files
+    import sys
     
-    # Get all files for case (exclude deleted and hidden files)
-    files = get_case_files(db, case_id, include_deleted=False, include_hidden=False)
+    def run_reindex():
+        """Background thread to run reindex coordinator"""
+        print(f"[DEBUG_ROUTE] run_reindex() thread function called!", file=sys.stderr, flush=True)
+        try:
+            print(f"[DEBUG_ROUTE] About to call reindex_files({case_id})...", file=sys.stderr, flush=True)
+            reindex_files(case_id, file_ids=None)
+            print(f"[DEBUG_ROUTE] reindex_files() returned successfully!", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[DEBUG_ROUTE] EXCEPTION in thread: {e}", file=sys.stderr, flush=True)
+            logger.error(f"[REINDEX] Background thread error: {e}", exc_info=True)
     
-    if not files:
-        if wants_json:
-            return jsonify({'success': True, 'message': 'No files to reindex', 'steps': [], 'files_queued': 0})
-        flash('No files found to re-index', 'warning')
-        return redirect(url_for('files.case_files', case_id=case_id))
+    print(f"[DEBUG_ROUTE] About to start thread for case {case_id}...", file=sys.stderr, flush=True)
+    thread = Thread(target=run_reindex, daemon=True)
+    thread.start()
+    print(f"[DEBUG_ROUTE] Thread started! Thread alive: {thread.is_alive()}", file=sys.stderr, flush=True)
     
-    # STEP 1: Clear database entries (reset to fresh import state)
-    steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
-    
-    # Clear all SIGMA violations, IOC matches, timeline tags, and EventStatus for this case
-    sigma_deleted = clear_case_sigma_violations(db, case_id)
-    ioc_deleted = clear_case_ioc_matches(db, case_id)
-    tags_deleted = clear_case_timeline_tags(db, case_id)
-    
-    # v1.46.0: Clear EventStatus records for true fresh start
-    from bulk_operations import clear_event_statuses
-    statuses_deleted = clear_event_statuses(db, scope='case', case_id=case_id)
-    
-    # Reset all file metadata (including opensearch_key)
-    for f in files:
-        reset_file_metadata(f, reset_opensearch_key=True)
-        f.error_message = None
-        f.celery_task_id = None
-    
-    from tasks import commit_with_retry
-    commit_with_retry(db.session, logger_instance=logger)
-    
-    steps[-1]['status'] = 'completed'
-    steps[-1]['files_processed'] = len(files)
-    steps[-1]['sigma_deleted'] = sigma_deleted
-    steps[-1]['ioc_deleted'] = ioc_deleted
-    steps[-1]['tags_deleted'] = tags_deleted
-    steps[-1]['statuses_deleted'] = statuses_deleted
-    steps[-1]['duration'] = round(time.time() - start_time, 2)
-    
-    # STEP 2: Clear OpenSearch entries (DELETE ENTIRE INDEX for clean slate)
-    step_start = time.time()
-    steps.append({'step': 'clearing_opensearch', 'message': 'Deleting case index for clean rebuild', 'status': 'in_progress'})
-    
-    # v1.19.8: Delete entire case index to prevent mapping conflicts
-    # When re-indexing ALL files, we want a clean slate with fresh mappings
-    from utils import make_index_name
-    index_name = make_index_name(case_id)
-    try:
-        opensearch_client.indices.delete(index=index_name, ignore=[404])
-        logger.info(f"[BULK REINDEX] Deleted index {index_name} for clean rebuild")
-        indices_deleted = 1
-    except Exception as e:
-        logger.warning(f"[BULK REINDEX] Could not delete index {index_name}: {e}")
-        # Fallback to clearing events
-        indices_deleted = clear_case_opensearch_indices(opensearch_client, case_id, files)
-    
-    steps[-1]['status'] = 'completed'
-    steps[-1]['indices_cleared'] = indices_deleted
-    steps[-1]['duration'] = round(time.time() - step_start, 2)
-    
-    # STEP 3: Build file queue
-    step_start = time.time()
-    steps.append({'step': 'building_queue', 'message': f'Building queue for {len(files)} files', 'status': 'in_progress'})
-    
-    # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
-    queued = queue_file_processing(process_file, files, operation='reindex', db_session=db.session)
-    
-    steps[-1]['status'] = 'completed'
-    steps[-1]['files_queued'] = queued
-    steps[-1]['duration'] = round(time.time() - step_start, 2)
+    # Return immediately while reindex runs in background
+    task_id = f"thread-reindex-{case_id}"
     
     # Audit log
     from audit_logger import log_action
     log_action('bulk_reindex_case', resource_type='case', resource_id=case_id,
               resource_name=case.name,
-              details={'file_count': len(files), 'worker_count': worker_count})
+              details={'thread_id': task_id, 'coordinator': 'reindex_files'})
     
-    total_duration = round(time.time() - start_time, 2)
+    logger.info(f"[REINDEX] Started for case {case_id} via coordinator (thread={task_id})")
     
     # Return JSON for modal updates or redirect for backward compatibility
     if wants_json:
         return jsonify({
             'success': True,
-            'message': f'Re-indexing queued for {len(files)} files',
-            'steps': steps,
-            'total_duration': total_duration,
-            'files_queued': queued,
-            'indices_cleared': indices_deleted,
-            'sigma_deleted': sigma_deleted,
-            'ioc_deleted': ioc_deleted,
-            'tags_deleted': tags_deleted,
-            'statuses_deleted': statuses_deleted
+            'message': f'Re-indexing started',
+            'thread_id': task_id,
+            'case_id': case_id
         })
-    else:
-        flash(f'✅ Re-indexing queued for {len(files)} file(s) ({worker_count} worker(s) available). All data will be cleared and rebuilt.', 'success')
-        return redirect(url_for('files.case_files', case_id=case_id))
+    
+    flash(f'✓ Re-indexing started. Check progress on this page.', 'success')
+    return redirect(url_for('files.case_files', case_id=case_id))
+
+
+@app.route('/case/<int:case_id>/reindex-status', methods=['GET'])
+@login_required
+def reindex_status_route(case_id):
+    """Get the current status of the reindex pipeline for this case."""
+    from models import ReindexProgress
+    
+    # Get the most recent progress record for this case
+    progress = ReindexProgress.query.filter_by(case_id=case_id).order_by(ReindexProgress.started_at.desc()).first()
+    
+    if not progress:
+        return jsonify({'status': 'not_found', 'message': 'No reindex in progress'})
+    
+    # Build response
+    response = {
+        'status': progress.status,  # pending, running, completed, failed
+        'current_phase': progress.current_phase,
+        'current_phase_name': progress.current_phase_name,
+        'statuses_deleted': progress.statuses_deleted,
+        'violations_deleted': progress.violations_deleted,
+        'phase1': {
+            'status': progress.phase1_status,
+            'total_files': progress.phase1_total_files,
+            'completed_files': progress.phase1_completed_files,
+            'events_indexed': progress.phase1_events_indexed,
+            'sigma_violations': progress.phase1_sigma_violations
+        },
+        'phase2': {
+            'status': progress.phase2_status,
+            'total_workers': progress.phase2_total_workers,
+            'completed_workers': progress.phase2_completed_workers,
+            'events_marked': progress.phase2_events_marked
+        },
+        'phase3': {
+            'status': progress.phase3_status,
+            'total_workers': progress.phase3_total_workers,
+            'completed_workers': progress.phase3_completed_workers,
+            'events_marked': progress.phase3_events_marked
+        },
+        'phase4': {
+            'status': progress.phase4_status,
+            'total_files': progress.phase4_total_files,
+            'completed_files': progress.phase4_completed_files,
+            'iocs_found': progress.phase4_iocs_found
+        },
+        'started_at': progress.started_at.isoformat() if progress.started_at else None,
+        'completed_at': progress.completed_at.isoformat() if progress.completed_at else None,
+        'error_message': progress.error_message
+    }
+    
+    return jsonify(response)
+
+
 
 
 @app.route('/case/<int:case_id>/bulk_rechainsaw', methods=['POST'])

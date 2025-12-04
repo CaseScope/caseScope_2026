@@ -907,3 +907,58 @@ def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files:
 def clear_case_timeline_tags(db, case_id: int) -> int:
     """Legacy wrapper for clear_timeline_tags with scope='case'"""
     return clear_timeline_tags(db, scope='case', case_id=case_id)
+
+
+def clear_case_data_for_reindex(db, case_id: int, file_ids: List[int]) -> Dict[str, int]:
+    """
+    Clear all detection/classification data for reindex.
+    
+    This ensures files are treated as brand new during reindex:
+    - EventStatus records (noise, hunted, confirmed)
+    - SigmaViolation records
+    - IOCMatch records
+    - OpenSearch index (deleted entirely)
+    
+    Args:
+        db: Database session
+        case_id: Case ID
+        file_ids: List of file IDs to clear (for targeted reindex)
+    
+    Returns:
+        Dict with counts of deleted records
+    """
+    logger.info(f"[REINDEX] Clearing data for case {case_id}, {len(file_ids)} files")
+    
+    result = {
+        'event_statuses_deleted': 0,
+        'sigma_violations_deleted': 0,
+        'ioc_matches_deleted': 0,
+        'timeline_tags_deleted': 0
+    }
+    
+    # Clear EventStatus records
+    result['event_statuses_deleted'] = clear_event_statuses(db, scope='case', case_id=case_id)
+    
+    # Clear SigmaViolation records
+    result['sigma_violations_deleted'] = clear_sigma_violations(db, scope='case', case_id=case_id)
+    
+    # Clear IOCMatch records
+    result['ioc_matches_deleted'] = clear_ioc_matches(db, scope='case', case_id=case_id)
+    
+    # Clear TimelineTag records
+    result['timeline_tags_deleted'] = clear_timeline_tags(db, scope='case', case_id=case_id)
+    
+    # Reset file metadata (event_count, violation_count, ioc_event_count, indexing_status, etc.)
+    from models import CaseFile
+    files = CaseFile.query.filter(CaseFile.id.in_(file_ids)).all()
+    for f in files:
+        reset_file_metadata(f, reset_opensearch_key=True)
+    db.session.commit()
+    
+    logger.info(f"[REINDEX] Cleared {result['event_statuses_deleted']} statuses, "
+                f"{result['sigma_violations_deleted']} violations, "
+                f"{result['ioc_matches_deleted']} IOC matches, "
+                f"{result['timeline_tags_deleted']} timeline tags, "
+                f"and reset {len(files)} file metadata records")
+    
+    return result

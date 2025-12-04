@@ -664,6 +664,70 @@ class SystemToolsSetting(db.Model):
         return f'<SystemToolsSetting {self.setting_type}: {self.tool_name or self.ip_or_cidr}>'
 
 
+class ReindexProgress(db.Model):
+    """
+    Tracks the progress of the 4-phase reindex pipeline.
+    
+    Phase 1: Index + SIGMA (per file, parallel workers)
+    Phase 2: Known Good Event Hunting (bulk, parallel workers)
+    Phase 3: Known Noise Event Hunting (bulk, parallel workers)
+    Phase 4: IOC Hunting (per file, excludes noise)
+    
+    Added in v1.46.0
+    """
+    __tablename__ = 'reindex_progress'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # Overall status
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, running, completed, failed
+    celery_task_id = db.Column(db.String(255), index=True)  # Coordinator task ID
+    
+    # Current phase tracking (1-4)
+    current_phase = db.Column(db.Integer, default=0)
+    current_phase_name = db.Column(db.String(100))
+    
+    # Phase 1: Index + SIGMA (per file)
+    phase1_status = db.Column(db.String(20), default='pending')  # pending, running, completed, failed
+    phase1_total_files = db.Column(db.Integer, default=0)
+    phase1_completed_files = db.Column(db.Integer, default=0)
+    phase1_events_indexed = db.Column(db.Integer, default=0)
+    phase1_sigma_violations = db.Column(db.Integer, default=0)
+    
+    # Phase 2: Known Good Hunting (bulk)
+    phase2_status = db.Column(db.String(20), default='pending')
+    phase2_total_workers = db.Column(db.Integer, default=0)
+    phase2_completed_workers = db.Column(db.Integer, default=0)
+    phase2_events_marked = db.Column(db.Integer, default=0)
+    
+    # Phase 3: Known Noise Hunting (bulk)
+    phase3_status = db.Column(db.String(20), default='pending')
+    phase3_total_workers = db.Column(db.Integer, default=0)
+    phase3_completed_workers = db.Column(db.Integer, default=0)
+    phase3_events_marked = db.Column(db.Integer, default=0)
+    
+    # Phase 4: IOC Hunting (per file)
+    phase4_status = db.Column(db.String(20), default='pending')
+    phase4_total_files = db.Column(db.Integer, default=0)
+    phase4_completed_files = db.Column(db.Integer, default=0)
+    phase4_iocs_found = db.Column(db.Integer, default=0)
+    
+    # Pre-phase: Data clearing
+    statuses_deleted = db.Column(db.Integer, default=0)
+    violations_deleted = db.Column(db.Integer, default=0)
+    
+    # Timing
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+    error_message = db.Column(db.Text)
+    
+    # Relationships
+    case = db.relationship('Case', backref='reindex_progresses')
+    user = db.relationship('User')
+
+
 class AITriageSearch(db.Model):
     """
     AI Triage Search results - automated attack chain analysis.

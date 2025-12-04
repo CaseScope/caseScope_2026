@@ -4718,3 +4718,584 @@ Write the attack narrative:"""
             search.error_message = str(e)
             db.session.commit()
             return {'status': 'error', 'message': str(e)}
+
+
+# ============================================================================
+# PHASED REINDEX PIPELINE TASKS (v1.46.0)
+# ============================================================================
+
+@celery_app.task(bind=True, name='reindex_phase_monitor_task')
+def reindex_phase_monitor_task(self, case_id: int, progress_id: int):
+    """
+    Monitor reindex progress and trigger next phases when ready.
+    
+    5 Phases:
+    1. Index only (parallel workers)
+    2. SIGMA only (parallel workers) 
+    3. Known Good hunting (synchronous)
+    4. Known Noise hunting (synchronous)
+    5. IOC hunting (parallel workers)
+    """
+    from main import app, db
+    from models import ReindexProgress, CaseFile
+    
+    with app.app_context():
+        try:
+            progress = db.session.get(ReindexProgress, progress_id)
+            if not progress:
+                logger.error(f"[MONITOR] Progress {progress_id} not found")
+                return
+            
+            current_phase = progress.current_phase
+            
+            # Phase 1: Check if all files are indexed
+            if current_phase == 1:
+                indexing_count = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False
+                ).filter(CaseFile.indexing_status.in_(['Queued', 'Indexing'])).count()
+                
+                completed_count = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False,
+                    is_indexed=True
+                ).count()
+                
+                progress.phase1_completed_files = completed_count
+                db.session.commit()
+                
+                if indexing_count == 0:
+                    # Phase 1 complete, start Phase 2: Queue SIGMA
+                    logger.info(f"[MONITOR] Phase 1 complete, starting Phase 2: SIGMA")
+                    progress.phase1_status = 'completed'
+                    progress.current_phase = 2
+                    progress.current_phase_name = 'Phase 2: Running SIGMA'
+                    progress.phase2_status = 'running'
+                    db.session.commit()
+                    
+                    # Queue all files for SIGMA
+                    files = CaseFile.query.filter_by(case_id=case_id, is_deleted=False, is_indexed=True).all()
+                    from tasks import sigma_only_task
+                    for f in files:
+                        sigma_only_task.apply_async(args=[f.id, case_id])
+                    
+                    logger.info(f"[MONITOR] Queued {len(files)} files for SIGMA")
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                    return
+                else:
+                    # Still indexing
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                    return
+            
+            # Phase 2: Check if SIGMA is done
+            if current_phase == 2:
+                sigma_count = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False
+                ).filter(CaseFile.indexing_status == 'SIGMA Testing').count()
+                
+                if sigma_count == 0:
+                    # Phase 2 complete, start Phase 3: Known Good
+                    logger.info(f"[MONITOR] Phase 2 complete, starting Phase 3: Known Good")
+                    progress.phase2_status = 'completed'
+                    progress.current_phase = 3
+                    progress.current_phase_name = 'Phase 3: Hunting Known Good Events'
+                    progress.phase3_status = 'running'
+                    db.session.commit()
+                    
+                    from events_known_good import hide_known_good_events
+                    result = hide_known_good_events(case_id)
+                    
+                    progress.phase3_events_marked = result.get('total_hidden', 0)
+                    progress.phase3_completed_workers = 1
+                    progress.phase3_total_workers = 1
+                    progress.phase3_status = 'completed'
+                    progress.current_phase = 4
+                    progress.current_phase_name = 'Phase 4: Hunting Known Noise Events'
+                    db.session.commit()
+                    
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=2)
+                    return
+                else:
+                    # Still running SIGMA
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                    return
+            
+            # Phase 4: Run Known Noise (Phase 3 completes immediately above)
+            if current_phase == 4:
+                logger.info(f"[MONITOR] Starting Phase 4: Known Noise")
+                progress.phase4_status = 'running'
+                db.session.commit()
+                
+                from events_known_noise import hide_noise_events
+                result = hide_noise_events(case_id)
+                
+                progress.phase4_events_marked = result.get('total_hidden', 0)
+                progress.phase4_completed_workers = 1
+                progress.phase4_total_workers = 1
+                progress.phase4_status = 'completed'
+                progress.current_phase = 5
+                progress.current_phase_name = 'Phase 5: Hunting IOCs'
+                db.session.commit()
+                
+                reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=2)
+                return
+            
+            # Phase 5: Queue IOC hunting
+            if current_phase == 5:
+                logger.info(f"[MONITOR] Starting Phase 5: IOC hunting")
+                progress.phase5_status = 'running'
+                db.session.commit()
+                
+                # Queue files for IOC hunting
+                files = CaseFile.query.filter_by(case_id=case_id, is_deleted=False, is_indexed=True).all()
+                progress.phase5_total_files = len(files)
+                db.session.commit()
+                
+                from bulk_operations import queue_file_processing
+                from tasks import process_file
+                queued = queue_file_processing(process_file, files, operation='ioc_only', db_session=db.session)
+                
+                logger.info(f"[MONITOR] Phase 5: Queued {queued} files for IOC hunting")
+                reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                return
+            
+            # Phase 5 monitoring: Check if IOC hunting is done
+            if current_phase == 5 and progress.phase5_status == 'running':
+                ioc_processing = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False
+                ).filter(CaseFile.indexing_status == 'IOC').count()
+                
+                if ioc_processing == 0:
+                    # All done!
+                    logger.info(f"[MONITOR] Phase 5 complete, reindex finished for case {case_id}")
+                    progress.phase5_status = 'completed'
+                    progress.status = 'completed'
+                    progress.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    return
+                else:
+                    # Still processing IOCs
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                    return
+            
+        except Exception as e:
+            logger.error(f"[MONITOR] Error: {e}", exc_info=True)
+            progress = db.session.get(ReindexProgress, progress_id)
+            if progress:
+                progress.status = 'failed'
+                progress.error_message = str(e)[:500]
+                db.session.commit()
+
+
+@celery_app.task(bind=True, name='index_only_task')
+def reindex_phase_monitor_task(self, case_id: int, progress_id: int):
+    """
+    Monitor reindex progress and trigger next phases when ready.
+    
+    This task checks if the current phase is complete, then triggers the next phase.
+    It reschedules itself until all phases are done.
+    """
+    from main import app, db
+    from models import ReindexProgress, CaseFile
+    
+    with app.app_context():
+        try:
+            progress = db.session.get(ReindexProgress, progress_id)
+            if not progress:
+                logger.error(f"[MONITOR] Progress {progress_id} not found")
+                return
+            
+            current_phase = progress.current_phase
+            
+            # Phase 1: Check if all files are indexed
+            if current_phase == 1:
+                indexing_count = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False
+                ).filter(CaseFile.indexing_status.in_(['Queued', 'Indexing', 'SIGMA Testing'])).count()
+                
+                completed_count = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False,
+                    is_indexed=True
+                ).count()
+                
+                progress.phase1_completed_files = completed_count
+                db.session.commit()
+                
+                if indexing_count == 0:
+                    # Phase 1 complete, start Phase 2
+                    logger.info(f"[MONITOR] Phase 1 complete for case {case_id}, starting Phase 2")
+                    progress.phase1_status = 'completed'
+                    progress.current_phase = 2
+                    progress.current_phase_name = 'Phase 2: Hunting for Known Good Events'
+                    progress.phase2_status = 'running'
+                    db.session.commit()
+                    
+                    # Run Phase 2 (Known Good)
+                    from events_known_good import hide_known_good_events
+                    result = hide_known_good_events(case_id)
+                    progress.phase2_events_marked = result.get('total_hidden', 0)
+                    progress.phase2_completed_workers = 1
+                    progress.phase2_total_workers = 1
+                    progress.phase2_status = 'completed'
+                    progress.current_phase = 3
+                    progress.current_phase_name = 'Phase 3: Hunting for Known Noise Events'
+                    db.session.commit()
+                    
+                    # Reschedule to check Phase 3
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=2)
+                    return
+                else:
+                    # Still processing, check again in 10 seconds
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                    return
+            
+            # Phase 3: Run Known Noise (Phase 2 completes immediately above)
+            if current_phase == 3:
+                logger.info(f"[MONITOR] Starting Phase 3 for case {case_id}")
+                progress.phase3_status = 'running'
+                db.session.commit()
+                
+                from events_known_noise import hide_noise_events
+                result = hide_noise_events(case_id)
+                progress.phase3_events_marked = result.get('total_hidden', 0)
+                progress.phase3_completed_workers = 1
+                progress.phase3_total_workers = 1
+                progress.phase3_status = 'completed'
+                progress.current_phase = 4
+                progress.current_phase_name = 'Phase 4: Hunting for IOCs'
+                db.session.commit()
+                
+                # Start Phase 4
+                reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=2)
+                return
+            
+            # Phase 4: Queue IOC hunting
+            if current_phase == 4:
+                logger.info(f"[MONITOR] Starting Phase 4 for case {case_id}")
+                progress.phase4_status = 'running'
+                db.session.commit()
+                
+                # Queue files for IOC hunting
+                files = CaseFile.query.filter_by(case_id=case_id, is_deleted=False, is_indexed=True).all()
+                progress.phase4_total_files = len(files)
+                db.session.commit()
+                
+                from bulk_operations import queue_file_processing
+                from tasks import process_file
+                queued = queue_file_processing(process_file, files, operation='ioc_only', db_session=db.session)
+                
+                logger.info(f"[MONITOR] Phase 4: Queued {queued} files for IOC hunting")
+                
+                # Monitor Phase 4 completion
+                reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                return
+            
+            # Phase 4 monitoring: Check if IOC hunting is done
+            if current_phase == 4 and progress.phase4_status == 'running':
+                ioc_processing = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    is_deleted=False
+                ).filter(CaseFile.indexing_status == 'IOC').count()
+                
+                if ioc_processing == 0:
+                    # All done!
+                    logger.info(f"[MONITOR] Phase 4 complete, reindex finished for case {case_id}")
+                    progress.phase4_status = 'completed'
+                    progress.status = 'completed'
+                    progress.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    return
+                else:
+                    # Still processing IOCs
+                    reindex_phase_monitor_task.apply_async(args=[case_id, progress_id], countdown=10)
+                    return
+            
+        except Exception as e:
+            logger.error(f"[MONITOR] Error: {e}", exc_info=True)
+            progress = db.session.get(ReindexProgress, progress_id)
+            if progress:
+                progress.status = 'failed'
+                progress.error_message = str(e)[:500]
+                db.session.commit()
+
+
+@celery_app.task(bind=True, name='index_only_task')
+def index_only_task(self, file_id: int, case_id: int):
+    """Phase 1: Index EVTX file only - uses index_evtx.py"""
+    from main import app, db, opensearch_client
+    from index_evtx import index_file_simple
+    from models import CaseFile
+    
+    with app.app_context():
+        try:
+            case_file = db.session.get(CaseFile, file_id)
+            if not case_file:
+                return {'status': 'error', 'message': 'File not found'}
+            
+            case_file.indexing_status = 'Indexing'
+            case_file.celery_task_id = self.request.id
+            db.session.commit()
+            
+            result = index_file_simple(db, opensearch_client, file_id, case_id)
+            
+            if result['status'] == 'success':
+                case_file.indexing_status = 'Indexed (waiting for SIGMA)'
+                case_file.is_indexed = True
+            else:
+                case_file.indexing_status = 'Failed'
+                case_file.error_message = result.get('message', '')[:500]
+            
+            case_file.celery_task_id = None
+            db.session.commit()
+            return result
+        except Exception as e:
+            logger.error(f"[INDEX] Failed for file {file_id}: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e)}
+
+
+@celery_app.task(bind=True, name='sigma_only_task')
+def sigma_only_task(self, file_id: int, case_id: int):
+    """Phase 2: Run SIGMA only - uses sigma_evtx.py"""
+    from main import app, db, opensearch_client
+    from sigma_evtx import sigma_file_simple
+    from models import CaseFile
+    
+    with app.app_context():
+        try:
+            case_file = db.session.get(CaseFile, file_id)
+            if not case_file:
+                return {'status': 'error', 'message': 'File not found'}
+            
+            # Skip non-EVTX files
+            if not case_file.original_filename.lower().endswith('.evtx'):
+                return {'status': 'success', 'message': 'Not EVTX, skipped'}
+            
+            case_file.indexing_status = 'SIGMA Testing'
+            case_file.celery_task_id = self.request.id
+            db.session.commit()
+            
+            result = sigma_file_simple(db, opensearch_client, file_id, case_id)
+            
+            if result['status'] == 'success':
+                case_file.indexing_status = 'Completed'
+            else:
+                case_file.indexing_status = 'Failed'
+                case_file.error_message = result.get('message', '')[:500]
+            
+            case_file.celery_task_id = None
+            db.session.commit()
+            return result
+        except Exception as e:
+            logger.error(f"[SIGMA] Failed for file {file_id}: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e)}
+
+
+# OLD coordinator task - now replaced by monitor + queue approach
+@celery_app.task(bind=True, name='reindex_coordinator_task_OLD')
+def reindex_coordinator_task(self, case_id: int, user_id: int, file_ids: list, progress_id: int):
+    """
+    Orchestrates the 4-phase reindex pipeline.
+    
+    Phase 1: Index + SIGMA (per file, parallel)
+    Phase 2: Known Good Hunting (bulk, parallel workers)
+    Phase 3: Known Noise Hunting (bulk, parallel workers)
+    Phase 4: IOC Hunting (per file, exclude noise)
+    """
+    from main import app, db
+    from reindex_coordinator import start_reindex_pipeline
+    
+    with app.app_context():
+        try:
+            logger.info(f"[COORDINATOR] Starting reindex pipeline: case={case_id}, files={len(file_ids)}")
+            start_reindex_pipeline(db, case_id, user_id, file_ids, progress_id)
+            return {'status': 'success', 'case_id': case_id}
+        except Exception as e:
+            logger.error(f"[COORDINATOR] Failed: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e)}
+
+
+@celery_app.task(bind=True, name='phase1_index_and_sigma_task')
+def phase1_index_and_sigma_task(self, file_id: int, case_id: int, progress_id: int):
+    """
+    Phase 1: Index a single file + run SIGMA detection.
+    
+    Steps:
+    1. Index EVTX → OpenSearch (all events marked 'new')
+    2. Run SIGMA detection → Store violations
+    3. Update progress tracker
+    """
+    from main import app, db, opensearch_client
+    from index_evtx import index_file_simple
+    from sigma_evtx import sigma_file_simple
+    from models import ReindexProgress
+    
+    with app.app_context():
+        try:
+            logger.info(f"[PHASE1] Processing file {file_id}")
+            
+            # Step 1: Index
+            index_result = index_file_simple(db, opensearch_client, file_id, case_id)
+            if index_result['status'] != 'success':
+                logger.error(f"[PHASE1] Index failed for file {file_id}: {index_result.get('message')}")
+                return index_result
+            
+            # Step 2: SIGMA
+            sigma_result = sigma_file_simple(db, opensearch_client, file_id, case_id)
+            if sigma_result['status'] != 'success':
+                logger.warning(f"[PHASE1] SIGMA failed for file {file_id}: {sigma_result.get('message')}")
+            
+            # Step 3: Update progress
+            progress = db.session.get(ReindexProgress, progress_id)
+            if progress:
+                progress.phase1_completed_files += 1
+                progress.phase1_events_indexed += index_result.get('events_indexed', 0)
+                progress.phase1_sigma_violations += sigma_result.get('violations_found', 0)
+                db.session.commit()
+            
+            logger.info(f"[PHASE1] ✓ File {file_id}: {index_result.get('events_indexed', 0)} events, {sigma_result.get('violations_found', 0)} violations")
+            
+            return {
+                'status': 'success',
+                'file_id': file_id,
+                'events_indexed': index_result.get('events_indexed', 0),
+                'violations_found': sigma_result.get('violations_found', 0)
+            }
+        
+        except Exception as e:
+            logger.error(f"[PHASE1] Failed for file {file_id}: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e), 'file_id': file_id}
+
+
+@celery_app.task(bind=True, name='phase2_known_good_worker_task')
+def phase2_known_good_worker_task(self, case_id: int, worker_id: int, progress_id: int):
+    """
+    Phase 2: Known Good hunting worker.
+    
+    Each worker processes a subset of Known Good rules from EVENTS_KNOWN_GOOD.md
+    to identify benign events and mark them as 'noise'.
+    
+    Args:
+        case_id: Case ID
+        worker_id: Worker ID (0-7)
+        progress_id: ReindexProgress record ID
+    """
+    from main import app, db, opensearch_client
+    from events_known_good import hunt_known_good
+    from models import ReindexProgress
+    
+    with app.app_context():
+        try:
+            logger.info(f"[PHASE2] Worker {worker_id} starting for case {case_id}")
+            
+            # Run known good detection
+            result = hunt_known_good(db, opensearch_client, case_id, worker_id)
+            
+            # Update progress
+            progress = db.session.get(ReindexProgress, progress_id)
+            if progress:
+                progress.phase2_completed_workers += 1
+                progress.phase2_events_marked += result.get('events_marked', 0)
+                db.session.commit()
+            
+            logger.info(f"[PHASE2] ✓ Worker {worker_id}: {result.get('events_marked', 0)} events marked")
+            
+            return {
+                'status': 'success',
+                'worker_id': worker_id,
+                'events_marked': result.get('events_marked', 0)
+            }
+        
+        except Exception as e:
+            logger.error(f"[PHASE2] Worker {worker_id} failed: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e), 'worker_id': worker_id}
+
+
+@celery_app.task(bind=True, name='phase3_known_noise_worker_task')
+def phase3_known_noise_worker_task(self, case_id: int, worker_id: int, progress_id: int):
+    """
+    Phase 3: Known Noise hunting worker.
+    
+    Each worker processes a subset of Known Noise rules from EVENTS_KNOWN_NOISE.md
+    to identify noisy events and mark them as 'noise'.
+    
+    Args:
+        case_id: Case ID
+        worker_id: Worker ID (0-7)
+        progress_id: ReindexProgress record ID
+    """
+    from main import app, db, opensearch_client
+    from events_known_noise import hunt_known_noise
+    from models import ReindexProgress
+    
+    with app.app_context():
+        try:
+            logger.info(f"[PHASE3] Worker {worker_id} starting for case {case_id}")
+            
+            # Run known noise detection
+            result = hunt_known_noise(db, opensearch_client, case_id, worker_id)
+            
+            # Update progress
+            progress = db.session.get(ReindexProgress, progress_id)
+            if progress:
+                progress.phase3_completed_workers += 1
+                progress.phase3_events_marked += result.get('events_marked', 0)
+                db.session.commit()
+            
+            logger.info(f"[PHASE3] ✓ Worker {worker_id}: {result.get('events_marked', 0)} events marked")
+            
+            return {
+                'status': 'success',
+                'worker_id': worker_id,
+                'events_marked': result.get('events_marked', 0)
+            }
+        
+        except Exception as e:
+            logger.error(f"[PHASE3] Worker {worker_id} failed: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e), 'worker_id': worker_id}
+
+
+@celery_app.task(bind=True, name='phase4_ioc_hunt_task')
+def phase4_ioc_hunt_task(self, file_id: int, case_id: int, progress_id: int):
+    """
+    Phase 4: IOC hunting for a single file, excluding noise events.
+    
+    Queries OpenSearch for events with event_status != 'noise' and runs IOC detection.
+    
+    Args:
+        file_id: File ID to process
+        case_id: Case ID
+        progress_id: ReindexProgress record ID
+    """
+    from main import app, db, opensearch_client
+    from ioc_utils import hunt_iocs_in_file
+    from models import ReindexProgress
+    
+    with app.app_context():
+        try:
+            logger.info(f"[PHASE4] IOC hunting file {file_id}")
+            
+            # Run IOC detection (excluding noise events)
+            result = hunt_iocs_in_file(db, opensearch_client, case_id, file_id, exclude_noise=True)
+            
+            # Update progress
+            progress = db.session.get(ReindexProgress, progress_id)
+            if progress:
+                progress.phase4_completed_files += 1
+                progress.phase4_iocs_found += result.get('iocs_found', 0)
+                db.session.commit()
+            
+            logger.info(f"[PHASE4] ✓ File {file_id}: {result.get('iocs_found', 0)} IOCs found")
+            
+            return {
+                'status': 'success',
+                'file_id': file_id,
+                'iocs_found': result.get('iocs_found', 0)
+            }
+        
+        except Exception as e:
+            logger.error(f"[PHASE4] Failed for file {file_id}: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e), 'file_id': file_id}

@@ -39,4 +39,15 @@ celery_app.conf.update(
 # Import tasks directly (instead of autodiscover)
 import tasks
 
+# Import new modular processing tasks (v2.0.0)
+import processing_clear_metadata
+import processing_index
+import processing_sigma
+import processing_ioc
+
+# Import new modular coordinator tasks (v2.0.0)
+import coordinator_reindex
+import coordinator_resigma
+import coordinator_ioc
+
 logger.info("Celery app initialized")

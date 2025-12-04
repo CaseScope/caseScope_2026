@@ -958,15 +958,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         noise_event_ids = []  # Track noise event IDs for database sync (v1.46.0)
         bulk_data = []
         
-        # v1.45.0: Pre-load exclusions for auto-hide using events_known_good module
-        try:
-            from events_known_good import get_cached_exclusions, has_exclusions_configured
-            auto_hide_exclusions = get_cached_exclusions() if has_exclusions_configured() else None
-            if auto_hide_exclusions:
-                logger.info("[INDEX FILE] Auto-hide enabled: will hide known-good events during indexing")
-        except Exception as e:
-            auto_hide_exclusions = None
-            logger.debug(f"[INDEX FILE] Auto-hide not available: {e}")
+        # v2.0.0: Exclusions loading DISABLED - filtering now happens in dedicated phases
+        auto_hide_exclusions = None
         
         # Process CSV files
         if is_csv:
@@ -1026,11 +1019,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     from event_normalization import normalize_event
                     event = normalize_event(event)
                     
-                    # v1.43.17: Auto-hide known good events during indexing
-                    event = apply_auto_hide(event, auto_hide_exclusions)
-                    
-                    # v1.46.0: Auto-hide noise events during indexing (after known-good)
-                    event = apply_auto_hide_noise(event)
+                    # v2.0.0: DISABLED - Known-good and noise filtering now happen in dedicated phases
+                    # event = apply_auto_hide(event, auto_hide_exclusions)
+                    # event = apply_auto_hide_noise(event)
                     
                     # Add deterministic document ID for deduplication if enabled
                     bulk_doc = {
@@ -1104,11 +1095,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 from event_normalization import normalize_event
                 event = normalize_event(event)
                 
-                # v1.43.17: Auto-hide known good events during indexing
-                event = apply_auto_hide(event, auto_hide_exclusions)
-                
-                # v1.46.0: Auto-hide noise events during indexing (after known-good)
-                event = apply_auto_hide_noise(event)
+                # v2.0.0: DISABLED - Known-good and noise filtering now happen in dedicated phases
+                # event = apply_auto_hide(event, auto_hide_exclusions)
+                # event = apply_auto_hide_noise(event)
                 
                 # Add deterministic document ID for deduplication if enabled
                 bulk_doc = {
@@ -1244,11 +1233,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         event['source_file'] = filename
                         event['file_id'] = file_id
                         
-                        # v1.43.17: Auto-hide known good events during indexing
-                        event = apply_auto_hide(event, auto_hide_exclusions)
-                        
-                        # v1.46.0: Auto-hide noise events during indexing (after known-good)
-                        event = apply_auto_hide_noise(event)
+                        # v2.0.0: DISABLED - Known-good and noise filtering now happen in dedicated phases
+                        # event = apply_auto_hide(event, auto_hide_exclusions)
+                        # event = apply_auto_hide_noise(event)
                         
                         # Add deterministic document ID for deduplication if enabled
                         bulk_doc = {

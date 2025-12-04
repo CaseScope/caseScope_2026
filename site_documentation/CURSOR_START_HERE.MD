@@ -16,3 +16,5 @@ These are you rules - do not skim this but fully read and understand them
 
 8. You are not to fix, report issues but do not fix until told to do so
 
+9. Do not make summary files
+

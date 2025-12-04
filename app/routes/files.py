@@ -1279,9 +1279,10 @@ def file_stats_case(case_id):
         # ========================================================================
         # FILE STATUS COUNTS (for queue monitoring)
         # ========================================================================
+        # v2.0.0: Changed 'Completed' to 'Indexed' for modular system compatibility
         completed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'Completed',
+            CaseFile.indexing_status.in_(['Completed', 'Indexed']),  # Support both old and new
             CaseFile.is_deleted == False,
             CaseFile.is_hidden == False
         ).count()

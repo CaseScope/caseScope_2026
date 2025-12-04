@@ -61,6 +61,13 @@
             <!-- Processing States -->
             <div style="margin-top: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
                 <div class="stat-item-label" style="margin-bottom: var(--spacing-sm);">Processing Status</div>
+                
+                <!-- Current Operation Phase (hidden by default, shown during operations) -->
+                <div id="current-operation-phase" style="display: none; padding: var(--spacing-sm); background: var(--color-info); color: white; border-radius: 6px; margin-bottom: var(--spacing-sm); font-weight: bold; text-align: center;">
+                    <span id="operation-phase-icon">⚙️</span>
+                    <span id="operation-phase-text">Processing...</span>
+                </div>
+                
                 <div id="processing-status-container" style="display: flex; gap: var(--spacing-lg); flex-wrap: wrap;">
                     <div class="stat-item">
                         <div class="text-secondary" style="font-size: 0.875rem;">✅ Completed</div>
@@ -533,23 +540,8 @@ function bulkReindexSelected() {
     const fileIds = getSelectedFileIds();
     if (fileIds.length === 0) return;
     
-    if (confirm(`🔄 Re-Index ${fileIds.length} Selected File(s)\n\nThis will:\n• Clear all OpenSearch data for these files\n• Clear all database metadata (events, SIGMA, IOCs)\n• Re-process files from scratch\n• Rebuild all indices and detections\n\nThis is a FULL REBUILD.\n\nContinue?`)) {
-        // Show preparation modal
-        showPreparationModal('reindex', `Re-Indexing ${fileIds.length} File(s)`, 'Clearing data and preparing selected files...<br>This may take 5-15 seconds.');
-        
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/case/${CASE_ID}/bulk_reindex_selected`;
-        fileIds.forEach(id => {
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'file_ids';
-            input.value = id;
-            form.appendChild(input);
-        });
-        document.body.appendChild(form);
-        form.submit();
-    }
+    // TODO: Wire up to coordinator_reindex.reindex_files_task(case_id, file_ids)
+    alert('Re-index functionality will be re-implemented with new modular system');
 }
 
 function bulkReSigmaSelected() {
@@ -917,16 +909,8 @@ function confirmDeleteAll() {
 }
 
 function reindexSingleFile(fileId) {
-    if (confirm('📇 Re-Index This File\n\nThis will:\n• Clear all OpenSearch data for this file\n• Clear all database metadata (events, SIGMA, IOCs)\n• Re-index the file from scratch\n• Re-run SIGMA and IOC detection\n\nThis is a FULL REBUILD of this file.\n\nContinue?')) {
-        // Show preparation modal
-        showPreparationModal('reindex', 'Re-Indexing File', 'Clearing data and preparing file for re-indexing...<br>This may take a few seconds.');
-        
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/case/${CASE_ID}/file/${fileId}/reindex`;
-        document.body.appendChild(form);
-        form.submit();
-    }
+    // TODO: Wire up to coordinator_reindex.reindex_files_task(case_id, [fileId])
+    alert('Re-index functionality will be re-implemented with new modular system');
 }
 
 function reSigmaSingleFile(fileId) {
@@ -1112,237 +1096,405 @@ function showPreparationModal(operationType, message, details) {
     `;
     document.body.appendChild(modal);
     
-    // Start polling for active queue items
-    startPreparationPolling(operationType);
-}
-
-// NEW MODAL FUNCTIONS FOR STEP-BY-STEP REINDEX (v1.19.6, v1.20.0: Standardized)
-function showReindexModal(operationType, message) {
-    // v1.20.0: Standardized to modal-overlay pattern
-    const modal = document.createElement('div');
-    modal.id = 'reindexModal';
-    modal.className = 'modal-overlay';
-    modal.style.display = 'flex';
-    modal.innerHTML = `
-        <div class="modal-container" style="max-width: 700px;">
-            <div class="modal-header" style="text-align: center; border-bottom: none;">
-                <h2 class="modal-title">${getOperationIcon(operationType)} ${message}</h2>
-            </div>
-            <div class="modal-body">
-                <div style="text-align: center; margin-bottom: var(--spacing-lg);">
-                    <div class="spinner"></div>
-                </div>
-                <div id="reindexSteps" style="color: var(--color-text); line-height: 1.8;">
-                    <p style="text-align: center; color: var(--color-text-muted);">
-                        <strong>Preparing operation...</strong>
-                    </p>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function updateModalWithSteps(steps) {
-    const stepsContainer = document.getElementById('reindexSteps');
-    if (!stepsContainer) return;
-    
-    let html = '<div style="text-align: left; padding: 0 var(--spacing-md);">';
-    
-    steps.forEach((step, index) => {
-        const icon = step.status === 'completed' ? '✅' : 
-                     step.status === 'in_progress' ? '⏳' : '⏸️';
-        const statusColor = step.status === 'completed' ? 'var(--color-success)' : 
-                            step.status === 'in_progress' ? 'var(--color-primary)' : 
-                            'var(--color-text-muted)';
-        
-        html += `
-            <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-sm); 
-                        background: var(--color-bg-secondary); border-radius: 8px;
-                        border-left: 4px solid ${statusColor};">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <div style="flex: 1;">
-                        <strong>${icon} ${step.message}</strong>
-                    </div>
-                    ${step.duration ? `<div style="color: var(--color-text-muted); font-size: 0.875rem;">
-                        ${step.duration}s
-                    </div>` : ''}
-                </div>
-        `;
-        
-        // Add details if available
-        const details = [];
-        if (step.files_processed) details.push(`${step.files_processed} files processed`);
-        if (step.deleted_events) details.push(`${step.deleted_events} events deleted`);
-        if (step.files_queued) details.push(`${step.files_queued} files queued`);
-        if (step.sigma_deleted) details.push(`${step.sigma_deleted} SIGMA violations cleared`);
-        if (step.ioc_deleted) details.push(`${step.ioc_deleted} IOC matches cleared`);
-        if (step.tags_deleted) details.push(`${step.tags_deleted} timeline tags cleared`);
-        if (step.statuses_deleted) details.push(`${step.statuses_deleted} event statuses cleared`);
-        if (step.indices_cleared) details.push(`${step.indices_cleared} indices cleared`);
-        
-        if (details.length > 0) {
-            html += `
-                <div style="margin-top: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.875rem;">
-                    ${details.join(' • ')}
-                </div>
-            `;
-        }
-        
-        html += '</div>';
-    });
-    
-    html += '</div>';
-    stepsContainer.innerHTML = html;
-}
-
-function updateModalMessage(message, isError = false) {
-    const stepsContainer = document.getElementById('reindexSteps');
-    if (!stepsContainer) return;
-    
-    const color = isError ? 'var(--color-danger)' : 'var(--color-text)';
-    const icon = isError ? '❌' : '✅';
-    
-    stepsContainer.innerHTML = `
-        <p style="text-align: center; color: ${color}; font-size: 1.1em;">
-            ${icon} <strong>${message}</strong>
-        </p>
-    `;
-}
-
-function closeReindexModal() {
-    const modal = document.getElementById('reindexModal');
-    if (modal) {
-        modal.remove();
-    }
-}
-
-function getOperationIcon(operationType) {
-    const icons = {
-        'reindex': '🔄',
-        'rechainsaw': '🛡️',
-        'rehunt': '🎯'
-    };
-    return icons[operationType] || '⏳';
-}
-
-function startPreparationPolling(operationType) {
-    let pollCount = 0;
-    const maxPolls = 60; // 60 seconds max
-    
-    preparationPollInterval = setInterval(() => {
-        pollCount++;
-        
-        // Check if files are in queue or processing
-        fetch(`/case/${CASE_ID}/queue_status`, {
-            credentials: 'same-origin'
-        })
-        .then(response => response.json())
-        .then(data => {
-            const activeCount = (data.queued_count || 0) + (data.processing_count || 0);
-            
-            if (activeCount > 0) {
-                // Files are now in queue - close modal and refresh
-                closePreparationModal();
-                location.reload();
-            } else if (pollCount >= maxPolls) {
-                // Timeout - close and refresh anyway
-                closePreparationModal();
-                location.reload();
-            }
-        })
-        .catch(error => {
-            console.error('Error polling queue:', error);
-            if (pollCount >= maxPolls) {
-                closePreparationModal();
-                location.reload();
-            }
-        });
-    }, 1000); // Poll every second
+    // Note: Monitoring is handled by caller (monitorReindexStart, etc.)
 }
 
 function closePreparationModal() {
-    if (preparationPollInterval) {
-        clearInterval(preparationPollInterval);
-        preparationPollInterval = null;
-    }
-    
     const modal = document.getElementById('preparationModal');
     if (modal) {
         modal.remove();
     }
 }
 
-function confirmReindex() {
-    if (confirm('🔄 Re-Index All Files\n\nThis will:\n• Clear all OpenSearch indices for this case\n• Clear all database metadata (events, SIGMA, IOCs)\n• Clear all timeline tags (event references will change)\n• Skip hidden files (0-event/CyLR artifacts)\n• Re-process all visible files from scratch\n• Rebuild all indices and detections\n\nThis is a FULL REBUILD and may take significant time.\n\nContinue?')) {
-        // Show preparation modal
-        showReindexModal('reindex', 'Re-Indexing All Files');
+// NEW MODAL FUNCTIONS FOR PROGRESS TRACKING (v2.0.0 - Modular System)
+function showProgressModal(operation, title, initialMessage) {
+    /**
+     * Show progress modal for long-running operations
+     * 
+     * @param {string} operation - Operation type ('reindex', 'resigma', 'reioc', 'clear_metadata')
+     * @param {string} title - Modal title
+     * @param {string} initialMessage - Initial message to display
+     */
+    // Remove any existing modal
+    const existing = document.getElementById('progressModal');
+    if (existing) existing.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'progressModal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 700px; min-height: 300px;">
+            <h3 style="margin: 0 0 20px 0; color: var(--color-primary);">
+                ${getOperationIcon(operation)} ${title}
+            </h3>
+            
+            <div id="progressPhases" style="color: var(--color-text); line-height: 2.2;">
+                <div class="phase-item" style="padding: 12px; background: var(--color-bg-secondary); border-radius: 6px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="spinner"></span>
+                        <span>${initialMessage}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="progressTime" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 0.9em;">
+                ⏱️ Elapsed: <span id="elapsedTime">0s</span>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Start elapsed time counter
+    const startTime = Date.now();
+    window.progressElapsedInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const timeElem = document.getElementById('elapsedTime');
+        if (timeElem) {
+            timeElem.textContent = `${elapsed}s`;
+        }
+    }, 1000);
+}
+
+function updateProgressPhases(phases) {
+    /**
+     * Update progress modal with phase information
+     * 
+     * @param {Array} phases - Array of phase objects with {phase_num, name, status, message, stats}
+     */
+    const container = document.getElementById('progressPhases');
+    if (!container) return;
+    
+    let html = '';
+    
+    for (const phase of phases) {
+        const icon = getPhaseIcon(phase.status);
+        const statusClass = getPhaseStatusClass(phase.status);
         
-        // Make AJAX call to reindex endpoint with JSON header
-        fetch(`/case/${CASE_ID}/bulk_reindex`, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Show all completed steps
-                updateModalWithSteps(data.steps);
-                
-                // Add success summary at the end
-                const stepsContainer = document.getElementById('reindexSteps');
-                if (stepsContainer && data.files_queued) {
-                    const summaryDiv = document.createElement('div');
-                    summaryDiv.style.cssText = `
-                        margin-top: var(--spacing-lg);
-                        padding: var(--spacing-md);
-                        background: var(--color-success-bg);
-                        border: 2px solid var(--color-success);
-                        border-radius: 8px;
-                        text-align: center;
-                    `;
-                    summaryDiv.innerHTML = `
-                        <div style="font-size: 1.1em; color: var(--color-success); margin-bottom: var(--spacing-xs);">
-                            <strong>✅ Preparation Complete!</strong>
-                        </div>
-                        <div style="color: var(--color-text); font-size: 0.95em;">
-                            ${data.files_queued} file(s) queued for reindexing<br>
-                            <span style="color: var(--color-text-muted); font-size: 0.875em;">
-                                Workers will begin processing shortly...<br>
-                                Page will refresh automatically
-                            </span>
-                        </div>
-                    `;
-                    stepsContainer.appendChild(summaryDiv);
-                }
-                
-                // Auto-close modal and refresh after showing completion (3 seconds)
-                setTimeout(() => {
-                    closeReindexModal();
-                    location.reload();
-                }, 3000);
-            } else {
-                // v1.19.8: Check for index version mismatch (shouldn't happen for bulk, but just in case)
-                if (data.error === 'index_version_mismatch') {
-                    showIndexVersionWarning(data.warning_title, data.warning_message, data.case_id);
-                } else {
-                    updateModalMessage('Error: ' + data.error, true);
+        html += `
+            <div class="phase-item" style="padding: 12px; background: var(--color-bg-secondary); border-radius: 6px; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                    <span style="font-size: 1.3em;">${icon}</span>
+                    <strong style="color: var(--color-text);">${phase.name}</strong>
+                    <span class="${statusClass}" style="margin-left: auto; font-size: 0.9em;">${phase.status.toUpperCase()}</span>
+                </div>
+                ${phase.message ? `<div style="color: var(--color-text-secondary); margin-left: 35px; font-size: 0.9em;">${phase.message}</div>` : ''}
+                ${formatPhaseStats(phase.stats)}
+            </div>
+        `;
+    }
+    
+    container.innerHTML = html;
+}
+
+function formatPhaseStats(stats) {
+    /**
+     * Format phase statistics for display
+     */
+    if (!stats || Object.keys(stats).length === 0) return '';
+    
+    let html = '<div style="margin-left: 35px; margin-top: 8px; font-size: 0.85em; color: var(--color-text-secondary);">';
+    
+    if (stats.cleared !== undefined) html += `📁 Cleared: ${stats.cleared} | `;
+    if (stats.indexed !== undefined) html += `📊 Indexed: ${stats.indexed} | `;
+    if (stats.processed !== undefined) html += `⚙️ Processed: ${stats.processed} | `;
+    if (stats.violations !== undefined) html += `🛡️ Violations: ${stats.violations} | `;
+    if (stats.total_matches !== undefined) html += `🎯 Matches: ${stats.total_matches} | `;
+    if (stats.events_deleted !== undefined) html += `🗑️ Events: ${stats.events_deleted} | `;
+    if (stats.violations_deleted !== undefined) html += `🗑️ Violations: ${stats.violations_deleted} | `;
+    if (stats.ioc_matches_deleted !== undefined) html += `🗑️ IOC Matches: ${stats.ioc_matches_deleted} | `;
+    if (stats.completed !== undefined && stats.total !== undefined) html += `📊 ${stats.completed}/${stats.total} | `;
+    
+    html = html.replace(/ \| $/, ''); // Remove trailing separator
+    html += '</div>';
+    
+    return html;
+}
+
+function getPhaseIcon(status) {
+    const icons = {
+        'running': '⏳',
+        'completed': '✅',
+        'failed': '❌',
+        'skipped': '⏭️'
+    };
+    return icons[status] || '•';
+}
+
+function getPhaseStatusClass(status) {
+    const classes = {
+        'running': 'status-processing',
+        'completed': 'status-success',
+        'failed': 'status-error',
+        'skipped': 'status-warning'
+    };
+    return classes[status] || '';
+}
+
+function getOperationIcon(operation) {
+    const icons = {
+        'reindex': '🔄',
+        'resigma': '🛡️',
+        'reioc': '🎯',
+        'clear_metadata': '🗑️',
+        'index': '📊'
+    };
+    return icons[operation] || '⚙️';
+}
+
+function closeProgressModal() {
+    const modal = document.getElementById('progressModal');
+    if (modal) {
+        modal.remove();
+    }
+    
+    // Clear elapsed time interval
+    if (window.progressElapsedInterval) {
+        clearInterval(window.progressElapsedInterval);
+        window.progressElapsedInterval = null;
+    }
+}
+
+function pollOperationProgress(caseId, operation, onComplete) {
+    /**
+     * Poll for operation progress and update modal
+     * 
+     * @param {int} caseId - Case ID
+     * @param {string} operation - Operation type
+     * @param {function} onComplete - Callback when operation completes
+     */
+    let pollInterval = setInterval(() => {
+        fetch(`/case/${caseId}/progress/${operation}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'not_found') {
+                    clearInterval(pollInterval);
+                    updateProgressPhases([{
+                        phase_num: 1,
+                        name: 'Status',
+                        status: 'failed',
+                        message: 'Progress tracking not found',
+                        stats: {}
+                    }]);
                     setTimeout(() => {
-                        closeReindexModal();
+                        closeProgressModal();
+                        if (onComplete) onComplete(false);
                     }, 3000);
+                    return;
                 }
-            }
-        })
-        .catch(error => {
-            console.error('Reindex error:', error);
-            updateModalMessage('Error: Request failed', true);
+                
+                // Update modal with phases
+                if (data.phases && data.phases.length > 0) {
+                    updateProgressPhases(data.phases);
+                }
+                
+                // Check if completed
+                if (data.status === 'completed') {
+                    clearInterval(pollInterval);
+                    setTimeout(() => {
+                        closeProgressModal();
+                        if (onComplete) onComplete(true);
+                    }, 2000);
+                } else if (data.status === 'failed') {
+                    clearInterval(pollInterval);
+                    setTimeout(() => {
+                        closeProgressModal();
+                        if (onComplete) onComplete(false);
+                    }, 5000);
+                }
+            })
+            .catch(error => {
+                console.error('Progress poll error:', error);
+                clearInterval(pollInterval);
+                updateProgressPhases([{
+                    phase_num: 1,
+                    name: 'Status',
+                    status: 'failed',
+                    message: 'Failed to fetch progress',
+                    stats: {}
+                }]);
+                setTimeout(() => {
+                    closeProgressModal();
+                    if (onComplete) onComplete(false);
+                }, 3000);
+            });
+    }, 2000); // Poll every 2 seconds
+}
+
+function confirmReindex() {
+    if (!confirm('🔄 Re-Index All Files\n\nThis will:\n• Clear all OpenSearch data for this case\n• Clear all database metadata (events, SIGMA, IOCs)\n• Re-process all visible files from scratch\n• Rebuild all indices and detections\n\nThis is a FULL REBUILD and may take significant time.\n\nContinue?')) {
+        return;
+    }
+    
+    // Show preparation modal during clearing phase
+    showPreparationModal('reindex', 'Preparing Re-Index', 'Clearing metadata and preparing files...<br>This may take 30-60 seconds.');
+    
+    // Start the reindex operation
+    fetch(`/case/${CASE_ID}/bulk_reindex`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Close modal after a short delay and start phase monitoring
             setTimeout(() => {
-                closeReindexModal();
-            }, 3000);
-        });
+                closePreparationModal();
+                startPhaseMonitoring();
+            }, 3000); // Give coordinator 3 seconds to start
+        } else {
+            closePreparationModal();
+            alert('Failed to start reindex: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Reindex error:', error);
+        closePreparationModal();
+        alert('Error starting reindex: ' + error.message);
+    });
+}
+
+function monitorReindexStart() {
+    /**
+     * Monitor queue status to detect when files actually start processing
+     * Close preparation modal only when files are being processed (not just queued)
+     */
+    let checkCount = 0;
+    const maxChecks = 120; // 2 minutes max
+    
+    const checkInterval = setInterval(() => {
+        checkCount++;
+        
+        fetch(`/case/${CASE_ID}/queue/status`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Check if files are actually processing (not just queued)
+                    const processingCount = (data.processing && data.processing.length > 0) ? data.processing.length : 0;
+                    
+                    if (processingCount > 0) {
+                        // Files are now being processed! Close modal and start phase monitoring
+                        clearInterval(checkInterval);
+                        closePreparationModal();
+                        startPhaseMonitoring();
+                    } else if (checkCount >= maxChecks) {
+                        // Timeout - close modal anyway
+                        clearInterval(checkInterval);
+                        closePreparationModal();
+                        startPhaseMonitoring();
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Queue check error:', error);
+                if (checkCount >= maxChecks) {
+                    clearInterval(checkInterval);
+                    closePreparationModal();
+                }
+            });
+    }, 1000); // Check every second
+}
+
+function startPhaseMonitoring() {
+    /**
+     * Monitor the progress of the reindex operation and update the Processing Status tile
+     */
+    let pollInterval = setInterval(() => {
+        fetch(`/case/${CASE_ID}/progress/reindex`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'not_found') {
+                    // Progress tracking not found - operation might not have started yet
+                    // Keep polling for a bit
+                    return;
+                }
+                
+                // Update the Processing Status tile based on current phase
+                if (data.phases && data.phases.length > 0) {
+                    const currentPhase = data.phases[data.current_phase - 1] || data.phases[data.phases.length - 1];
+                    updateProcessingStatusPhase(currentPhase);
+                }
+                
+                // Check if completed or failed
+                if (data.status === 'completed') {
+                    clearInterval(pollInterval);
+                    hideProcessingStatusPhase();
+                    // Refresh the page to show updated stats
+                    setTimeout(() => location.reload(), 2000);
+                } else if (data.status === 'failed') {
+                    clearInterval(pollInterval);
+                    showProcessingStatusPhase('❌', 'Re-index failed', 'error');
+                    setTimeout(() => {
+                        hideProcessingStatusPhase();
+                        location.reload();
+                    }, 5000);
+                }
+            })
+            .catch(error => {
+                console.error('Phase monitoring error:', error);
+                // Don't stop polling on error - backend might not be ready yet
+            });
+    }, 3000); // Poll every 3 seconds
+}
+
+function updateProcessingStatusPhase(phase) {
+    /**
+     * Update the Processing Status tile with current operation phase
+     */
+    const phaseMap = {
+        'Queuing Files': { icon: '📋', text: 'Queuing files for reindex' },
+        'Clearing Metadata': { icon: '🗑️', text: 'Clearing metadata' },
+        'Indexing Files': { icon: '📇', text: 'Indexing files' },
+        'SIGMA Detection': { icon: '🛡️', text: 'Running SIGMA detection' },
+        'Known-Good Events': { icon: '✅', text: 'Marking known-good events' },
+        'Known-Noise Events': { icon: '🔇', text: 'Marking known-noise patterns' },
+        'IOC Detection': { icon: '🎯', text: 'Running IOC detection' }
+    };
+    
+    const phaseInfo = phaseMap[phase.name] || { icon: '⚙️', text: phase.name };
+    
+    if (phase.status === 'running') {
+        showProcessingStatusPhase(phaseInfo.icon, phaseInfo.text, 'running');
+    } else if (phase.status === 'completed') {
+        showProcessingStatusPhase('✅', phaseInfo.text + ' - Complete', 'success');
+    }
+}
+
+function showProcessingStatusPhase(icon, text, status = 'running') {
+    /**
+     * Show the current operation phase in the Processing Status tile
+     */
+    const phaseContainer = document.getElementById('current-operation-phase');
+    const phaseIcon = document.getElementById('operation-phase-icon');
+    const phaseText = document.getElementById('operation-phase-text');
+    
+    if (phaseContainer && phaseIcon && phaseText) {
+        phaseIcon.textContent = icon;
+        phaseText.textContent = text;
+        
+        // Update background color based on status
+        if (status === 'running') {
+            phaseContainer.style.background = 'var(--color-info)';
+        } else if (status === 'success') {
+            phaseContainer.style.background = 'var(--color-success)';
+        } else if (status === 'error') {
+            phaseContainer.style.background = 'var(--color-error)';
+        }
+        
+        phaseContainer.style.display = 'block';
+    }
+}
+
+function hideProcessingStatusPhase() {
+    /**
+     * Hide the operation phase indicator
+     */
+    const phaseContainer = document.getElementById('current-operation-phase');
+    if (phaseContainer) {
+        phaseContainer.style.display = 'none';
     }
 }
 
