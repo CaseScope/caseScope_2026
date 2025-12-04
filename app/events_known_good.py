@@ -475,7 +475,7 @@ def hide_known_good_events(
             - total_hidden: int
             - errors: list
     """
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
     result = {
         'success': False,
@@ -493,8 +493,7 @@ def hide_known_good_events(
     
     logger.info(f"[KNOWN_GOOD] Starting hide operation for case {case_id}")
     
-    # Get OpenSearch client
-    opensearch_client = get_opensearch_client()
+    # opensearch_client is already imported above
     if not opensearch_client:
         result['errors'].append("OpenSearch not available")
         return result
@@ -644,7 +643,7 @@ def unhide_all_events(case_id: int) -> Dict[str, Any]:
     Returns:
         Dict with success, total_unhidden, errors
     """
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
     result = {
         'success': False,
@@ -652,7 +651,7 @@ def unhide_all_events(case_id: int) -> Dict[str, Any]:
         'errors': []
     }
     
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         result['errors'].append("OpenSearch not available")
         return result
@@ -701,9 +700,9 @@ def unhide_all_events(case_id: int) -> Dict[str, Any]:
 
 def hide_event(case_id: int, event_id: str) -> bool:
     """Mark a single event as noise by ID."""
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         return False
     
@@ -728,9 +727,9 @@ def hide_event(case_id: int, event_id: str) -> bool:
 
 def unhide_event(case_id: int, event_id: str) -> bool:
     """Mark a single event as new (remove noise status) by ID."""
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         return False
     
@@ -759,9 +758,9 @@ def unhide_event(case_id: int, event_id: str) -> bool:
 
 def get_hidden_count(case_id: int) -> int:
     """Get the count of noise events in a case."""
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         return 0
     
@@ -781,9 +780,9 @@ def get_hidden_count(case_id: int) -> int:
 
 def get_visible_count(case_id: int) -> int:
     """Get the count of non-noise events in a case."""
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         return 0
     

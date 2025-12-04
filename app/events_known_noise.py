@@ -343,7 +343,7 @@ def hide_noise_events(
             - by_category: Dict with counts per noise category
             - errors: list
     """
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
     result = {
         'success': False,
@@ -360,7 +360,7 @@ def hide_noise_events(
     logger.info(f"[NOISE] Starting hide operation for case {case_id}")
     
     # Get OpenSearch client
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         result['errors'].append("OpenSearch not available")
         return result
@@ -538,7 +538,7 @@ def get_noise_estimate(case_id: int) -> Dict[str, int]:
     
     Returns dict with counts by category.
     """
-    from file_processing import get_opensearch_client
+    from main import opensearch_client
     
     result = {
         'noise_process': 0,
@@ -547,7 +547,7 @@ def get_noise_estimate(case_id: int) -> Dict[str, int]:
         'total': 0
     }
     
-    opensearch_client = get_opensearch_client()
+    opensearch_client = opensearch_client  # Use the imported client
     if not opensearch_client:
         return result
     

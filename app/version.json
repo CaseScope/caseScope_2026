@@ -1,5 +1,5 @@
 {
-  "version": "2.0.3",
+  "version": "2.0.4",
   "release_date": "2025-12-01",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2818,6 +2818,18 @@
     ]
   },
   "changelog": [
+    {
+      "version": "2.0.4",
+      "date": "2025-12-04",
+      "title": "Fix Known-Good/Noise Import Error",
+      "changes": [
+        "🐛 BUGFIX: Fixed import error in events_known_good.py and events_known_noise.py",
+        "Changed from 'file_processing.get_opensearch_client' to 'main.opensearch_client'",
+        "This was causing Known-Good and Known-Noise phases to fail silently during reindex",
+        "Coordinator would stop after SIGMA phase due to import error",
+        "All phases now complete: Index → SIGMA → Known-Good → Known-Noise → IOC"
+      ]
+    },
     {
       "version": "2.0.3",
       "date": "2025-12-04",
