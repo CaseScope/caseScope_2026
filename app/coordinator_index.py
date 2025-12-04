@@ -196,9 +196,9 @@ def index_new_files(case_id: int, progress_callback: Optional[callable] = None) 
             if progress_callback:
                 progress_callback(5, 'running', 'Matching IOCs...')
             
-            from processing_ioc import match_all_iocs
+            from processing_ioc import hunt_iocs_all_files
             
-            ioc_result = match_all_iocs(case_id)
+            ioc_result = hunt_iocs_all_files(case_id)
             
             if ioc_result['status'] == 'success':
                 result['phases_completed'].append('ioc_matching')

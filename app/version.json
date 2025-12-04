@@ -1,5 +1,5 @@
 {
-  "version": "2.0.2",
+  "version": "2.0.3",
   "release_date": "2025-12-01",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2818,6 +2818,20 @@
     ]
   },
   "changelog": [
+    {
+      "version": "2.0.3",
+      "date": "2025-12-04",
+      "title": "Revert IOC to Per-File Processing",
+      "changes": [
+        "🔧 REFACTOR: Changed IOC processing from case-wide to per-file (matching Index/SIGMA patterns)",
+        "IOC now uses hunt_iocs_all_files() that processes each file individually with parallel workers",
+        "Files get status: 'IOC Hunting' → 'IOC Complete' (trackable in queue)",
+        "Can now show per-file IOC progress bars and stats",
+        "Uses existing hunt_iocs() function from file_processing.py",
+        "Matches modular architecture: index_all_files_in_queue → sigma_detect_all_files → hunt_iocs_all_files",
+        "Fixed coordinator_index.py to use new function name"
+      ]
+    },
     {
       "version": "2.0.2",
       "date": "2025-12-04",
