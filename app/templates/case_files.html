@@ -80,20 +80,20 @@
                         </a>
                     </div>
                     <div class="stat-item">
-                        <div class="text-secondary" style="font-size: 0.875rem;">⏳ Queued</div>
+                        <div class="text-secondary" style="font-size: 0.875rem;">📇 Indexed</div>
+                        <div><strong id="stat-indexed">0</strong></div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="text-secondary" style="font-size: 0.875rem;">🛡️ SIGMA Checked</div>
+                        <div><strong id="stat-sigma-checked">0</strong></div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="text-secondary" style="font-size: 0.875rem;">🎯 IOC Checked</div>
+                        <div><strong id="stat-ioc-checked">0</strong></div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="text-secondary" style="font-size: 0.875rem;">⏳ Queue</div>
                         <div><strong id="stat-queued">{{ files_queued }}</strong></div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="text-secondary" style="font-size: 0.875rem;">📇 Indexing</div>
-                        <div><strong id="stat-indexing">{{ files_indexing }}</strong></div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="text-secondary" style="font-size: 0.875rem;">🛡️ SIGMA</div>
-                        <div><strong id="stat-sigma">{{ files_sigma }}</strong></div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="text-secondary" style="font-size: 0.875rem;">🎯 IOC</div>
-                        <div><strong id="stat-ioc-hunting">{{ files_ioc_hunting }}</strong></div>
                     </div>
                 </div>
             </div>
@@ -758,14 +758,14 @@ function refreshFileStats() {
         .then(data => {
             if (data.status === 'success') {
                 // ====================================================================
-                // UPDATE FILE STATUS COUNTS (queue monitoring)
+                // UPDATE FILE STATUS COUNTS (Processing Status tile) - v2.0.4 new layout
                 // ====================================================================
                 document.getElementById('stat-completed').textContent = data.completed || 0;
                 document.getElementById('stat-failed').textContent = data.failed || 0;
+                document.getElementById('stat-indexed').textContent = data.indexed || 0;
+                document.getElementById('stat-sigma-checked').textContent = data.sigma_checked || 0;
+                document.getElementById('stat-ioc-checked').textContent = data.ioc_checked || 0;
                 document.getElementById('stat-queued').textContent = data.queued || 0;
-                document.getElementById('stat-indexing').textContent = data.indexing || 0;
-                document.getElementById('stat-sigma').textContent = data.sigma || 0;
-                document.getElementById('stat-ioc-hunting').textContent = data.ioc_hunting || 0;
                 
                 // ====================================================================
                 // UPDATE EVENT STATISTICS (synchronous - all together)

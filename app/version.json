@@ -1,5 +1,5 @@
 {
-  "version": "2.0.4",
+  "version": "2.0.5",
   "release_date": "2025-12-01",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2818,6 +2818,23 @@
     ]
   },
   "changelog": [
+    {
+      "version": "2.0.5",
+      "date": "2025-12-04",
+      "title": "New Processing Status Tile Layout",
+      "changes": [
+        "✨ FEATURE: Redesigned Processing Status tile with new stat categories",
+        "Completed - Files that finished ALL phases (SIGMA Complete, IOC Complete, or Completed)",
+        "Failed - Files with any Failed status (unchanged)",
+        "Indexed - Files indexed but not fully complete (status='Indexed')",
+        "SIGMA Checked - Files that completed SIGMA detection (status='SIGMA Complete')",
+        "IOC Checked - Files that completed IOC hunting (status='IOC Complete')",
+        "Queue - Files actively being processed (Queued, Indexing, SIGMA Testing, IOC Hunting)",
+        "Backend: Updated file_stats_case endpoint to return new stat categories",
+        "Frontend: Updated case_files.html to display and refresh new stats",
+        "Removed old stats: Indexing, SIGMA (in-progress), IOC (in-progress) - now unified in Queue"
+      ]
+    },
     {
       "version": "2.0.4",
       "date": "2025-12-04",

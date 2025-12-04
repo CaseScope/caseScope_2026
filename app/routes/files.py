@@ -1280,44 +1280,55 @@ def file_stats_case(case_id):
         # FILE STATUS COUNTS (for queue monitoring)
         # ========================================================================
         # v2.0.0: Changed 'Completed' to 'Indexed' for modular system compatibility
+        # ========================================================================
+        # FILE STATUS COUNTS (for Processing Status tile)
+        # ========================================================================
+        # v2.0.4: New modular processing stats
+        
+        # COMPLETED: Files that finished ALL phases (SIGMA Complete or Completed status)
         completed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
-            CaseFile.indexing_status.in_(['Completed', 'Indexed']),  # Support both old and new
+            CaseFile.indexing_status.in_(['SIGMA Complete', 'Completed', 'IOC Complete']),
             CaseFile.is_deleted == False,
             CaseFile.is_hidden == False
         ).count()
         
-        queued = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'Queued',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
-        
-        indexing = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'Indexing',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
-        
-        sigma = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'SIGMA Testing',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
-        
-        ioc_hunting = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'SIGMA Hunting',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
-        
+        # FAILED: Files with any Failed status
         failed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status.like('Failed%'),
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).count()
+        
+        # INDEXED: Files indexed but not fully complete
+        indexed = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.indexing_status == 'Indexed',
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).count()
+        
+        # SIGMA CHECKED: Files that completed SIGMA
+        sigma_checked = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.indexing_status == 'SIGMA Complete',
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).count()
+        
+        # IOC CHECKED: Files that completed IOC hunting
+        ioc_checked = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.indexing_status == 'IOC Complete',
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).count()
+        
+        # QUEUE: Files currently being processed (Queued, Indexing, SIGMA Testing, IOC Hunting)
+        queued = db.session.query(CaseFile).filter(
+            CaseFile.case_id == case_id,
+            CaseFile.indexing_status.in_(['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting']),
             CaseFile.is_deleted == False,
             CaseFile.is_hidden == False
         ).count()
@@ -1369,14 +1380,14 @@ def file_stats_case(case_id):
         # ========================================================================
         return jsonify({
             'status': 'success',
-            # File status counts (queue monitoring)
+            # File status counts (Processing Status tile) - v2.0.4 new layout
             'completed': completed,
-            'queued': queued,
-            'indexing': indexing,
-            'sigma': sigma,
-            'ioc_hunting': ioc_hunting,
             'failed': failed,
-            # Event counts (statistics tile)
+            'indexed': indexed,
+            'sigma_checked': sigma_checked,
+            'ioc_checked': ioc_checked,
+            'queued': queued,
+            # Event counts (Event Statistics tile)
             'total_events': total_events,
             'sigma_events': sigma_events,
             'ioc_events': ioc_events,
