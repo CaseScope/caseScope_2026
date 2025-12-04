@@ -60,7 +60,10 @@
             
             <!-- Processing States -->
             <div style="margin-top: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
-                <div class="stat-item-label" style="margin-bottom: var(--spacing-sm);">Processing Status</div>
+                <div style="margin-bottom: var(--spacing-sm);">
+                    <span class="stat-item-label">Processing Status</span>
+                    <span style="font-size: 0.75rem; color: var(--color-text-secondary); margin-left: var(--spacing-sm);">(Stats do not include hidden files)</span>
+                </div>
                 
                 <!-- Current Operation Phase (hidden by default, shown during operations) -->
                 <div id="current-operation-phase" style="display: none; padding: var(--spacing-sm); background: var(--color-info); color: white; border-radius: 6px; margin-bottom: var(--spacing-sm); font-weight: bold; text-align: center;">
