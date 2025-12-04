@@ -817,7 +817,29 @@ document.addEventListener('DOMContentLoaded', function() {
     startQueueAutoRefresh();
     refreshFileStats(); // Initial load
     setInterval(refreshFileStats, 10000); // Refresh file stats every 10 seconds
+    
+    // Auto-detect ongoing operations and resume progress monitoring
+    checkForOngoingOperations();
 });
+
+/**
+ * Check if there's an ongoing reindex/operation when page loads
+ * If found, automatically start progress monitoring
+ */
+function checkForOngoingOperations() {
+    fetch(`/case/${CASE_ID}/progress/reindex`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'running') {
+                console.log('[AUTO-DETECT] Found ongoing reindex operation, resuming progress monitoring');
+                startPhaseMonitoring();
+            }
+        })
+        .catch(error => {
+            // Silent fail - no operation running or endpoint not available
+            console.debug('[AUTO-DETECT] No ongoing operations found');
+        });
+}
 
 // Queue Cleanup
 function queueCleanup() {

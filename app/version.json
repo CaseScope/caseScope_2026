@@ -1,5 +1,5 @@
 {
-  "version": "2.0.1",
+  "version": "2.0.2",
   "release_date": "2025-12-01",
   "name": "CaseScope 2026",
   "build": "stable",
@@ -2818,6 +2818,19 @@
     ]
   },
   "changelog": [
+    {
+      "version": "2.0.2",
+      "date": "2025-12-04",
+      "title": "Auto-Resume Progress Monitoring",
+      "changes": [
+        "🔄 FEATURE: Progress monitoring now auto-resumes on page reload",
+        "Added checkForOngoingOperations() function that runs on page load",
+        "Automatically detects active reindex operations from Redis",
+        "Progress banner reappears when navigating back to case files page",
+        "Silent fallback if no operation is running (no errors thrown)",
+        "Pure frontend fix - no backend changes or service restart needed"
+      ]
+    },
     {
       "version": "2.0.1",
       "date": "2025-12-04",
