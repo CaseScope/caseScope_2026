@@ -663,11 +663,9 @@ def reindex_single_file(case_id, file_id):
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/rechainsaw', methods=['POST'])
 @login_required
 def rechainsaw_single_file(case_id, file_id):
-    """Re-run SIGMA on a single file (clears DB violations and OpenSearch flags first)"""
-    from main import db, CaseFile, opensearch_client
-    from bulk_operations import clear_file_sigma_violations, clear_file_sigma_flags_in_opensearch
-    from file_processing import chainsaw_file
-    from models import SigmaRule, SigmaViolation
+    """Re-run SIGMA on a single file (v2.1.6: Using coordinator_resigma)"""
+    from main import db, CaseFile
+    from coordinator_resigma import resigma_files_task
     
     case_file = db.session.get(CaseFile, file_id)
     
@@ -679,60 +677,17 @@ def rechainsaw_single_file(case_id, file_id):
         flash('File must be indexed before SIGMA testing', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear existing violations (database)
-    clear_file_sigma_violations(db, file_id)
+    # Queue re-SIGMA coordinator task for this single file
+    resigma_files_task.delay(case_id, file_ids=[file_id])
     
-    # CRITICAL: Clear OpenSearch SIGMA flags BEFORE re-running SIGMA
-    flags_cleared = clear_file_sigma_flags_in_opensearch(opensearch_client, case_id, case_file)
-    logger.info(f"[RECHAINSAW SINGLE] Cleared SIGMA flags from {flags_cleared} events before re-running SIGMA")
+    # Audit log
+    from audit_logger import log_file_action
+    log_file_action('rechainsaw_file', file_id, case_file.original_filename, details={
+        'case_id': case_id,
+        'case_name': case_file.case.name
+    })
     
-    case_file.violation_count = 0
-    case_file.indexing_status = 'SIGMA Testing'
-    db.session.commit()
-    
-    # Get index name (v1.13.1: consolidated case indices)
-    from utils import make_index_name
-    index_name = make_index_name(case_id)
-    
-    # Run chainsaw synchronously (fast operation)
-    try:
-        result = chainsaw_file(
-            db=db,
-            opensearch_client=opensearch_client,
-            CaseFile=CaseFile,
-            SigmaRule=SigmaRule,
-            SigmaViolation=SigmaViolation,
-            file_id=file_id,
-            index_name=index_name
-        )
-        
-        # Audit log
-        from audit_logger import log_file_action
-        log_file_action('rechainsaw_file', file_id, case_file.original_filename, details={
-            'case_id': case_id,
-            'case_name': case_file.case.name,
-            'violations_found': result.get('violations', 0) if result.get('status') == 'success' else None,
-            'flags_cleared': flags_cleared
-        })
-        
-        if result['status'] == 'success':
-            # Update status back to Completed
-            from tasks import commit_with_retry
-            case_file.indexing_status = 'Completed'
-            commit_with_retry(db.session, logger_instance=logger)
-            flash(f'SIGMA re-processing complete for "{case_file.original_filename}". Found {result.get("violations", 0)} violations.', 'success')
-        else:
-            from tasks import commit_with_retry
-            case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
-            commit_with_retry(db.session, logger_instance=logger)
-            flash(f'SIGMA re-processing failed: {result.get("message")}', 'error')
-    except Exception as e:
-        logger.error(f"[RECHAINSAW SINGLE] Error: {e}", exc_info=True)
-        from tasks import commit_with_retry
-        case_file.indexing_status = f'Failed: {str(e)[:100]}'
-        commit_with_retry(db.session, logger_instance=logger)
-        flash(f'SIGMA re-processing failed: {str(e)}', 'error')
-    
+    flash(f'✅ Re-SIGMA queued for "{case_file.original_filename}". This will clear old violations, re-run SIGMA detection, and mark file as completed.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 
@@ -1037,10 +992,9 @@ def bulk_reindex_selected(case_id):
 @files_bp.route('/case/<int:case_id>/bulk_rechainsaw_selected', methods=['POST'])
 @login_required
 def bulk_rechainsaw_selected(case_id):
-    """Re-run SIGMA on selected files (clears DB violations and OpenSearch flags first)"""
-    from main import db, CaseFile, opensearch_client
-    from bulk_operations import clear_file_sigma_violations, clear_file_sigma_flags_in_opensearch, queue_file_processing
-    from tasks import process_file
+    """Re-run SIGMA on selected files (v2.1.6: Using coordinator_resigma)"""
+    from main import db, CaseFile
+    from coordinator_resigma import resigma_files_task
     from celery_health import check_workers_available
     
     # Safety check: Ensure Celery workers are available
@@ -1067,25 +1021,8 @@ def bulk_rechainsaw_selected(case_id):
         flash('No valid indexed files found', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear SIGMA data for each file (database and OpenSearch) and set to Queued status
-    total_flags_cleared = 0
-    for file in files:
-        # Clear database violations
-        clear_file_sigma_violations(db, file.id)
-        
-        # CRITICAL: Clear OpenSearch SIGMA flags BEFORE re-running SIGMA
-        flags_cleared = clear_file_sigma_flags_in_opensearch(opensearch_client, case_id, file)
-        total_flags_cleared += flags_cleared
-        
-        file.violation_count = 0
-        file.indexing_status = 'Queued'
-        file.celery_task_id = None
-    
-    db.session.commit()
-    logger.info(f"[BULK RECHAINSAW SELECTED] Cleared SIGMA flags from {total_flags_cleared} events across {len(files)} files")
-    
-    # Queue for SIGMA reprocessing
-    queue_file_processing(process_file, files, operation='chainsaw_only')
+    # Queue re-SIGMA coordinator task with specific file IDs
+    resigma_files_task.delay(case_id, file_ids=file_ids)
     
     # Audit log
     from audit_logger import log_action
@@ -1097,11 +1034,10 @@ def bulk_rechainsaw_selected(case_id):
                   'case_id': case_id,
                   'case_name': case.name if case else None,
                   'file_count': len(files),
-                  'flags_cleared': total_flags_cleared,
-                  'file_ids': [f.id for f in files[:10]]  # Log first 10 IDs
+                  'file_ids': file_ids[:10]  # Log first 10 IDs
               })
     
-    flash(f'SIGMA re-processing queued for {len(files)} selected file(s). Old violations and flags cleared.', 'success')
+    flash(f'✅ Re-SIGMA queued for {len(files)} selected file(s). This will clear old violations, re-run SIGMA detection, and mark files as completed.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 

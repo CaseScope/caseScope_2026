@@ -4931,8 +4931,8 @@ def reindex_status_route(case_id):
 @app.route('/case/<int:case_id>/bulk_rechainsaw', methods=['POST'])
 @login_required
 def bulk_rechainsaw_route(case_id):
-    """Re-run SIGMA on all files in a case"""
-    from tasks import bulk_rechainsaw
+    """Re-run SIGMA on all EVTX files in a case (v2.1.6: Using coordinator_resigma)"""
+    from coordinator_resigma import resigma_files_task
     from celery_health import check_workers_available
     
     case = db.session.get(Case, case_id)
@@ -4946,20 +4946,23 @@ def bulk_rechainsaw_route(case_id):
         flash(f'⚠️ Cannot start bulk operation: {error_msg}. Please check Celery workers.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    file_count = db.session.query(CaseFile).filter_by(
-        case_id=case_id,
-        is_deleted=False,
-        is_indexed=True
+    # Count EVTX files only (SIGMA only works on EVTX)
+    file_count = db.session.query(CaseFile).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.is_deleted == False,
+        CaseFile.is_indexed == True,
+        CaseFile.is_hidden == False,
+        CaseFile.original_filename.ilike('%.evtx')
     ).count()
     
     if file_count == 0:
-        flash('No indexed files found to re-SIGMA', 'warning')
+        flash('No indexed EVTX files found to re-SIGMA', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Queue re-SIGMA task (clears old violations)
-    bulk_rechainsaw.delay(case_id)
+    # Queue re-SIGMA coordinator task (file_ids=None means all EVTX files)
+    resigma_files_task.delay(case_id, file_ids=None)
     
-    flash(f'✅ SIGMA re-processing queued for {file_count} file(s) ({worker_count} worker(s) available). Old violations will be cleared.', 'success')
+    flash(f'✅ Re-SIGMA queued for {file_count} EVTX file(s) ({worker_count} worker(s) available). This will clear old violations, re-run SIGMA detection, and mark files as completed.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 
