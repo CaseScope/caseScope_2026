@@ -770,6 +770,16 @@ function refreshFileStats() {
                 document.getElementById('stat-ioc-checked').textContent = data.ioc_checked || 0;
                 document.getElementById('stat-queued').textContent = data.queued || 0;
                 
+                // If queue is empty and no operations running, hide the progress bar
+                if (data.queued === 0) {
+                    // Check if there's actually an operation running
+                    const phaseContainer = document.getElementById('current-operation-phase');
+                    if (phaseContainer && phaseContainer.style.display !== 'none') {
+                        // Verify with backend that there's still an operation
+                        checkForOngoingOperations();
+                    }
+                }
+                
                 // ====================================================================
                 // UPDATE FILE COUNTS (File Overview tile) - v2.1.3
                 // ====================================================================
@@ -838,18 +848,38 @@ document.addEventListener('DOMContentLoaded', function() {
  * If found, automatically start progress monitoring
  */
 function checkForOngoingOperations() {
-    fetch(`/case/${CASE_ID}/progress/reindex`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'running') {
-                console.log('[AUTO-DETECT] Found ongoing reindex operation, resuming progress monitoring');
-                startPhaseMonitoring();
-            }
-        })
-        .catch(error => {
-            // Silent fail - no operation running or endpoint not available
-            console.debug('[AUTO-DETECT] No ongoing operations found');
-        });
+    // Check for any ongoing operations (index, reindex, resigma, reioc)
+    const operations = ['index', 'reindex', 'resigma', 'reioc'];
+    let foundRunning = false;
+    let checksCompleted = 0;
+    
+    operations.forEach(operation => {
+        fetch(`/case/${CASE_ID}/progress/${operation}`)
+            .then(response => response.json())
+            .then(data => {
+                checksCompleted++;
+                
+                if (data.status === 'running') {
+                    foundRunning = true;
+                    console.log(`[AUTO-DETECT] Found ongoing ${operation} operation, resuming progress monitoring`);
+                    startPhaseMonitoring(operation);
+                }
+                
+                // After checking all operations, hide the bar if none are running
+                if (checksCompleted === operations.length && !foundRunning) {
+                    hideProcessingStatusPhase();
+                }
+            })
+            .catch(error => {
+                checksCompleted++;
+                console.debug(`[AUTO-DETECT] Error checking ${operation}:`, error);
+                
+                // After checking all, hide if none running
+                if (checksCompleted === operations.length && !foundRunning) {
+                    hideProcessingStatusPhase();
+                }
+            });
+    });
 }
 
 // ============================================================================
@@ -1509,12 +1539,13 @@ function monitorReindexStart() {
     }, 1000); // Check every second
 }
 
-function startPhaseMonitoring() {
+function startPhaseMonitoring(operation = 'reindex') {
     /**
-     * Monitor the progress of the reindex operation and update the Processing Status tile
+     * Monitor the progress of an operation and update the Processing Status tile
+     * @param {string} operation - Operation to monitor ('reindex', 'resigma', 'reioc')
      */
     let pollInterval = setInterval(() => {
-        fetch(`/case/${CASE_ID}/progress/reindex`)
+        fetch(`/case/${CASE_ID}/progress/${operation}`)
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'not_found') {
@@ -1525,7 +1556,9 @@ function startPhaseMonitoring() {
                 
                 // Update the Processing Status tile based on current phase
                 if (data.phases && data.phases.length > 0) {
-                    const currentPhase = data.phases[data.current_phase - 1] || data.phases[data.phases.length - 1];
+                    // Find the phase matching current_phase number
+                    const currentPhase = data.phases.find(p => p.phase_num === data.current_phase) 
+                                      || data.phases[data.phases.length - 1];
                     updateProcessingStatusPhase(currentPhase);
                 }
                 
@@ -1537,7 +1570,7 @@ function startPhaseMonitoring() {
                     setTimeout(() => location.reload(), 2000);
                 } else if (data.status === 'failed') {
                     clearInterval(pollInterval);
-                    showProcessingStatusPhase('❌', 'Re-index failed', 'error');
+                    showProcessingStatusPhase('❌', `${operation} failed`, 'error');
                     setTimeout(() => {
                         hideProcessingStatusPhase();
                         location.reload();
@@ -1557,12 +1590,16 @@ function updateProcessingStatusPhase(phase) {
      */
     const phaseMap = {
         'Queuing Files': { icon: '📋', text: 'Queuing files for reindex' },
+        'Queueing Files': { icon: '📋', text: 'Queuing files' },
         'Clearing Metadata': { icon: '🗑️', text: 'Clearing metadata' },
+        'Clearing Data': { icon: '🗑️', text: 'Clearing old data' },
         'Indexing Files': { icon: '📇', text: 'Indexing files' },
         'SIGMA Detection': { icon: '🛡️', text: 'Running SIGMA detection' },
+        'Finalization': { icon: '✅', text: 'Finalizing' },
         'Known-Good Events': { icon: '✅', text: 'Marking known-good events' },
         'Known-Noise Events': { icon: '🔇', text: 'Marking known-noise patterns' },
-        'IOC Detection': { icon: '🎯', text: 'Running IOC detection' }
+        'IOC Detection': { icon: '🎯', text: 'Running IOC detection' },
+        'IOC Matching': { icon: '🎯', text: 'Matching IOCs' }
     };
     
     const phaseInfo = phaseMap[phase.name] || { icon: '⚙️', text: phase.name };
@@ -1679,6 +1716,11 @@ function confirmReSigma() {
         // Show preparation modal
         showPreparationModal('rechainsaw', 'Re-Running SIGMA Detection', 'Clearing old violations and preparing files...<br>This may take 5-15 seconds.');
         
+        // Start progress monitoring for resigma operation
+        setTimeout(() => {
+            startPhaseMonitoring('resigma');
+        }, 2000); // Start monitoring after 2 seconds to let backend initialize
+        
         // Submit form
         const form = document.createElement('form');
         form.method = 'POST';
@@ -1692,6 +1734,11 @@ function confirmReHunt() {
     if (confirm('🎯 Re-Hunt IOCs on All Files\n\nThis will:\n• Clear all existing IOC matches for this case\n• Re-scan all indexed files for IOC matches\n• Update IOC event counts\n\nOld matches will be removed before re-scanning.\n\nContinue?')) {
         // Show preparation modal
         showPreparationModal('rehunt', 'Re-Hunting IOCs', 'Clearing old matches and preparing files...<br>This may take 5-15 seconds.');
+        
+        // Start progress monitoring for reioc operation
+        setTimeout(() => {
+            startPhaseMonitoring('reioc');
+        }, 2000); // Start monitoring after 2 seconds
         
         // Submit form
         const form = document.createElement('form');

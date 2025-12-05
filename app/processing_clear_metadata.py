@@ -322,7 +322,7 @@ def clear_all_queued_files(case_id: int, clear_type: str = 'all') -> Dict[str, A
     from progress_tracker import start_progress, update_phase, complete_progress
     
     # Start progress tracking
-    start_progress(case_id, 'clear_metadata', 1, f'Clearing {clear_type} metadata')
+    start_progress(case_id, 'clear_metadata', total_phases=1, description=f'Clearing {clear_type} metadata')
     
     logger.info(f"[CLEAR_PHASE] Starting metadata clearing for case {case_id}")
     
@@ -375,13 +375,14 @@ def clear_all_queued_files(case_id: int, clear_type: str = 'all') -> Dict[str, A
         job = group(clear_file_task.s(f.id, clear_type) for f in files)
         result = job.apply_async()
         
-        # Wait for all tasks to complete
-        logger.info(f"[CLEAR_PHASE] Waiting for {total_files} clearing tasks to complete...")
+        # ✅ POLL DATABASE instead of blocking on Celery results
+        logger.info(f"[CLEAR_PHASE] Launched {total_files} clearing tasks, polling for completion...")
         
         start_time = time.time()
         timeout = 3600  # 1 hour max (clearing is usually fast)
+        file_ids = [f.id for f in files]
         
-        while not result.ready():
+        while True:
             elapsed = time.time() - start_time
             if elapsed > timeout:
                 logger.error(f"[CLEAR_PHASE] Timeout after {timeout}s")
@@ -397,25 +398,72 @@ def clear_all_queued_files(case_id: int, clear_type: str = 'all') -> Dict[str, A
                     'errors': ['Clear phase timeout']
                 }
             
+            # Poll database: check if files have been cleared
+            if clear_type == 'all':
+                # For 'all' clears, check if counts are reset
+                remaining = db.session.query(CaseFile).filter(
+                    CaseFile.id.in_(file_ids),
+                    CaseFile.is_deleted == False,
+                    db.or_(
+                        CaseFile.event_count > 0,
+                        CaseFile.violation_count > 0,
+                        CaseFile.ioc_event_count > 0
+                    )
+                ).count()
+            elif clear_type == 'sigma':
+                # Check if violation_count = 0
+                remaining = db.session.query(CaseFile).filter(
+                    CaseFile.id.in_(file_ids),
+                    CaseFile.is_deleted == False,
+                    CaseFile.violation_count > 0
+                ).count()
+            elif clear_type == 'ioc':
+                # Check if ioc_event_count = 0
+                remaining = db.session.query(CaseFile).filter(
+                    CaseFile.id.in_(file_ids),
+                    CaseFile.is_deleted == False,
+                    CaseFile.ioc_event_count > 0
+                ).count()
+            else:
+                remaining = 0
+            
+            if remaining == 0:
+                logger.info(f"[CLEAR_PHASE] All files cleared!")
+                break
+            
             # Log progress every 10 seconds and update tracker
             if int(elapsed) % 10 == 0:
-                completed = result.completed_count() if hasattr(result, 'completed_count') else 0
+                completed = total_files - remaining
                 update_phase(case_id, 'clear_metadata', 1, f'Clearing {clear_type} data',
                            'running', f'Processed {completed}/{total_files} files', 
                            {'completed': completed, 'total': total_files})
-                logger.info(f"[CLEAR_PHASE] Progress: {completed}/{total_files} files completed")
+                logger.info(f"[CLEAR_PHASE] Progress: {completed}/{total_files} files cleared, {remaining} remaining")
             
             time.sleep(2)
         
-        # Collect results
-        results = result.get()
-        cleared = sum(1 for r in results if r.get('status') == 'success')
-        failed = sum(1 for r in results if r.get('status') == 'error')
-        total_events_deleted = sum(r.get('events_deleted', 0) for r in results)
-        total_violations_deleted = sum(r.get('violations_deleted', 0) for r in results)
-        total_ioc_matches_deleted = sum(r.get('ioc_matches_deleted', 0) for r in results)
-        errors = [r.get('error', r.get('message', 'Unknown error')) 
-                 for r in results if r.get('status') == 'error']
+        # Re-query files to get final stats from database
+        cleared_files = db.session.query(CaseFile).filter(
+            CaseFile.id.in_(file_ids)
+        ).all()
+        
+        # Count cleared vs failed based on clear_type
+        if clear_type == 'all':
+            cleared = len([f for f in cleared_files if f.event_count == 0 and f.violation_count == 0 and f.ioc_event_count == 0])
+        elif clear_type == 'sigma':
+            cleared = len([f for f in cleared_files if f.violation_count == 0])
+        elif clear_type == 'ioc':
+            cleared = len([f for f in cleared_files if f.ioc_event_count == 0])
+        else:
+            cleared = total_files
+        
+        failed = total_files - cleared
+        
+        # For detailed stats, we'd need to query the database
+        # Since we can't use result.get(), we'll estimate from file counts
+        total_violations_deleted = sum(f.violation_count for f in files)  # Original counts before clear
+        total_ioc_matches_deleted = sum(f.ioc_event_count for f in files)
+        total_events_deleted = sum(f.event_count for f in files) if clear_type == 'all' else 0
+        errors = []  # Can't get individual task errors without .get()
         
         logger.info(f"[CLEAR_PHASE] ✓ Clearing complete: {cleared} files cleared, {failed} failed")
         logger.info(f"[CLEAR_PHASE]   Total deleted: {total_events_deleted:,} events, {total_violations_deleted} violations, {total_ioc_matches_deleted} IOC matches")
@@ -544,12 +592,16 @@ def clear_specific_files(case_id: int, file_ids: List[int]) -> Dict[str, Any]:
         job = group(clear_file_task.s(f.id) for f in files)
         result = job.apply_async()
         
-        # Wait for completion (similar to clear_all_queued_files)
+        # ✅ POLL DATABASE instead of blocking on Celery results
+        logger.info(f"[CLEAR_SPECIFIC] Launched {len(files)} clearing tasks, polling for completion...")
+        
         start_time = time.time()
         timeout = 3600
+        file_ids = [f.id for f in files]
         
-        while not result.ready():
-            if time.time() - start_time > timeout:
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
                 return {
                     'status': 'error',
                     'total_files': len(files),
@@ -560,16 +612,41 @@ def clear_specific_files(case_id: int, file_ids: List[int]) -> Dict[str, Any]:
                     'total_ioc_matches_deleted': 0,
                     'errors': ['Timeout']
                 }
+            
+            # Poll database: check if all files are cleared
+            remaining = db.session.query(CaseFile).filter(
+                CaseFile.id.in_(file_ids),
+                CaseFile.is_deleted == False,
+                db.or_(
+                    CaseFile.event_count > 0,
+                    CaseFile.violation_count > 0,
+                    CaseFile.ioc_event_count > 0
+                )
+            ).count()
+            
+            if remaining == 0:
+                logger.info(f"[CLEAR_SPECIFIC] All files cleared!")
+                break
+            
+            if int(elapsed) % 10 == 0:
+                completed = len(files) - remaining
+                logger.info(f"[CLEAR_SPECIFIC] Progress: {completed}/{len(files)} files cleared")
+            
             time.sleep(2)
         
-        # Collect results
-        results = result.get()
-        cleared = sum(1 for r in results if r.get('status') == 'success')
-        failed = sum(1 for r in results if r.get('status') == 'error')
-        total_events_deleted = sum(r.get('events_deleted', 0) for r in results)
-        total_violations_deleted = sum(r.get('violations_deleted', 0) for r in results)
-        total_ioc_matches_deleted = sum(r.get('ioc_matches_deleted', 0) for r in results)
-        errors = [r.get('error', '') for r in results if r.get('status') == 'error']
+        # Re-query files to get final stats
+        cleared_files = db.session.query(CaseFile).filter(
+            CaseFile.id.in_(file_ids)
+        ).all()
+        
+        cleared = len([f for f in cleared_files if f.event_count == 0 and f.violation_count == 0 and f.ioc_event_count == 0])
+        failed = len(files) - cleared
+        
+        # Estimate deleted counts from original file data
+        total_violations_deleted = sum(f.violation_count for f in files)
+        total_ioc_matches_deleted = sum(f.ioc_event_count for f in files)
+        total_events_deleted = sum(f.event_count for f in files)
+        errors = []
         
         logger.info(f"[CLEAR_SPECIFIC] ✓ Cleared {cleared}/{len(files)} files")
         

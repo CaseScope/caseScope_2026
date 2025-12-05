@@ -166,7 +166,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
 # PHASE COORDINATOR: Run SIGMA Detection on All EVTX Files
 # ==============================================================================
 
-def sigma_detect_all_files(case_id: int) -> Dict[str, Any]:
+def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: int = 4) -> Dict[str, Any]:
     """
     Run SIGMA detection on all indexed EVTX files for a case using parallel workers.
     
@@ -177,6 +177,8 @@ def sigma_detect_all_files(case_id: int) -> Dict[str, Any]:
     
     Args:
         case_id: Case ID to process
+        operation: Progress tracker operation name (default: 'reindex')
+        phase_num: Phase number for progress tracker (default: 4 for reindex)
         
     Returns:
         dict: {
@@ -264,29 +266,59 @@ def sigma_detect_all_files(case_id: int) -> Dict[str, Any]:
                     'errors': ['SIGMA phase timeout']
                 }
             
-            # SIMPLE QUEUE CHECK: Count files still being SIGMA tested
-            in_progress = db.session.query(CaseFile).filter(
-                CaseFile.case_id == case_id,
-                CaseFile.original_filename.ilike('%.evtx'),
-                CaseFile.indexing_status == 'SIGMA Testing'
-            ).count()
+            # QUEUE CHECK: Get actual Celery queue size from Redis
+            from celery_app import celery_app
+            
+            # Get Redis client from Celery backend
+            try:
+                redis_client = celery_app.broker_connection().channel().client
+                
+                # Count tasks in the main Celery queue
+                queue_size = redis_client.llen('celery')
+                
+                # Also count active tasks (being processed right now)
+                # Active tasks = total_files - (completed in DB) - (in queue)
+                completed_in_db = db.session.query(CaseFile).filter(
+                    CaseFile.case_id == case_id,
+                    CaseFile.original_filename.ilike('%.evtx'),
+                    CaseFile.is_deleted == False,
+                    CaseFile.indexing_status == 'SIGMA Complete'
+                ).count()
+                
+                # Remaining = in queue + currently processing
+                # Currently processing = total - completed - in_queue
+                active = total_files - completed_in_db - queue_size
+                if active < 0:
+                    active = 0
+                
+                remaining = queue_size + active
+                
+            except Exception as e:
+                logger.warning(f"[SIGMA_PHASE] Could not get queue size from Redis: {e}, falling back to DB status")
+                # Fallback: use database statuses
+                remaining = db.session.query(CaseFile).filter(
+                    CaseFile.case_id == case_id,
+                    CaseFile.original_filename.ilike('%.evtx'),
+                    CaseFile.is_deleted == False,
+                    CaseFile.indexing_status.in_(['Indexed', 'SIGMA Testing'])
+                ).count()
             
             # Calculate completed for progress bar
-            completed_count = total_files - in_progress
+            completed_count = total_files - remaining
             
             # Update progress tracker with counts for progress bar
             from progress_tracker import update_phase
-            update_phase(case_id, 'reindex', 4, 'SIGMA Detection', 'running',
+            update_phase(case_id, operation, phase_num, 'SIGMA Detection', 'running',
                         f'{completed_count}/{total_files} files processed',
                         current=completed_count, total=total_files)
             
             # Log progress every 30 seconds
             if elapsed - last_log_time >= 30:
-                logger.info(f"[SIGMA_PHASE] Progress: {in_progress} files still in queue, {completed_count}/{total_files} done")
+                logger.info(f"[SIGMA_PHASE] Progress: {remaining} files remaining, {completed_count}/{total_files} done")
                 last_log_time = elapsed
             
-            # QUEUE CHECK: All done when nothing in queue!
-            if in_progress == 0:
+            # QUEUE CHECK: All done when nothing remaining!
+            if remaining == 0:
                 logger.info(f"[SIGMA_PHASE] Queue empty, all SIGMA tasks complete")
                 break
             

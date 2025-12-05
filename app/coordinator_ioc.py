@@ -30,14 +30,13 @@ logger = logging.getLogger(__name__)
 # MAIN COORDINATOR FUNCTION
 # ==============================================================================
 
-def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
+def reioc_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     """
     Re-run IOC matching for files in a case.
     
     Args:
         case_id: Case ID to process
         file_ids: Optional list of specific file IDs. If None, match across all files.
-        progress_callback: Optional callback function(phase, status, message)
         
     Returns:
         dict: {
@@ -52,6 +51,7 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
     import time
     from main import app, db
     from models import CaseFile
+    from progress_tracker import start_progress, update_phase, complete_progress
     
     start_time = time.time()
     result = {
@@ -69,14 +69,16 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
     logger.info(f"[REIOC_COORDINATOR] Starting IOC re-matching for case {case_id} ({mode})")
     logger.info("="*80)
     
+    # Start progress tracking - 3 total phases (queue, clear, ioc)
+    start_progress(case_id, 'reioc', total_phases=3, description=f'Re-running IOC matching on {mode}')
+    
     with app.app_context():
         try:
             # ===============================================================
             # PHASE 0: QUEUE FILES FOR RE-IOC
             # ===============================================================
             logger.info("[REIOC_COORDINATOR] PHASE 0: Queuing files for IOC matching...")
-            if progress_callback:
-                progress_callback(0, 'running', 'Queuing files...')
+            update_phase(case_id, 'reioc', 0, 'Queueing Files', 'running', 'Selecting files...')
             
             if file_ids is None:
                 # Re-IOC all indexed files
@@ -98,15 +100,13 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
             # No need to change indexing_status - IOC matching is separate
             
             logger.info(f"[REIOC_COORDINATOR] Processing {len(files)} files for IOC matching")
-            if progress_callback:
-                progress_callback(0, 'completed', f'Queued {len(files)} files')
+            update_phase(case_id, 'reioc', 0, 'Queueing Files', 'completed', f'Queued {len(files)} files')
             
             # ===============================================================
             # PHASE 1: CLEAR IOC METADATA ONLY
             # ===============================================================
             logger.info("[REIOC_COORDINATOR] PHASE 1: Clearing IOC data...")
-            if progress_callback:
-                progress_callback(1, 'running', 'Clearing old IOC data...')
+            update_phase(case_id, 'reioc', 1, 'Clearing Data', 'running', 'Clearing old IOC data...')
             
             from processing_clear_metadata import clear_specific_files
             
@@ -138,23 +138,21 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
                 result['phases_completed'].append('clear_ioc')
                 result['stats']['clear_ioc'] = clear_result
                 logger.info(f"[REIOC_COORDINATOR] ✓ PHASE 1 complete: Cleared IOC data")
-                if progress_callback:
-                    progress_callback(1, 'completed', 'Cleared IOC data')
+                update_phase(case_id, 'reioc', 1, 'Clearing Data', 'completed', f"Cleared {clear_result.get('cleared', 'all')} files")
             else:
                 result['phases_failed'].append('clear_ioc')
                 result['errors'].extend(clear_result.get('errors', ['Clearing failed']))
                 result['status'] = 'error'
                 result['duration'] = time.time() - start_time
-                if progress_callback:
-                    progress_callback(1, 'failed', 'Clearing failed')
+                update_phase(case_id, 'reioc', 1, 'Clearing Data', 'failed', 'Clearing failed')
+                complete_progress(case_id, 'reioc', success=False, error_message='Clearing failed')
                 return result
             
             # ===============================================================
             # PHASE 2: RUN IOC MATCHING
             # ===============================================================
             logger.info("[REIOC_COORDINATOR] PHASE 2: Running IOC matching...")
-            if progress_callback:
-                progress_callback(2, 'running', 'Matching IOCs...')
+            update_phase(case_id, 'reioc', 2, 'IOC Matching', 'running', 'Matching IOCs...')
             
             from processing_ioc import hunt_iocs_all_files
             
@@ -165,14 +163,13 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
                 result['phases_completed'].append('ioc_matching')
                 result['stats']['ioc_matching'] = ioc_result
                 logger.info(f"[REIOC_COORDINATOR] ✓ PHASE 2 complete: {ioc_result['total_matches']} matches found")
-                if progress_callback:
-                    progress_callback(2, 'completed', f"Found {ioc_result['total_matches']} matches")
+                update_phase(case_id, 'reioc', 2, 'IOC Matching', 'completed', f"Found {ioc_result['total_matches']} matches")
             else:
                 result['phases_failed'].append('ioc_matching')
                 result['errors'].extend(ioc_result.get('errors', ['IOC matching failed']))
                 result['status'] = 'error'
-                if progress_callback:
-                    progress_callback(2, 'failed', 'IOC matching failed')
+                update_phase(case_id, 'reioc', 2, 'IOC Matching', 'failed', 'IOC matching failed')
+                complete_progress(case_id, 'reioc', success=False, error_message='IOC matching failed')
             
             # ===============================================================
             # FINALIZE
@@ -180,6 +177,7 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
             from tasks import commit_with_retry
             
             logger.info("[REIOC_COORDINATOR] Finalizing: marking files as completed...")
+            update_phase(case_id, 'reioc', 3, 'Finalization', 'running', 'Marking files as completed...')
             
             # Re-query files from database to get fresh status
             # Mark all IOC Complete files as fully Completed
@@ -194,6 +192,9 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
             
             commit_with_retry(db.session, logger_instance=logger)
             logger.info(f"[REIOC_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
+            
+            update_phase(case_id, 'reioc', 3, 'Finalization', 'completed', f'Finalized {len(files_to_finalize)} files')
+            complete_progress(case_id, 'reioc', success=True)
             
             result['duration'] = time.time() - start_time
             
@@ -212,6 +213,7 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
             result['status'] = 'error'
             result['errors'].append(str(e))
             result['duration'] = time.time() - start_time
+            complete_progress(case_id, 'reioc', success=False, error_message=str(e))
             return result
 
 

@@ -348,7 +348,137 @@ query_dsl = build_search_query(
 
 ---
 
-## 5. [Future Issue Placeholder]
+## 5. Celery `result.get()` Called Within Task (Deadlock)
+
+**Symptoms:**
+- Celery task returns error: `'Never call result.get() within a task!'`
+- Task completes with "SUCCESS" state but returns error dict
+- Coordinator or processing function fails when dispatched via `.delay()` from another task
+- Works when called directly from Flask route, fails when called from Celery task
+
+**Root Cause:**
+Celery tasks cannot block on other Celery task results using `.get()` - this causes deadlocks. When a Celery task (Task A) launches another task (Task B) and then calls `result.get()` to wait for it, the worker pool can deadlock if all workers are busy.
+
+**Example of the Problem:**
+```python
+# ❌ BAD - Coordinator called from Celery task
+@celery_app.task
+def parent_task(case_id):
+    # This calls clear_all_queued_files which internally does result.get()
+    result = coordinator_resigma.resigma_files(case_id)  # FAILS!
+    return result
+
+def coordinator_resigma.resigma_files(case_id):
+    # This function calls clear_all_queued_files
+    clear_result = clear_all_queued_files(case_id)  # Uses result.get() internally!
+    return clear_result
+
+def clear_all_queued_files(case_id):
+    # Launches parallel tasks
+    result = group([clear_file_task.s(file_id) for file_id in files]).apply_async()
+    results = result.get()  # ❌ DEADLOCK if called from another Celery task!
+    return results
+```
+
+**Solution Patterns:**
+
+### Pattern 1: Remove Blocking Calls - Use Database Polling Instead
+Replace `result.get()` with database polling (wait for status changes):
+
+```python
+# ✅ GOOD - Poll database instead of blocking on task
+def clear_all_queued_files(case_id):
+    # Launch parallel tasks
+    group([clear_file_task.s(file_id) for file_id in files]).apply_async()
+    
+    # Poll database for completion
+    while True:
+        remaining = CaseFile.query.filter_by(
+            case_id=case_id,
+            clearing_status='pending'
+        ).count()
+        
+        if remaining == 0:
+            break
+        
+        time.sleep(2)  # Poll every 2 seconds
+    
+    return {'status': 'success'}
+```
+
+### Pattern 2: Avoid Nested Task Dispatches
+Don't call functions that launch subtasks from within Celery tasks:
+
+```python
+# ✅ GOOD - Coordinator resets files directly, no clearing phase
+def resigma_files(case_id):
+    # Reset files to 'Indexed' status (no subtask dispatch)
+    files = CaseFile.query.filter_by(case_id=case_id).all()
+    for f in files:
+        f.indexing_status = 'Indexed'
+        f.violation_count = 0  # Clear directly
+    db.session.commit()
+    
+    # Run SIGMA detection (uses polling, not .get())
+    sigma_result = sigma_detect_all_files(case_id)
+    return sigma_result
+```
+
+### Pattern 3: Only Call `.get()` from Flask Routes (Not Tasks)
+Reserve `result.get()` for Flask request handlers only:
+
+```python
+# ✅ GOOD - Flask route can safely use .get()
+@app.route('/api/case/<int:case_id>/clear')
+def clear_route(case_id):
+    # Flask route can block on task results
+    result = clear_all_queued_files_task.delay(case_id)
+    task_result = result.get(timeout=300)  # OK - called from Flask, not Celery
+    return jsonify(task_result)
+
+# ❌ BAD - Celery task cannot use .get()
+@celery_app.task
+def reindex_task(case_id):
+    # This will fail!
+    result = clear_all_queued_files_task.delay(case_id)
+    task_result = result.get()  # DEADLOCK!
+    return task_result
+```
+
+**Where This Occurred:**
+- **v2.1.7-2.2.3:** `coordinator_resigma.py` called `processing_clear_metadata.clear_all_queued_files()` which used `result.get()` at lines 411 and 566
+- **Impact:** Re-SIGMA coordinator failed when dispatched from Flask via `.delay()` because it internally launched subtasks and blocked on them
+
+**Fixed By:**
+- Removing the clearing phase from `coordinator_resigma.py` entirely
+- Setting files to 'Indexed' status directly instead of launching a clearing task
+- SIGMA detection already clears old violations when it runs, so explicit clearing was redundant
+
+**Files Affected:**
+- `app/coordinator_resigma.py` - Removed call to `clear_all_queued_files()` (Phase 1)
+- `app/processing_clear_metadata.py` - Contains `result.get()` at lines 411, 566 (should only be called from Flask routes, not from Celery tasks)
+
+**Version History:**
+- **v2.1.7:** Added Re-SIGMA coordinator with clearing phase - introduced `.get()` deadlock
+- **v2.2.4:** Fixed by removing clearing phase, resetting files directly in coordinator
+
+**Prevention:**
+- **Never call `result.get()` inside a Celery task** - use database polling instead
+- Avoid functions that dispatch subtasks and block on results (like `clear_all_queued_files`) when called from Celery tasks
+- Use `result.get()` **only** in Flask routes/endpoints where blocking is acceptable
+- If a function uses `result.get()`, document it clearly: "⚠️ Can only be called from Flask routes, not from Celery tasks"
+- Prefer direct database operations over launching subtasks when already in a task context
+- Test coordinator functions both directly and via `.delay()` to catch this issue early
+
+**Debugging Tips:**
+- Error message explicitly says: `'Never call result.get() within a task!'`
+- Task returns SUCCESS but result contains error dict
+- Check call chain: Flask → Task A → Function → Task B → `.get()` ❌
+- Use `grep "result\.get\(|\.get\(\)" filename.py` to find blocking calls
+
+---
+
+## 6. [Future Issue Placeholder]
 
 When another repeating issue is identified, add it here following the same format:
 - Symptoms

@@ -31,14 +31,13 @@ logger = logging.getLogger(__name__)
 # MAIN COORDINATOR FUNCTION
 # ==============================================================================
 
-def reindex_files(case_id: int, file_ids: Optional[List[int]] = None, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
+def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     """
     Complete reindexing workflow for files in a case.
     
     Args:
         case_id: Case ID to process
         file_ids: Optional list of specific file IDs to reindex. If None, reindex all files.
-        progress_callback: Optional callback function(phase, status, message)
         
     Returns:
         dict: {
@@ -81,8 +80,8 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
     logger.info(f"[REINDEX_COORDINATOR] Starting reindex for case {case_id} ({mode})")
     logger.info("="*80)
     
-    # Start progress tracking - 6 total phases (queue, clear, index, sigma, known-good, known-noise, ioc)
-    start_progress(case_id, 'reindex', 7, f'Reindexing {mode}')
+    # Start progress tracking - 7 total phases (queue, clear, index, sigma, known-good, known-noise, ioc)
+    start_progress(case_id, 'reindex', total_phases=7, description=f'Reindexing {mode}')
     
     with app.app_context():
         try:
@@ -91,9 +90,6 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             # ===============================================================
             logger.info("[REINDEX_COORDINATOR] PHASE 0: Queuing files for reindex...")
             update_phase(case_id, 'reindex', 1, 'Queuing Files', 'running', 'Preparing files for reindex...')
-            
-            if progress_callback:
-                progress_callback(0, 'running', 'Queuing files...')
             
             if file_ids is None:
                 # Reindex ALL files
@@ -118,16 +114,12 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             db.session.commit()
             
             logger.info(f"[REINDEX_COORDINATOR] Queued {len(files)} files for reindexing")
-            if progress_callback:
-                progress_callback(0, 'completed', f'Queued {len(files)} files')
             
             # ===============================================================
             # PHASE 1: CLEAR METADATA
             # ===============================================================
             logger.info("[REINDEX_COORDINATOR] PHASE 1: Clearing metadata...")
             update_phase(case_id, 'reindex', 2, 'Clearing Data', 'running', 'Deleting old data...')
-            if progress_callback:
-                progress_callback(1, 'running', 'Clearing old data...')
             
             # OPTIMIZATION: If reindexing ALL files, delete the entire case index at once
             # This is much faster than deleting file-by-file
@@ -145,16 +137,12 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
                 result['stats']['clear_metadata'] = clear_result
                 logger.info(f"[REINDEX_COORDINATOR] ✓ PHASE 1 complete: Cleared {clear_result.get('cleared', 'all')} data")
                 update_phase(case_id, 'reindex', 2, 'Clearing Data', 'completed', f"Cleared {clear_result.get('cleared', 'all')} data")
-                if progress_callback:
-                    progress_callback(1, 'completed', f"Cleared data")
             else:
                 result['phases_failed'].append('clear_metadata')
                 result['errors'].extend(clear_result.get('errors', ['Clearing failed']))
                 result['status'] = 'error'
                 result['duration'] = time.time() - start_time
                 update_phase(case_id, 'reindex', 2, 'Clearing Data', 'failed', 'Failed to clear data')
-                if progress_callback:
-                    progress_callback(1, 'failed', 'Clearing failed')
                 return result
             
             # ===============================================================
@@ -165,7 +153,7 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             logger.info("[REINDEX_COORDINATOR] Running standard indexing workflow...")
             
             # Run the indexing workflow (phases 2-6)
-            index_result = index_new_files(case_id, progress_callback=progress_callback)
+            index_result = index_new_files(case_id)
             
             # Merge results
             result['phases_completed'].extend(index_result['phases_completed'])
