@@ -211,8 +211,16 @@ def resigma_files_task(self, case_id: int, file_ids: Optional[List[int]] = None)
         Same as resigma_files()
     """
     mode = 'all EVTX files' if file_ids is None else f'{len(file_ids)} files'
+    logger.info(f"[RESIGMA_COORDINATOR_TASK] ========== TASK STARTED ==========")
     logger.info(f"[RESIGMA_COORDINATOR_TASK] Starting for case {case_id} ({mode})")
-    result = resigma_files(case_id, file_ids)
-    logger.info(f"[RESIGMA_COORDINATOR_TASK] Complete: {result['status']}")
-    return result
+    logger.info(f"[RESIGMA_COORDINATOR_TASK] Task ID: {self.request.id}")
+    logger.info(f"[RESIGMA_COORDINATOR_TASK] ==========================================")
+    
+    try:
+        result = resigma_files(case_id, file_ids)
+        logger.info(f"[RESIGMA_COORDINATOR_TASK] Complete: {result['status']}")
+        return result
+    except Exception as e:
+        logger.error(f"[RESIGMA_COORDINATOR_TASK] FATAL ERROR: {e}", exc_info=True)
+        raise
 
