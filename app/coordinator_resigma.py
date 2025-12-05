@@ -20,11 +20,6 @@ import logging
 from typing import Dict, Any, Optional, List
 from celery_app import celery_app
 
-# IMPORTANT: Import at module level to avoid circular import deadlock in Celery worker
-import time
-from main import app, db
-from models import CaseFile
-
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +48,26 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
     """
     logger.info("[RESIGMA_COORDINATOR] ========== FUNCTION ENTERED ==========")
     logger.info(f"[RESIGMA_COORDINATOR] case_id={case_id}, file_ids={file_ids}")
+    
+    # Import here to avoid circular import at module load, but cache after first import
+    import time
+    import sys
+    
+    # Use sys.modules to check if main is already loaded (won't deadlock)
+    if 'main' in sys.modules:
+        from main import app, db
+        from models import CaseFile
+    else:
+        logger.error("[RESIGMA_COORDINATOR] FATAL: main module not loaded - cannot proceed")
+        return {
+            'status': 'error',
+            'phases_completed': [],
+            'phases_failed': ['initialization'],
+            'stats': {},
+            'errors': ['Main module not available'],
+            'duration': 0
+        }
+    
     logger.info("[RESIGMA_COORDINATOR] Starting coordinator...")
     
     start_time = time.time()
