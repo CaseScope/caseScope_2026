@@ -66,17 +66,14 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
     logger.info(f"[RESIGMA_COORDINATOR] Starting SIGMA re-detection for case {case_id} ({mode})")
     logger.info("="*80)
     
-    # Initialize progress tracking
-    from progress_tracker import start_progress, update_phase, complete_progress
-    start_progress(case_id, 'resigma', 3, 'Re-SIGMA: Clear → Detect → Finalize')
-    
     with app.app_context():
         try:
             # ===============================================================
             # PHASE 0: QUEUE FILES FOR RE-SIGMA
             # ===============================================================
             logger.info("[RESIGMA_COORDINATOR] PHASE 0: Queuing files for SIGMA...")
-            update_phase(case_id, 'resigma', 0, 'Queuing files', 'running', 'Preparing file list...')
+            if progress_callback:
+                progress_callback(0, 'running', 'Queuing files...')
             
             if file_ids is None:
                 # Re-SIGMA all EVTX files
@@ -104,13 +101,15 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             db.session.commit()
             
             logger.info(f"[RESIGMA_COORDINATOR] Queued {len(files)} files for SIGMA")
-            update_phase(case_id, 'resigma', 0, 'Queuing files', 'complete', f'Queued {len(files)} files')
+            if progress_callback:
+                progress_callback(0, 'complete', f'Queued {len(files)} files')
             
             # ===============================================================
             # PHASE 1: CLEAR SIGMA METADATA ONLY
             # ===============================================================
             logger.info("[RESIGMA_COORDINATOR] PHASE 1: Clearing SIGMA data...")
-            update_phase(case_id, 'resigma', 1, 'Clearing SIGMA data', 'running', 'Removing old violations...')
+            if progress_callback:
+                progress_callback(1, 'running', 'Clearing old SIGMA data...')
             
             from processing_clear_metadata import clear_all_queued_files
             
@@ -120,21 +119,23 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
                 result['phases_completed'].append('clear_sigma')
                 result['stats']['clear_sigma'] = clear_result
                 logger.info(f"[RESIGMA_COORDINATOR] ✓ PHASE 1 complete: Cleared SIGMA data from {clear_result['cleared']} files")
-                update_phase(case_id, 'resigma', 1, 'Clearing SIGMA data', 'complete', f"Cleared {clear_result['cleared']} files")
+                if progress_callback:
+                    progress_callback(1, 'complete', f"Cleared {clear_result['cleared']} files")
             else:
                 result['phases_failed'].append('clear_sigma')
                 result['errors'].extend(clear_result.get('errors', ['Clearing failed']))
                 result['status'] = 'error'
                 result['duration'] = time.time() - start_time
-                update_phase(case_id, 'resigma', 1, 'Clearing SIGMA data', 'failed', 'Clearing failed')
-                complete_progress(case_id, 'resigma', success=False, error_message='Clearing failed')
+                if progress_callback:
+                    progress_callback(1, 'failed', 'Clearing failed')
                 return result
             
             # ===============================================================
             # PHASE 2: RUN SIGMA DETECTION
             # ===============================================================
             logger.info("[RESIGMA_COORDINATOR] PHASE 2: Running SIGMA detection...")
-            update_phase(case_id, 'resigma', 2, 'SIGMA Detection', 'running', 'Scanning for violations...')
+            if progress_callback:
+                progress_callback(2, 'running', 'Running SIGMA detection...')
             
             from processing_sigma import sigma_detect_all_files
             
@@ -144,13 +145,14 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
                 result['phases_completed'].append('sigma')
                 result['stats']['sigma'] = sigma_result
                 logger.info(f"[RESIGMA_COORDINATOR] ✓ PHASE 2 complete: {sigma_result['total_violations']} violations found")
-                update_phase(case_id, 'resigma', 2, 'SIGMA Detection', 'complete', f"Found {sigma_result['total_violations']} violations")
+                if progress_callback:
+                    progress_callback(2, 'complete', f"Found {sigma_result['total_violations']} violations")
             else:
                 result['phases_failed'].append('sigma')
                 result['errors'].extend(sigma_result.get('errors', ['SIGMA failed']))
                 result['status'] = 'error'
-                update_phase(case_id, 'resigma', 2, 'SIGMA Detection', 'failed', 'SIGMA detection failed')
-                complete_progress(case_id, 'resigma', success=False, error_message='SIGMA detection failed')
+                if progress_callback:
+                    progress_callback(2, 'failed', 'SIGMA detection failed')
             
             # ===============================================================
             # FINALIZE
@@ -177,9 +179,6 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             if result['phases_failed']:
                 result['status'] = 'partial'
             
-            # Complete progress tracking
-            complete_progress(case_id, 'resigma', success=True)
-            
             logger.info("="*80)
             logger.info(f"[RESIGMA_COORDINATOR] Complete: {len(result['phases_completed'])} phases succeeded, {len(result['phases_failed'])} failed")
             logger.info(f"[RESIGMA_COORDINATOR] Duration: {result['duration']:.1f}s")
@@ -192,7 +191,6 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             result['status'] = 'error'
             result['errors'].append(str(e))
             result['duration'] = time.time() - start_time
-            complete_progress(case_id, 'resigma', success=False, error_message=str(e))
             return result
 
 
