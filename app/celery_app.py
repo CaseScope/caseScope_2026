@@ -50,11 +50,9 @@ import events_known_good
 import events_known_noise
 
 # Import new modular coordinator tasks (v2.0.0)
+import coordinator_index
 import coordinator_reindex
 import coordinator_resigma
 import coordinator_ioc
-
-# TEST: Minimal coordinator to diagnose Celery issue
-import coordinator_test
 
 logger.info("Celery app initialized")
