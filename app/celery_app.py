@@ -45,6 +45,10 @@ import processing_index
 import processing_sigma
 import processing_ioc
 
+# Import event filtering tasks (v2.1.0)
+import events_known_good
+import events_known_noise
+
 # Import new modular coordinator tasks (v2.0.0)
 import coordinator_reindex
 import coordinator_resigma
