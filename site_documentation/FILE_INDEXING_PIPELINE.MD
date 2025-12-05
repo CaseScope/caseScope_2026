@@ -1,10 +1,8 @@
-# File Indexing Pipeline (v1.46.0)
+# File Processing Pipeline (v2.1.x)
 
 ## Overview
 
-The file indexing pipeline has been completely refactored in v1.46.0 to use a **4-Phase Sequential Architecture** for better modularity, progress tracking, and data consistency.
-
-**Breaking Change**: The old single-task `process_file()` approach has been replaced with a coordinator-based phased pipeline.
+The file processing pipeline uses a **Modular Phased Architecture** introduced in v2.0.0. Each processing phase is a separate module with its own coordinator, and files progress through phases sequentially with real-time progress tracking.
 
 ---
 
@@ -15,580 +13,548 @@ The file indexing pipeline has been completely refactored in v1.46.0 to use a **
 ```
 User clicks "Re-Index All Files"
   ↓
-Create ReindexProgress record
+main.py → bulk_reindex_route (Background Thread)
   ↓
-Start reindex_coordinator_task
+coordinator_reindex.py → reindex_files()
   ↓
-Pre-Phase: Clear Old Data
+PHASE 1: Clear Metadata (processing_clear_metadata.py)
   ↓
-Phase 1: Index + SIGMA (per file, parallel workers)
+coordinator_index.py → index_new_files()
+  ├─→ PHASE 2: Index Files (processing_index.py)
+  ├─→ PHASE 3: SIGMA Detection (processing_sigma.py)
+  ├─→ PHASE 4: Known-Good Filter (events_known_good.py) [8 parallel workers]
+  ├─→ PHASE 5: Known-Noise Filter (events_known_noise.py) [8 parallel workers]
+  └─→ PHASE 6: IOC Matching (processing_ioc.py)
   ↓
-Phase 2: Known Good Hunting (bulk, parallel workers)
-  ↓
-Phase 3: Known Noise Hunting (bulk, parallel workers)
-  ↓
-Phase 4: IOC Hunting (per file, excludes noise, parallel workers)
-  ↓
-Mark ReindexProgress as completed
-  ↓
-Frontend polls /reindex-status and shows live progress
+Frontend polls /case/<id>/progress/reindex (Redis-backed)
+Progress bar auto-resumes on page reload
 ```
 
 ---
 
 ## Phase Details
 
-### Pre-Phase: Clear Old Data
+### PHASE 1: Clear Metadata
 
-**Purpose**: Ensure a clean slate for reindex by removing all previous detection/classification data.
+**Purpose**: Delete all existing event data to ensure clean reindex.
+
+**Module**: `app/processing_clear_metadata.py`
 
 **Operations**:
-1. Delete all `EventStatus` records for the case (or specific files)
-2. Delete all `SigmaViolation` records
-3. Delete all `IOCMatch` records (if applicable)
-4. Delete OpenSearch index entirely (rebuild from scratch)
-5. Reset CaseFile metadata (`is_indexed=False`, `indexing_status='Pending'`, etc.)
+1. Delete OpenSearch events for queued files OR entire case index
+2. Delete SigmaViolation records
+3. Delete IOCMatch records
+4. Delete TimelineTag records
+5. Delete EventStatus records
+6. Reset CaseFile metadata:
+   - `event_count = 0`
+   - `violation_count = 0`
+   - `ioc_event_count = 0`
+   - `is_indexed = False`
+   - `is_hidden = False` (reset for fresh 0-event detection)
+   - `indexing_status = 'Queued'`
+   - `error_message = None`
+   - `celery_task_id = None`
 
-**Module**: `bulk_operations.py::clear_case_data_for_reindex()`
+**Celery Tasks**:
+- `clear_file_task(file_id, clear_type='all')` - Worker task (8 parallel)
+- `bulk_clear_case(case_id)` - Fast bulk clear (deletes entire index)
 
-**Important**: This phase treats all files as brand new. No incremental updates.
-
-**Progress Tracking**:
-- `statuses_deleted`: Count of EventStatus records deleted
-- `violations_deleted`: Count of SigmaViolation records deleted
+**Progress Tracking**: Redis-backed via `progress_tracker.py`
 
 ---
 
-### Phase 1: Index + SIGMA
+### PHASE 2: Index Files
 
-**Purpose**: Index EVTX files to OpenSearch and run SIGMA detection.
+**Purpose**: Convert EVTX/CSV/JSON files to normalized events in OpenSearch.
+
+**Module**: `app/processing_index.py`
 
 **Operations**:
-1. **Per File (Parallel)**:
-   - Convert EVTX → JSONL using `evtx_dump`
-   - Parse and normalize events
-   - Add case metadata (`case_id`, `file_id`, `case_name`, `source_file`)
-   - **Set `event_status='new'` for ALL events** (no auto-hide)
+1. Queue files with `indexing_status = 'Queued'`
+2. Parallel Celery workers process files:
+   - `file_processing.index_one_file()`
+   - Converts EVTX → JSON via evtx_dump
+   - Normalizes events
+   - Auto-hides files with 0 events (`is_hidden=True`)
    - Bulk index to OpenSearch
-   - Run Chainsaw SIGMA detection
-   - Store SIGMA violations in database
-   - Mark events with SIGMA hits: `has_sigma=True`
+   - Updates `indexing_status = 'Indexed'`
 
-**Modules**:
-- `index_evtx.py::index_file_simple()` - Index only
-- `sigma_evtx.py::sigma_file_simple()` - SIGMA only
+**Database Polling**:
+- Coordinator polls `CaseFile.indexing_status IN ('Queued', 'Indexing')`
+- Phase completes when count = 0
+- NO `result.get()` blocking calls (prevents deadlocks)
 
-**Celery Task**: `phase1_index_and_sigma_task(file_id, case_id, progress_id)`
+**Celery Tasks**:
+- `index_file_task(file_id, case_id)` - Worker task
 
 **Progress Tracking**:
-- `phase1_total_files`: Total files to index
-- `phase1_completed_files`: Files completed
-- `phase1_events_indexed`: Total events indexed
-- `phase1_sigma_violations`: Total SIGMA violations found
-
-**Key Design Decision**: NO auto-hide during indexing. All events start as `'new'`. Noise detection happens in Phases 2 & 3.
+- `current_count`: Files still in queue
+- `total_count`: Total files to index
 
 ---
 
-### Phase 2: Known Good Hunting
+### PHASE 3: SIGMA Detection
 
-**Purpose**: Identify benign/expected events using Known Good rules and mark them as `'noise'`.
+**Purpose**: Run SIGMA rules against indexed events.
+
+**Module**: `app/processing_sigma.py`
 
 **Operations**:
-1. **8 Parallel Workers** (each processes subset of rules):
-   - Query OpenSearch for events matching Known Good patterns
-   - Examples: Windows Defender scans, Office activation, CrowdStrike telemetry
-   - Update `event_status='noise'` in OpenSearch
-   - Create/Update `EventStatus` records in database with `status='noise'`
+1. Queue files with `indexing_status = 'Indexed'`
+2. Parallel Celery workers process files:
+   - `sigma_detection.detect_sigma_violations()`
+   - Runs Chainsaw with SIGMA rules
+   - Creates SigmaViolation records
+   - Updates event documents with `has_sigma=True`
+   - Updates `CaseFile.violation_count`
+   - Updates `indexing_status = 'SIGMA Complete'`
 
-**Module**: `events_known_good.py::hunt_known_good(case_id, worker_id)`
+**Database Polling**:
+- Coordinator polls `CaseFile.indexing_status = 'SIGMA Testing'`
+- Phase completes when count = 0
 
-**Rules Source**: `site_documentation/EVENTS_KNOWN_GOOD.md`
-
-**Celery Task**: `phase2_known_good_worker_task(case_id, worker_id, progress_id)`
+**Celery Tasks**:
+- `detect_sigma_file_task(file_id, case_id)` - Worker task
 
 **Progress Tracking**:
-- `phase2_total_workers`: 8 (fixed)
-- `phase2_completed_workers`: Workers finished
-- `phase2_events_marked`: Total events marked as noise
-
-**Important**: Uses `bulk_set_status(db_session, ...)` with the **correct db.session** from Celery worker context to ensure commits persist.
+- `current_count`: Files still processing SIGMA
+- `total_count`: Total files for SIGMA
 
 ---
 
-### Phase 3: Known Noise Hunting
+### PHASE 4: Known-Good Filter (Parallel)
 
-**Purpose**: Identify known noisy/repetitive events and mark them as `'noise'`.
+**Purpose**: Mark events from trusted tools (RMM, EDR) as noise.
+
+**Module**: `app/events_known_good.py`
 
 **Operations**:
-1. **8 Parallel Workers** (each processes subset of rules):
-   - Query OpenSearch for events matching Known Noise patterns
-   - Examples: Sysmon DNS queries to CDNs, Repeated registry reads, WMI Provider events
-   - Update `event_status='noise'` in OpenSearch
-   - Create/Update `EventStatus` records in database with `status='noise'`
+1. Coordinator dispatches 8 parallel slice tasks
+2. Each worker processes 1/8 of events using OpenSearch sliced scroll:
+   - Loads exclusion patterns from `SystemToolsSetting` table
+   - Matches events using `is_known_good_event()`:
+     - **Rule 1 (RMM):** EXE pattern OR path in search_blob → noise
+     - **Rule 2 (Remote):** Tool EXE AND session ID in blob → noise
+     - **Rule 3 (EDR):** EDR EXE AND routine command (unless response pattern) → noise
+   - Updates OpenSearch: `event_status='noise'`
+   - Updates database: `EventStatus` table with `status='noise'`
 
-**Module**: `events_known_noise.py::hunt_known_noise(case_id, worker_id)`
-
-**Rules Source**: `site_documentation/EVENTS_KNOWN_NOISE.md`
-
-**Celery Task**: `phase3_known_noise_worker_task(case_id, worker_id, progress_id)`
+**Celery Tasks**:
+- `hide_known_good_all_task(case_id)` - Coordinator (v2.1.0)
+- `hide_known_good_slice_task(case_id, slice_id, max_slices)` - Worker (8 parallel)
 
 **Progress Tracking**:
-- `phase3_total_workers`: 8 (fixed)
-- `phase3_completed_workers`: Workers finished
-- `phase3_events_marked`: Total events marked as noise
+- Task-based polling via `progress_tracker.py`
+- `current_count`: Events hidden
+- `total_count`: Events scanned
+
+**Performance**: Processes ~800K events in 2-3 minutes (8 workers)
 
 ---
 
-### Phase 4: IOC Hunting
+### PHASE 5: Known-Noise Filter (Parallel)
 
-**Purpose**: Hunt for Indicators of Compromise (IOCs) in events, **excluding noise events**.
+**Purpose**: Mark routine Windows system noise as noise.
+
+**Module**: `app/events_known_noise.py`
 
 **Operations**:
-1. **Per File (Parallel)**:
-   - Query OpenSearch for events: `WHERE event_status != 'noise'`
-   - Run IOC detection (IP addresses, domains, file hashes, etc.)
-   - Store IOC matches in database
-   - Update CaseFile with IOC counts
+1. Coordinator dispatches 8 parallel slice tasks
+2. Each worker processes 1/8 of events using OpenSearch sliced scroll:
+   - Checks hardcoded noise patterns from `noise_filters.py`:
+     - 109 NOISE_PROCESSES (conhost.exe, auditpol.exe, etc.)
+     - Noise commands with generic parents
+     - Firewall keywords
+   - Updates OpenSearch: `event_status='noise'`
+   - Updates database: `EventStatus` table with `status='noise'`
 
-**Module**: `ioc_utils.py::hunt_iocs_in_file(case_id, file_id, exclude_noise=True)`
-
-**Celery Task**: `phase4_ioc_hunt_task(file_id, case_id, progress_id)`
+**Celery Tasks**:
+- `hide_noise_all_task(case_id)` - Coordinator (v2.1.0)
+- `hide_noise_slice_task(case_id, slice_id, max_slices)` - Worker (8 parallel)
 
 **Progress Tracking**:
-- `phase4_total_files`: Total files to process
-- `phase4_completed_files`: Files completed
-- `phase4_iocs_found`: Total IOC matches found
+- Task-based polling via `progress_tracker.py`
+- `current_count`: Events hidden
+- `total_count`: Events scanned
 
-**Key Design Decision**: By excluding noise events, we dramatically reduce false positives and processing time.
+**Performance**: Processes ~800K events in 2-3 minutes (8 workers)
 
 ---
 
-## Database Schema
+### PHASE 6: IOC Matching
 
-### ReindexProgress Table
+**Purpose**: Hunt for Indicators of Compromise in events.
 
-Stores progress tracking for each reindex operation.
+**Module**: `app/processing_ioc.py`
 
-```sql
-CREATE TABLE reindex_progress (
-    id SERIAL PRIMARY KEY,
-    case_id INTEGER NOT NULL REFERENCES "case"(id),
-    user_id INTEGER NOT NULL REFERENCES "user"(id),
-    status VARCHAR(20) DEFAULT 'pending',  -- pending, running, completed, failed
-    celery_task_id VARCHAR(255),
-    current_phase INTEGER DEFAULT 0,  -- 0-4
-    current_phase_name VARCHAR(100),
+**Operations**:
+1. Queue files with active IOCs
+2. Parallel Celery workers process files:
+   - `file_processing.hunt_iocs()`
+   - Searches for IP, hostname, username, process, hash, command IOCs
+   - Excludes events with `event_status='noise'`
+   - Creates IOCMatch records
+   - Updates `CaseFile.ioc_event_count`
+   - Updates `indexing_status = 'IOC Complete'`
+
+**Database Polling**:
+- Coordinator polls `CaseFile.indexing_status = 'IOC Hunting'`
+- Phase completes when count = 0
+
+**Celery Tasks**:
+- `hunt_iocs_file_task(file_id, case_id)` - Worker task
+
+**Progress Tracking**:
+- `current_count`: Files still hunting IOCs
+- `total_count`: Total files for IOC matching
+
+---
+
+### FINALIZE: Mark Files Complete
+
+**Operations**:
+1. Query files with `is_indexed=True` AND `indexing_status != 'Completed'`
+2. Set `indexing_status = 'Completed'`
+3. Clear `celery_task_id`
+4. Call `complete_progress(case_id, 'reindex', success=True)` to clear Redis progress
+
+**Module**: `app/coordinator_index.py` (end of `index_new_files()`)
+
+---
+
+## Progress Tracking (v2.0.1)
+
+### Redis-Backed Storage
+
+**Module**: `app/progress_tracker.py`
+
+**Functions**:
+- `start_progress(case_id, operation_type, phases)` - Initialize
+- `update_phase(case_id, operation_type, phase_num, phase_name, status, message, current_count, total_count)` - Update phase
+- `complete_progress(case_id, operation_type, success)` - Finalize
+- `get_progress(case_id, operation_type)` - Retrieve
+
+**Redis Keys**:
+- `casescope:progress:<case_id>:<operation_type>` - Main progress data
+- `casescope:operation:<case_id>` - Operation lock
+- `casescope:phase:<case_id>:<phase_num>` - Individual phase data
+
+**Auto-Resume (v2.0.2)**:
+- Frontend JavaScript checks for ongoing operations on page load
+- Automatically resumes progress monitoring if status='running'
+
+---
+
+## Frontend Progress Display
+
+### Real-Time Progress Bar (v2.0.1)
+
+**Location**: `app/templates/case_files.html`
+
+**Features**:
+- Banner-style progress bar with gradient background
+- Shows: "Phase Name - X/Y (Z%)"
+- Polls `/case/<id>/progress/reindex` every 2 seconds
+- Automatically hides when complete
+
+**Modal Display**:
+- Detailed phase breakdown
+- Per-phase progress bars
+- Status indicators: ✓ (complete), ⏳ (running), ⚠️ (failed), ⏸️ (pending)
+
+---
+
+## Database Models
+
+### CaseFile Fields (v2.1.4)
+
+```python
+class CaseFile(db.Model):
+    # Processing Status
+    indexing_status = db.Column(db.String(50))  # 'Queued', 'Indexing', 'Indexed', 
+                                                 # 'SIGMA Testing', 'SIGMA Complete',
+                                                 # 'IOC Hunting', 'IOC Complete', 
+                                                 # 'Completed', 'Failed - ...'
+    is_indexed = db.Column(db.Boolean, default=False)
+    is_hidden = db.Column(db.Boolean, default=False)  # Auto-hide 0-event files
+    is_deleted = db.Column(db.Boolean, default=False)
     
-    -- Phase 1: Index + SIGMA
-    phase1_status VARCHAR(20) DEFAULT 'pending',
-    phase1_total_files INTEGER DEFAULT 0,
-    phase1_completed_files INTEGER DEFAULT 0,
-    phase1_events_indexed INTEGER DEFAULT 0,
-    phase1_sigma_violations INTEGER DEFAULT 0,
+    # Counts
+    event_count = db.Column(db.Integer, default=0)
+    violation_count = db.Column(db.Integer, default=0)
+    ioc_event_count = db.Column(db.Integer, default=0)
     
-    -- Phase 2: Known Good
-    phase2_status VARCHAR(20) DEFAULT 'pending',
-    phase2_total_workers INTEGER DEFAULT 0,
-    phase2_completed_workers INTEGER DEFAULT 0,
-    phase2_events_marked INTEGER DEFAULT 0,
-    
-    -- Phase 3: Known Noise
-    phase3_status VARCHAR(20) DEFAULT 'pending',
-    phase3_total_workers INTEGER DEFAULT 0,
-    phase3_completed_workers INTEGER DEFAULT 0,
-    phase3_events_marked INTEGER DEFAULT 0,
-    
-    -- Phase 4: IOC Hunting
-    phase4_status VARCHAR(20) DEFAULT 'pending',
-    phase4_total_files INTEGER DEFAULT 0,
-    phase4_completed_files INTEGER DEFAULT 0,
-    phase4_iocs_found INTEGER DEFAULT 0,
-    
-    -- Pre-phase data clearing
-    statuses_deleted INTEGER DEFAULT 0,
-    violations_deleted INTEGER DEFAULT 0,
-    
-    -- Timing
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
-    error_message TEXT
-);
+    # Task Tracking
+    celery_task_id = db.Column(db.String(255))
+    error_message = db.Column(db.Text)
 ```
 
-**Indexes**:
-- `case_id` - Fast lookup for case progress
-- `status` - Filter active/completed reindexes
-- `celery_task_id` - Track Celery task
-- `started_at` - Recent first ordering
+### EventStatus Table
+
+```python
+class EventStatus(db.Model):
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'))
+    event_id = db.Column(db.String(255))
+    status = db.Column(db.String(20))  # 'new', 'noise', 'hunted', 'confirmed'
+    notes = db.Column(db.Text)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+```
 
 ---
 
 ## API Endpoints
 
-### POST /case/<case_id>/bulk_reindex
+### POST /case/<case_id>/bulk-reindex
 
-**Purpose**: Start the 4-phase reindex pipeline.
+**Purpose**: Start the reindex pipeline.
 
-**Request**: `POST` with `Accept: application/json`
+**Handler**: `app/main.py` → `bulk_reindex_route()`
+
+**Process**:
+1. Runs `reindex_files()` in background daemon thread
+2. Returns immediately with success message
+3. Frontend starts polling for progress
 
 **Response**:
 ```json
 {
-    "success": true,
-    "message": "Re-indexing started: 156 files",
-    "progress_id": 42,
-    "file_count": 156
+    "status": "success",
+    "message": "Reindexing started for 156 files"
 }
 ```
 
-**Process**:
-1. Validate case exists and not archived
-2. Check Celery workers available
-3. Get all non-deleted, non-hidden files
-4. Create `ReindexProgress` record
-5. Start `reindex_coordinator_task` in Celery
-6. Return progress_id to frontend for polling
-
 ---
 
-### GET /case/<case_id>/reindex-status
+### GET /case/<case_id>/progress/reindex
 
-**Purpose**: Get real-time progress of the reindex pipeline.
+**Purpose**: Get real-time progress of reindex.
 
-**Request**: `GET`
+**Handler**: `app/routes/progress.py` → `get_reindex_progress()`
 
 **Response**:
 ```json
 {
     "status": "running",
-    "current_phase": 2,
-    "current_phase_name": "Hunting for Known Good Events",
-    "statuses_deleted": 0,
-    "violations_deleted": 15234,
-    "phase1": {
-        "status": "completed",
-        "total_files": 156,
-        "completed_files": 156,
-        "events_indexed": 2789543,
-        "sigma_violations": 15234
-    },
-    "phase2": {
-        "status": "running",
-        "total_workers": 8,
-        "completed_workers": 5,
-        "events_marked": 820350
-    },
-    "phase3": {
-        "status": "pending",
-        "total_workers": 8,
-        "completed_workers": 0,
-        "events_marked": 0
-    },
-    "phase4": {
-        "status": "pending",
-        "total_files": 156,
-        "completed_files": 0,
-        "iocs_found": 0
-    },
-    "started_at": "2025-12-03T10:30:15",
-    "completed_at": null,
-    "error_message": null
+    "description": "Reindexing files...",
+    "phases": [
+        {
+            "number": 1,
+            "name": "Clear Data",
+            "status": "completed",
+            "message": "Cleared old data",
+            "current_count": 675,
+            "total_count": 675
+        },
+        {
+            "number": 4,
+            "name": "Known-Good Filter",
+            "status": "running",
+            "message": "Filtering known-good events...",
+            "current_count": 523401,
+            "total_count": 1200000
+        }
+    ],
+    "started_at": "2025-12-05T10:30:15",
+    "completed_at": null
 }
 ```
-
-**Frontend Polling**: Frontend polls this endpoint every 2 seconds to update the modal.
-
----
-
-## Frontend Progress Modal
-
-### Modal UI
-
-The modal displays all 4 phases with real-time progress:
-
-```
-┌─────────────────────────────────────────────────┐
-│  4-Phase Re-Index Pipeline                      │
-├─────────────────────────────────────────────────┤
-│                                                  │
-│  ✓ Clearing Old Data                            │
-│    Deleted 0 event statuses, 15,234 violations  │
-│                                                  │
-│  ✓ Phase 1: Index + SIGMA                       │
-│    156/156 files                                 │
-│    2,789,543 events indexed, 15,234 violations  │
-│                                                  │
-│  ◐ Phase 2: Hunting for Known Good Events       │
-│    5/8 workers                                   │
-│    820,350 events marked as noise                │
-│                                                  │
-│  ○ Phase 3: Hunting for Known Noise Events      │
-│    0/8 workers                                   │
-│    0 events marked as noise                      │
-│                                                  │
-│  ○ Phase 4: Hunting for IOCs                    │
-│    0/156 files                                   │
-│    0 IOCs found                                  │
-│                                                  │
-└─────────────────────────────────────────────────┘
-```
-
-**Status Icons**:
-- `✓` - Completed (green)
-- `◐` - Running (spinner animation, blue)
-- `✗` - Failed (red)
-- `○` - Pending (gray)
-
-**Implementation**: `app/templates/case_files.html::updateReindexPhaseProgress()`
 
 ---
 
 ## Code Modules
 
-### Coordinator
+### Coordinators
 
-**File**: `app/reindex_coordinator.py`
+- `app/coordinator_reindex.py` - Main reindex orchestrator
+- `app/coordinator_index.py` - Indexing workflow orchestrator
+- `app/coordinator_resigma.py` - Re-SIGMA orchestrator
+- `app/coordinator_ioc.py` - Re-IOC orchestrator
 
-**Functions**:
-- `start_reindex_pipeline()` - Main orchestrator, runs phases sequentially
-- `run_phase1_index_sigma()` - Phase 1 coordinator
-- `run_phase2_known_good()` - Phase 2 coordinator
-- `run_phase3_known_noise()` - Phase 3 coordinator
-- `run_phase4_ioc_hunt()` - Phase 4 coordinator
+### Processing Modules
 
-### Phase 1 Modules
+- `app/processing_clear_metadata.py` - Phase 1: Clear data
+- `app/processing_index.py` - Phase 2: Index files
+- `app/processing_sigma.py` - Phase 3: SIGMA detection
+- `app/events_known_good.py` - Phase 4: Known-good filtering (parallel)
+- `app/events_known_noise.py` - Phase 5: Known-noise filtering (parallel)
+- `app/processing_ioc.py` - Phase 6: IOC matching
 
-**File**: `app/index_evtx.py`
-- `index_file_simple(db, opensearch_client, file_id, case_id)` - Index EVTX to OpenSearch only
+### Core Processing
 
-**File**: `app/sigma_evtx.py`
-- `sigma_file_simple(db, opensearch_client, file_id, case_id)` - SIGMA detection only
+- `app/file_processing.py` - File indexing logic (`index_one_file`, `hunt_iocs`)
+- `app/sigma_detection.py` - SIGMA detection engine
+- `app/event_descriptions.py` - Event description enrichment
 
-### Phase 2 & 3 Modules
+### Utilities
 
-**File**: `app/events_known_good.py`
-- `hunt_known_good(db, opensearch_client, case_id, worker_id)` - Known Good detection
-
-**File**: `app/events_known_noise.py`
-- `hunt_known_noise(db, opensearch_client, case_id, worker_id)` - Known Noise detection
-
-### Phase 4 Module
-
-**File**: `app/ioc_utils.py`
-- `hunt_iocs_in_file(db, opensearch_client, case_id, file_id, exclude_noise=True)` - IOC detection
-
-### Celery Tasks
-
-**File**: `app/tasks.py`
-
-**Tasks**:
-- `reindex_coordinator_task(case_id, user_id, file_ids, progress_id)` - Main coordinator
-- `phase1_index_and_sigma_task(file_id, case_id, progress_id)` - Phase 1 worker
-- `phase2_known_good_worker_task(case_id, worker_id, progress_id)` - Phase 2 worker
-- `phase3_known_noise_worker_task(case_id, worker_id, progress_id)` - Phase 3 worker
-- `phase4_ioc_hunt_task(file_id, case_id, progress_id)` - Phase 4 worker
+- `app/progress_tracker.py` - Redis-backed progress tracking
+- `app/tasks.py` - Celery task helpers
+- `app/utils.py` - General utilities
 
 ---
 
 ## Critical Design Patterns
 
-### 1. Database Session Context
+### 1. Database Polling (v2.0.0)
 
-**Problem**: Celery workers use a different `db.session` than the one imported from `main.py`.
+**Problem**: Celery `result.get()` causes deadlocks in Gunicorn workers.
 
-**Solution**: Pass `db.session` as a parameter to all functions that commit data.
-
-```python
-# ❌ BAD - imports disconnected session
-from models import db
-
-def bulk_set_status(...):
-    db.session.add(record)
-    db.session.commit()  # Commit might not persist!
-
-# ✅ GOOD - accepts session from caller
-def bulk_set_status(db_session, ...):
-    db_session.add(record)
-    db_session.commit()  # Persists correctly
-
-# Call from Celery task
-with app.app_context():
-    bulk_set_status(db.session, ...)  # Pass the correct session
-```
-
-### 2. Batch Processing for Large Datasets
-
-**Problem**: Processing 820K+ records at once causes memory issues and slow commits.
-
-**Solution**: Batch processing with configurable `BATCH_SIZE`.
+**Solution**: Coordinators poll database instead of blocking on task results.
 
 ```python
-BATCH_SIZE = 10000
-
-for i in range(0, len(event_ids), BATCH_SIZE):
-    batch = event_ids[i:i + BATCH_SIZE]
+# Poll for files still in queue
+while True:
+    in_queue = db.session.query(CaseFile).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.indexing_status.in_(['Queued', 'Indexing'])
+    ).count()
     
-    # Process batch
-    existing = EventStatus.query.filter(EventStatus.event_id.in_(batch)).all()
+    if in_queue == 0:
+        break  # Phase complete
     
-    for event_id in batch:
-        # Create or update
-        ...
-    
-    db.session.commit()  # Commit per batch
+    time.sleep(5)  # Poll every 5 seconds
 ```
 
-### 3. Dual Storage (OpenSearch + PostgreSQL)
+### 2. Background Thread Coordinator (v2.0.0)
 
-**Pattern**: Store event status in BOTH OpenSearch (for fast filtering) and PostgreSQL (for audit trail).
+**Pattern**: Long-running coordinators run in daemon threads, not Celery tasks.
 
-**OpenSearch**:
-- `event_status` field (`'new'`, `'noise'`, `'hunted'`, `'confirmed'`)
-- Used for search filtering: `WHERE event_status != 'noise'`
-- Fast term queries, no joins needed
+```python
+# main.py → bulk_reindex_route
+def bulk_reindex_route(case_id):
+    # Run in background thread
+    import threading
+    thread = threading.Thread(
+        target=reindex_files,
+        args=(case_id,),
+        daemon=True
+    )
+    thread.start()
+    
+    return jsonify({'status': 'success'})
+```
 
-**PostgreSQL**:
-- `EventStatus` table with `event_id`, `status`, `user_id`, `updated_at`, `notes`
-- Source of truth for counts and audit history
-- Used for statistics on Case Files page
+### 3. Parallel Slice Processing (v2.1.0)
 
-**Synchronization**: Both are updated in the same transaction when status changes.
+**Pattern**: Split large datasets into 8 slices, process in parallel.
+
+```python
+# Dispatch 8 parallel workers
+from celery import group
+
+slice_tasks = group([
+    hide_known_good_slice_task.s(case_id, i, 8)
+    for i in range(8)
+])
+group_result = slice_tasks.apply_async()
+
+# Poll for completion
+while not group_result.ready():
+    time.sleep(5)
+
+# Get results
+for res in group_result.get():
+    total_hidden += res['hidden']
+```
+
+### 4. Dual Storage (OpenSearch + PostgreSQL)
+
+**Pattern**: Store event status in BOTH systems for performance and reliability.
+
+**OpenSearch** (fast filtering):
+```json
+{
+    "event_status": "noise",
+    "status_reason": "auto_known_good"
+}
+```
+
+**PostgreSQL** (reliable counts):
+```sql
+INSERT INTO event_status (case_id, event_id, status, notes)
+VALUES (15, 'abc123', 'noise', 'Auto-marked');
+```
 
 ---
 
 ## Performance Considerations
 
-### Parallel Workers
+### Parallelization
 
-- **Phase 1**: Processes files in parallel (limited by Celery worker count)
-- **Phase 2 & 3**: 8 parallel workers per phase (rule-based partitioning)
-- **Phase 4**: Processes files in parallel (limited by Celery worker count)
+- **Phase 2 (Index)**: Limited by Celery worker count (files processed in parallel)
+- **Phase 3 (SIGMA)**: Limited by Celery worker count (files processed in parallel)
+- **Phase 4 (Known-Good)**: 8 parallel slices (fixed)
+- **Phase 5 (Known-Noise)**: 8 parallel slices (fixed)
+- **Phase 6 (IOC)**: Limited by Celery worker count (files processed in parallel)
 
-### OpenSearch Batch Indexing
+### Database Connection Pooling (v2.1.0)
 
-- Bulk index in batches of 1000 events
+```python
+# main.py
+app.config['SQLALCHEMY_POOL_SIZE'] = 20
+app.config['SQLALCHEMY_MAX_OVERFLOW'] = 10
+app.config['SQLALCHEMY_POOL_TIMEOUT'] = 30
+app.config['SQLALCHEMY_POOL_RECYCLE'] = 1800
+app.config['SQLALCHEMY_POOL_PRE_PING'] = True
+```
+
+### Batch Processing
+
+- OpenSearch bulk index: 1000 events per batch
+- Database commits: 10,000 records per batch
 - Prevents memory bloat and improves throughput
-
-### Database Batch Commits
-
-- Commit `EventStatus` records in batches of 10,000
-- Prevents PostgreSQL `IN` clause limits and lock contention
 
 ---
 
 ## Monitoring and Debugging
 
-### Check Reindex Progress
+### Check Progress via Redis
 
 ```bash
-# Query current progress
-sudo -u postgres psql casescope -c "
-SELECT current_phase_name, phase1_completed_files, phase2_completed_workers, 
-       phase3_completed_workers, phase4_completed_files, status
-FROM reindex_progress 
-WHERE case_id = 15 
-ORDER BY started_at DESC 
-LIMIT 1;
-"
+redis-cli GET "casescope:progress:15:reindex"
 ```
 
 ### Check Celery Workers
 
 ```bash
-# List active tasks
-cd /opt/casescope && source venv/bin/activate
+# Active tasks
 celery -A celery_app inspect active
 
-# Check worker status
+# Worker stats
 celery -A celery_app inspect stats
 ```
 
-### Check OpenSearch Event Status Distribution
+### Check File Status Distribution
 
 ```bash
-# Count events by status
-curl -X GET "localhost:9200/case_15/_search?pretty" -H 'Content-Type: application/json' -d'
-{
-  "size": 0,
-  "aggs": {
-    "status_distribution": {
-      "terms": {
-        "field": "event_status",
-        "size": 10
-      }
-    }
-  }
-}
-'
+sudo -u postgres psql casescope -c "
+SELECT indexing_status, COUNT(*)
+FROM case_file
+WHERE case_id = 15 AND is_deleted = false
+GROUP BY indexing_status;
+"
 ```
-
----
-
-## Migration from v1.45.x
-
-### Breaking Changes
-
-1. **Old `process_file()` task is replaced**
-   - Previously handled indexing, SIGMA, auto-hide, and IOC hunting in one task
-   - Now split into 4 separate phases with dedicated tasks
-
-2. **New ReindexProgress table required**
-   - Run database migration to create table (see above SQL)
-
-3. **Frontend modal polling required**
-   - Old modal showed "steps" from synchronous response
-   - New modal polls `/reindex-status` every 2 seconds
-
-### Compatibility
-
-- Old single-file index (`/case/<id>/file/<fid>/index`) still works for individual files
-- Bulk reindex uses new phased approach
-
----
-
-## Troubleshooting
-
-### Issue: Noise count doesn't match between OpenSearch and DB
-
-**Symptom**: OpenSearch shows 820K noise events, DB shows 59K.
-
-**Cause**: `bulk_set_status()` was using wrong `db.session` or not batching commits.
-
-**Fix**: Ensure `bulk_set_status(db.session, ...)` receives session from Celery worker context and uses batching.
-
-### Issue: Phase stuck at "running" forever
-
-**Symptom**: Phase 2 shows `phase2_status='running'` but never completes.
-
-**Cause**: Worker tasks failed silently or Celery workers crashed.
-
-**Fix**:
-1. Check Celery worker logs: `tail -f /opt/casescope/logs/workers.log`
-2. Check task status: `celery -A celery_app inspect active`
-3. Restart workers: `sudo systemctl restart casescope-celery`
-
-### Issue: Progress modal shows old data
-
-**Symptom**: Modal shows completed reindex from yesterday.
-
-**Cause**: API returns most recent `ReindexProgress` record, not necessarily current one.
-
-**Fix**: Clear old progress records or filter by `status='running'`.
 
 ---
 
 ## Version History
 
-- **v1.46.0**: Complete rewrite to 4-phase architecture with progress tracking
-- **v1.45.x**: Single-task `process_file()` with inline auto-hide
-- **v1.19.8**: Added full index deletion for clean rebuilds
+- **v2.1.4** - Dynamic "Files with Events" counter
+- **v2.1.3** - Button brightness reduction
+- **v2.1.2** - Centralized CSS button styles
+- **v2.1.1** - Progress bar auto-clear fix, task registration
+- **v2.1.0** - Parallel Known-Good/Noise processing (8 workers)
+- **v2.0.2** - Auto-resume progress monitoring on page reload
+- **v2.0.1** - Real-time progress bars with percentages
+- **v2.0.0** - Modular processing system with database polling
 
 ---
 
 ## See Also
 
-- `site_documentation/EVENTS_KNOWN_GOOD.md` - Known Good rules
-- `site_documentation/EVENTS_KNOWN_NOISE.md` - Known Noise rules
-- `site_documentation/EVENTS_TRIAGE.md` - Phase 3 triage workflow
-- `site_documentation/FIX_REPEATING_ISSUES.md` - Common pitfalls
+- `site_documentation/EVENTS_KNOWN_GOOD.md` - Known-good detection rules
+- `site_documentation/EVENTS_KNOWN_NOISE.md` - Known-noise detection rules
+- `site_maps/CASE_FILES.md` - Complete dependency map

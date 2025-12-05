@@ -1,12 +1,12 @@
 # Events Known Good - Technical Reference
 
-Complete documentation for the Known-Good Events detection system that marks events as `status: noise`.
+Complete documentation for the Known-Good Events detection system that marks events as `event_status: noise`.
 
 ---
 
 ## Overview
 
-The Known-Good Events system identifies events from trusted tools and sources, marking them with `status: noise` to reduce clutter in security investigations. Events remain fully searchable and visible when the "Noise" status filter is enabled.
+The Known-Good Events system identifies events from trusted tools and sources, marking them with `event_status='noise'` to reduce clutter in security investigations. Events remain fully searchable and visible when the "Noise" status filter is enabled.
 
 ### Key Concepts
 
@@ -53,7 +53,7 @@ The system uses these **exact** rules to identify known-good events:
 
 ### Table: `system_tools_setting`
 
-**File:** `app/models.py` (lines 616-665)
+**File:** `app/models.py`
 
 ```python
 class SystemToolsSetting(db.Model):
@@ -106,29 +106,43 @@ When events are indexed, the system:
 1. Checks each event against exclusion rules using `is_known_good_event()`
 2. If matched, sets `event_status='noise'` in the OpenSearch document
 3. Sets `status_reason='auto_known_good'` for tracking
-4. No database update during indexing (for performance)
+4. **No database update during indexing** (for performance)
 
-### During "Hide Known Good" Operation (Manual)
-When user clicks "Hide Known Good Events":
-1. Scans all events using parallel workers (8 workers via Celery)
-2. Checks each event against exclusion rules
+**File:** `app/file_processing.py` → `apply_auto_hide()`
+
+### During Reindex Phase 4 (Parallel - v2.1.0)
+When reindex runs the Known-Good filtering phase:
+1. Coordinator task dispatches 8 parallel worker slices
+2. Each worker processes 1/8 of events using OpenSearch sliced scroll
 3. For matched events:
    - Sets `event_status='noise'` in OpenSearch document
    - Sets `status_reason='auto_known_good'` in OpenSearch document
    - Creates/updates database records in `event_status` table with `status='noise'`
 4. Uses `bulk_set_status()` from `event_status` module for database updates
 
+**Celery Tasks:**
+- `hide_known_good_all_task(case_id)` - Coordinator (dispatches 8 workers)
+- `hide_known_good_slice_task(case_id, slice_id, max_slices)` - Worker task
+
+**Performance:** Processes ~800K events in 2-3 minutes (8 parallel workers)
+
+### Manual "Hide Known Good" Button
+When user clicks "Hide Known Good Events" on Case Files page:
+1. Triggers the same parallel processing as reindex Phase 4
+2. Progress tracked via Redis and displayed in modal
+3. Both OpenSearch and database updated
+
 ### Status Storage (Dual System)
 - **OpenSearch Document:** `event_status='noise'` field + `status_reason` field
 - **PostgreSQL EventStatus Table:** Record with `status='noise'` + notes
-- Both layers are kept in sync during manual hide operations
-- Queries filter by `event_status='noise'` (not the old `is_hidden` field)
+- Both layers are kept in sync during bulk hide operations
+- Queries filter by `event_status='noise'`
 
 ---
 
 ## Core Detection Function
 
-**File:** `app/events_known_good.py` → `is_known_good_event()` (line 145)
+**File:** `app/events_known_good.py` → `is_known_good_event()`
 
 ```python
 def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional[Dict] = None) -> bool:
@@ -198,10 +212,9 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
 | `get_cached_exclusions(max_age=60)` | Cached loading for bulk operations |
 | `is_known_good_event(event, blob, exclusions)` | **Core detection logic - The Three Rules** |
 | `bulk_hide_events(events_list, client, index, case_id)` | Update both OpenSearch and database to set status='noise' |
-| `process_slice(case_id, slice_id, ...)` | Process 1/N slice for parallel workers |
-| `hide_event(case_id, event_id)` | Mark single event as noise (OpenSearch + database) |
-| `unhide_event(case_id, event_id)` | Reset single event to 'new' status (OpenSearch + database) |
-| `unhide_all_events(case_id)` | Reset all noise events back to 'new' status |
+| `process_slice(case_id, slice_id, max_slices, exclusions, client)` | Process 1/N slice for parallel workers |
+| `hide_known_good_all_task(case_id)` | Celery coordinator task - dispatches 8 workers (v2.1.0) |
+| `hide_known_good_slice_task(case_id, slice_id, max_slices)` | Celery worker task - processes 1/8 of events (v2.1.0) |
 | `get_hidden_count(case_id)` | Count events with status='noise' |
 | `get_visible_count(case_id)` | Count events without status='noise' |
 
@@ -210,14 +223,28 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
 | Function | Purpose |
 |----------|---------|
 | `apply_auto_hide(event, exclusions)` | Calls `is_known_good_event()` and sets `event_status='noise'` during indexing |
-| `apply_auto_hide_noise(event, exclusions)` | Additional noise detection for specific patterns |
 
-### 3. `app/tasks.py`
+### 3. `app/coordinator_index.py`
 
-| Function/Task | Purpose |
-|---------------|---------|
-| `hide_known_good_events_task(case_id, user_id)` | Coordinator task - dispatches 8 parallel workers |
-| `hide_known_good_slice_task(case_id, slice_id, ...)` | Worker task - processes 1/8 of events, updates both OpenSearch and database |
+| Function | Purpose |
+|----------|---------|
+| `index_new_files(case_id)` | Main indexing coordinator - calls Known-Good phase |
+
+**Known-Good Phase Call (v2.1.0):**
+```python
+# PHASE 3: HIDE KNOWN-GOOD EVENTS
+from events_known_good import has_exclusions_configured, hide_known_good_all_task
+
+if has_exclusions_configured():
+    kg_task = hide_known_good_all_task.delay(case_id)
+    
+    # Poll for completion
+    while get_progress_status(case_id, 'known_good_all_task')['status'] == 'running':
+        update_phase_progress_from_task(case_id, 'reindex', 5, 'Known-Good Filter', 'running', kg_task.id)
+        time.sleep(5)
+    
+    kg_result = kg_task.get()  # Get final result
+```
 
 ### 4. `app/event_status.py`
 
@@ -243,7 +270,7 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
 - Both must stay synchronized for accurate results
 
 ### 1. File Indexing (Automatic)
-**When:** Initial index, reindex, bulk reindex
+**When:** Initial index, reindex Phase 2
 
 ```python
 from events_known_good import get_cached_exclusions, is_known_good_event
@@ -256,22 +283,30 @@ for event in events:
     bulk_actions.append({'_index': index_name, '_source': event})
 ```
 
-### 2. Bulk Hide Task (Manual Trigger - Parallel)
-**When:** User clicks "Hide Known Good Events" button
+### 2. Reindex Phase 4 (Parallel - v2.1.0)
+**When:** User clicks "Re-Index All Files" button
 
 **Flow:**
-1. `POST /settings/system-tools/case/{id}/hide-known-good`
-2. Starts Celery task `hide_known_good_events_task` (coordinator)
+1. Coordinator: `coordinator_index.py` → calls `hide_known_good_all_task.delay(case_id)`
+2. Celery Task: `hide_known_good_all_task(case_id)` - Coordinator
 3. Dispatches 8 parallel `hide_known_good_slice_task` workers
-4. Each worker processes 1/8 of events using OpenSearch sliced scroll
-5. Each worker:
-   - Uses query filter `must_not: {"term": {"event_status": "noise"}}` to skip already-processed events
+4. Each worker processes 1/8 of events using OpenSearch sliced scroll:
+   - Query filter: `must_not: {"term": {"event_status": "noise"}}` (skip already-processed)
    - Identifies matched events using `is_known_good_event()`
    - Updates OpenSearch: sets `event_status='noise'` and `status_reason='auto_known_good'`
    - Updates database: sets `status='noise'` via `bulk_set_status()`
-6. Progress updates sent as each worker completes
+5. Progress tracked via `progress_tracker.py`
+6. Coordinator polls for completion
 
-### 3. Search Results Filtering
+### 3. Manual Hide Known Good Button
+**When:** User clicks "Hide Known Good" button on Case Files page
+
+**Flow:**
+1. `POST /case/<case_id>/hide-known-good` → `routes/files.py` → `hide_known_good_route()`
+2. Calls same parallel processing as reindex Phase 4
+3. Progress displayed in modal via Redis polling
+
+### 4. Search Results Filtering
 **When:** User searches events
 
 Status filter checkboxes control which events are shown:
@@ -281,7 +316,6 @@ Status filter checkboxes control which events are shown:
 
 **Query Logic:**
 - Events are filtered based on `event_status` field in OpenSearch
-- No `is_hidden` field is used (deprecated as of v1.46.0)
 - Dashboard counts use the `event_status` table in PostgreSQL
 
 ---
@@ -290,15 +324,16 @@ Status filter checkboxes control which events are shown:
 
 | Version | Changes |
 |---------|---------|
-| v1.38.0 | Initial implementation - RMM, Remote, IP exclusions |
-| v1.40.0 | Added EDR tools with routine/response patterns |
-| v1.43.15 | Switched to `search_blob` matching |
-| v1.44.0 | Standalone module `events_known_good.py` |
-| v1.45.0 | Parallel processing with 8 Celery workers |
+| v2.1.0 | **Parallel processing with 8 Celery workers** - `hide_known_good_all_task` coordinator dispatches sliced workers |
+| v2.0.0 | **Modular processing system** - Known-Good is Phase 4 of reindex workflow |
 | v1.46.0 | **BREAKING: Removed all `is_hidden` references** |
 | v1.46.0 | **Now uses `event_status='noise'` exclusively in both OpenSearch and PostgreSQL** |
 | v1.46.0 | **Added `rmm_path` field to RMM tool configuration** |
-| v1.46.0 | **Query filters changed from `is_hidden: true` to `event_status: 'noise'`** |
+| v1.45.0 | Parallel processing with 8 Celery workers (old task structure) |
+| v1.44.0 | Standalone module `events_known_good.py` |
+| v1.43.15 | Switched to `search_blob` matching |
+| v1.40.0 | Added EDR tools with routine/response patterns |
+| v1.38.0 | Initial implementation - RMM, Remote, IP exclusions |
 
 ---
 
@@ -336,12 +371,12 @@ Status filter checkboxes control which events are shown:
 **Key Implementation Details:**
 
 - **During Indexing:** Events get `event_status='noise'` set in OpenSearch document only (for performance)
-- **During Manual Hide:** Events get updated in BOTH OpenSearch (`event_status='noise'`) AND database (`status='noise'`)
-- **Query Filtering:** All queries filter by `event_status='noise'`, NOT the deprecated `is_hidden` field
+- **During Reindex Phase 4 (v2.1.0):** 8 parallel workers update BOTH OpenSearch (`event_status='noise'`) AND database (`status='noise'`)
+- **Query Filtering:** All queries filter by `event_status='noise'`
 - **Statistics:** Dashboard counts query the PostgreSQL `event_status` table
 
-**Critical Change in v1.46.0:**
-- ❌ **REMOVED:** `is_hidden: true/false` field (deprecated, no longer used)
-- ✅ **NOW USES:** `event_status: 'noise'` / 'new' / 'hunted' / 'confirmed'
+**Critical Change in v2.1.0:**
+- ✅ **Parallel Processing:** 8 workers process events in 2-3 minutes (vs. 16 minutes single-threaded)
+- ✅ **Task-based Progress:** Real-time progress tracking via `progress_tracker.py`
 
 This unified status system allows events to remain searchable while being properly categorized as noise from trusted tools.
