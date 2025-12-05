@@ -88,7 +88,7 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
             
             from processing_index import index_all_files_in_queue
             
-            index_result = index_all_files_in_queue(case_id)
+            index_result = index_all_files_in_queue(case_id, operation=operation, phase_num=1)
             
             if index_result['status'] == 'success':
                 result['phases_completed'].append('indexing')

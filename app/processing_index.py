@@ -207,7 +207,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
 # PHASE COORDINATOR: Index All Files in Queue
 # ==============================================================================
 
-def index_all_files_in_queue(case_id: int) -> Dict[str, Any]:
+def index_all_files_in_queue(case_id: int, operation: str = 'index', phase_num: int = 1) -> Dict[str, Any]:
     """
     Index all queued files for a case using parallel workers.
     
@@ -218,6 +218,8 @@ def index_all_files_in_queue(case_id: int) -> Dict[str, Any]:
     
     Args:
         case_id: Case ID to process
+        operation: Operation name for progress tracking ('index' or 'reindex')
+        phase_num: Phase number for progress tracking (default: 1)
         
     Returns:
         dict: {
@@ -307,7 +309,7 @@ def index_all_files_in_queue(case_id: int) -> Dict[str, Any]:
             
             # Update progress tracker with counts for progress bar
             from progress_tracker import update_phase
-            update_phase(case_id, 'reindex', 3, 'Indexing Files', 'running', 
+            update_phase(case_id, operation, phase_num, 'Indexing Files', 'running', 
                         f'{completed_count}/{total_files} files indexed',
                         current=completed_count, total=total_files)
             
