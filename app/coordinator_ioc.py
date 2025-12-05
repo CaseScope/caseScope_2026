@@ -156,11 +156,10 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
             if progress_callback:
                 progress_callback(2, 'running', 'Matching IOCs...')
             
-            from processing_ioc import match_all_iocs
+            from processing_ioc import hunt_iocs_all_files
             
-            # Note: IOC matching runs at case level, not per-file
-            # It will search ALL events in the case index
-            ioc_result = match_all_iocs(case_id)
+            # Run IOC hunting on all queued files
+            ioc_result = hunt_iocs_all_files(case_id)
             
             if ioc_result['status'] == 'success':
                 result['phases_completed'].append('ioc_matching')

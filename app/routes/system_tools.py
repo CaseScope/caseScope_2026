@@ -697,12 +697,11 @@ def hide_known_good_events(case_id):
     Start background task to hide events matching known-good exclusion patterns.
     Returns task_id for progress polling.
     
-    v1.44.0: Uses events_known_good module for validation.
+    v2.1.8: Uses new parallel coordinator (hide_known_good_all_task)
     """
     from main import db
     from models import Case
-    from tasks import hide_known_good_events_task
-    from events_known_good import has_exclusions_configured
+    from events_known_good import hide_known_good_all_task, has_exclusions_configured
     
     # Permission check
     if current_user.role == 'read-only':
@@ -712,17 +711,17 @@ def hide_known_good_events(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
-    # v1.44.0: Use new module for validation
+    # Validate exclusions configured
     if not has_exclusions_configured():
         return jsonify({'error': 'No exclusions defined. Please configure System Tools settings first.'}), 400
     
-    # Start background task
-    task = hide_known_good_events_task.delay(case_id, current_user.id)
+    # Start NEW parallel coordinator task
+    task = hide_known_good_all_task.delay(case_id)
     
     return jsonify({
         'status': 'started',
         'task_id': task.id,
-        'message': 'Hide known-good task started'
+        'message': 'Hide known-good task started (8 parallel workers)'
     })
 
 
@@ -771,12 +770,11 @@ def hide_noise_events(case_id):
     Start background task to hide events matching noise patterns.
     Returns task_id for progress polling.
     
-    v1.46.0: Uses events_known_noise module for detection.
-    Unlike known_good, this doesn't require configuration - uses hardcoded patterns.
+    v2.1.8: Uses new parallel coordinator (hide_noise_all_task)
     """
     from main import db
     from models import Case
-    from tasks import hide_noise_events_task
+    from events_known_noise import hide_noise_all_task
     
     # Permission check
     if current_user.role == 'read-only':
@@ -786,13 +784,13 @@ def hide_noise_events(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
-    # Start background task (no config validation needed - uses hardcoded patterns)
-    task = hide_noise_events_task.delay(case_id, current_user.id)
+    # Start NEW parallel coordinator task (no config validation needed - uses hardcoded patterns)
+    task = hide_noise_all_task.delay(case_id)
     
     return jsonify({
         'status': 'started',
         'task_id': task.id,
-        'message': 'Hide noise task started'
+        'message': 'Hide noise task started (8 parallel workers)'
     })
 
 

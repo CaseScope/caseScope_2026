@@ -327,13 +327,25 @@ def clear_all_queued_files(case_id: int, clear_type: str = 'all') -> Dict[str, A
     logger.info(f"[CLEAR_PHASE] Starting metadata clearing for case {case_id}")
     
     with app.app_context():
-        # Get all files that need clearing (not indexed or marked for reindex)
-        files = CaseFile.query.filter_by(
-            case_id=case_id,
-            is_deleted=False
-        ).filter(
-            CaseFile.indexing_status.in_(['Queued', 'Failed', 'Reindex'])
-        ).all()
+        # Get all files that need clearing
+        # For clear_type='all': Files in 'Queued', 'Failed', 'Reindex' status
+        # For clear_type='sigma'/'ioc': Files in 'Indexed' status (set by coordinators)
+        if clear_type == 'all':
+            files = CaseFile.query.filter_by(
+                case_id=case_id,
+                is_deleted=False
+            ).filter(
+                CaseFile.indexing_status.in_(['Queued', 'Failed', 'Reindex'])
+            ).all()
+        else:
+            # For sigma/ioc clears, also include 'Indexed' status
+            # (coordinators set files to 'Indexed' before calling clear)
+            files = CaseFile.query.filter_by(
+                case_id=case_id,
+                is_deleted=False
+            ).filter(
+                CaseFile.indexing_status.in_(['Queued', 'Failed', 'Reindex', 'Indexed'])
+            ).all()
         
         # Also include files that are indexed but marked for reindexing
         # (could check for a reindex flag if we add one)
