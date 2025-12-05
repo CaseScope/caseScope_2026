@@ -131,29 +131,53 @@ def index_new_files(case_id: int, progress_callback: Optional[callable] = None) 
                     progress_callback(2, 'failed', 'SIGMA detection failed')
             
             # ===============================================================
-            # PHASE 3: HIDE KNOWN-GOOD EVENTS
+            # PHASE 3: HIDE KNOWN-GOOD EVENTS (PARALLEL)
             # ===============================================================
             logger.info("[INDEX_COORDINATOR] PHASE 3: Filtering known-good events...")
+            update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'running', 'Filtering known-good events...')
             if progress_callback:
                 progress_callback(3, 'running', 'Filtering known-good events...')
             
-            from events_known_good import hide_known_good_events, has_exclusions_configured
+            from events_known_good import hide_known_good_all_task, has_exclusions_configured
             
             if has_exclusions_configured():
-                kg_result = hide_known_good_events(case_id)
-                if kg_result['success']:
-                    result['phases_completed'].append('known_good')
-                    result['stats']['known_good'] = kg_result
-                    logger.info(f"[INDEX_COORDINATOR] ✓ PHASE 3 complete: {kg_result['total_hidden']} events hidden")
-                    update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'completed', f"Hidden {kg_result['total_hidden']} events")
-                    if progress_callback:
-                        progress_callback(3, 'completed', f"Hidden {kg_result['total_hidden']} events")
-                else:
-                    result['phases_failed'].append('known_good')
-                    result['errors'].extend(kg_result.get('errors', ['Known-good filtering failed']))
-                    update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'failed', 'Known-good filtering failed')
-                    if progress_callback:
-                        progress_callback(3, 'failed', 'Known-good filtering failed')
+                # Dispatch parallel workers and wait for completion
+                kg_task = hide_known_good_all_task.delay(case_id)
+                
+                # Poll for completion (not .get() to avoid deadlock)
+                import time
+                timeout = 3600  # 1 hour
+                start_time = time.time()
+                
+                while not kg_task.ready():
+                    if time.time() - start_time > timeout:
+                        logger.error("[INDEX_COORDINATOR] Known-Good phase timeout")
+                        result['phases_failed'].append('known_good')
+                        result['errors'].append('Known-Good phase timeout')
+                        break
+                    time.sleep(5)
+                
+                if kg_task.ready():
+                    try:
+                        kg_result = kg_task.get(timeout=10)
+                        
+                        if kg_result['status'] in ['success', 'partial']:
+                            result['phases_completed'].append('known_good')
+                            result['stats']['known_good'] = kg_result
+                            logger.info(f"[INDEX_COORDINATOR] ✓ PHASE 3 complete: {kg_result['total_hidden']} events hidden ({kg_result['workers_completed']} workers)")
+                            update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'completed', f"Hidden {kg_result['total_hidden']} events")
+                            if progress_callback:
+                                progress_callback(3, 'completed', f"Hidden {kg_result['total_hidden']} events")
+                        else:
+                            result['phases_failed'].append('known_good')
+                            result['errors'].extend(kg_result.get('errors', ['Known-good filtering failed']))
+                            update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'failed', 'Known-good filtering failed')
+                            if progress_callback:
+                                progress_callback(3, 'failed', 'Known-good filtering failed')
+                    except Exception as e:
+                        logger.error(f"[INDEX_COORDINATOR] Error getting Known-Good result: {e}")
+                        result['phases_failed'].append('known_good')
+                        result['errors'].append(f'Known-Good result error: {str(e)}')
             else:
                 result['phases_completed'].append('known_good')
                 result['stats']['known_good'] = {'total_hidden': 0}
@@ -163,30 +187,54 @@ def index_new_files(case_id: int, progress_callback: Optional[callable] = None) 
                     progress_callback(3, 'skipped', 'No exclusions configured')
             
             # ===============================================================
-            # PHASE 4: HIDE KNOWN-NOISE EVENTS
+            # PHASE 4: HIDE KNOWN-NOISE EVENTS (PARALLEL)
             # ===============================================================
             logger.info("[INDEX_COORDINATOR] PHASE 4: Filtering known-noise events...")
             update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'running', 'Filtering known-noise events...')
             if progress_callback:
                 progress_callback(4, 'running', 'Filtering known-noise events...')
             
-            from events_known_noise import hide_noise_events
+            from events_known_noise import hide_noise_all_task
             
-            noise_result = hide_noise_events(case_id)
+            # Dispatch parallel workers and wait for completion
+            noise_task = hide_noise_all_task.delay(case_id)
             
-            if noise_result['success']:
-                result['phases_completed'].append('known_noise')
-                result['stats']['known_noise'] = noise_result
-                logger.info(f"[INDEX_COORDINATOR] ✓ PHASE 4 complete: {noise_result['total_hidden']} events hidden")
-                update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'completed', f"Hidden {noise_result['total_hidden']} events")
-                if progress_callback:
-                    progress_callback(4, 'completed', f"Hidden {noise_result['total_hidden']} events")
+            # Poll for completion (not .get() to avoid deadlock)
+            timeout = 3600  # 1 hour
+            start_time = time.time()
+            
+            while not noise_task.ready():
+                if time.time() - start_time > timeout:
+                    logger.error("[INDEX_COORDINATOR] Known-Noise phase timeout")
+                    result['phases_failed'].append('known_noise')
+                    result['errors'].append('Known-Noise phase timeout')
+                    break
+                time.sleep(5)
+            
+            if noise_task.ready():
+                try:
+                    noise_result = noise_task.get(timeout=10)
+                    
+                    if noise_result['status'] in ['success', 'partial']:
+                        result['phases_completed'].append('known_noise')
+                        result['stats']['known_noise'] = noise_result
+                        logger.info(f"[INDEX_COORDINATOR] ✓ PHASE 4 complete: {noise_result['total_hidden']} events hidden ({noise_result['workers_completed']} workers)")
+                        update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'completed', f"Hidden {noise_result['total_hidden']} events")
+                        if progress_callback:
+                            progress_callback(4, 'completed', f"Hidden {noise_result['total_hidden']} events")
+                    else:
+                        result['phases_failed'].append('known_noise')
+                        result['errors'].extend(noise_result.get('errors', ['Known-noise filtering failed']))
+                        update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'failed', 'Known-noise filtering failed')
+                        if progress_callback:
+                            progress_callback(4, 'failed', 'Known-noise filtering failed')
+                except Exception as e:
+                    logger.error(f"[INDEX_COORDINATOR] Error getting Known-Noise result: {e}")
+                    result['phases_failed'].append('known_noise')
+                    result['errors'].append(f'Known-Noise result error: {str(e)}')
             else:
                 result['phases_failed'].append('known_noise')
-                result['errors'].extend(noise_result.get('errors', ['Known-noise filtering failed']))
-                update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'failed', 'Known-noise filtering failed')
-                if progress_callback:
-                    progress_callback(4, 'failed', 'Known-noise filtering failed')
+                result['errors'].append('Known-Noise phase timeout')
             
             # ===============================================================
             # PHASE 5: IOC MATCHING

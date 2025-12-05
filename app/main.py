@@ -30,6 +30,14 @@ logger = get_logger('app')  # Get app-specific logger
 app = Flask(__name__)
 app.config.from_object(Config)
 
+# Database connection pool settings for parallel workers
+# Increased pool size to support 8 parallel Celery workers per phase
+app.config['SQLALCHEMY_POOL_SIZE'] = 20  # Base connections
+app.config['SQLALCHEMY_MAX_OVERFLOW'] = 10  # Additional connections when pool exhausted
+app.config['SQLALCHEMY_POOL_TIMEOUT'] = 30  # Wait time for connection
+app.config['SQLALCHEMY_POOL_RECYCLE'] = 1800  # Recycle connections after 30 min
+app.config['SQLALCHEMY_POOL_PRE_PING'] = True  # Test connections before use
+
 
 # Helper function to check if OpenSearch index exists
 def index_exists(case_id: int) -> bool:

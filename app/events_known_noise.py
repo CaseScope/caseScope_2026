@@ -628,3 +628,206 @@ def is_valid_hostname(hostname: str, ip_set: Set[str] = None) -> bool:
 
 # is_machine_account is imported from noise_filters
 
+
+# =============================================================================
+# CELERY TASKS: Parallel Processing (8 Workers)
+# =============================================================================
+
+from celery_app import celery_app
+
+
+@celery_app.task(bind=True, name='events_known_noise.hide_noise_slice_task')
+def hide_noise_slice_task(self, case_id: int, slice_id: int, max_slices: int) -> Dict[str, Any]:
+    """
+    Celery worker task: Process 1/N slice of events for parallel noise hide operation.
+    
+    This task is one of N parallel workers (typically 8) that each process
+    a slice of the total events using OpenSearch sliced scroll.
+    
+    Args:
+        case_id: Case ID to process
+        slice_id: This worker's slice ID (0 to max_slices-1)
+        max_slices: Total number of slices (usually 8)
+        
+    Returns:
+        dict: {
+            'status': 'success'|'error',
+            'slice_id': int,
+            'scanned': int,
+            'found': int,
+            'hidden': int,
+            'by_category': dict,
+            'error': str (if error)
+        }
+    """
+    from main import app, opensearch_client
+    
+    logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} starting for case {case_id}")
+    
+    result = {
+        'status': 'success',
+        'slice_id': slice_id,
+        'scanned': 0,
+        'found': 0,
+        'hidden': 0,
+        'by_category': {
+            'noise_process': 0,
+            'noise_command': 0,
+            'firewall_noise': 0
+        }
+    }
+    
+    with app.app_context():
+        try:
+            # Process this slice
+            slice_result = process_slice(
+                case_id=case_id,
+                slice_id=slice_id,
+                max_slices=max_slices,
+                opensearch_client=opensearch_client
+            )
+            
+            result['scanned'] = slice_result['scanned']
+            result['found'] = len(slice_result['events_to_hide'])
+            result['by_category'] = slice_result['by_category']
+            
+            # Bulk hide events found in this slice
+            if slice_result['events_to_hide']:
+                index_name = f"case_{case_id}"
+                hidden_count = bulk_hide_events(
+                    slice_result['events_to_hide'],
+                    opensearch_client,
+                    index_name,
+                    case_id
+                )
+                result['hidden'] = hidden_count
+                logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices}: Hidden {hidden_count} events")
+            
+            logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} complete: scanned={result['scanned']}, found={result['found']}, hidden={result['hidden']}")
+            logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} breakdown: {result['by_category']}")
+            
+        except Exception as e:
+            logger.error(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} error: {e}", exc_info=True)
+            result['status'] = 'error'
+            result['error'] = str(e)
+    
+    return result
+
+
+@celery_app.task(bind=True, name='events_known_noise.hide_noise_all_task')
+def hide_noise_all_task(self, case_id: int) -> Dict[str, Any]:
+    """
+    Celery coordinator task: Dispatch parallel workers to hide noise events.
+    
+    This task coordinates 8 parallel slice workers and waits for all to complete
+    using database polling (not .get() to avoid deadlocks).
+    
+    Args:
+        case_id: Case ID to process
+        
+    Returns:
+        dict: {
+            'status': 'success'|'error',
+            'total_scanned': int,
+            'total_hidden': int,
+            'by_category': dict,
+            'workers_completed': int,
+            'workers_failed': int,
+            'errors': list
+        }
+    """
+    from main import app, db
+    from celery import group
+    import time
+    
+    MAX_SLICES = 8  # Use 8 parallel workers
+    
+    logger.info(f"[NOISE_COORDINATOR] Starting parallel hide for case {case_id} with {MAX_SLICES} workers")
+    
+    result = {
+        'status': 'success',
+        'total_scanned': 0,
+        'total_hidden': 0,
+        'by_category': {
+            'noise_process': 0,
+            'noise_command': 0,
+            'firewall_noise': 0
+        },
+        'workers_completed': 0,
+        'workers_failed': 0,
+        'errors': []
+    }
+    
+    with app.app_context():
+        try:
+            # Dispatch 8 parallel slice tasks
+            logger.info(f"[NOISE_COORDINATOR] Dispatching {MAX_SLICES} parallel workers...")
+            
+            job = group([
+                hide_noise_slice_task.s(case_id, i, MAX_SLICES)
+                for i in range(MAX_SLICES)
+            ])
+            
+            group_result = job.apply_async()
+            
+            # Poll for completion (database polling, not .get())
+            logger.info(f"[NOISE_COORDINATOR] Waiting for {MAX_SLICES} workers to complete...")
+            
+            start_time = time.time()
+            timeout = 3600  # 1 hour max
+            poll_interval = 5  # Check every 5 seconds
+            
+            while not group_result.ready():
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    logger.error(f"[NOISE_COORDINATOR] Timeout after {elapsed:.0f}s")
+                    result['status'] = 'error'
+                    result['errors'].append(f'Timeout after {elapsed:.0f}s')
+                    return result
+                
+                time.sleep(poll_interval)
+                
+                # Update progress
+                completed = sum(1 for r in group_result.results if r.ready())
+                logger.debug(f"[NOISE_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers complete")
+            
+            # Collect results from all workers
+            logger.info(f"[NOISE_COORDINATOR] All workers complete, collecting results...")
+            
+            for worker_result in group_result.results:
+                try:
+                    worker_data = worker_result.get(timeout=5)
+                    
+                    if worker_data['status'] == 'success':
+                        result['workers_completed'] += 1
+                        result['total_scanned'] += worker_data.get('scanned', 0)
+                        result['total_hidden'] += worker_data.get('hidden', 0)
+                        
+                        # Aggregate category counts
+                        for category, count in worker_data.get('by_category', {}).items():
+                            result['by_category'][category] += count
+                    else:
+                        result['workers_failed'] += 1
+                        result['errors'].append(f"Slice {worker_data.get('slice_id')}: {worker_data.get('error')}")
+                        
+                except Exception as e:
+                    result['workers_failed'] += 1
+                    result['errors'].append(f"Worker result error: {str(e)}")
+                    logger.error(f"[NOISE_COORDINATOR] Error collecting worker result: {e}")
+            
+            # Final status
+            if result['workers_failed'] > 0:
+                result['status'] = 'partial'
+            
+            logger.info(f"[NOISE_COORDINATOR] Complete: {result['workers_completed']} workers succeeded, {result['workers_failed']} failed")
+            logger.info(f"[NOISE_COORDINATOR] Scanned: {result['total_scanned']:,} events, Hidden: {result['total_hidden']:,} events")
+            logger.info(f"[NOISE_COORDINATOR] Breakdown: {result['by_category']}")
+            
+        except Exception as e:
+            logger.error(f"[NOISE_COORDINATOR] Fatal error: {e}", exc_info=True)
+            result['status'] = 'error'
+            result['errors'].append(str(e))
+    
+    return result
+
+

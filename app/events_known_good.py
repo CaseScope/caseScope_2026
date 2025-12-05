@@ -803,3 +803,196 @@ def get_visible_count(case_id: int) -> int:
     except:
         return 0
 
+
+# =============================================================================
+# CELERY TASKS: Parallel Processing (8 Workers)
+# =============================================================================
+
+from celery_app import celery_app
+
+
+@celery_app.task(bind=True, name='events_known_good.hide_known_good_slice_task')
+def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: int) -> Dict[str, Any]:
+    """
+    Celery worker task: Process 1/N slice of events for parallel hide operation.
+    
+    This task is one of N parallel workers (typically 8) that each process
+    a slice of the total events using OpenSearch sliced scroll.
+    
+    Args:
+        case_id: Case ID to process
+        slice_id: This worker's slice ID (0 to max_slices-1)
+        max_slices: Total number of slices (usually 8)
+        
+    Returns:
+        dict: {
+            'status': 'success'|'error',
+            'slice_id': int,
+            'scanned': int,
+            'found': int,
+            'hidden': int,
+            'error': str (if error)
+        }
+    """
+    from main import app, opensearch_client
+    
+    logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices} starting for case {case_id}")
+    
+    result = {
+        'status': 'success',
+        'slice_id': slice_id,
+        'scanned': 0,
+        'found': 0,
+        'hidden': 0
+    }
+    
+    with app.app_context():
+        try:
+            # Load exclusions once per worker
+            exclusions = get_cached_exclusions()
+            
+            if not has_exclusions_configured():
+                logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}: No exclusions configured")
+                return result
+            
+            # Process this slice
+            scanned, events_to_hide = process_slice(
+                case_id=case_id,
+                slice_id=slice_id,
+                max_slices=max_slices,
+                exclusions=exclusions,
+                opensearch_client=opensearch_client
+            )
+            
+            result['scanned'] = scanned
+            result['found'] = len(events_to_hide)
+            
+            # Bulk hide events found in this slice
+            if events_to_hide:
+                index_name = f"case_{case_id}"
+                hidden_count = bulk_hide_events(events_to_hide, opensearch_client, index_name, case_id)
+                result['hidden'] = hidden_count
+                logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices}: Hidden {hidden_count} events")
+            
+            logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices} complete: scanned={scanned}, found={len(events_to_hide)}, hidden={result['hidden']}")
+            
+        except Exception as e:
+            logger.error(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices} error: {e}", exc_info=True)
+            result['status'] = 'error'
+            result['error'] = str(e)
+    
+    return result
+
+
+@celery_app.task(bind=True, name='events_known_good.hide_known_good_all_task')
+def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
+    """
+    Celery coordinator task: Dispatch parallel workers to hide known-good events.
+    
+    This task coordinates 8 parallel slice workers and waits for all to complete
+    using database polling (not .get() to avoid deadlocks).
+    
+    Args:
+        case_id: Case ID to process
+        
+    Returns:
+        dict: {
+            'status': 'success'|'error',
+            'total_scanned': int,
+            'total_hidden': int,
+            'workers_completed': int,
+            'workers_failed': int,
+            'errors': list
+        }
+    """
+    from main import app, db
+    from celery import group
+    import time
+    
+    MAX_SLICES = 8  # Use 8 parallel workers
+    
+    logger.info(f"[KNOWN_GOOD_COORDINATOR] Starting parallel hide for case {case_id} with {MAX_SLICES} workers")
+    
+    result = {
+        'status': 'success',
+        'total_scanned': 0,
+        'total_hidden': 0,
+        'workers_completed': 0,
+        'workers_failed': 0,
+        'errors': []
+    }
+    
+    with app.app_context():
+        try:
+            # Check if exclusions are configured
+            if not has_exclusions_configured():
+                logger.info(f"[KNOWN_GOOD_COORDINATOR] No exclusions configured for case {case_id}")
+                result['success'] = True
+                return result
+            
+            # Dispatch 8 parallel slice tasks
+            logger.info(f"[KNOWN_GOOD_COORDINATOR] Dispatching {MAX_SLICES} parallel workers...")
+            
+            job = group([
+                hide_known_good_slice_task.s(case_id, i, MAX_SLICES)
+                for i in range(MAX_SLICES)
+            ])
+            
+            group_result = job.apply_async()
+            
+            # Poll for completion (database polling, not .get())
+            logger.info(f"[KNOWN_GOOD_COORDINATOR] Waiting for {MAX_SLICES} workers to complete...")
+            
+            start_time = time.time()
+            timeout = 3600  # 1 hour max
+            poll_interval = 5  # Check every 5 seconds
+            
+            while not group_result.ready():
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    logger.error(f"[KNOWN_GOOD_COORDINATOR] Timeout after {elapsed:.0f}s")
+                    result['status'] = 'error'
+                    result['errors'].append(f'Timeout after {elapsed:.0f}s')
+                    return result
+                
+                time.sleep(poll_interval)
+                
+                # Update progress
+                completed = sum(1 for r in group_result.results if r.ready())
+                logger.debug(f"[KNOWN_GOOD_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers complete")
+            
+            # Collect results from all workers
+            logger.info(f"[KNOWN_GOOD_COORDINATOR] All workers complete, collecting results...")
+            
+            for worker_result in group_result.results:
+                try:
+                    worker_data = worker_result.get(timeout=5)
+                    
+                    if worker_data['status'] == 'success':
+                        result['workers_completed'] += 1
+                        result['total_scanned'] += worker_data.get('scanned', 0)
+                        result['total_hidden'] += worker_data.get('hidden', 0)
+                    else:
+                        result['workers_failed'] += 1
+                        result['errors'].append(f"Slice {worker_data.get('slice_id')}: {worker_data.get('error')}")
+                        
+                except Exception as e:
+                    result['workers_failed'] += 1
+                    result['errors'].append(f"Worker result error: {str(e)}")
+                    logger.error(f"[KNOWN_GOOD_COORDINATOR] Error collecting worker result: {e}")
+            
+            # Final status
+            if result['workers_failed'] > 0:
+                result['status'] = 'partial'
+            
+            logger.info(f"[KNOWN_GOOD_COORDINATOR] Complete: {result['workers_completed']} workers succeeded, {result['workers_failed']} failed")
+            logger.info(f"[KNOWN_GOOD_COORDINATOR] Scanned: {result['total_scanned']:,} events, Hidden: {result['total_hidden']:,} events")
+            
+        except Exception as e:
+            logger.error(f"[KNOWN_GOOD_COORDINATOR] Fatal error: {e}", exc_info=True)
+            result['status'] = 'error'
+            result['errors'].append(str(e))
+    
+    return result
+
+
