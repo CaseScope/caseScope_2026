@@ -159,13 +159,20 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             # ===============================================================
             from tasks import commit_with_retry
             
+            # Re-query files from database to get fresh status
+            # (Don't use stale 'files' variable from line 80-95)
+            files_to_finalize = db.session.query(CaseFile).filter(
+                CaseFile.case_id == case_id,
+                CaseFile.is_deleted == False,
+                CaseFile.indexing_status.in_(['SIGMA Complete', 'Indexed'])
+            ).all()
+            
             # Mark files as completed
-            for f in files:
-                if f.indexing_status in ['SIGMA Complete', 'Indexed']:
-                    f.indexing_status = 'Completed'
+            for f in files_to_finalize:
+                f.indexing_status = 'Completed'
             
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[RESIGMA_COORDINATOR] Marked {len(files)} files as completed")
+            logger.info(f"[RESIGMA_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
             
             result['duration'] = time.time() - start_time
             

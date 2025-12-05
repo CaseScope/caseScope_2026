@@ -177,7 +177,23 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None, progress_cal
             # ===============================================================
             # FINALIZE
             # ===============================================================
-            logger.info("[REIOC_COORDINATOR] IOC matching complete")
+            from tasks import commit_with_retry
+            
+            logger.info("[REIOC_COORDINATOR] Finalizing: marking files as completed...")
+            
+            # Re-query files from database to get fresh status
+            # Mark all IOC Complete files as fully Completed
+            files_to_finalize = db.session.query(CaseFile).filter(
+                CaseFile.case_id == case_id,
+                CaseFile.is_deleted == False,
+                CaseFile.indexing_status == 'IOC Complete'
+            ).all()
+            
+            for f in files_to_finalize:
+                f.indexing_status = 'Completed'
+            
+            commit_with_retry(db.session, logger_instance=logger)
+            logger.info(f"[REIOC_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
             
             result['duration'] = time.time() - start_time
             
