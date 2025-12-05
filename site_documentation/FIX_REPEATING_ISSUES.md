@@ -478,7 +478,173 @@ def reindex_task(case_id):
 
 ---
 
-## 6. [Future Issue Placeholder]
+## 6. Progress Bar Jumping Between Operations / Not Clearing
+
+**Symptoms:**
+- Progress bar switches between "Indexing", "Known Good Filter", "Known Noise Filter", "IOC Hunting" randomly
+- Progress bar shows one operation but JavaScript console shows a different operation
+- Progress bar doesn't clear after operation completes
+- Files don't move to "Completed" status after processing finishes
+- Progress count shows incorrect values or doesn't update
+
+**Root Cause:**
+Multiple coordinators sharing the same progress tracking system with overlapping operation names and phase numbers. When `coordinator_reindex.py` calls `coordinator_index.py`, both try to update progress using the `'index'` operation, causing:
+1. Progress bar to switch between operations as different phases update
+2. Progress not clearing because the wrong operation name is being tracked
+3. `complete_progress()` not being called for the correct operation
+4. Blocking `.result` calls causing coordinators to wait on known-good/noise filters instead of dispatching them asynchronously
+
+**Problem Example:**
+```python
+# ❌ BAD - coordinator_reindex calls coordinator_index, both use 'index' operation
+def reindex_files(case_id):
+    start_progress(case_id, 'reindex', total_phases=7, ...)  # Starts 'reindex' progress
+    
+    # Calls coordinator_index which updates 'index' operation (wrong!)
+    index_result = index_new_files(case_id)  # Uses 'index' operation internally
+    
+    # Never calls complete_progress for 'reindex', so bar persists
+    return result
+
+# ❌ BAD - Blocking on known-good/noise filter results
+def index_new_files(case_id):
+    kg_task = hide_known_good_all_task.delay(case_id)
+    
+    # Blocks coordinator until task finishes (unnecessary)
+    while not kg_task.ready():
+        time.sleep(5)
+    result = kg_task.result  # Blocks execution
+```
+
+**Solution Patterns:**
+
+### Pattern 1: Make Coordinators Accept Dynamic Operation Parameter
+Allow nested coordinators to use the parent operation for progress tracking:
+
+```python
+# ✅ GOOD - Accept operation parameter
+def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
+    """
+    Args:
+        operation: Operation name for progress tracking ('index' or 'reindex')
+    """
+    # Only start progress if this is the main 'index' operation
+    if operation == 'index':
+        start_progress(case_id, 'index', total_phases=5, ...)
+    
+    # Use dynamic operation parameter for all phase updates
+    update_phase(case_id, operation, 1, 'Indexing Files', 'running', ...)
+    update_phase(case_id, operation, 2, 'SIGMA Detection', 'running', ...)
+    update_phase(case_id, operation, 3, 'Known-Good Filter', 'running', ...)
+    
+    # Only complete progress if this is the main 'index' operation
+    if operation == 'index':
+        complete_progress(case_id, 'index', success=True)
+```
+
+### Pattern 2: Always Call complete_progress() at the End
+Ensure progress tracking is properly closed:
+
+```python
+# ✅ GOOD - Complete progress for the correct operation
+def reindex_files(case_id):
+    start_progress(case_id, 'reindex', total_phases=7, ...)
+    
+    # Pass 'reindex' so nested coordinator uses correct operation
+    index_result = index_new_files(case_id, operation='reindex')
+    
+    # Always complete the progress we started
+    complete_progress(case_id, 'reindex', success=(result['status'] in ['success', 'partial']))
+    
+    return result
+```
+
+### Pattern 3: Dispatch Async Tasks Without Blocking
+Let known-good/noise filters run independently:
+
+```python
+# ✅ GOOD - Dispatch and move on
+def index_new_files(case_id, operation='index'):
+    # Dispatch known-good filter (don't wait for it)
+    kg_task = hide_known_good_all_task.delay(case_id)
+    logger.info(f"Known-Good filtering dispatched (task_id: {kg_task.id})")
+    
+    # Mark phase as completed immediately (task runs in background)
+    update_phase(case_id, operation, 3, 'Known-Good Filter', 'completed', 'Filtering in progress')
+    
+    # Continue to next phase without blocking
+    # ...
+```
+
+### Pattern 4: Finalize Files Properly
+Always mark files as 'Completed' after processing:
+
+```python
+# ✅ GOOD - Finalize files before completing progress
+def coordinator_workflow(case_id, operation):
+    # ... (run all phases) ...
+    
+    # Mark files as completed
+    files_to_finalize = db.session.query(CaseFile).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.is_deleted == False,
+        CaseFile.indexing_status.in_(['SIGMA Complete', 'Indexed'])
+    ).all()
+    
+    for f in files_to_finalize:
+        f.indexing_status = 'Completed'
+        f.celery_task_id = None
+    
+    commit_with_retry(db.session)
+    
+    # Complete progress (clears progress bar)
+    complete_progress(case_id, operation, success=True)
+```
+
+**Where This Occurred:**
+- **v2.2.x:** `coordinator_reindex.py` called `coordinator_index.py` without passing operation parameter
+- **v2.2.x:** `coordinator_index.py` used hardcoded `'index'` operation, didn't support dynamic operation
+- **v2.2.x:** Known-good/noise filter phases blocked on `.result`, causing delays and deadlocks
+- **v2.2.x:** No finalization logic in `coordinator_reindex.py`, files stuck in 'SIGMA Complete' status
+- **v2.2.x:** Missing `complete_progress()` calls, causing progress bar persistence
+
+**Fixed By:**
+- Adding `operation` parameter to `coordinator_index.index_new_files()`
+- Passing `operation='reindex'` from `coordinator_reindex.py`
+- Removing `.result` blocking calls from known-good/noise filter phases
+- Adding finalization logic to mark files as 'Completed'
+- Adding `complete_progress()` calls to all coordinators
+- Conditionally calling `start_progress()` and `complete_progress()` only in main operation
+
+**Files Affected:**
+- `app/coordinator_index.py` - Added operation parameter, removed blocking .result calls
+- `app/coordinator_reindex.py` - Pass operation='reindex', added finalization and complete_progress()
+- `app/coordinator_resigma.py` - Already fixed with proper finalization and complete_progress()
+- `app/templates/case_files.html` - Fixed to check all operations on page load
+
+**Version History:**
+- **v2.2.4:** Fixed coordinator_resigma with proper finalization
+- **v2.2.5:** Fixed coordinator_index and coordinator_reindex with dynamic operation parameter
+
+**Prevention:**
+- **Always accept `operation` parameter** in coordinator functions that can be called from other coordinators
+- **Always call `complete_progress()`** at the end of a coordinator workflow
+- **Never block on `.result` or `.get()`** for async tasks unless absolutely necessary
+- **Always finalize files** (mark as 'Completed') before calling `complete_progress()`
+- **Conditionally start/complete progress** - only the "main" operation should call these functions
+- **Dispatch async tasks** (known-good/noise) and move on - don't wait for them to finish
+- Test coordinators both directly and when called from other coordinators
+
+**Debugging Tips:**
+- Check browser console for multiple operation names in progress API calls
+- Look for missing `complete_progress()` calls in coordinator code
+- Check if files are stuck in 'SIGMA Complete' or 'Indexed' status
+- Use `grep "operation, [0-9]" coordinator_*.py` to find hardcoded operation names
+- Check Redis for stale progress keys: `redis-cli KEYS "casescope:progress:*"`
+
+---
+
+## 7. [Future Issue Placeholder]
 
 When another repeating issue is identified, add it here following the same format:
 - Symptoms
