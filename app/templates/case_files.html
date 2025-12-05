@@ -41,8 +41,8 @@
         <div class="card-body">
             <div class="stat-grid-case">
                 <div class="stat-item">
-                    <div class="stat-item-label">Total Files</div>
-                    <div class="stat-item-value-large">{{ total_files }}</div>
+                    <div class="stat-item-label">Files with Events</div>
+                    <div class="stat-item-value-large" id="filesWithEvents">{{ total_files }}</div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-item-label">Total Space Used</div>
@@ -769,6 +769,14 @@ function refreshFileStats() {
                 document.getElementById('stat-sigma-checked').textContent = data.sigma_checked || 0;
                 document.getElementById('stat-ioc-checked').textContent = data.ioc_checked || 0;
                 document.getElementById('stat-queued').textContent = data.queued || 0;
+                
+                // ====================================================================
+                // UPDATE FILE COUNTS (File Overview tile) - v2.1.3
+                // ====================================================================
+                const filesWithEventsEl = document.getElementById('filesWithEvents');
+                if (filesWithEventsEl && data.files_with_events !== undefined) {
+                    filesWithEventsEl.textContent = data.files_with_events.toLocaleString();
+                }
                 
                 // ====================================================================
                 // UPDATE EVENT STATISTICS (synchronous - all together)

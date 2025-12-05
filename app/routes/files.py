@@ -1388,6 +1388,25 @@ def file_stats_case(case_id):
         status_counts = {k: int(v) for k, v in status_counts.items()}
         
         # ========================================================================
+        # FILE COUNTS (for File Overview tile)
+        # ========================================================================
+        # Total files (including hidden)
+        total_files_all = db.session.query(CaseFile).filter_by(
+            case_id=case_id,
+            is_deleted=False
+        ).count()
+        
+        # Hidden files (0 events)
+        hidden_files = db.session.query(CaseFile).filter_by(
+            case_id=case_id,
+            is_deleted=False,
+            is_hidden=True
+        ).count()
+        
+        # Files with events = Total - Hidden
+        files_with_events = total_files_all - hidden_files
+        
+        # ========================================================================
         # RETURN ALL DATA SYNCHRONOUSLY (one response, all updates together)
         # ========================================================================
         return jsonify({
@@ -1404,7 +1423,11 @@ def file_stats_case(case_id):
             'sigma_events': sigma_events,
             'ioc_events': ioc_events,
             # Event status breakdown
-            'status_counts': status_counts
+            'status_counts': status_counts,
+            # File counts (File Overview tile) - v2.1.3
+            'files_with_events': files_with_events,
+            'hidden_files': hidden_files,
+            'total_files_all': total_files_all
         })
     
     except Exception as e:
