@@ -1215,19 +1215,31 @@ def bulk_hide_selected(case_id):
 @files_bp.route('/case/<int:case_id>/queue/cleanup', methods=['POST'])
 @login_required
 def queue_cleanup_case(case_id):
-    """Per-case queue cleanup"""
-    from main import db, Case, CaseFile
-    from queue_cleanup import cleanup_queue
+    """
+    Emergency queue cleanup - resets ALL files in processing states.
+    
+    ⚠️ WARNING: This is a destructive operation that will:
+    - Reset all queued/processing files to 'Failed - Queue Cleared'
+    - Clear Redis progress data
+    - Revoke active Celery tasks
+    - Clear OpenSearch scroll contexts
+    
+    A full reindex is recommended after cleanup.
+    """
+    from main import db, Case
+    from diagnostics_queue_cleanup import cleanup_all_queues
     
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'status': 'error', 'message': 'Case not found'}), 404
     
     try:
-        result = cleanup_queue(db, CaseFile, case_id=case_id)
+        logger.warning(f"[QUEUE_CLEANUP] User {current_user.username} initiated emergency queue cleanup for case {case_id}")
+        
+        result = cleanup_all_queues(case_id)
         
         if result['status'] == 'success':
-            flash(result['message'], 'success')
+            flash(result['message'], 'warning')
         else:
             flash(result['message'], 'error')
         

@@ -199,7 +199,7 @@
     <div class="card-body" style="text-align: center; padding: var(--spacing-lg);">
         <!-- All Files Actions -->
         <div style="display: inline-flex; gap: var(--spacing-md); flex-wrap: wrap; justify-content: center; margin-bottom: var(--spacing-md);">
-            <button onclick="queueCleanup()" class="btn" style="background: var(--color-success); color: white;" id="queueCleanupBtn" title="Fix failed files and requeue stuck files">
+            <button onclick="showQueueCleanupWarning()" class="btn" style="background: var(--color-danger); color: white;" id="queueCleanupBtn" title="Emergency cleanup: Reset all files in processing queues">
                 <span>🧹</span>
                 <span>Queue Cleanup</span>
             </button>
@@ -844,13 +844,47 @@ function checkForOngoingOperations() {
         });
 }
 
-// Queue Cleanup
-function queueCleanup() {
-    const btn = document.getElementById('queueCleanupBtn');
-    const originalText = btn.innerHTML;
+// ============================================================================
+// QUEUE CLEANUP - Emergency Reset
+// ============================================================================
+
+function showQueueCleanupWarning() {
+    /**
+     * Show warning modal before performing emergency queue cleanup
+     */
+    const modal = document.getElementById('queueCleanupModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function closeQueueCleanupModal() {
+    /**
+     * Close the queue cleanup warning modal
+     */
+    const modal = document.getElementById('queueCleanupModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function executeQueueCleanup() {
+    /**
+     * Execute the emergency queue cleanup after user confirms
+     */
+    const modal = document.getElementById('queueCleanupModal');
+    const modalBody = modal.querySelector('.modal-body');
+    const modalFooter = modal.querySelector('.modal-footer');
     
-    btn.disabled = true;
-    btn.innerHTML = '<span>🔄</span><span>Cleaning...</span>';
+    // Show progress
+    modalBody.innerHTML = `
+        <div style="text-align: center; padding: var(--spacing-xl);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🔄</div>
+            <div style="font-size: 1.25rem; font-weight: bold; margin-bottom: var(--spacing-sm);">Cleaning Queue...</div>
+            <div style="color: var(--color-text-secondary);">Resetting files, clearing Redis, revoking tasks...</div>
+        </div>
+    `;
+    modalFooter.style.display = 'none';
     
     fetch(`/case/${CASE_ID}/queue/cleanup`, {
         method: 'POST',
@@ -861,41 +895,68 @@ function queueCleanup() {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            btn.style.background = 'var(--color-success)';
-            btn.innerHTML = '<span>✅</span><span>Done!</span>';
-            
-            // Show detailed results
-            const message = `Queue Cleanup Complete:\n\n` +
-                (data.failed_fixed > 0 ? `✅ Fixed ${data.failed_fixed} misclassified failed files (now hidden)\n` : '') +
-                (data.queued_requeued > 0 ? `✅ Requeued ${data.queued_requeued} stuck files\n` : '') +
-                (data.failed_fixed === 0 && data.queued_requeued === 0 ? `✅ No issues found - queue is healthy` : '') +
-                `\nRedis Queue: ${data.redis_queue_size} tasks`;
-            
-            alert(message);
-            
-            // Reload page to show updated stats
-            setTimeout(() => window.location.reload(), 1500);
+            // Show success results
+            modalBody.innerHTML = `
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">✅</div>
+                    <div style="font-size: 1.25rem; font-weight: bold; margin-bottom: var(--spacing-lg); color: var(--color-success);">
+                        Queue Cleanup Complete
+                    </div>
+                    <div style="text-align: left; background: var(--color-bg-secondary); padding: var(--spacing-md); border-radius: 6px; margin-bottom: var(--spacing-md);">
+                        <div style="margin-bottom: var(--spacing-sm);"><strong>📊 Results:</strong></div>
+                        <div style="margin-left: var(--spacing-md); font-family: monospace; font-size: 0.9rem;">
+                            <div>Files Reset: <strong>${data.files_reset}</strong></div>
+                            <div>Redis Keys Cleared: <strong>${data.redis_keys_cleared}</strong></div>
+                            <div>Celery Tasks Revoked: <strong>${data.celery_tasks_revoked}</strong></div>
+                            <div>Scroll Contexts Cleared: <strong>${data.scroll_contexts_cleared}</strong></div>
+                        </div>
+                    </div>
+                    ${data.files_reset > 0 ? `
+                        <div style="padding: var(--spacing-md); background: var(--color-warning); color: white; border-radius: 6px; margin-top: var(--spacing-md);">
+                            <strong>⚠️ IMPORTANT:</strong> A full reindex is recommended to ensure data integrity.
+                        </div>
+                    ` : ''}
+                    <div style="margin-top: var(--spacing-lg);">
+                        <button onclick="window.location.reload()" class="btn" style="background: var(--color-primary); color: white;">
+                            Reload Page
+                        </button>
+                    </div>
+                </div>
+            `;
         } else {
-            btn.style.background = 'var(--color-error)';
-            btn.innerHTML = '<span>❌</span><span>Error</span>';
-            alert('Error: ' + data.message);
-            setTimeout(() => {
-                btn.disabled = false;
-                btn.innerHTML = originalText;
-                btn.style.background = 'var(--color-success)';
-            }, 2000);
+            // Show error
+            modalBody.innerHTML = `
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <div style="font-size: 1.25rem; font-weight: bold; margin-bottom: var(--spacing-md); color: var(--color-danger);">
+                        Cleanup Failed
+                    </div>
+                    <div style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                        ${data.message || 'Unknown error occurred'}
+                    </div>
+                    <button onclick="closeQueueCleanupModal()" class="btn" style="background: var(--color-primary); color: white;">
+                        Close
+                    </button>
+                </div>
+            `;
         }
     })
     .catch(error => {
-        console.error('Error:', error);
-        btn.style.background = 'var(--color-error)';
-        btn.innerHTML = '<span>❌</span><span>Error</span>';
-        alert('Network error: ' + error.message);
-        setTimeout(() => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            btn.style.background = 'var(--color-success)';
-        }, 2000);
+        console.error('Queue cleanup error:', error);
+        modalBody.innerHTML = `
+            <div style="text-align: center; padding: var(--spacing-xl);">
+                <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                <div style="font-size: 1.25rem; font-weight: bold; margin-bottom: var(--spacing-md); color: var(--color-danger);">
+                    Network Error
+                </div>
+                <div style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                    ${error.message}
+                </div>
+                <button onclick="closeQueueCleanupModal()" class="btn" style="background: var(--color-primary); color: white;">
+                    Close
+                </button>
+            </div>
+        `;
     });
 }
 
@@ -2109,6 +2170,64 @@ document.addEventListener('click', function(e) {
             <button type="button" onclick="closeHideNoiseModal()" class="btn btn-secondary" id="hideNoiseCloseBtn">Cancel</button>
             <button type="button" onclick="startHideNoise()" id="hideNoiseStartBtn" class="btn" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); color: white;">
                 🔇 Start Hiding
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     QUEUE CLEANUP MODAL - Emergency Reset Warning
+     ============================================================================ -->
+<div id="queueCleanupModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; align-items: center; justify-content: center;">
+    <div style="background: var(--color-bg-primary); border-radius: 8px; max-width: 600px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+        <!-- Modal Header -->
+        <div style="padding: var(--spacing-lg); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; color: var(--color-danger); display: flex; align-items: center; gap: var(--spacing-sm);">
+                <span style="font-size: 1.5rem;">⚠️</span>
+                <span>Emergency Queue Cleanup</span>
+            </h3>
+            <button onclick="closeQueueCleanupModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; opacity: 0.7; color: var(--color-text-primary);">×</button>
+        </div>
+        
+        <!-- Modal Body -->
+        <div class="modal-body">
+            <div style="padding: var(--spacing-md); background: var(--color-danger); color: white; border-radius: 6px; margin-bottom: var(--spacing-lg);">
+                <strong>⚠️ WARNING: This is a DESTRUCTIVE operation!</strong>
+            </div>
+            
+            <div style="margin-bottom: var(--spacing-lg); line-height: 1.6;">
+                <p style="margin-bottom: var(--spacing-md);">This will <strong>immediately abort all processing</strong> and:</p>
+                <ul style="margin-left: var(--spacing-lg); margin-bottom: var(--spacing-md);">
+                    <li>Reset ALL queued/processing files to <code>'Failed - Queue Cleared'</code></li>
+                    <li>Clear Redis progress tracking data</li>
+                    <li>Revoke all active Celery tasks for this case</li>
+                    <li>Clear OpenSearch scroll contexts</li>
+                </ul>
+                
+                <div style="padding: var(--spacing-md); background: var(--color-bg-secondary); border-left: 4px solid var(--color-warning); border-radius: 4px; margin-top: var(--spacing-md);">
+                    <strong>⚠️ RESULT:</strong> Files may have <strong>incomplete or inconsistent data</strong>.
+                    <br>
+                    <strong>📋 RECOMMENDATION:</strong> Perform a <strong>full reindex</strong> after cleanup.
+                </div>
+            </div>
+            
+            <div style="padding: var(--spacing-md); background: var(--color-bg-tertiary); border-radius: 6px; margin-bottom: var(--spacing-md);">
+                <div style="font-weight: bold; margin-bottom: var(--spacing-sm);">✅ Use this when:</div>
+                <ul style="margin-left: var(--spacing-lg); margin-bottom: 0;">
+                    <li>Celery workers crashed and left files stuck</li>
+                    <li>Redis/Celery broker issues causing deadlocks</li>
+                    <li>Need to abort all processing and start fresh</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Modal Footer -->
+        <div class="modal-footer">
+            <button onclick="closeQueueCleanupModal()" class="btn" style="background: var(--color-secondary); color: white;">
+                Cancel - Go Back
+            </button>
+            <button onclick="executeQueueCleanup()" class="btn" style="background: var(--color-danger); color: white;">
+                ⚠️ Yes, Clear Queue
             </button>
         </div>
     </div>
