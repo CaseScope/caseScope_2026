@@ -153,7 +153,8 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             logger.info("[REINDEX_COORDINATOR] Running standard indexing workflow...")
             
             # Run the indexing workflow (phases 2-6)
-            index_result = index_new_files(case_id)
+            # Pass 'reindex' as the operation so progress tracking uses correct operation name
+            index_result = index_new_files(case_id, operation='reindex')
             
             # Merge results
             result['phases_completed'].extend(index_result['phases_completed'])
@@ -165,6 +166,28 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                 result['status'] = 'error'
             elif index_result['status'] == 'partial' or result['phases_failed']:
                 result['status'] = 'partial'
+            
+            # ===============================================================
+            # FINALIZE: Mark files as completed
+            # ===============================================================
+            logger.info("[REINDEX_COORDINATOR] Finalizing...")
+            
+            files_to_finalize = db.session.query(CaseFile).filter(
+                CaseFile.case_id == case_id,
+                CaseFile.is_deleted == False,
+                CaseFile.indexing_status.in_(['SIGMA Complete', 'Indexed'])
+            ).all()
+            
+            for f in files_to_finalize:
+                f.indexing_status = 'Completed'
+                f.celery_task_id = None
+            
+            from tasks import commit_with_retry
+            commit_with_retry(db.session, logger_instance=logger)
+            logger.info(f"[REINDEX_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
+            
+            # Complete progress tracking (clears progress bar)
+            complete_progress(case_id, 'reindex', success=(result['status'] in ['success', 'partial']))
             
             result['duration'] = time.time() - start_time
             
