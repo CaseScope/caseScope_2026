@@ -46,29 +46,9 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None, progress_c
             'duration': float
         }
     """
-    logger.info("[RESIGMA_COORDINATOR] ========== FUNCTION ENTERED ==========")
-    logger.info(f"[RESIGMA_COORDINATOR] case_id={case_id}, file_ids={file_ids}")
-    
-    # Import here to avoid circular import at module load, but cache after first import
     import time
-    import sys
-    
-    # Use sys.modules to check if main is already loaded (won't deadlock)
-    if 'main' in sys.modules:
-        from main import app, db
-        from models import CaseFile
-    else:
-        logger.error("[RESIGMA_COORDINATOR] FATAL: main module not loaded - cannot proceed")
-        return {
-            'status': 'error',
-            'phases_completed': [],
-            'phases_failed': ['initialization'],
-            'stats': {},
-            'errors': ['Main module not available'],
-            'duration': 0
-        }
-    
-    logger.info("[RESIGMA_COORDINATOR] Starting coordinator...")
+    from main import app, db
+    from models import CaseFile
     
     start_time = time.time()
     result = {
@@ -231,16 +211,11 @@ def resigma_files_task(self, case_id: int, file_ids: Optional[List[int]] = None)
         Same as resigma_files()
     """
     mode = 'all EVTX files' if file_ids is None else f'{len(file_ids)} files'
-    logger.info(f"[RESIGMA_COORDINATOR_TASK] ========== TASK STARTED ==========")
     logger.info(f"[RESIGMA_COORDINATOR_TASK] Starting for case {case_id} ({mode})")
-    logger.info(f"[RESIGMA_COORDINATOR_TASK] Task ID: {self.request.id}")
-    logger.info(f"[RESIGMA_COORDINATOR_TASK] ==========================================")
     
-    try:
-        result = resigma_files(case_id, file_ids)
-        logger.info(f"[RESIGMA_COORDINATOR_TASK] Complete: {result['status']}")
-        return result
-    except Exception as e:
-        logger.error(f"[RESIGMA_COORDINATOR_TASK] FATAL ERROR: {e}", exc_info=True)
-        raise
+    logger.info(f"[RESIGMA_COORDINATOR_TASK] About to call resigma_files()...")
+    result = resigma_files(case_id, file_ids)
+    logger.info(f"[RESIGMA_COORDINATOR_TASK] resigma_files() returned")
+    logger.info(f"[RESIGMA_COORDINATOR_TASK] Complete: {result['status']}")
+    return result
 
