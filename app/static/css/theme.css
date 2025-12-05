@@ -610,12 +610,14 @@ tbody tr:last-child td {
 .btn-primary {
     background: #3b82f6;
     color: white;
+    filter: brightness(0.7);
 }
 
 .btn-primary:hover {
     background: #2563eb;
     transform: translateY(-1px);
     box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4), 0 2px 4px -1px rgba(59, 130, 246, 0.3);
+    filter: brightness(0.85);
 }
 
 .btn-secondary {
@@ -632,29 +634,34 @@ tbody tr:last-child td {
 .btn-success {
     background: var(--color-success);
     color: white;
+    filter: brightness(0.7);
 }
 
 .btn-success:hover {
     background: #27ae60;
     transform: translateY(-1px);
     box-shadow: 0 4px 6px -1px rgba(46, 204, 113, 0.4);
+    filter: brightness(0.85);
 }
 
 .btn-warning {
     background: var(--color-warning);
     color: white;
+    filter: brightness(0.7);
 }
 
 .btn-warning:hover {
     background: #d68910;
     transform: translateY(-1px);
     box-shadow: 0 4px 6px -1px rgba(243, 156, 18, 0.4);
+    filter: brightness(0.85);
 }
 
 .btn-danger,
 .btn-error {
     background: var(--color-error);
     color: white;
+    filter: brightness(0.7);
 }
 
 .btn-danger:hover,
@@ -662,6 +669,7 @@ tbody tr:last-child td {
     background: #c0392b;
     transform: translateY(-1px);
     box-shadow: 0 4px 6px -1px rgba(231, 76, 60, 0.4);
+    filter: brightness(0.85);
 }
 
 /* Purple button for AI features */
