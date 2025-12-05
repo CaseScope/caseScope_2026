@@ -271,11 +271,10 @@ def index_new_files(case_id: int, progress_callback: Optional[callable] = None) 
             from progress_tracker import complete_progress
             
             # Mark all indexed files as completed
-            files = CaseFile.query.filter_by(
-                case_id=case_id,
-                is_indexed=True,
-                is_deleted=False
-            ).filter(
+            files = db.session.query(CaseFile).filter(
+                CaseFile.case_id == case_id,
+                CaseFile.is_indexed == True,
+                CaseFile.is_deleted == False,
                 CaseFile.indexing_status != 'Completed'
             ).all()
             
