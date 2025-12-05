@@ -268,6 +268,7 @@ def index_new_files(case_id: int, progress_callback: Optional[callable] = None) 
             from models import CaseFile
             from main import db
             from tasks import commit_with_retry
+            from progress_tracker import complete_progress
             
             # Mark all indexed files as completed
             files = CaseFile.query.filter_by(
@@ -284,6 +285,9 @@ def index_new_files(case_id: int, progress_callback: Optional[callable] = None) 
             
             commit_with_retry(db.session, logger_instance=logger)
             logger.info(f"[INDEX_COORDINATOR] Marked {len(files)} files as completed")
+            
+            # Complete progress tracking (clears progress bar)
+            complete_progress(case_id, 'reindex', success=(result['status'] in ['success', 'partial']))
             
             # Final status
             result['duration'] = time.time() - start_time
