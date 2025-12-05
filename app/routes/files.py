@@ -1297,10 +1297,11 @@ def file_stats_case(case_id):
         # ========================================================================
         # v2.0.4: New modular processing stats
         
-        # COMPLETED: Files that finished ALL phases (SIGMA Complete or Completed status)
+        # COMPLETED: Files that finished ALL phases (only 'Completed' status)
+        # Note: 'IOC Complete' is counted separately in "IOC Checked"
         completed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
-            CaseFile.indexing_status.in_(['SIGMA Complete', 'Completed', 'IOC Complete']),
+            CaseFile.indexing_status == 'Completed',
             CaseFile.is_deleted == False,
             CaseFile.is_hidden == False
         ).count()
