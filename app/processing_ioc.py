@@ -156,9 +156,14 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
 # PHASE COORDINATOR: Hunt IOCs in All Files
 # ==============================================================================
 
-def hunt_iocs_all_files(case_id: int) -> Dict[str, Any]:
+def hunt_iocs_all_files(case_id: int, operation: str = 'ioc', phase_num: int = 1) -> Dict[str, Any]:
     """
     Hunt IOCs in all indexed files for a case using parallel workers.
+    
+    Args:
+        case_id: Case ID to process
+        operation: Operation name for progress tracking ('index', 'reindex', 'reioc', etc.)
+        phase_num: Phase number for progress tracking (default: 1)
     
     This function:
     1. Gets all indexed files for case
@@ -261,7 +266,7 @@ def hunt_iocs_all_files(case_id: int) -> Dict[str, Any]:
             
             # Update progress tracker with counts for progress bar
             from progress_tracker import update_phase
-            update_phase(case_id, 'reindex', 7, 'IOC Detection', 'running',
+            update_phase(case_id, operation, phase_num, 'IOC Matching', 'running',
                         f'{completed_count}/{total_files} files processed',
                         current=completed_count, total=total_files)
             

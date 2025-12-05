@@ -157,7 +157,7 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[str,
             from processing_ioc import hunt_iocs_all_files
             
             # Run IOC hunting on all queued files
-            ioc_result = hunt_iocs_all_files(case_id)
+            ioc_result = hunt_iocs_all_files(case_id, operation='reioc', phase_num=2)
             
             if ioc_result['status'] == 'success':
                 result['phases_completed'].append('ioc_matching')

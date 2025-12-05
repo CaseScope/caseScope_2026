@@ -173,7 +173,7 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
             
             from processing_ioc import hunt_iocs_all_files
             
-            ioc_result = hunt_iocs_all_files(case_id)
+            ioc_result = hunt_iocs_all_files(case_id, operation=operation, phase_num=5)
             
             if ioc_result['status'] == 'success':
                 result['phases_completed'].append('ioc_matching')
