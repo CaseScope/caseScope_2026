@@ -146,26 +146,108 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                 return result
             
             # ===============================================================
-            # PHASE 2-6: Run same workflow as index_new_files
+            # PHASE 3: INDEX FILES
             # ===============================================================
-            from coordinator_index import index_new_files
+            logger.info("[REINDEX_COORDINATOR] PHASE 3: Indexing files...")
+            update_phase(case_id, 'reindex', 3, 'Indexing Files', 'running', 'Indexing events...')
             
-            logger.info("[REINDEX_COORDINATOR] Running standard indexing workflow...")
+            from processing_index import index_all_files_in_queue
             
-            # Run the indexing workflow (phases 2-6)
-            # Pass 'reindex' as the operation so progress tracking uses correct operation name
-            index_result = index_new_files(case_id, operation='reindex')
+            index_result = index_all_files_in_queue(case_id, operation='reindex', phase_num=3)
             
-            # Merge results
-            result['phases_completed'].extend(index_result['phases_completed'])
-            result['phases_failed'].extend(index_result['phases_failed'])
-            result['stats'].update(index_result['stats'])
-            result['errors'].extend(index_result['errors'])
-            
-            if index_result['status'] == 'error':
+            if index_result['status'] == 'success':
+                result['phases_completed'].append('indexing')
+                result['stats']['indexing'] = index_result
+                logger.info(f"[REINDEX_COORDINATOR] ✓ PHASE 3 complete: {index_result['indexed']} files indexed")
+                update_phase(case_id, 'reindex', 3, 'Indexing Files', 'completed', f"Indexed {index_result['indexed']} files")
+            else:
+                result['phases_failed'].append('indexing')
+                result['errors'].extend(index_result.get('errors', ['Indexing failed']))
                 result['status'] = 'error'
-            elif index_result['status'] == 'partial' or result['phases_failed']:
-                result['status'] = 'partial'
+                result['duration'] = time.time() - start_time
+                update_phase(case_id, 'reindex', 3, 'Indexing Files', 'failed', 'Indexing failed')
+                complete_progress(case_id, 'reindex', success=False, error_message='Indexing failed')
+                return result  # Stop if indexing fails
+            
+            # ===============================================================
+            # PHASE 4: SIGMA DETECTION
+            # ===============================================================
+            logger.info("[REINDEX_COORDINATOR] PHASE 4: SIGMA detection...")
+            update_phase(case_id, 'reindex', 4, 'SIGMA Detection', 'running', 'Running SIGMA rules...')
+            
+            from processing_sigma import sigma_detect_all_files
+            
+            sigma_result = sigma_detect_all_files(case_id, operation='reindex', phase_num=4)
+            
+            if sigma_result['status'] == 'success':
+                result['phases_completed'].append('sigma')
+                result['stats']['sigma'] = sigma_result
+                logger.info(f"[REINDEX_COORDINATOR] ✓ PHASE 4 complete: {sigma_result['total_violations']} violations found")
+                update_phase(case_id, 'reindex', 4, 'SIGMA Detection', 'completed', f"Found {sigma_result['total_violations']} violations")
+            else:
+                result['phases_failed'].append('sigma')
+                result['errors'].extend(sigma_result.get('errors', ['SIGMA failed']))
+                update_phase(case_id, 'reindex', 4, 'SIGMA Detection', 'failed', 'SIGMA detection failed')
+            
+            # ===============================================================
+            # PHASE 5: HIDE KNOWN-GOOD EVENTS (PARALLEL)
+            # ===============================================================
+            logger.info("[REINDEX_COORDINATOR] PHASE 5: Filtering known-good events...")
+            update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'running', 'Filtering known-good events...')
+            
+            from events_known_good import hide_known_good_all_task, has_exclusions_configured
+            
+            if has_exclusions_configured():
+                # Dispatch task (don't block on result - let it run independently)
+                kg_task = hide_known_good_all_task.delay(case_id)
+                logger.info(f"[REINDEX_COORDINATOR] Known-Good filtering dispatched (task_id: {kg_task.id})")
+                
+                # Mark as completed (the task will update its own progress)
+                result['phases_completed'].append('known_good')
+                result['stats']['known_good'] = {'status': 'dispatched', 'task_id': str(kg_task.id)}
+                update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'completed', 'Filtering in progress')
+            else:
+                result['phases_completed'].append('known_good')
+                result['stats']['known_good'] = {'total_hidden': 0}
+                logger.info("[REINDEX_COORDINATOR] PHASE 5 skipped: No exclusions configured")
+                update_phase(case_id, 'reindex', 5, 'Known-Good Filter', 'completed', 'Skipped (no exclusions)')
+            
+            # ===============================================================
+            # PHASE 6: HIDE KNOWN-NOISE EVENTS (PARALLEL)
+            # ===============================================================
+            logger.info("[REINDEX_COORDINATOR] PHASE 6: Filtering known-noise events...")
+            update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'running', 'Filtering known-noise events...')
+            
+            from events_known_noise import hide_noise_all_task
+            
+            # Dispatch task (don't block on result - let it run independently)
+            noise_task = hide_noise_all_task.delay(case_id)
+            logger.info(f"[REINDEX_COORDINATOR] Known-Noise filtering dispatched (task_id: {noise_task.id})")
+            
+            # Mark as completed (the task will update its own progress)
+            result['phases_completed'].append('known_noise')
+            result['stats']['known_noise'] = {'status': 'dispatched', 'task_id': str(noise_task.id)}
+            update_phase(case_id, 'reindex', 6, 'Known-Noise Filter', 'completed', 'Filtering in progress')
+            
+            # ===============================================================
+            # PHASE 7: IOC MATCHING
+            # ===============================================================
+            logger.info("[REINDEX_COORDINATOR] PHASE 7: IOC matching...")
+            update_phase(case_id, 'reindex', 7, 'IOC Matching', 'running', 'Matching IOCs...')
+            
+            from processing_ioc import hunt_iocs_all_files
+            
+            ioc_result = hunt_iocs_all_files(case_id, operation='reindex', phase_num=7)
+            
+            if ioc_result['status'] == 'success':
+                result['phases_completed'].append('ioc_matching')
+                result['stats']['ioc_matching'] = ioc_result
+                logger.info(f"[REINDEX_COORDINATOR] ✓ PHASE 7 complete: {ioc_result['total_matches']} matches found")
+                update_phase(case_id, 'reindex', 7, 'IOC Matching', 'completed', f"Found {ioc_result['total_matches']} matches")
+            else:
+                result['phases_failed'].append('ioc_matching')
+                result['errors'].extend(ioc_result.get('errors', ['IOC matching failed']))
+                update_phase(case_id, 'reindex', 7, 'IOC Matching', 'failed', 'IOC matching failed')
             
             # ===============================================================
             # FINALIZE: Mark files as completed
