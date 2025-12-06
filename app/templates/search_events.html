@@ -1307,6 +1307,10 @@ function showEventDetail(eventId, indexName) {
     const modalBody = document.getElementById('eventModalBody');
     const bannerContainer = document.getElementById('eventAlertBanners');
     
+    // Store event context for AI review
+    modal.dataset.eventId = eventId;
+    modal.dataset.index = indexName;
+    
     modal.style.display = 'flex';
     modalBody.innerHTML = '<div style="text-align: center; padding: var(--spacing-xl);"><div class="spinner"></div><p class="text-muted">Loading event details...</p></div>';
     bannerContainer.innerHTML = '';  // Clear previous banners
@@ -1373,6 +1377,84 @@ function toggleNested(id) {
             toggleElement.innerHTML = toggleElement.innerHTML.replace('▼', '▶');
         }
     }
+}
+
+// AI Review Event
+let currentEventForAI = { eventId: null, index: null };
+
+function aiReviewEvent() {
+    // Store current event context
+    currentEventForAI.eventId = document.getElementById('eventModal').dataset.eventId;
+    currentEventForAI.index = document.getElementById('eventModal').dataset.index;
+    
+    if (!currentEventForAI.eventId || !currentEventForAI.index) {
+        alert('No event selected for AI review');
+        return;
+    }
+    
+    // Open AI review modal
+    const modal = document.getElementById('aiReviewModal');
+    const modalBody = document.getElementById('aiReviewBody');
+    modal.style.display = 'flex';
+    
+    // Show loading state
+    modalBody.innerHTML = `
+        <div style="text-align: center; padding: var(--spacing-xl);">
+            <div class="spinner"></div>
+            <p class="text-muted">Analyzing event with DFIR-Mistral AI...</p>
+            <p class="text-muted" style="font-size: 0.875rem;">This may take 10-30 seconds</p>
+        </div>
+    `;
+    
+    // Call AI review endpoint
+    fetch(`/case/${CASE_ID}/search/event/${currentEventForAI.eventId}/ai-review`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            index: currentEventForAI.index
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Display AI summary
+            modalBody.innerHTML = `
+                <div style="background: var(--color-bg-secondary); padding: var(--spacing-lg); border-radius: var(--radius-md); border-left: 4px solid var(--color-primary);">
+                    <div style="white-space: pre-wrap; font-size: 0.95rem; line-height: 1.6;">${escapeHtml(data.summary)}</div>
+                </div>
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-sm); background: var(--color-bg-tertiary); border-radius: var(--radius-sm); font-size: 0.875rem; color: var(--color-text-secondary);">
+                    ℹ️ <strong>Note:</strong> This analysis is AI-generated and should be used as a starting point for investigation. Always verify findings with the actual event data.
+                </div>
+            `;
+        } else {
+            // Display error
+            modalBody.innerHTML = `
+                <div class="alert alert-error">
+                    <strong>AI Review Failed</strong><br>
+                    ${escapeHtml(data.error || 'Unknown error')}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('AI review error:', error);
+        modalBody.innerHTML = `
+            <div class="alert alert-error">
+                <strong>Request Failed</strong><br>
+                ${escapeHtml(error.message || 'Could not connect to server')}
+            </div>
+        `;
+    });
+}
+
+function closeAIReviewModal() {
+    document.getElementById('aiReviewModal').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // ============================================================================
@@ -4125,13 +4207,37 @@ document.addEventListener('DOMContentLoaded', function() {
         
         <div class="modal-header">
             <h2 class="modal-title">Event Details</h2>
-            <button class="modal-close" onclick="closeEventModal()">×</button>
+            <div style="display: flex; gap: var(--spacing-sm); align-items: center;">
+                <button class="btn btn-sm btn-primary" onclick="aiReviewEvent()" title="Get AI Summary">
+                    🤖 AI Review
+                </button>
+                <button class="modal-close" onclick="closeEventModal()">×</button>
+            </div>
         </div>
         <div class="modal-body" id="eventModalBody" style="max-height: calc(90vh - 120px); overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading event details...</p>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Review Modal -->
+<div id="aiReviewModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px; max-height: 90vh;">
+        <div class="modal-header">
+            <h2 class="modal-title">🤖 AI Event Analysis</h2>
+            <button class="modal-close" onclick="closeAIReviewModal()">×</button>
+        </div>
+        <div class="modal-body" id="aiReviewBody" style="max-height: calc(90vh - 120px); overflow-y: auto;">
+            <div style="text-align: center; padding: var(--spacing-xl);">
+                <div class="spinner"></div>
+                <p class="text-muted">Analyzing event with AI...</p>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--spacing-sm);">
+            <button class="btn btn-secondary" onclick="closeAIReviewModal()">Close</button>
         </div>
     </div>
 </div>

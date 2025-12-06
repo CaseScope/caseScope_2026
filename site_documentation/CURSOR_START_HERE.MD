@@ -18,3 +18,7 @@ These are you rules - do not skim this but fully read and understand them
 
 9. Do not make summary files
 
+10. File naming structure: 
+- app files /app/type_what_it_does (EX, ai_review_event.py)
+- doc files /site_documentation/what_is_it
+

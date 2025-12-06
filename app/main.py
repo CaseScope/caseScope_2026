@@ -3233,6 +3233,48 @@ def get_event_detail_route(case_id, event_id):
     })
 
 
+@app.route('/case/<int:case_id>/search/event/<event_id>/ai-review', methods=['POST'])
+@login_required
+def ai_review_event_route(case_id, event_id):
+    """AI review of an event (AJAX) - Returns AI-generated summary"""
+    from search_show_details import get_event_details
+    from ai_review_event import review_event_with_ai
+    from routes.settings import get_setting
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get index name from request
+    data = request.get_json()
+    index_name = data.get('index')
+    if not index_name:
+        return jsonify({'error': 'Index name required'}), 400
+    
+    # Check if AI is enabled
+    ai_enabled = get_setting('ai_enabled', 'false') == 'true'
+    if not ai_enabled:
+        return jsonify({
+            'success': False,
+            'error': 'AI features are disabled. Enable in Settings.'
+        }), 400
+    
+    # Fetch event details
+    event_data = get_event_details(case_id, event_id, index_name)
+    
+    if 'error' in event_data:
+        return jsonify({'error': event_data['error']}), 404
+    
+    # Get the raw source data for AI analysis
+    source = event_data.get('source', {})
+    
+    # Call AI review
+    model = get_setting('ai_model', 'dfir-mistral:latest')
+    result = review_event_with_ai(source, model=model)
+    
+    return jsonify(result)
+
+
 @app.route('/case/<int:case_id>/search/tag', methods=['POST'])
 @login_required
 def tag_timeline_event(case_id):
