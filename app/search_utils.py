@@ -239,8 +239,9 @@ def build_search_query(
             })
         elif has_wildcards or has_operators:
             # Advanced query with wildcards or operators
-            # Use query_string with fields
-            # For operators, wrap non-wildcard terms in wildcards
+            # CRITICAL: Handle NOT operators by splitting into must_not clauses
+            # OpenSearch query_string with NOT in "must" doesn't work properly
+            
             def wrap_terms(text):
                 """Wrap plain terms in wildcards, preserve operators/quotes/fields."""
                 parts = re.split(r'(\s+AND\s+|\s+OR\s+|\s+NOT\s+|\(|\)|"[^"]*")', text)
@@ -258,16 +259,48 @@ def build_search_query(
                         result.append(f"*{p}*")
                 return ''.join(result)
             
-            search_query = wrap_terms(search_text)
-            query["bool"]["must"].append({
-                "query_string": {
-                    "query": search_query,
-                    "fields": ["search_blob"],
-                    "default_operator": "AND",
-                    "analyze_wildcard": True,
-                    "lenient": True
-                }
-            })
+            # Check if this is a pure NOT query (starts with NOT)
+            if search_text.strip().startswith('NOT '):
+                # Parse NOT terms and add to must_not clause
+                # Example: "NOT adobe AND NOT edge" → must_not: [adobe, edge]
+                not_terms = re.findall(r'NOT\s+(\S+)', search_text)
+                for term in not_terms:
+                    wrapped_term = f"*{term}*" if '*' not in term and '"' not in term else term
+                    query["bool"]["must_not"].append({
+                        "query_string": {
+                            "query": wrapped_term,
+                            "fields": ["search_blob"],
+                            "analyze_wildcard": True,
+                            "lenient": True
+                        }
+                    })
+                # If there are positive terms with the NOTs, handle them separately
+                # Remove all "NOT term" patterns to see if anything remains
+                remaining = re.sub(r'\s*NOT\s+\S+\s*', ' ', search_text).strip()
+                remaining = re.sub(r'\s*AND\s*', ' ', remaining).strip()
+                if remaining:
+                    # There are positive terms, add them to must
+                    wrapped_remaining = wrap_terms(remaining)
+                    query["bool"]["must"].append({
+                        "query_string": {
+                            "query": wrapped_remaining,
+                            "fields": ["search_blob"],
+                            "analyze_wildcard": True,
+                            "lenient": True
+                        }
+                    })
+            else:
+                # Normal query with operators (AND, OR, or mixed)
+                search_query = wrap_terms(search_text)
+                query["bool"]["must"].append({
+                    "query_string": {
+                        "query": search_query,
+                        "fields": ["search_blob"],
+                        "default_operator": "AND",
+                        "analyze_wildcard": True,
+                        "lenient": True
+                    }
+                })
         else:
             # Field query or quoted phrase - use as-is
             query["bool"]["must"].append({
