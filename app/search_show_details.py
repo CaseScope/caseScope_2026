@@ -34,21 +34,12 @@ def get_event_details(case_id: int, event_id: str, index_name: str) -> dict:
         }
     """
     from models import IOCMatch, IOC
+    from flask import current_app
     
     try:
-        # Initialize OpenSearch client
-        os_host = os.getenv('OPENSEARCH_HOST', 'localhost')
-        os_port = int(os.getenv('OPENSEARCH_PORT', 9200))
-        os_user = os.getenv('OPENSEARCH_USER', 'admin')
-        os_password = os.getenv('OPENSEARCH_PASSWORD', 'CaseScope2026!')
-        
-        client = OpenSearch(
-            hosts=[{'host': os_host, 'port': os_port}],
-            http_auth=(os_user, os_password),
-            use_ssl=True,
-            verify_certs=False,
-            ssl_show_warn=False
-        )
+        # Use the existing OpenSearch client from the app
+        # This ensures we use the same connection settings
+        from main import opensearch_client as client
         
         # Fetch event from OpenSearch
         event = client.get(index=index_name, id=event_id)
