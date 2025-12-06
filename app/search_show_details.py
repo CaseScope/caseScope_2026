@@ -121,20 +121,7 @@ def render_event_details_html(event_data: dict) -> str:
     
     html_parts = ['<table class="table table-event-details">']
     
-    # SIGMA warning banner (if applicable)
-    if event_data.get('has_sigma') and event_data.get('sigma_rule'):
-        sigma_rule_escaped = html.escape(str(event_data['sigma_rule']))
-        html_parts.append(f'''
-        <tr class="event-details-sigma-row">
-            <td class="event-details-field">🛡️ SIGMA Rule Violated</td>
-            <td class="event-details-value event-details-sigma-value">{sigma_rule_escaped}</td>
-            <td class="event-details-actions">
-                <span class="text-warning">⚠️ Security rule matched</span>
-            </td>
-        </tr>
-        ''')
-    
-    # Event fields
+    # Event fields (SIGMA banner moved to modal header, not in table)
     iocs = event_data.get('iocs', [])
     for field in event_data['fields']:
         field_name = html.escape(str(field['field']))

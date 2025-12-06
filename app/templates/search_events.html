@@ -1305,9 +1305,11 @@ function unhideEvent(eventId, indexName) {
 function showEventDetail(eventId, indexName) {
     const modal = document.getElementById('eventModal');
     const modalBody = document.getElementById('eventModalBody');
+    const bannerContainer = document.getElementById('eventAlertBanners');
     
     modal.style.display = 'flex';
     modalBody.innerHTML = '<div style="text-align: center; padding: var(--spacing-xl);"><div class="spinner"></div><p class="text-muted">Loading event details...</p></div>';
+    bannerContainer.innerHTML = '';  // Clear previous banners
     
     fetch(`/case/${CASE_ID}/search/event/${eventId}?index=${encodeURIComponent(indexName)}`)
         .then(response => response.json())
@@ -1315,6 +1317,21 @@ function showEventDetail(eventId, indexName) {
             if (data.error) {
                 modalBody.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
                 return;
+            }
+            
+            // Create alert banners for SIGMA and IOC
+            if (data.has_sigma && data.sigma_rule) {
+                const sigmaBanner = document.createElement('div');
+                sigmaBanner.className = 'event-alert-badge event-alert-sigma';
+                sigmaBanner.innerHTML = `🛡️ SIGMA: ${data.sigma_rule}`;
+                bannerContainer.appendChild(sigmaBanner);
+            }
+            
+            if (data.has_ioc && data.ioc_count > 0) {
+                const iocBanner = document.createElement('div');
+                iocBanner.className = 'event-alert-badge event-alert-ioc';
+                iocBanner.innerHTML = `🚨 IOCs in this Event! (${data.ioc_count})`;
+                bannerContainer.appendChild(iocBanner);
             }
             
             // Simply inject the pre-rendered HTML from the server
@@ -4077,6 +4094,8 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="modal-container" style="max-width: 90%; width: 1400px; max-height: 90vh;">
         <div class="modal-header">
             <h2 class="modal-title">Event Details</h2>
+            <!-- Dynamic banners for SIGMA and IOC alerts -->
+            <div id="eventAlertBanners" style="display: flex; gap: 8px; margin-left: auto; margin-right: 12px;"></div>
             <button class="modal-close" onclick="closeEventModal()">×</button>
         </div>
         <div class="modal-body" id="eventModalBody" style="max-height: calc(90vh - 120px); overflow-y: auto;">

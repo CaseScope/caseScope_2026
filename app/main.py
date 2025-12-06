@@ -3224,7 +3224,11 @@ def get_event_detail_route(case_id, event_id):
     return jsonify({
         'html': html,
         'event_id': event_id,
-        'index': index_name
+        'index': index_name,
+        'has_sigma': event_data.get('has_sigma', False),
+        'sigma_rule': event_data.get('sigma_rule'),
+        'has_ioc': event_data.get('has_ioc', False),
+        'ioc_count': len(event_data.get('iocs', []))
     })
 
 
