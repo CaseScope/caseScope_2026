@@ -979,7 +979,7 @@ select.form-select,
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.7);
-    z-index: 9999;
+    z-index: 99999;  /* Higher than anything else */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -987,6 +987,8 @@ select.form-select,
     overflow-y: auto;
     /* Ensure modal container is always centered in viewport */
     align-content: center;
+    /* Prevent interaction with elements below */
+    pointer-events: auto;
 }
 
 .modal-container {
@@ -996,6 +998,9 @@ select.form-select,
     border-radius: var(--radius-lg);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     margin: auto;
+    /* Ensure modal content is interactive */
+    pointer-events: auto;
+    position: relative;
 }
 
 /* v1.20.0: Modal Size Variants */
