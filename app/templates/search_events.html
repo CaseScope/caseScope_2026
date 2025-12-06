@@ -636,6 +636,12 @@
                                         style="padding: 4px 8px; font-size: 0.75rem;">
                                     View
                                 </button>
+                                <button onclick="quickAIReview('{{ event._id }}', '{{ event._index }}')" 
+                                        class="btn btn-sm btn-primary" 
+                                        style="padding: 4px 8px; font-size: 0.75rem;"
+                                        title="AI Summary">
+                                    🤖 AI
+                                </button>
                                 {% if event.is_hidden %}
                                 <button onclick="unhideEvent('{{ event._id }}', '{{ event._index }}')" 
                                         class="btn btn-sm" 
@@ -1382,17 +1388,12 @@ function toggleNested(id) {
 // AI Review Event
 let currentEventForAI = { eventId: null, index: null };
 
-function aiReviewEvent() {
-    // Store current event context
-    currentEventForAI.eventId = document.getElementById('eventModal').dataset.eventId;
-    currentEventForAI.index = document.getElementById('eventModal').dataset.index;
+function quickAIReview(eventId, indexName) {
+    // Store event context
+    currentEventForAI.eventId = eventId;
+    currentEventForAI.index = indexName;
     
-    if (!currentEventForAI.eventId || !currentEventForAI.index) {
-        alert('No event selected for AI review');
-        return;
-    }
-    
-    // Open AI review modal
+    // Open AI review modal directly
     const modal = document.getElementById('aiReviewModal');
     const modalBody = document.getElementById('aiReviewBody');
     modal.style.display = 'flex';
@@ -1407,11 +1408,11 @@ function aiReviewEvent() {
     `;
     
     // Call AI review endpoint
-    fetch(`/case/${CASE_ID}/search/event/${currentEventForAI.eventId}/ai-review`, {
+    fetch(`/case/${CASE_ID}/search/event/${eventId}/ai-review`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            index: currentEventForAI.index
+            index: indexName
         })
     })
     .then(response => response.json())
@@ -1445,6 +1446,21 @@ function aiReviewEvent() {
             </div>
         `;
     });
+}
+
+function aiReviewEvent() {
+    // Use the stored event context from the modal
+    const modal = document.getElementById('eventModal');
+    currentEventForAI.eventId = modal.dataset.eventId;
+    currentEventForAI.index = modal.dataset.index;
+    
+    if (!currentEventForAI.eventId || !currentEventForAI.index) {
+        alert('No event selected for AI review');
+        return;
+    }
+    
+    // Call quickAIReview with the stored context
+    quickAIReview(currentEventForAI.eventId, currentEventForAI.index);
 }
 
 function closeAIReviewModal() {
@@ -4208,7 +4224,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="modal-header">
             <h2 class="modal-title">Event Details</h2>
             <div style="display: flex; gap: var(--spacing-sm); align-items: center;">
-                <button class="btn btn-sm btn-primary" onclick="aiReviewEvent()" title="Get AI Summary">
+                <button class="btn btn-sm btn-primary" onclick="aiReviewEvent()" title="Get AI Summary" style="font-size: 0.875rem;">
                     🤖 AI Review
                 </button>
                 <button class="modal-close" onclick="closeEventModal()">×</button>
