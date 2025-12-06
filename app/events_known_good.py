@@ -966,15 +966,17 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
             
             for worker_result in group_result.results:
                 try:
-                    worker_data = worker_result.get(timeout=5)
+                    # Use .result property instead of .get(timeout) since we already waited with polling
+                    worker_data = worker_result.result
                     
-                    if worker_data['status'] == 'success':
+                    if worker_data and worker_data.get('status') == 'success':
                         result['workers_completed'] += 1
                         result['total_scanned'] += worker_data.get('scanned', 0)
                         result['total_hidden'] += worker_data.get('hidden', 0)
                     else:
                         result['workers_failed'] += 1
-                        result['errors'].append(f"Slice {worker_data.get('slice_id')}: {worker_data.get('error')}")
+                        error_msg = worker_data.get('error', 'Unknown error') if worker_data else 'No result data'
+                        result['errors'].append(f"Slice {worker_data.get('slice_id', '?') if worker_data else '?'}: {error_msg}")
                         
                 except Exception as e:
                     result['workers_failed'] += 1
