@@ -1322,7 +1322,11 @@ function showEventDetail(eventId, indexName) {
     const modal = document.getElementById('eventModal');
     const modalBody = document.getElementById('eventModalBody');
     
+    // Prevent body scroll and scroll modal to top
+    document.body.style.overflow = 'hidden';
     modal.style.display = 'flex';
+    modal.scrollTop = 0;  // Scroll the modal overlay to top
+    
     modalBody.innerHTML = '<div style="text-align: center; padding: var(--spacing-xl);"><div class="spinner"></div><p class="text-muted">Loading event details...</p></div>';
     
     fetch(`/case/${CASE_ID}/search/event/${eventId}?index=${encodeURIComponent(indexName)}`)
@@ -1344,6 +1348,7 @@ function showEventDetail(eventId, indexName) {
 
 function closeEventModal() {
     document.getElementById('eventModal').style.display = 'none';
+    document.body.style.overflow = '';  // Restore body scroll
 }
 
 // ============================================================================
