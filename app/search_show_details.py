@@ -50,7 +50,7 @@ def get_event_details(case_id: int, event_id: str, index_name: str) -> dict:
         
         # Extract SIGMA info
         has_sigma = source.get('has_sigma', False)
-        sigma_rule = source.get('sigma_rule_title', None)
+        sigma_rule = source.get('sigma_rule', None)
         
         # Extract IOC info
         has_ioc = source.get('has_ioc', False)
