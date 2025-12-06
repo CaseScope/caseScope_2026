@@ -598,20 +598,22 @@ tbody tr:last-child td {
 
 .table-event-details .event-details-field {
     font-weight: 600;
-    width: 250px;
-    vertical-align: top;
-    padding: var(--spacing-md);
+    width: 200px;
+    vertical-align: middle;
+    padding: var(--spacing-sm) var(--spacing-md);
 }
 
 .table-event-details .event-details-value {
     word-break: break-all;
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    vertical-align: middle;
 }
 
 .table-event-details .event-details-ioc-value {
     font-weight: bold;
     color: var(--color-error);
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    vertical-align: middle;
 }
 
 .table-event-details .event-details-sigma-row {
@@ -625,14 +627,17 @@ tbody tr:last-child td {
 }
 
 .table-event-details .event-details-actions {
-    width: 300px;
-    padding: var(--spacing-md);
+    width: 150px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    vertical-align: middle;
+    text-align: right;
 }
 
 .table-event-details .event-details-btn-group {
     display: flex;
-    gap: var(--spacing-xs);
-    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+    align-items: center;
 }
 
 
@@ -734,6 +739,64 @@ tbody tr:last-child td {
 .btn-lg {
     padding: var(--spacing-md) var(--spacing-xl);
     font-size: 1.0625rem;
+}
+
+/* Icon-only action buttons for modals and data tables */
+.btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 1rem;
+    position: relative;
+}
+
+.btn-icon:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Icon button variants - dimmed backgrounds with bright icons */
+.btn-icon-search {
+    background: rgba(34, 197, 94, 0.2);  /* Green dimmed */
+    color: #22c55e;  /* Bright green icon */
+}
+
+.btn-icon-search:hover {
+    background: rgba(34, 197, 94, 0.3);
+}
+
+.btn-icon-ioc {
+    background: rgba(239, 68, 68, 0.2);  /* Red dimmed */
+    color: #ef4444;  /* Bright red icon */
+}
+
+.btn-icon-ioc:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+.btn-icon-system {
+    background: rgba(249, 115, 22, 0.2);  /* Orange dimmed */
+    color: #f97316;  /* Bright orange icon */
+}
+
+.btn-icon-system:hover {
+    background: rgba(249, 115, 22, 0.3);
+}
+
+.btn-icon-column {
+    background: rgba(34, 197, 94, 0.2);  /* Green dimmed */
+    color: #22c55e;  /* Bright green icon */
+}
+
+.btn-icon-column:hover {
+    background: rgba(34, 197, 94, 0.3);
 }
 
 .btn:disabled {

@@ -158,17 +158,17 @@ def render_event_details_html(event_data: dict) -> str:
             <td class="{value_class}">{value_display}</td>
             <td class="event-details-actions">
                 <div class="event-details-btn-group">
-                    <button class="btn btn-sm btn-add-ioc" onclick="openAddIOCModal('{field_value_js}', '{field_name_js}')">
-                        📌 Add as IOC
+                    <button class="btn-icon btn-icon-ioc" onclick="openAddIOCModal('{field_value_js}', '{field_name_js}')" title="Add as IOC">
+                        📌
                     </button>
-                    <button class="btn btn-sm btn-add-system" onclick="openAddSystemModal('{field_value_js}')">
-                        💻 Add as System
+                    <button class="btn-icon btn-icon-system" onclick="openAddSystemModal('{field_value_js}')" title="Add as System">
+                        💻
                     </button>
-                    <button class="btn btn-sm btn-add-search" onclick="addToSearch('{field_name_js}', '{field_value_js}')">
-                        🔍 Add to Search
+                    <button class="btn-icon btn-icon-search" onclick="addToSearch('{field_name_js}', '{field_value_js}')" title="Add to Search">
+                        🔍
                     </button>
-                    <button class="btn btn-sm btn-add-column" onclick="addAsColumn('{field_name_js}')">
-                        ➕ Add Column
+                    <button class="btn-icon btn-icon-column" onclick="addAsColumn('{field_name_js}')" title="Add Column">
+                        ➕
                     </button>
                 </div>
             </td>
