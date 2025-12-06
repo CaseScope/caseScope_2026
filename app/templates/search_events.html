@@ -451,11 +451,11 @@
             <h2 class="card-title">📊 Search Results</h2>
             <span class="text-muted">{{ "{:,}".format(total_count) }} events found</span>
             {% endif %}
-            {% if excluded_ids|length > 0 %}
+            {% if total_count > 0 %}
             <span style="margin-left: var(--spacing-md);">
-                <button onclick="showExclusionsModal()" class="btn btn-sm btn-secondary" style="font-size: 0.75rem; padding: 2px 8px;" title="Events excluded from Phase 3 auto-tagging">
-                    🚫 {{ excluded_ids|length }} excluded
-                </button>
+                <span class="text-muted" style="font-size: 0.875rem;" title="Showing {{ "{:,}".format(total_count) }} events based on status filter">
+                    {{ "{:,}".format(status_counts.get('noise', 0)) }} noise filtered
+                </span>
             </span>
             {% endif %}
         </div>
@@ -555,9 +555,8 @@
                 </thead>
                 <tbody>
                     {% for event in events %}
-                    {% set event_status = 'confirmed' if event._id in confirmed_event_ids else ('hunted' if event._id in hunted_event_ids else ('noise' if event._id in noise_event_ids else 'new')) %}
-                    <tr data-event-id="{{ event._id }}" data-index="{{ event._index }}" data-status="{{ event_status }}"
-                        style="{% if event_status == 'hunted' %}background: rgba(155, 89, 182, 0.2);{% elif event_status == 'confirmed' %}background: rgba(231, 76, 60, 0.2);{% elif event_status == 'noise' %}opacity: 0.5;{% endif %}">
+                    {% set event_status = event._source.get('event_status', 'new') %}
+                    <tr data-event-id="{{ event._id }}" data-index="{{ event._index }}" data-status="{{ event_status }}">
                         <td>
                             <input type="checkbox" class="event-checkbox" value="{{ event._id }}">
                         </td>

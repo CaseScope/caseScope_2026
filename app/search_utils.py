@@ -138,8 +138,10 @@ def build_search_query(
                     })
             else:
                 # 'new' + other statuses: show 'new' OR specific statuses
-                # Use should clause with minimum_should_match
+                # But explicitly exclude statuses that are NOT in the filter
                 explicit_statuses = [s for s in status_filter if s != 'new']
+                excluded_statuses = [s for s in all_statuses if s not in status_filter and s != 'new']
+                
                 should_clauses = []
                 
                 # Include events with no status field or status not set
@@ -163,6 +165,13 @@ def build_search_query(
                         "minimum_should_match": 1
                     }
                 })
+                
+                # CRITICAL FIX: Explicitly exclude statuses not in filter (e.g., noise)
+                if excluded_statuses:
+                    for excluded in excluded_statuses:
+                        query["bool"]["must_not"].append({
+                            "term": {"event_status": excluded}
+                        })
     
     # Legacy: Exclude specific event IDs (deprecated - use status_filter instead)
     if exclude_event_ids and len(exclude_event_ids) > 0:

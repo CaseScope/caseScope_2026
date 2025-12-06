@@ -2978,19 +2978,10 @@ def search_events(case_id):
     total_pages = (total_count + per_page - 1) // per_page
     
     # Get event statuses for this case (new unified system)
-    from event_status import get_status_counts, get_event_ids_by_status, STATUS_NOISE, STATUS_HUNTED, STATUS_CONFIRMED
+    from event_status import get_status_counts
     
-    # Get status counts for display
+    # Get status counts for display (optimized with SQL GROUP BY)
     status_counts = get_status_counts(case_id)
-    
-    # Get event IDs by status for row coloring
-    noise_event_ids = get_event_ids_by_status(case_id, [STATUS_NOISE])
-    hunted_event_ids = get_event_ids_by_status(case_id, [STATUS_HUNTED])
-    confirmed_event_ids = get_event_ids_by_status(case_id, [STATUS_CONFIRMED])
-    
-    # Legacy compatibility - will be removed after full migration
-    tagged_ids = hunted_event_ids | confirmed_event_ids  # Events that are "interesting"
-    excluded_ids = noise_event_ids  # Events to hide
     
     # Get recent searches for this user and case
     recent_searches_raw = db.session.query(SearchHistory).filter_by(
@@ -3069,14 +3060,8 @@ def search_events(case_id):
         total_count=total_count,
         total_pages=total_pages,
         columns=columns,
-        # New unified status system
+        # Status system (counts only - no row coloring)
         status_counts=status_counts,
-        noise_event_ids=noise_event_ids,
-        hunted_event_ids=hunted_event_ids,
-        confirmed_event_ids=confirmed_event_ids,
-        # Legacy (for backward compatibility during migration)
-        tagged_ids=tagged_ids,
-        excluded_ids=excluded_ids,
         recent_searches=recent_searches,
         favorite_searches=favorite_searches,
         custom_date_start=custom_date_start_str,
