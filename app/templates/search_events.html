@@ -694,22 +694,6 @@
     </div>
 </div>
 
-<!-- Event Detail Modal -->
-<div id="eventModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 90%; width: 1400px; max-height: 90vh;">
-        <div class="modal-header">
-            <h2 class="modal-title">Event Details</h2>
-            <button class="modal-close" onclick="closeEventModal()">×</button>
-        </div>
-        <div class="modal-body" id="eventModalBody" style="max-height: calc(90vh - 120px); overflow-y: auto;">
-            <div style="text-align: center; padding: var(--spacing-xl);">
-                <div class="spinner"></div>
-                <p class="text-muted">Loading event details...</p>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Add System Modal -->
 <div id="addSystemModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 500px;">
@@ -4085,5 +4069,23 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 </script>
+{% endblock %}
+
+{% block modals %}
+<!-- Event Detail Modal (moved outside main content for proper z-index stacking) -->
+<div id="eventModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 90%; width: 1400px; max-height: 90vh;">
+        <div class="modal-header">
+            <h2 class="modal-title">Event Details</h2>
+            <button class="modal-close" onclick="closeEventModal()">×</button>
+        </div>
+        <div class="modal-body" id="eventModalBody" style="max-height: calc(90vh - 120px); overflow-y: auto;">
+            <div style="text-align: center; padding: var(--spacing-xl);">
+                <div class="spinner"></div>
+                <p class="text-muted">Loading event details...</p>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
