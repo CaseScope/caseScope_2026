@@ -1,7 +1,7 @@
 # Case Files Page - Site Map & Dependency Documentation
 
 **Page:** `/case/<case_id>/files` (Case Files Dashboard)  
-**Version:** 2.1.4  
+**Version:** 2.2.0  
 **Last Updated:** 2025-12-05
 
 ---
@@ -101,98 +101,98 @@ case_files.html (confirmReindex)
   ↓ [POST /case/<case_id>/bulk-reindex]
   ↓
 main.py (bulk_reindex_route)
-  ↓ [Background Thread]
+  ↓ [Celery Task Dispatch]
   ↓
-coordinator_reindex.py (reindex_files)
-  ├─→ PHASE 1: Clear Metadata
-  │   ├─→ processing_clear_metadata.py (bulk_clear_case OR clear_queued_files)
-  │   │   ├─→ celery_app.py (clear_file_task workers)
+coordinator_reindex.py (reindex_files_task → reindex_files)
+  │
+  ├─→ PHASE 1: Queue Files
+  │   ├─→ models.py (CaseFile - mark as 'Queued')
+  │   ├─→ tasks.py (commit_with_retry)
+  │   └─→ progress_tracker.py (start_progress, update_phase)
+  │
+  ├─→ PHASE 2: Clear Metadata
+  │   ├─→ processing_clear_metadata.py (bulk_clear_case OR clear_all_queued_files)
   │   │   ├─→ models.py (CaseFile, SigmaViolation, IOCMatch, TimelineTag, EventStatus)
   │   │   ├─→ main.py (opensearch_client, db)
   │   │   ├─→ utils.py (make_index_name)
+  │   │   ├─→ Database polling (waits for clearing to complete)
   │   │   └─→ tasks.py (commit_with_retry)
   │   └─→ progress_tracker.py (update_phase)
   │
-  ├─→ PHASE 2-6: Run Standard Indexing Workflow
-  │   └─→ coordinator_index.py (index_new_files)
-  │       │
-  │       ├─→ PHASE 1: Index Files
-  │       │   ├─→ processing_index.py (index_queued_files)
-  │       │   │   ├─→ celery_app.py (index_file_task workers)
-  │       │   │   ├─→ file_processing.py (index_one_file)
-  │       │   │   │   ├─→ file_processing.py (index_evtx_json, index_edr_csv, etc.)
-  │       │   │   │   ├─→ event_descriptions.py (get_event_description)
-  │       │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   ├─→ models.py (CaseFile, Case)
-  │       │   │   │   ├─→ utils.py (make_index_name)
-  │       │   │   │   └─→ tasks.py (commit_with_retry)
-  │       │   │   └─→ Database polling (checks indexing_status)
-  │       │   └─→ progress_tracker.py (update_phase)
-  │       │
-  │       ├─→ PHASE 2: SIGMA Detection
-  │       │   ├─→ processing_sigma.py (detect_sigma_all_files)
-  │       │   │   ├─→ celery_app.py (detect_sigma_file_task workers)
-  │       │   │   ├─→ sigma_detection.py (detect_sigma_violations)
-  │       │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   ├─→ models.py (SigmaViolation, SigmaRule, CaseFile)
-  │       │   │   │   ├─→ sigma.collection.Collection (sigma library)
-  │       │   │   │   └─→ tasks.py (commit_with_retry)
-  │       │   │   └─→ Database polling (checks indexing_status)
-  │       │   └─→ progress_tracker.py (update_phase)
-  │       │
-  │       ├─→ PHASE 3: Known-Good Filter (Parallel)
-  │       │   ├─→ events_known_good.py (hide_known_good_all_task)
-  │       │   │   ├─→ celery_app.py (hide_known_good_slice_task workers - 8 parallel)
-  │       │   │   │   ├─→ events_known_good.py (process_slice)
-  │       │   │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   │   ├─→ events_known_good.py (get_cached_exclusions, match_exclusion)
-  │       │   │   │   │   └─→ models.py (ExclusionPattern)
-  │       │   │   │   ├─→ events_known_good.py (bulk_hide_events)
-  │       │   │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   │   ├─→ models.py (CaseFile)
-  │       │   │   │   │   └─→ tasks.py (commit_with_retry)
-  │       │   │   │   └─→ progress_tracker.py (update_task_progress)
-  │       │   │   └─→ Celery group polling (waits for all 8 slices)
-  │       │   └─→ progress_tracker.py (update_phase_progress_from_task)
-  │       │
-  │       ├─→ PHASE 4: Known-Noise Filter (Parallel)
-  │       │   ├─→ events_known_noise.py (hide_noise_all_task)
-  │       │   │   ├─→ celery_app.py (hide_noise_slice_task workers - 8 parallel)
-  │       │   │   │   ├─→ events_known_noise.py (process_slice)
-  │       │   │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   │   └─→ events_known_noise.py (is_firewall_noise, is_noise_process, is_noise_command)
-  │       │   │   │   ├─→ events_known_noise.py (bulk_hide_events)
-  │       │   │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   │   ├─→ models.py (CaseFile)
-  │       │   │   │   │   └─→ tasks.py (commit_with_retry)
-  │       │   │   │   └─→ progress_tracker.py (update_task_progress)
-  │       │   │   └─→ Celery group polling (waits for all 8 slices)
-  │       │   └─→ progress_tracker.py (update_phase_progress_from_task)
-  │       │
-  │       ├─→ PHASE 5: IOC Matching
-  │       │   ├─→ processing_ioc.py (hunt_iocs_all_files)
-  │       │   │   ├─→ celery_app.py (hunt_iocs_file_task workers)
-  │       │   │   ├─→ file_processing.py (hunt_iocs)
-  │       │   │   │   ├─→ main.py (opensearch_client)
-  │       │   │   │   ├─→ models.py (IOC, IOCMatch, CaseFile)
-  │       │   │   │   ├─→ utils.py (make_index_name)
-  │       │   │   │   └─→ tasks.py (commit_with_retry)
-  │       │   │   └─→ Database polling (checks indexing_status)
-  │       │   └─→ progress_tracker.py (update_phase)
-  │       │
-  │       └─→ FINALIZE: Mark files as completed
-  │           ├─→ models.py (CaseFile)
-  │           ├─→ tasks.py (commit_with_retry)
-  │           └─→ progress_tracker.py (complete_progress)
+  ├─→ PHASE 3: Index Files
+  │   ├─→ processing_index.py (index_queued_files)
+  │   │   ├─→ celery_app.py (index_file_task workers)
+  │   │   ├─→ file_processing.py (index_one_file)
+  │   │   │   ├─→ file_processing.py (index_evtx_json, index_edr_csv, etc.)
+  │   │   │   ├─→ event_descriptions.py (get_event_description)
+  │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   ├─→ models.py (CaseFile, Case)
+  │   │   │   ├─→ utils.py (make_index_name)
+  │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   └─→ Database polling (checks indexing_status)
+  │   └─→ progress_tracker.py (update_phase - using Redis queue size)
   │
-  └─→ progress_tracker.py (start_progress, update_phase, complete_progress)
+  ├─→ PHASE 4: SIGMA Detection
+  │   ├─→ processing_sigma.py (sigma_detect_all_files)
+  │   │   ├─→ celery_app.py (detect_sigma_file_task workers)
+  │   │   ├─→ sigma_detection.py (detect_sigma_violations)
+  │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   ├─→ models.py (SigmaViolation, SigmaRule, CaseFile)
+  │   │   │   ├─→ sigma.collection.Collection (sigma library)
+  │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   └─→ Database polling (checks indexing_status)
+  │   └─→ progress_tracker.py (update_phase - using Redis queue size)
+  │
+  ├─→ PHASE 5: Known-Good Filter (Parallel - Async Dispatch)
+  │   ├─→ events_known_good.py (hide_known_good_all_task)
+  │   │   ├─→ celery_app.py (hide_known_good_slice_task workers - 8 parallel)
+  │   │   │   ├─→ events_known_good.py (process_slice)
+  │   │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   │   ├─→ events_known_good.py (get_cached_exclusions, match_exclusion)
+  │   │   │   │   └─→ models.py (ExclusionPattern)
+  │   │   │   ├─→ events_known_good.py (bulk_hide_events)
+  │   │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   │   ├─→ models.py (CaseFile, EventStatus)
+  │   │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   │   └─→ progress_tracker.py (update_task_progress)
+  │   │   └─→ Celery group (8 parallel slices)
+  │   └─→ progress_tracker.py (update_phase_progress_from_task)
+  │
+  ├─→ PHASE 6: Known-Noise Filter (Parallel - Async Dispatch)
+  │   ├─→ events_known_noise.py (hide_noise_all_task)
+  │   │   ├─→ celery_app.py (hide_noise_slice_task workers - 8 parallel)
+  │   │   │   ├─→ events_known_noise.py (process_slice)
+  │   │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   │   └─→ events_known_noise.py (is_firewall_noise, is_noise_process, is_noise_command)
+  │   │   │   ├─→ events_known_noise.py (bulk_hide_events)
+  │   │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   │   ├─→ models.py (CaseFile, EventStatus)
+  │   │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   │   └─→ progress_tracker.py (update_task_progress)
+  │   │   └─→ Celery group (8 parallel slices)
+  │   └─→ progress_tracker.py (update_phase_progress_from_task)
+  │
+  ├─→ PHASE 7: IOC Matching
+  │   ├─→ processing_ioc.py (hunt_iocs_all_files)
+  │   │   ├─→ celery_app.py (hunt_iocs_file_task workers)
+  │   │   ├─→ file_processing.py (hunt_iocs)
+  │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   ├─→ models.py (IOC, IOCMatch, CaseFile)
+  │   │   │   ├─→ utils.py (make_index_name)
+  │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   └─→ Database polling (checks indexing_status)
+  │   └─→ progress_tracker.py (update_phase - using Redis queue size)
+  │
+  └─→ PHASE 8: Finalization
+      ├─→ models.py (CaseFile - mark files as 'Completed')
+      ├─→ tasks.py (commit_with_retry)
+      └─→ progress_tracker.py (complete_progress)
 ```
 
 **Files Required:**
 - `app/templates/case_files.html`
-- `app/main.py` (bulk_reindex_route, opensearch_client, db)
-- `app/coordinator_reindex.py`
-- `app/coordinator_index.py`
+- `app/main.py` (bulk_reindex_route)
+- `app/coordinator_reindex.py` (orchestrates all phases directly)
 - `app/processing_clear_metadata.py`
 - `app/processing_index.py`
 - `app/processing_sigma.py`
@@ -208,6 +208,12 @@ coordinator_reindex.py (reindex_files)
 - `app/tasks.py` (commit_with_retry)
 - `app/utils.py` (make_index_name)
 
+**Key Changes (v2.2.0):**
+- Coordinator directly calls processing modules instead of nesting coordinators
+- All processing modules accept dynamic `operation` and `phase_num` parameters
+- Progress tracking uses Redis queue size for accurate counts
+- Known-Good/Noise filters dispatched asynchronously (non-blocking)
+
 ---
 
 ### 4. 🛡️ Re-SIGMA All Files Button
@@ -219,14 +225,37 @@ case_files.html (confirmReSigma)
   ↓ [POST /case/<case_id>/bulk-resigma]
   ↓
 main.py (bulk_resigma_route)
-  ↓ [Background Thread]
+  ↓ [Celery Task Dispatch]
   ↓
-coordinator_resigma.py (resigma_files)
-  ├─→ processing_clear_metadata.py (clear_queued_files with clear_type='sigma')
-  │   └─→ [Same dependencies as Phase 1 above]
-  ├─→ processing_sigma.py (detect_sigma_all_files)
-  │   └─→ [Same dependencies as SIGMA phase above]
-  └─→ progress_tracker.py (start_progress, update_phase, complete_progress)
+coordinator_resigma.py (resigma_files_task → resigma_files)
+  │
+  ├─→ PHASE 1: Queue Files
+  │   ├─→ models.py (CaseFile - mark eligible files)
+  │   ├─→ tasks.py (commit_with_retry)
+  │   └─→ progress_tracker.py (start_progress, update_phase)
+  │
+  ├─→ PHASE 2: Clear SIGMA Data
+  │   ├─→ processing_clear_metadata.py (clear_all_queued_files with clear_type='sigma')
+  │   │   ├─→ models.py (SigmaViolation, CaseFile)
+  │   │   ├─→ Database polling (waits for clearing to complete)
+  │   │   └─→ tasks.py (commit_with_retry)
+  │   └─→ progress_tracker.py (update_phase)
+  │
+  ├─→ PHASE 3: SIGMA Detection
+  │   ├─→ processing_sigma.py (sigma_detect_all_files with operation='resigma')
+  │   │   ├─→ celery_app.py (detect_sigma_file_task workers)
+  │   │   ├─→ sigma_detection.py (detect_sigma_violations)
+  │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   ├─→ models.py (SigmaViolation, SigmaRule, CaseFile)
+  │   │   │   ├─→ sigma.collection.Collection (sigma library)
+  │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   └─→ Database polling (checks indexing_status)
+  │   └─→ progress_tracker.py (update_phase - using Redis queue size)
+  │
+  └─→ PHASE 4: Finalization
+      ├─→ models.py (CaseFile - mark files as 'Completed')
+      ├─→ tasks.py (commit_with_retry)
+      └─→ progress_tracker.py (complete_progress)
 ```
 
 **Files Required:**
@@ -242,6 +271,12 @@ coordinator_resigma.py (resigma_files)
 - `app/tasks.py`
 - `app/utils.py`
 
+**Key Changes (v2.2.0):**
+- Fixed circular import issues by using function-level imports in coordinator
+- Replaced `result.get()` with database polling to avoid Celery deadlocks
+- Progress tracking uses Redis queue size for accurate counts
+- Properly marks both 'SIGMA Complete' and 'Indexed' files as 'Completed' in finalization
+
 ---
 
 ### 5. 🎯 Re-Hunt IOCs Button
@@ -252,17 +287,44 @@ case_files.html (confirmReHunt)
   ↓ [Confirmation Dialog]
   ↓ [POST /case/<case_id>/bulk-rehunt]
   ↓
-tasks.py (bulk_rehunt - Celery task)
-  ├─→ processing_clear_metadata.py (clear_queued_files with clear_type='ioc')
-  │   └─→ [Same dependencies as Phase 1 above]
-  ├─→ processing_ioc.py (hunt_iocs_all_files)
-  │   └─→ [Same dependencies as IOC phase above]
-  └─→ progress_tracker.py (start_progress, update_phase, complete_progress)
+main.py (bulk_rehunt_route)
+  ↓ [Celery Task Dispatch]
+  ↓
+coordinator_ioc.py (rehunt_iocs_task → rehunt_iocs)
+  │
+  ├─→ PHASE 1: Queue Files
+  │   ├─→ models.py (CaseFile - mark eligible files)
+  │   ├─→ tasks.py (commit_with_retry)
+  │   └─→ progress_tracker.py (start_progress, update_phase)
+  │
+  ├─→ PHASE 2: Clear IOC Data
+  │   ├─→ processing_clear_metadata.py (clear_all_queued_files with clear_type='ioc')
+  │   │   ├─→ models.py (IOCMatch, CaseFile)
+  │   │   ├─→ Database polling (waits for clearing to complete)
+  │   │   └─→ tasks.py (commit_with_retry)
+  │   └─→ progress_tracker.py (update_phase)
+  │
+  ├─→ PHASE 3: IOC Matching
+  │   ├─→ processing_ioc.py (hunt_iocs_all_files with operation='reioc')
+  │   │   ├─→ celery_app.py (hunt_iocs_file_task workers)
+  │   │   ├─→ file_processing.py (hunt_iocs)
+  │   │   │   ├─→ main.py (opensearch_client)
+  │   │   │   ├─→ models.py (IOC, IOCMatch, CaseFile)
+  │   │   │   ├─→ utils.py (make_index_name)
+  │   │   │   └─→ tasks.py (commit_with_retry)
+  │   │   └─→ Database polling (checks indexing_status)
+  │   └─→ progress_tracker.py (update_phase - using Redis queue size)
+  │
+  └─→ PHASE 4: Finalization
+      ├─→ models.py (CaseFile - mark files as 'Completed')
+      ├─→ tasks.py (commit_with_retry)
+      └─→ progress_tracker.py (complete_progress)
 ```
 
 **Files Required:**
 - `app/templates/case_files.html`
-- `app/tasks.py` (bulk_rehunt task)
+- `app/main.py`
+- `app/coordinator_ioc.py`
 - `app/processing_clear_metadata.py`
 - `app/processing_ioc.py`
 - `app/file_processing.py` (hunt_iocs)
@@ -270,6 +332,11 @@ tasks.py (bulk_rehunt - Celery task)
 - `app/progress_tracker.py`
 - `app/celery_app.py`
 - `app/utils.py`
+
+**Key Changes (v2.2.0):**
+- Replaced `result.get()` with database polling to avoid Celery deadlocks
+- Progress tracking uses Redis queue size for accurate counts
+- Properly marks 'IOC Complete' files as 'Completed' in finalization
 
 ---
 
@@ -421,10 +488,15 @@ routes/files.py (file_stats_case)
 - `total_events` - Sum of event_count from visible files
 - `sigma_events` - Sum of violation_count from visible files
 - `ioc_events` - Sum of ioc_event_count from visible files
-- `status_counts` - Breakdown by event status (new, hunted, confirmed, noise)
+- `status_counts` - Breakdown by event status (new, hunted, confirmed, noise) from EventStatus table
 - `files_with_events` - Total files - Hidden files (v2.1.4)
 - `hidden_files` - Count of files with is_hidden=True (v2.1.4)
 - `total_files_all` - All files including hidden (v2.1.4)
+
+**Important Note (v2.2.0):**
+- During active processing, `status_counts` (noise/known-good) may show data from partially processed files
+- EventStatus records are created in real-time as Known-Good/Noise filters run
+- Stats are fully accurate once all processing phases complete
 
 ---
 
@@ -434,11 +506,12 @@ routes/files.py (file_stats_case)
 ```
 case_files.html (startPhaseMonitoring - JavaScript)
   ↓ [Polls every 2 seconds]
-  ↓ [GET /case/<case_id>/progress/reindex]
+  ↓ [GET /case/<case_id>/progress/<operation>]
+  ↓   (where operation = 'index', 'reindex', 'resigma', or 'reioc')
   ↓
-routes/progress.py (get_reindex_progress)
+routes/progress.py (get_progress_route)
   ├─→ progress_tracker.py (get_progress)
-  └─→ Redis (casescope:progress:<case_id>:reindex)
+  └─→ Redis (casescope:progress:<case_id>:<operation>)
 ```
 
 **Files Required:**
@@ -446,6 +519,10 @@ routes/progress.py (get_reindex_progress)
 - `app/routes/progress.py`
 - `app/progress_tracker.py`
 - Redis (data store)
+
+**Key Changes (v2.2.0):**
+- Progress endpoint now accepts dynamic operation names (not hardcoded to 'reindex')
+- UI correctly maps phase numbers using `phase_num` field instead of array index
 
 ---
 
@@ -455,17 +532,23 @@ routes/progress.py (get_reindex_progress)
 ```
 case_files.html (checkForOngoingOperations - JavaScript)
   ↓ [DOMContentLoaded event]
-  ↓ [GET /case/<case_id>/progress/reindex]
+  ↓ [GET /case/<case_id>/progress/<operation>]
+  ↓   (checks 'index', 'reindex', 'resigma', 'reioc')
   ↓
-routes/progress.py (get_reindex_progress)
+routes/progress.py (get_progress_route)
   ├─→ progress_tracker.py (get_progress)
-  └─→ If status='running', calls startPhaseMonitoring()
+  └─→ If status='running', calls startPhaseMonitoring(operation)
 ```
 
 **Files Required:**
 - `app/templates/case_files.html` (JavaScript)
 - `app/routes/progress.py`
 - `app/progress_tracker.py`
+
+**Key Changes (v2.2.0):**
+- Checks all operation types (index, reindex, resigma, reioc) not just 'reindex'
+- Progress bar hidden by default, only shown when operation is running
+- Returns 'not_found' status when no operation is active
 
 ---
 
@@ -546,10 +629,10 @@ Backend Routes:
   - app/main.py (app initialization, bulk operations)
 
 Coordinators (Orchestration):
-  - app/coordinator_reindex.py
-  - app/coordinator_index.py
-  - app/coordinator_resigma.py
-  - app/coordinator_ioc.py (if used)
+  - app/coordinator_reindex.py (full reindex workflow)
+  - app/coordinator_index.py (new file indexing workflow)
+  - app/coordinator_resigma.py (SIGMA re-detection workflow)
+  - app/coordinator_ioc.py (IOC re-hunting workflow)
 
 Processing Modules:
   - app/processing_clear_metadata.py
@@ -595,33 +678,49 @@ External Dependencies:
 
 ### 1. **Modular Processing Architecture (v2.0.0)**
 - Each phase (Clear, Index, SIGMA, Known-Good, Known-Noise, IOC) is a separate module
-- Coordinators orchestrate phase sequencing
+- Coordinators orchestrate phase sequencing by directly calling processing modules
 - Celery tasks handle parallelization within phases
 
-### 2. **Database Polling (v2.0.0)**
+### 2. **Flat Coordinator Architecture (v2.2.0)**
+- Coordinators directly call processing modules instead of nesting other coordinators
+- Prevents phase number collisions and simplifies progress tracking
+- Each processing module accepts dynamic `operation` and `phase_num` parameters
+
+### 3. **Database Polling (v2.0.0)**
 - Coordinators poll `CaseFile.indexing_status` instead of blocking on `result.get()`
-- Prevents Celery deadlocks in Gunicorn workers
-- Allows for graceful failure recovery
+- Prevents Celery deadlocks when tasks are called from Gunicorn workers
+- Allows for graceful failure recovery and monitoring
 
-### 3. **Real-time Progress Tracking (v2.0.1)**
-- Redis stores progress data with phase-level granularity
-- Frontend JavaScript polls every 2 seconds
-- Auto-resume on page reload (v2.0.2)
+### 4. **Redis Queue-Based Progress Tracking (v2.2.0)**
+- Progress calculations based on Redis queue size (tasks remaining)
+- More accurate than database status polling during active processing
+- Frontend polls every 2 seconds with automatic phase detection
 
-### 4. **Centralized CSS Button Styles (v2.1.2)**
+### 5. **Async Filter Dispatch (v2.2.0)**
+- Known-Good/Noise filters dispatched asynchronously (non-blocking)
+- Coordinators continue to next phase without waiting
+- Prevents progress bar from getting stuck on filter phases
+
+### 6. **Centralized CSS Button Styles (v2.1.2)**
 - All buttons use `btn-primary`, `btn-success`, `btn-warning`, `btn-danger` classes
 - Defined in `app/static/css/theme.css`
 - No inline styles for easy maintenance
 
-### 5. **Dynamic File Counters (v2.1.4)**
+### 7. **Dynamic File Counters (v2.1.4)**
 - "Files with Events" = Total Files - Hidden Files
 - Updates in real-time during processing
 - Hidden files (0 events) auto-filtered via `is_hidden` flag
+
+### 8. **EventStatus Synchronization (v2.2.0)**
+- EventStatus records cleared during metadata clearing phase
+- Prevents stale noise/known-good counts from previous runs
+- Real-time updates as filters mark events during processing
 
 ---
 
 ## Version History
 
+- **v2.2.0** - Flat coordinator architecture, Redis queue-based progress, dynamic operation parameters, EventStatus synchronization fixes
 - **v2.1.4** - Dynamic "Files with Events" counter, renamed from "Total Files"
 - **v2.1.3** - Button brightness reduction (30% darker backgrounds)
 - **v2.1.2** - Centralized CSS button styles
@@ -638,6 +737,50 @@ External Dependencies:
 
 ---
 
+## Known Issues & Solutions
+
+### Issue 1: Progress Bar Shows Wrong Operation Name
+**Symptom:** Progress bar shows "Reindex" when running "Re-SIGMA"  
+**Cause:** Frontend `startPhaseMonitoring()` not receiving correct operation parameter  
+**Solution:** Ensure all button handlers pass operation parameter: `startPhaseMonitoring('resigma')`
+
+### Issue 2: Progress Bar Shows Incorrect Counts
+**Symptom:** Progress shows "254/254 (100%)" immediately when only few files processed  
+**Cause:** Progress calculation based on database status instead of Redis queue size  
+**Solution:** Processing modules must use Redis queue size for `total_count` parameter
+
+### Issue 3: Stale EventStatus Counts After Reindex
+**Symptom:** "Noise" counts persist from previous run despite reindex clearing data  
+**Cause:** EventStatus records not deleted during clearing phase  
+**Solution:** Ensure `bulk_clear_case()` includes EventStatus deletion (line 836-839 in `processing_clear_metadata.py`)
+
+### Issue 4: Progress Bar Jumping Between Phases
+**Symptom:** UI flaps between "Known Good" and "Indexing" during Known-Good filter  
+**Cause:** Multiple coordinators updating same Redis key with different phase numbers  
+**Solution:** Use flat coordinator architecture - don't nest coordinators
+
+### Issue 5: Celery Task Deadlock
+**Symptom:** Coordinator hangs forever, no progress updates  
+**Cause:** `result.get()` called within a Celery task (coordinator running in worker)  
+**Solution:** Replace all `result.get()` with database polling loops
+
+### Issue 6: Circular Import on Flask Startup
+**Symptom:** `ImportError: cannot import name 'app' from partially initialized module 'main'`  
+**Cause:** Coordinator imports `main` at module level, `main` imports coordinator  
+**Solution:** Move Flask app imports to function level inside coordinator functions
+
+### Issue 7: Progress Bar Not Clearing After Completion
+**Symptom:** Progress bar persists after operation completes  
+**Cause:** Frontend not detecting 'completed' or 'failed' status  
+**Solution:** Ensure `complete_progress()` called in coordinator, UI checks for terminal states
+
+### Issue 8: Incorrect Phase Name Displayed
+**Symptom:** UI shows wrong phase name (e.g., "Clearing Data" when "SIGMA Detection" running)  
+**Cause:** Frontend mapping phase by array index instead of `phase_num` field  
+**Solution:** Use `phases.find(p => p.phase_num === current_phase)` in JavaScript
+
+---
+
 ## Notes for Developers
 
 1. **Adding New Buttons:**
@@ -649,7 +792,9 @@ External Dependencies:
 2. **Modifying Processing Workflow:**
    - Edit coordinator files for phase sequencing
    - Edit processing modules for phase logic
+   - Ensure processing modules accept `operation` and `phase_num` parameters
    - Update `progress_tracker.py` calls for UI feedback
+   - Use Redis queue size for progress calculations
    - Test database polling behavior
 
 3. **Adding New Stats:**
@@ -658,11 +803,27 @@ External Dependencies:
    - Add HTML element in `case_files.html` with unique ID
    - Add JavaScript refresh in `refreshFileStats()`
 
-4. **Testing:**
+4. **Creating New Coordinators:**
+   - Accept `operation` parameter for progress tracking
+   - Call `start_progress()` at start, `complete_progress()` at end
+   - Use database polling instead of `result.get()` to avoid deadlocks
+   - Pass `operation` and `phase_num` to all processing modules
+   - Use function-level imports to avoid circular imports with `main.py`
+
+5. **Testing:**
    - Test with small datasets first
    - Monitor Redis keys: `redis-cli KEYS "casescope:*"`
    - Check Celery worker logs: `sudo journalctl -u casescope-worker -f`
    - Check Gunicorn logs: `sudo journalctl -u casescope -f`
+   - Verify progress bar shows correct operation name and phases
+   - Confirm EventStatus records are cleared during reindex
+
+6. **Common Pitfalls:**
+   - **Never call `result.get()` within a Celery task** - causes deadlock
+   - **Never hardcode operation names** in processing modules - use parameters
+   - **Never nest coordinators** - causes phase number collisions
+   - **Always clear EventStatus records** during metadata clearing phase
+   - **Always use Redis queue size** for progress, not database status counts
 
 ---
 
