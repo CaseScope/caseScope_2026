@@ -1323,14 +1323,14 @@ function showEventDetail(eventId, indexName) {
             if (data.has_sigma && data.sigma_rule) {
                 const sigmaBanner = document.createElement('div');
                 sigmaBanner.className = 'event-alert-badge event-alert-sigma';
-                sigmaBanner.innerHTML = `🛡️ SIGMA: ${data.sigma_rule}`;
+                sigmaBanner.textContent = `🛡️ SIGMA: ${data.sigma_rule}`;
                 bannerContainer.appendChild(sigmaBanner);
             }
             
             if (data.has_ioc && data.ioc_count > 0) {
                 const iocBanner = document.createElement('div');
                 iocBanner.className = 'event-alert-badge event-alert-ioc';
-                iocBanner.innerHTML = `🚨 IOCs in this Event! (${data.ioc_count})`;
+                iocBanner.textContent = `🚨 IOCs in this Event! (${data.ioc_count})`;
                 bannerContainer.appendChild(iocBanner);
             }
             
@@ -4092,10 +4092,11 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Event Detail Modal (moved outside main content for proper z-index stacking) -->
 <div id="eventModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 90%; width: 1400px; max-height: 90vh;">
+        <!-- Alert banners - full width at top -->
+        <div id="eventAlertBanners" style="display: flex; flex-direction: column; gap: 0;"></div>
+        
         <div class="modal-header">
             <h2 class="modal-title">Event Details</h2>
-            <!-- Dynamic banners for SIGMA and IOC alerts -->
-            <div id="eventAlertBanners" style="display: flex; gap: 8px; margin-left: auto; margin-right: 12px;"></div>
             <button class="modal-close" onclick="closeEventModal()">×</button>
         </div>
         <div class="modal-body" id="eventModalBody" style="max-height: calc(90vh - 120px); overflow-y: auto;">

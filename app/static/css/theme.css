@@ -1091,28 +1091,29 @@ select.form-select,
     border-bottom: 1px solid var(--color-border);
 }
 
-/* Alert banners in modal header */
+/* Alert banners in modal header - full width */
 .event-alert-badge {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: var(--radius-md);
-    font-size: 0.875rem;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 24px;
+    font-size: 0.9375rem;
     font-weight: 600;
-    white-space: nowrap;
+    text-align: center;
+    border-bottom: 1px solid transparent;
 }
 
 .event-alert-sigma {
     background: rgba(147, 51, 234, 0.15);
     color: #a855f7;
-    border: 1px solid rgba(147, 51, 234, 0.3);
+    border-bottom-color: rgba(147, 51, 234, 0.3);
 }
 
 .event-alert-ioc {
     background: rgba(239, 68, 68, 0.15);
     color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-bottom-color: rgba(239, 68, 68, 0.3);
 }
 
 .modal-title {
