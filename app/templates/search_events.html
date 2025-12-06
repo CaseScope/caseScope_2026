@@ -1102,11 +1102,36 @@ function updateBulkActions() {
     }
 }
 
-// Add event listeners to checkboxes
+// Add event listeners to checkboxes and table rows
 document.addEventListener('DOMContentLoaded', function() {
     const checkboxes = document.querySelectorAll('.event-checkbox');
     checkboxes.forEach(cb => {
         cb.addEventListener('change', updateBulkActions);
+    });
+    
+    // Add click handler to table rows (open event details on whitespace click)
+    const tableRows = document.querySelectorAll('tbody tr[data-event-id]');
+    tableRows.forEach(row => {
+        row.addEventListener('click', function(e) {
+            // Don't open modal if clicking on interactive elements
+            if (e.target.tagName === 'INPUT' || 
+                e.target.tagName === 'SELECT' ||
+                e.target.tagName === 'BUTTON' ||
+                e.target.tagName === 'A' ||
+                e.target.closest('button') ||
+                e.target.closest('select') ||
+                e.target.closest('a')) {
+                return;
+            }
+            
+            // Open event details modal
+            const eventId = this.dataset.eventId;
+            const indexName = this.dataset.index;
+            showEventDetail(eventId, indexName);
+        });
+        
+        // Add pointer cursor to indicate clickability
+        row.style.cursor = 'pointer';
     });
 });
 
@@ -1308,146 +1333,12 @@ function showEventDetail(eventId, indexName) {
                 return;
             }
             
-            // Create container and table programmatically
-            const container = document.createElement('div');
-            container.style.maxHeight = '600px';
-            container.style.overflowY = 'auto';
-            
-            const table = document.createElement('table');
-            table.className = 'table';
-            
-            // SIGMA RULE HIGHLIGHT - Show at top if present
-            if (data.has_sigma && data.sigma_rule) {
-                const sigmaRow = document.createElement('tr');
-                sigmaRow.style.backgroundColor = 'rgba(147, 51, 234, 0.1)'; // Light purple background
-                
-                const sigmaFieldCell = document.createElement('td');
-                sigmaFieldCell.style.fontWeight = '700';
-                sigmaFieldCell.style.width = '250px';
-                sigmaFieldCell.style.verticalAlign = 'top';
-                sigmaFieldCell.style.color = '#9333ea'; // Purple
-                sigmaFieldCell.textContent = '🛡️ SIGMA Rule Violated';
-                
-                const sigmaValueCell = document.createElement('td');
-                sigmaValueCell.style.wordBreak = 'break-all';
-                sigmaValueCell.style.fontWeight = 'bold';
-                sigmaValueCell.style.color = '#9333ea'; // Purple
-                sigmaValueCell.style.fontSize = '1.05rem';
-                sigmaValueCell.textContent = data.sigma_rule;
-                
-                const sigmaActionsCell = document.createElement('td');
-                sigmaActionsCell.style.width = '300px';
-                sigmaActionsCell.innerHTML = '<span style="color: #9333ea; font-style: italic;">⚠️ Security rule matched</span>';
-                
-                sigmaRow.appendChild(sigmaFieldCell);
-                sigmaRow.appendChild(sigmaValueCell);
-                sigmaRow.appendChild(sigmaActionsCell);
-                
-                table.appendChild(sigmaRow);
-            }
-            
-            data.fields.forEach(field => {
-                // Create row element programmatically to avoid escaping issues
-                const row = document.createElement('tr');
-                
-                // Field name cell
-                const fieldCell = document.createElement('td');
-                fieldCell.style.fontWeight = '600';
-                fieldCell.style.width = '250px';
-                fieldCell.style.verticalAlign = 'top';
-                fieldCell.textContent = field.field;
-                
-                // Value cell
-                const valueCell = document.createElement('td');
-                valueCell.style.wordBreak = 'break-all';
-                
-                // Check if value matches any IOC (case-insensitive)
-                const valueStr = String(field.value).toLowerCase();
-                let isIOC = false;
-                if (data.iocs && data.iocs.length > 0) {
-                    isIOC = data.iocs.some(ioc => valueStr.includes(ioc));
-                }
-                
-                // Highlight IOCs in bold red
-                if (isIOC) {
-                    valueCell.style.fontWeight = 'bold';
-                    valueCell.style.color = 'var(--color-error)';
-                    valueCell.innerHTML = `🚨 ${field.value}`;
-                } else {
-                    valueCell.textContent = field.value;
-                }
-                
-                // Actions cell
-                const actionsCell = document.createElement('td');
-                actionsCell.style.width = '300px';
-                
-                const btnDiv = document.createElement('div');
-                btnDiv.style.display = 'flex';
-                btnDiv.style.gap = 'var(--spacing-xs)';
-                
-                // Add as IOC button
-                const iocBtn = document.createElement('button');
-                iocBtn.className = 'btn btn-sm btn-add-ioc';
-                iocBtn.style.fontSize = '0.75rem';
-                iocBtn.style.padding = '4px 8px';
-                iocBtn.textContent = '📌 Add as IOC';
-                iocBtn.addEventListener('click', (e) => {
-                    console.log('[IOC] Button clicked, field:', field.field, 'value:', field.value);
-                    e.preventDefault();
-                    e.stopPropagation();
-                    addFieldAsIOC(field.value, field.field);
-                });
-                
-                // Add as System button
-                const systemBtn = document.createElement('button');
-                systemBtn.className = 'btn btn-sm btn-add-system';
-                systemBtn.style.fontSize = '0.75rem';
-                systemBtn.style.padding = '4px 8px';
-                systemBtn.style.background = 'var(--color-info)';
-                systemBtn.textContent = '💻 Add as System';
-                systemBtn.addEventListener('click', (e) => {
-                    console.log('[SYSTEM] Button clicked, field:', field.field, 'value:', field.value);
-                    e.preventDefault();
-                    e.stopPropagation();
-                    addFieldAsSystem(field.value, field.field);
-                });
-                
-                // Add to Search button
-                const searchBtn = document.createElement('button');
-                searchBtn.className = 'btn btn-sm btn-secondary btn-add-search';
-                searchBtn.style.fontSize = '0.75rem';
-                searchBtn.style.padding = '4px 8px';
-                searchBtn.textContent = '🔍 Add to Search';
-                searchBtn.addEventListener('click', () => addToSearch(field.field, field.value));
-                
-                // Add Column button
-                const columnBtn = document.createElement('button');
-                columnBtn.className = 'btn btn-sm btn-add-column';
-                columnBtn.style.fontSize = '0.75rem';
-                columnBtn.style.padding = '4px 8px';
-                columnBtn.style.background = 'var(--color-success)';
-                columnBtn.textContent = '➕ Add Column';
-                columnBtn.addEventListener('click', () => addAsColumn(field.field));
-                
-                btnDiv.appendChild(iocBtn);
-                btnDiv.appendChild(systemBtn);
-                btnDiv.appendChild(searchBtn);
-                btnDiv.appendChild(columnBtn);
-                actionsCell.appendChild(btnDiv);
-                
-                row.appendChild(fieldCell);
-                row.appendChild(valueCell);
-                row.appendChild(actionsCell);
-                
-                table.appendChild(row);
-            });
-            
-            container.appendChild(table);
-            modalBody.innerHTML = '';
-            modalBody.appendChild(container);
+            // Simply inject the pre-rendered HTML from the server
+            modalBody.innerHTML = data.html;
         })
         .catch(error => {
-            modalBody.innerHTML = `<div class="alert alert-error">Error loading event: ${error.message}</div>`;
+            console.error('Error loading event details:', error);
+            modalBody.innerHTML = '<div class="alert alert-error">Failed to load event details</div>';
         });
 }
 

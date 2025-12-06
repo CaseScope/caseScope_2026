@@ -3200,8 +3200,8 @@ def export_search_results(case_id):
 @app.route('/case/<int:case_id>/search/event/<event_id>')
 @login_required
 def get_event_detail_route(case_id, event_id):
-    """Get event detail (AJAX) with IOC list for highlighting"""
-    from search_utils import get_event_detail, format_event_for_display
+    """Get event detail (AJAX) - Returns formatted HTML for modal display"""
+    from search_show_details import get_event_details, render_event_details_html
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -3212,33 +3212,19 @@ def get_event_detail_route(case_id, event_id):
     if not index_name:
         return jsonify({'error': 'Index name required'}), 400
     
-    # Retrieve event
-    event = get_event_detail(opensearch_client, index_name, event_id)
-    if not event:
-        return jsonify({'error': 'Event not found'}), 404
+    # Fetch event details using the new module
+    event_data = get_event_details(case_id, event_id, index_name)
     
-    # Format for display
-    fields = format_event_for_display(event['_source'])
+    if 'error' in event_data:
+        return jsonify({'error': event_data['error']}), 404
     
-    # Get active IOCs for this case (for highlighting)
-    iocs = db.session.query(IOC).filter_by(
-        case_id=case_id,
-        is_active=True
-    ).all()
-    
-    ioc_values = [ioc.ioc_value.lower() for ioc in iocs]  # Lowercase for case-insensitive matching
-    
-    # Get SIGMA rule if present in event
-    sigma_rule = event['_source'].get('sigma_rule', None)
-    has_sigma = event['_source'].get('has_sigma', False)
+    # Render HTML for modal body
+    html = render_event_details_html(event_data)
     
     return jsonify({
+        'html': html,
         'event_id': event_id,
-        'index': index_name,
-        'fields': fields,
-        'iocs': ioc_values,  # Include IOCs for client-side highlighting
-        'has_sigma': has_sigma,
-        'sigma_rule': sigma_rule  # Include SIGMA rule for purple highlighting
+        'index': index_name
     })
 
 
