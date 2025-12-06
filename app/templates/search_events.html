@@ -1322,12 +1322,11 @@ function showEventDetail(eventId, indexName) {
     const modal = document.getElementById('eventModal');
     const modalBody = document.getElementById('eventModalBody');
     
-    // Prevent body scroll and scroll modal to top
-    document.body.style.overflow = 'hidden';
     modal.style.display = 'flex';
-    modal.scrollTop = 0;  // Scroll the modal overlay to top
-    
     modalBody.innerHTML = '<div style="text-align: center; padding: var(--spacing-xl);"><div class="spinner"></div><p class="text-muted">Loading event details...</p></div>';
+    
+    // Prevent background scrolling
+    document.body.style.overflow = 'hidden';
     
     fetch(`/case/${CASE_ID}/search/event/${eventId}?index=${encodeURIComponent(indexName)}`)
         .then(response => response.json())
@@ -1350,6 +1349,23 @@ function closeEventModal() {
     document.getElementById('eventModal').style.display = 'none';
     document.body.style.overflow = '';  // Restore body scroll
 }
+
+// Close modal when clicking outside the modal container
+document.getElementById('eventModal')?.addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEventModal();
+    }
+});
+
+// Close modal with ESC key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('eventModal');
+        if (modal && modal.style.display === 'flex') {
+            closeEventModal();
+        }
+    }
+});
 
 // ============================================================================
 // EVENT STATUS SYSTEM (Unified status management)

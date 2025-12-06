@@ -985,6 +985,8 @@ select.form-select,
     justify-content: center;
     padding: var(--spacing-xl);
     overflow-y: auto;
+    /* Ensure modal container is always centered in viewport */
+    align-content: center;
 }
 
 .modal-container {
