@@ -1116,6 +1116,18 @@ select.form-select,
     border-bottom-color: rgba(239, 68, 68, 0.3);
 }
 
+.event-alert-hunted {
+    background: rgba(249, 115, 22, 0.15);
+    color: #f97316;
+    border-bottom-color: rgba(249, 115, 22, 0.3);
+}
+
+.event-alert-noise {
+    background: rgba(127, 140, 141, 0.15);
+    color: #95a5a6;
+    border-bottom-color: rgba(127, 140, 141, 0.3);
+}
+
 .modal-title {
     font-size: 1.5rem;
     font-weight: 600;

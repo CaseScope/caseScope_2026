@@ -3228,7 +3228,8 @@ def get_event_detail_route(case_id, event_id):
         'has_sigma': event_data.get('has_sigma', False),
         'sigma_rule': event_data.get('sigma_rule'),
         'has_ioc': event_data.get('has_ioc', False),
-        'ioc_count': len(event_data.get('iocs', []))
+        'ioc_count': len(event_data.get('iocs', [])),
+        'event_status': event_data.get('event_status', 'new')
     })
 
 

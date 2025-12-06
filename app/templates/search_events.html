@@ -1334,6 +1334,19 @@ function showEventDetail(eventId, indexName) {
                 bannerContainer.appendChild(iocBanner);
             }
             
+            // Create status banners for Hunted and Noise
+            if (data.event_status === 'hunted') {
+                const huntedBanner = document.createElement('div');
+                huntedBanner.className = 'event-alert-badge event-alert-hunted';
+                huntedBanner.textContent = '🎯 Hunted Event';
+                bannerContainer.appendChild(huntedBanner);
+            } else if (data.event_status === 'noise') {
+                const noiseBanner = document.createElement('div');
+                noiseBanner.className = 'event-alert-badge event-alert-noise';
+                noiseBanner.textContent = '🔇 Noise Event';
+                bannerContainer.appendChild(noiseBanner);
+            }
+            
             // Simply inject the pre-rendered HTML from the server
             modalBody.innerHTML = data.html;
         })

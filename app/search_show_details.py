@@ -56,6 +56,9 @@ def get_event_details(case_id: int, event_id: str, index_name: str) -> dict:
         has_ioc = source.get('has_ioc', False)
         ioc_values = []
         
+        # Extract event status
+        event_status = source.get('event_status', 'new')
+        
         if has_ioc:
             # Fetch IOC matches for this event
             matches = IOCMatch.query.filter_by(
@@ -96,7 +99,8 @@ def get_event_details(case_id: int, event_id: str, index_name: str) -> dict:
             'has_sigma': has_sigma,
             'sigma_rule': sigma_rule,
             'has_ioc': has_ioc,
-            'iocs': ioc_values
+            'iocs': ioc_values,
+            'event_status': event_status
         }
         
     except Exception as e:
