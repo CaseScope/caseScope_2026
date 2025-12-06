@@ -67,7 +67,7 @@ def get_event_details(case_id: int, event_id: str, index_name: str) -> dict:
             for match in matches:
                 ioc = IOC.query.get(match.ioc_id)
                 if ioc:
-                    ioc_values.append(ioc.value.lower())
+                    ioc_values.append(ioc.ioc_value.lower())
         
         # Convert source dict to field list (sorted for consistency)
         fields = []
