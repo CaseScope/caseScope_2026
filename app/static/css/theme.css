@@ -640,6 +640,40 @@ tbody tr:last-child td {
     align-items: center;
 }
 
+/* Nested field styles */
+.nested-field-row {
+    background: var(--color-bg-tertiary) !important;
+}
+
+.nested-toggle {
+    display: inline-block;
+    user-select: none;
+    font-weight: 600;
+}
+
+.nested-toggle:hover {
+    color: var(--color-primary);
+}
+
+.nested-table {
+    margin: 0;
+    background: var(--color-bg-primary);
+}
+
+.nested-table tr {
+    border-bottom: 1px solid var(--color-border-light);
+}
+
+.nested-dict, .nested-list {
+    padding: var(--spacing-xs) 0;
+}
+
+.list-item {
+    padding: var(--spacing-xs) 0;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.9rem;
+}
+
 
 /* ============================================================================
    BUTTONS
