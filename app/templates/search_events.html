@@ -1360,6 +1360,21 @@ function closeEventModal() {
     document.getElementById('eventModal').style.display = 'none';
 }
 
+// Toggle nested fields in event details modal
+function toggleNested(id) {
+    const row = document.getElementById('nested_' + id);
+    const toggleElement = event.currentTarget;
+    if (row && toggleElement) {
+        if (row.style.display === 'none' || row.style.display === '') {
+            row.style.display = 'table-row';
+            toggleElement.innerHTML = toggleElement.innerHTML.replace('▶', '▼');
+        } else {
+            row.style.display = 'none';
+            toggleElement.innerHTML = toggleElement.innerHTML.replace('▼', '▶');
+        }
+    }
+}
+
 // ============================================================================
 // EVENT STATUS SYSTEM (Unified status management)
 // ============================================================================

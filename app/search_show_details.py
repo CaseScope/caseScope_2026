@@ -267,23 +267,6 @@ def render_event_details_html(event_data: dict) -> str:
     
     html_parts.append('</table>')
     
-    # Add JavaScript for toggle functionality
-    html_parts.append('''
-    <script>
-    function toggleNested(id) {
-        const row = document.getElementById('nested_' + id);
-        const toggle = event.currentTarget.querySelector('.nested-toggle') || event.currentTarget;
-        if (row.style.display === 'none') {
-            row.style.display = '';
-            toggle.innerHTML = toggle.innerHTML.replace('▶', '▼');
-        } else {
-            row.style.display = 'none';
-            toggle.innerHTML = toggle.innerHTML.replace('▼', '▶');
-        }
-    }
-    </script>
-    ''')
-    
     return ''.join(html_parts)
 
 
