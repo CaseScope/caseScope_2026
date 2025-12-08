@@ -17,13 +17,14 @@ High-Confidence Criteria (auto-mark as 'hunted'):
 
 Filtering:
 - Excludes events with event_status='noise'
+- Excludes events with event_status='confirmed' (analyst-confirmed events are IMMUTABLE)
 - Applies noise filtering to avoid false positives
 - Checks against known good systems
 
 Usage:
     from ai_triage_tag_iocs import tag_high_confidence_events
     
-    result = tag_high_confidence_events(case_id, user_id)
+    result = tag_high_confidence_events(case_id, user_id, time_range='24h')
     # Returns: {'success': bool, 'hunted_count': int, 'events_found': int, ...}
 """
 
@@ -194,6 +195,88 @@ def get_known_system_ips(case_id: int) -> Set[str]:
     return known_ips
 
 
+def get_time_range_filter(case_id: int, time_range: str) -> Optional[Dict]:
+    """
+    Get time range filter for OpenSearch query.
+    
+    Uses the newest event timestamp as the end date, works backwards.
+    
+    Args:
+        case_id: Case ID
+        time_range: '24h', '3d', '7d', or 'all'
+    
+    Returns:
+        Dict with 'range' query clause, or None if 'all'
+        Also returns {'start_date': str, 'end_date': str} for display
+    """
+    from main import opensearch_client
+    from datetime import datetime, timedelta
+    
+    if time_range == 'all':
+        return None
+    
+    index_name = f"case_{case_id}"
+    
+    try:
+        # Get the newest event timestamp
+        response = opensearch_client.search(
+            index=index_name,
+            body={
+                "size": 1,
+                "sort": [{"@timestamp": {"order": "desc"}}],
+                "_source": ["@timestamp"]
+            }
+        )
+        
+        if not response['hits']['hits']:
+            return None
+        
+        newest_event = response['hits']['hits'][0]['_source']
+        end_timestamp = newest_event.get('@timestamp')
+        
+        if not end_timestamp:
+            return None
+        
+        # Parse end timestamp
+        if isinstance(end_timestamp, str):
+            end_dt = datetime.fromisoformat(end_timestamp.replace('Z', '+00:00'))
+        else:
+            end_dt = datetime.utcnow()
+        
+        # Calculate start timestamp based on time range
+        if time_range == '24h':
+            start_dt = end_dt - timedelta(hours=24)
+        elif time_range == '3d':
+            start_dt = end_dt - timedelta(days=3)
+        elif time_range == '7d':
+            start_dt = end_dt - timedelta(days=7)
+        else:
+            return None
+        
+        # Format for OpenSearch
+        start_iso = start_dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        end_iso = end_dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        
+        logger.info(f"[TAG_IOC] Time range filter: {start_dt.strftime('%Y-%m-%d %H:%M')} to {end_dt.strftime('%Y-%m-%d %H:%M')}")
+        
+        return {
+            'filter': {
+                "range": {
+                    "@timestamp": {
+                        "gte": start_iso,
+                        "lte": end_iso
+                    }
+                }
+            },
+            'start_date': start_dt.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            'end_date': end_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+        }
+        
+    except Exception as e:
+        logger.warning(f"[TAG_IOC] Failed to get time range filter: {e}")
+        return None
+
+
 def is_noise_event(event: Dict) -> bool:
     """
     Check if event is likely noise and should not be tagged.
@@ -261,10 +344,17 @@ def is_noise_event(event: Dict) -> bool:
     return False
 
 
-def build_ioc_search_query(iocs: List[Dict], actor_hostnames: Set[str], actor_ips: Set[str]) -> Dict:
+def build_ioc_search_query(iocs: List[Dict], actor_hostnames: Set[str], actor_ips: Set[str], 
+                          time_range_filter: Optional[Dict] = None) -> Dict:
     """
     Build OpenSearch query to find events matching high-confidence IOCs.
-    Excludes events with event_status='noise'.
+    Excludes events with event_status='noise' or 'confirmed'.
+    
+    Args:
+        iocs: List of IOC dicts
+        actor_hostnames: Set of actor hostnames
+        actor_ips: Set of actor IPs
+        time_range_filter: Optional time range filter from get_time_range_filter()
     """
     should_clauses = []
     
@@ -308,15 +398,26 @@ def build_ioc_search_query(iocs: List[Dict], actor_hostnames: Set[str], actor_ip
     if not should_clauses:
         return None
     
+    # Build query with optional time range filter
+    # CRITICAL: Exclude 'noise' and 'confirmed' events
+    # - noise: Already processed and marked as noise
+    # - confirmed: Analyst-confirmed events are IMMUTABLE
+    bool_query = {
+        "should": should_clauses,
+        "minimum_should_match": 1,
+        "must_not": [
+            {"term": {"event_status": "noise"}},
+            {"term": {"event_status": "confirmed"}}
+        ]
+    }
+    
+    # Add time range filter if provided
+    if time_range_filter and time_range_filter.get('filter'):
+        bool_query["filter"] = time_range_filter['filter']
+    
     query = {
         "query": {
-            "bool": {
-                "should": should_clauses,
-                "minimum_should_match": 1,
-                "must_not": [
-                    {"term": {"event_status": "noise"}}
-                ]
-            }
+            "bool": bool_query
         },
         "size": 10000,  # Max per batch
         "_source": True
@@ -492,7 +593,7 @@ def determine_match_reason(event: Dict, iocs: List[Dict], actor_hostnames: Set[s
 # MAIN ENTRY POINT
 # ============================================================================
 
-def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
+def tag_high_confidence_events(case_id: int, user_id: int, time_range: str = '24h') -> Dict[str, Any]:
     """
     Main entry point for marking high-confidence IOC events as 'hunted'.
     
@@ -506,6 +607,8 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
     Args:
         case_id: Case ID to process
         user_id: User ID for status attribution
+        time_range: Time range filter ('24h', '3d', '7d', 'all')
+                   Uses newest event timestamp as end date, works backwards
     
     Returns:
         {
@@ -518,12 +621,14 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             'actor_count': int,
             'pattern_matches': int,
             'multi_ioc_matches': int,
+            'time_range_used': str,
+            'date_range': {'start': str, 'end': str},
             'error': str (if failed)
         }
     """
     from models import db
     
-    logger.info(f"[TAG_IOC] Starting high-confidence tagging for case {case_id}")
+    logger.info(f"[TAG_IOC] Starting high-confidence tagging for case {case_id}, time_range={time_range}")
     
     try:
         # Get high-confidence IOCs
@@ -546,11 +651,20 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
                 'actor_count': 0
             }
         
+        # Get time range filter
+        time_range_filter = get_time_range_filter(case_id, time_range)
+        date_range = {}
+        if time_range_filter:
+            date_range = {
+                'start': time_range_filter.get('start_date', ''),
+                'end': time_range_filter.get('end_date', '')
+            }
+        
         # Get known system IPs (to avoid false positives)
         known_ips = get_known_system_ips(case_id)
         
-        # Build search query
-        query = build_ioc_search_query(iocs, actor_hostnames, actor_ips)
+        # Build search query with time range filter
+        query = build_ioc_search_query(iocs, actor_hostnames, actor_ips, time_range_filter)
         if not query:
             return {
                 'success': False,
@@ -658,7 +772,9 @@ def tag_high_confidence_events(case_id: int, user_id: int) -> Dict[str, Any]:
             'ioc_count': len(iocs),
             'actor_count': actor_count,
             'pattern_matches': pattern_matches,
-            'multi_ioc_matches': multi_ioc_matches
+            'multi_ioc_matches': multi_ioc_matches,
+            'time_range_used': time_range,
+            'date_range': date_range
         }
         
     except Exception as e:

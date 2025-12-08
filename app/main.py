@@ -2465,6 +2465,7 @@ def triage_tag_events(case_id):
     """
     Tag events containing high-confidence IOCs.
     Auto-tags events matching commands, actor IPs/hostnames, high-threat IOCs.
+    Accepts time_range parameter: '24h', '3d', '7d', or 'all'
     """
     from ai_triage_tag_iocs import tag_high_confidence_events, get_tagging_summary
     
@@ -2476,8 +2477,16 @@ def triage_tag_events(case_id):
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
+    # Get time range from request body
+    data = request.get_json() or {}
+    time_range = data.get('time_range', '24h')
+    
+    # Validate time range
+    if time_range not in ['24h', '3d', '7d', 'all']:
+        return jsonify({'success': False, 'error': f'Invalid time range: {time_range}'}), 400
+    
     try:
-        result = tag_high_confidence_events(case_id, current_user.id)
+        result = tag_high_confidence_events(case_id, current_user.id, time_range=time_range)
         
         if result.get('success'):
             return jsonify({
@@ -2490,7 +2499,9 @@ def triage_tag_events(case_id):
                 'multi_ioc_matches': result.get('multi_ioc_matches', 0),
                 'ioc_count': result.get('ioc_count', 0),
                 'actor_count': result.get('actor_count', 0),
-                'message': result.get('message', '')
+                'message': result.get('message', ''),
+                'time_range_used': result.get('time_range_used', ''),
+                'date_range': result.get('date_range', {})
             })
         else:
             return jsonify({
@@ -5029,6 +5040,8 @@ def bulk_delete_files(case_id):
         clear_case_opensearch_indices,
         clear_case_sigma_violations,
         clear_case_ioc_matches,
+        clear_event_statuses,
+        clear_timeline_tags,
         get_case_files
     )
     
@@ -5059,11 +5072,24 @@ def bulk_delete_files(case_id):
     except Exception as e:
         errors.append(f"OpenSearch error: {str(e)}")
     
-    # 2. Clear all SIGMA violations and IOC matches for this case
+    # 2. Clear all SIGMA violations, IOC matches, EventStatus, and TimelineTags for this case
     try:
         sigma_deleted = clear_case_sigma_violations(db, case_id)
         ioc_deleted = clear_case_ioc_matches(db, case_id)
-        logger.info(f"[BULK DELETE] Cleared {sigma_deleted} SIGMA violations and {ioc_deleted} IOC matches")
+        event_status_deleted = clear_event_statuses(db, scope='case', case_id=case_id)
+        timeline_deleted = clear_timeline_tags(db, scope='case', case_id=case_id)
+        
+        # Clear SearchHistory for this case
+        search_history_deleted = db.session.query(SearchHistory).filter_by(case_id=case_id).delete(synchronize_session=False)
+        
+        # Clear ReindexProgress for this case
+        reindex_progress_deleted = db.session.query(ReindexProgress).filter_by(case_id=case_id).delete(synchronize_session=False)
+        
+        db.session.commit()
+        
+        logger.info(f"[BULK DELETE] Cleared {sigma_deleted} SIGMA violations, {ioc_deleted} IOC matches, "
+                   f"{event_status_deleted} EventStatus records, {timeline_deleted} TimelineTags, "
+                   f"{search_history_deleted} SearchHistory records, and {reindex_progress_deleted} ReindexProgress records")
     except Exception as e:
         errors.append(f"Database cleanup error: {str(e)}")
     

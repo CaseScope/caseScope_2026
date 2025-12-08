@@ -1882,10 +1882,22 @@ function pollHideKnownGoodStatus(caseId, taskId) {
         
         switch (data.status) {
             case 'processing':
-                progressBar.style.width = (data.percent || 0) + '%';
-                progressPercent.textContent = (data.percent || 0) + '%';
-                progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
-                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
+                // Calculate percentage from workers
+                const completed = data.workers_completed || 0;
+                const total = data.workers_total || 8;
+                const percent = Math.round((completed / total) * 100);
+                
+                progressBar.style.width = percent + '%';
+                progressPercent.textContent = percent + '%';
+                progressProcessed.textContent = `Workers: ${completed}/${total} completed`;
+                progressFound.textContent = data.message || 'Processing...';
+                setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
+                break;
+            case 'pending':
+                progressBar.style.width = '0%';
+                progressPercent.textContent = '0%';
+                progressProcessed.textContent = 'Starting workers...';
+                progressFound.textContent = 'Please wait';
                 setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
                 break;
             case 'complete':
@@ -2006,10 +2018,22 @@ function pollHideNoiseStatus(caseId, taskId) {
     .then(data => {
         switch (data.status) {
             case 'processing':
-                progressBar.style.width = (data.percent || 0) + '%';
-                progressPercent.textContent = (data.percent || 0) + '%';
-                progressProcessed.textContent = `${(data.processed || 0).toLocaleString()} events scanned`;
-                progressFound.textContent = `${(data.found || 0).toLocaleString()} matches found`;
+                // Calculate percentage from workers
+                const completed = data.workers_completed || 0;
+                const total = data.workers_total || 8;
+                const percent = Math.round((completed / total) * 100);
+                
+                progressBar.style.width = percent + '%';
+                progressPercent.textContent = percent + '%';
+                progressProcessed.textContent = `Workers: ${completed}/${total} completed`;
+                progressFound.textContent = data.message || 'Processing...';
+                setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
+                break;
+            case 'pending':
+                progressBar.style.width = '0%';
+                progressPercent.textContent = '0%';
+                progressProcessed.textContent = 'Starting workers...';
+                progressFound.textContent = 'Please wait';
                 setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
                 break;
             case 'complete':

@@ -497,10 +497,24 @@
             <button type="button" class="modal-close" onclick="closeTagEventsModal()">✕</button>
         </div>
         <div class="modal-body">
+            <div id="tagEventsConfig" style="margin-bottom: var(--spacing-lg);">
+                <label class="form-label" for="tagEventsTimeRange">Time Range to Search</label>
+                <select id="tagEventsTimeRange" class="form-input" style="width: 100%;">
+                    <option value="24h">Last 24 Hours (from newest event)</option>
+                    <option value="3d">Last 3 Days (from newest event)</option>
+                    <option value="7d">Last 7 Days (from newest event)</option>
+                    <option value="all">All Events (entire dataset)</option>
+                </select>
+                <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: var(--spacing-sm);">
+                    Limits search to events within the selected timeframe, using the newest event timestamp as the end date.
+                </p>
+            </div>
+            
             <div id="tagEventsProgress" style="display: none;">
                 <div style="text-align: center; padding: var(--spacing-xl);">
                     <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
                     <p style="color: var(--color-text-muted);">Searching for high-confidence events...</p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);" id="tagEventsTimeRangeDisplay"></p>
                     <p style="font-size: 0.85rem; color: var(--color-text-muted);">Matching 3+ IOCs, attack patterns, and high-threat indicators.</p>
                 </div>
             </div>
@@ -516,6 +530,10 @@
         </div>
         <div class="modal-footer">
             <button type="button" onclick="closeTagEventsModal()" class="btn btn-secondary">Close</button>
+            <button type="button" onclick="startTagHighConfidenceEvents()" class="btn btn-primary" id="startTagBtn">
+                <span>🎯</span>
+                <span>Start Marking</span>
+            </button>
             <a href="{{ url_for('search_events', case_id=case.id) }}?status_filter=hunted" class="btn btn-primary" id="viewTaggedBtn" style="display: none;">
                 <span>👁️</span>
                 <span>View Hunted Events</span>
@@ -998,12 +1016,31 @@ function addFoundIOCs() {
 // ============================================================================
 
 function tagHighConfidenceEvents() {
-    // Show modal with progress
+    // Show modal with config (don't hide config section yet)
     document.getElementById('tagEventsModal').style.display = 'flex';
-    document.getElementById('tagEventsProgress').style.display = 'block';
+    document.getElementById('tagEventsConfig').style.display = 'block';
+    document.getElementById('tagEventsProgress').style.display = 'none';
     document.getElementById('tagEventsResults').style.display = 'none';
     document.getElementById('tagEventsError').style.display = 'none';
     document.getElementById('viewTaggedBtn').style.display = 'none';
+}
+
+function startTagHighConfidenceEvents() {
+    // Get selected time range
+    const timeRange = document.getElementById('tagEventsTimeRange').value;
+    
+    // Hide config, show progress
+    document.getElementById('tagEventsConfig').style.display = 'none';
+    document.getElementById('tagEventsProgress').style.display = 'block';
+    
+    // Update time range display
+    const timeRangeText = {
+        '24h': 'Searching last 24 hours from newest event...',
+        '3d': 'Searching last 3 days from newest event...',
+        '7d': 'Searching last 7 days from newest event...',
+        'all': 'Searching all events in dataset...'
+    };
+    document.getElementById('tagEventsTimeRangeDisplay').textContent = timeRangeText[timeRange] || '';
     
     // Disable button during processing
     const btn = document.getElementById('tagEventsBtn');
@@ -1012,12 +1049,13 @@ function tagHighConfidenceEvents() {
         btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Marking...</span>';
     }
     
-    // Call API
+    // Call API with time range
     fetch(`/case/${CASE_ID}/triage/tag-events`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ time_range: timeRange })
     })
     .then(response => response.json())
     .then(data => {
@@ -1046,6 +1084,7 @@ function tagHighConfidenceEvents() {
 
 function showTagEventsResults(data) {
     document.getElementById('tagEventsResults').style.display = 'block';
+    document.getElementById('startTagBtn').style.display = 'none';
     
     const hunted_count = data.hunted_count || 0;
     const already_hunted = data.already_hunted || 0;
@@ -1055,6 +1094,8 @@ function showTagEventsResults(data) {
     const events_found = data.events_found || 0;
     const ioc_count = data.ioc_count || 0;
     const actor_count = data.actor_count || 0;
+    const time_range_used = data.time_range_used || '';
+    const date_range = data.date_range || {};
     
     // Build summary HTML
     let summaryHtml = `
@@ -1066,6 +1107,10 @@ function showTagEventsResults(data) {
                 ${hunted_count.toLocaleString()} Events Marked as 'Hunted'
             </div>
             ${data.message ? `<p style="color: var(--color-text-muted);">${data.message}</p>` : ''}
+            ${time_range_used && date_range.start && date_range.end ? 
+                `<p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: var(--spacing-sm);">
+                    📅 Time Range: ${date_range.start} to ${date_range.end} (${time_range_used})
+                </p>` : ''}
         </div>
         
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-lg);">
@@ -1111,6 +1156,13 @@ function showTagEventsResults(data) {
 
 function closeTagEventsModal() {
     document.getElementById('tagEventsModal').style.display = 'none';
+    // Reset to config view
+    document.getElementById('tagEventsConfig').style.display = 'block';
+    document.getElementById('tagEventsProgress').style.display = 'none';
+    document.getElementById('tagEventsResults').style.display = 'none';
+    document.getElementById('tagEventsError').style.display = 'none';
+    document.getElementById('startTagBtn').style.display = 'inline-flex';
+    document.getElementById('viewTaggedBtn').style.display = 'none';
 }
 
 // ============================================================================

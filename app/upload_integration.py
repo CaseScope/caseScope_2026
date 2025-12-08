@@ -262,17 +262,24 @@ def handle_chunked_upload_finalize_v96(app, db, Case, CaseFile, SkippedFile, cel
         # STEP 4: Filter zero-event files
         filter_stats = filter_zero_event_files(db, CaseFile, SkippedFile, queue_stats['queue'], case_id)
         
-        # STEP 5: Queue valid files for processing
+        # STEP 5: Queue valid files for processing and trigger coordinator
+        valid_file_ids = []
         for file_id, fname, file_path, event_count in filter_stats['filtered_queue']:
             # Update uploader
             case_file = db.session.get(CaseFile, file_id)
             if case_file:
                 case_file.uploaded_by = current_user.id
-            
-            # Queue for processing
-            celery_app.send_task('tasks.process_file', args=[file_id, 'full'])
+                case_file.indexing_status = 'Queued'  # Mark as queued
+                case_file.is_indexed = False
+                valid_file_ids.append(file_id)
         
         db.session.commit()
+        
+        # Trigger the NEW coordinator to process all uploaded files
+        if valid_file_ids:
+            from coordinator_index import index_new_files_task
+            task = index_new_files_task.delay(case_id)
+            app.logger.info(f"[Upload] Triggered coordinator for case {case_id} (task_id: {task.id})")
         
         # Audit log
         try:
@@ -284,7 +291,8 @@ def handle_chunked_upload_finalize_v96(app, db, Case, CaseFile, SkippedFile, cel
                           'case_id': case_id,
                           'case_name': case.name if case else None,
                           'files_queued': filter_stats['valid_files'],
-                          'duplicates_skipped': queue_stats['duplicates_skipped']
+                          'duplicates_skipped': queue_stats['duplicates_skipped'],
+                          'coordinator_task_id': task.id if valid_file_ids else None
                       })
         except Exception as e:
             app.logger.warning(f"[AUDIT] Failed to log upload: {e}")

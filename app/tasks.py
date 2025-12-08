@@ -932,11 +932,18 @@ def bulk_import_directory(self, case_id):
                 'zero_event_files': filter_result.get('zero_events', 0)
             })
             
-            # Step 6: Queue valid files for processing
-            # Get CaseFile objects for the filtered queue
+            # Step 6: Mark files as queued and trigger coordinator
             if valid_count > 0:
                 file_ids = [item[0] for item in filter_result['filtered_queue']]
                 case_files = db.session.query(CaseFile).filter(CaseFile.id.in_(file_ids)).all()
+                
+                # Mark all files as 'Queued' for coordinator
+                for cf in case_files:
+                    cf.indexing_status = 'Queued'
+                    cf.is_indexed = False
+                    cf.celery_task_id = None
+                
+                db.session.commit()
                 
                 # Update progress while queueing
                 self.update_state(state='PROGRESS', meta={
@@ -947,8 +954,12 @@ def bulk_import_directory(self, case_id):
                     'queued_count': len(case_files)
                 })
                 
-                queue_file_processing(process_file, case_files, operation='full', db_session=db.session)
-                logger.info(f"[BULK IMPORT] Queued {len(case_files)} files for processing")
+                # Trigger NEW coordinator to process all files
+                from coordinator_index import index_new_files_task
+                coordinator_task = index_new_files_task.delay(case_id)
+                logger.info(f"[BULK IMPORT] Triggered coordinator for {len(case_files)} files (task_id: {coordinator_task.id})")
+            else:
+                logger.info("[BULK IMPORT] No valid files to queue")
             
             # Clean up staging
             clear_staging(case_id)

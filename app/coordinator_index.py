@@ -134,14 +134,35 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
             from events_known_good import hide_known_good_all_task, has_exclusions_configured
             
             if has_exclusions_configured():
-                # Dispatch task (don't block on result - let it run independently)
+                # Dispatch task and WAIT for completion
                 kg_task = hide_known_good_all_task.delay(case_id)
-                logger.info(f"[INDEX_COORDINATOR] Known-Good filtering dispatched (task_id: {kg_task.id})")
+                logger.info(f"[INDEX_COORDINATOR] Known-Good filtering dispatched (task_id: {kg_task.id}), waiting for completion...")
                 
-                # Mark as completed (the task will update its own progress)
-                result['phases_completed'].append('known_good')
-                result['stats']['known_good'] = {'status': 'dispatched', 'task_id': str(kg_task.id)}
-                update_phase(case_id, operation, 3, 'Known-Good Filter', 'completed', 'Filtering in progress')
+                # Poll for completion (database polling, not .get())
+                import time
+                kg_start_time = time.time()
+                timeout = 3600  # 1 hour max
+                poll_interval = 5  # Check every 5 seconds
+                
+                while not kg_task.ready():
+                    elapsed = time.time() - kg_start_time
+                    if elapsed > timeout:
+                        logger.error(f"[INDEX_COORDINATOR] Known-Good filter timeout after {elapsed:.0f}s")
+                        result['errors'].append(f'Known-Good filter timeout after {elapsed:.0f}s')
+                        break
+                    time.sleep(poll_interval)
+                
+                # Get result
+                try:
+                    kg_result = kg_task.get(timeout=10)
+                    result['phases_completed'].append('known_good')
+                    result['stats']['known_good'] = kg_result
+                    logger.info(f"[INDEX_COORDINATOR] Known-Good filter complete: {kg_result.get('total_hidden', 0)} events hidden")
+                    update_phase(case_id, operation, 3, 'Known-Good Filter', 'completed', f"{kg_result.get('total_hidden', 0)} events marked as known-good")
+                except Exception as e:
+                    logger.error(f"[INDEX_COORDINATOR] Known-Good filter failed: {e}")
+                    result['errors'].append(f'Known-Good filter failed: {e}')
+                    update_phase(case_id, operation, 3, 'Known-Good Filter', 'failed', str(e))
             else:
                 result['phases_completed'].append('known_good')
                 result['stats']['known_good'] = {'total_hidden': 0}
@@ -156,14 +177,31 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
             
             from events_known_noise import hide_noise_all_task
             
-            # Dispatch task (don't block on result - let it run independently)
+            # Dispatch task and WAIT for completion
             noise_task = hide_noise_all_task.delay(case_id)
-            logger.info(f"[INDEX_COORDINATOR] Known-Noise filtering dispatched (task_id: {noise_task.id})")
+            logger.info(f"[INDEX_COORDINATOR] Known-Noise filtering dispatched (task_id: {noise_task.id}), waiting for completion...")
             
-            # Mark as completed (the task will update its own progress)
-            result['phases_completed'].append('known_noise')
-            result['stats']['known_noise'] = {'status': 'dispatched', 'task_id': str(noise_task.id)}
-            update_phase(case_id, operation, 4, 'Known-Noise Filter', 'completed', 'Filtering in progress')
+            # Poll for completion
+            noise_start_time = time.time()
+            while not noise_task.ready():
+                elapsed = time.time() - noise_start_time
+                if elapsed > timeout:
+                    logger.error(f"[INDEX_COORDINATOR] Known-Noise filter timeout after {elapsed:.0f}s")
+                    result['errors'].append(f'Known-Noise filter timeout after {elapsed:.0f}s')
+                    break
+                time.sleep(poll_interval)
+            
+            # Get result
+            try:
+                noise_result = noise_task.get(timeout=10)
+                result['phases_completed'].append('known_noise')
+                result['stats']['known_noise'] = noise_result
+                logger.info(f"[INDEX_COORDINATOR] Known-Noise filter complete: {noise_result.get('total_hidden', 0)} events hidden")
+                update_phase(case_id, operation, 4, 'Known-Noise Filter', 'completed', f"{noise_result.get('total_hidden', 0)} events marked as noise")
+            except Exception as e:
+                logger.error(f"[INDEX_COORDINATOR] Known-Noise filter failed: {e}")
+                result['errors'].append(f'Known-Noise filter failed: {e}')
+                update_phase(case_id, operation, 4, 'Known-Noise Filter', 'failed', str(e))
             
             # ===============================================================
             # PHASE 5: IOC MATCHING

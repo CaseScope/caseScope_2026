@@ -382,8 +382,72 @@ def clear_all_queued_files(case_id):
 
 **Solution Patterns:**
 
-### Pattern 1: Remove Blocking Calls - Use Database Polling Instead
-Replace `result.get()` with database polling (wait for status changes):
+### Pattern 1: Use `group_result.get()` for Parallel Worker Coordinators (✅ CORRECT)
+
+When a Celery task needs to collect results from parallel workers (using `group()`), use **`group_result.get(propagate=False)`**:
+
+```python
+@celery_app.task(bind=True)
+def coordinator_task(self, case_id: int):
+    from celery import group
+    import time
+    
+    MAX_SLICES = 8
+    
+    # Dispatch 8 parallel workers
+    job = group([
+        worker_task.s(case_id, i, MAX_SLICES)
+        for i in range(MAX_SLICES)
+    ])
+    group_result = job.apply_async()
+    
+    # Poll for completion without blocking on .get()
+    while not group_result.ready():
+        completed = sum(1 for r in group_result.results if r.ready())
+        self.update_state(
+            state='PROGRESS',
+            meta={'workers_completed': completed, 'workers_total': MAX_SLICES}
+        )
+        time.sleep(2)
+    
+    # ✅ CORRECT - Use group_result.get() to collect results
+    try:
+        worker_results = group_result.get(timeout=60, propagate=False)
+    except Exception as e:
+        return {'status': 'error', 'errors': [str(e)]}
+    
+    # Process results
+    total = 0
+    for worker_data in worker_results:
+        if worker_data and isinstance(worker_data, dict):
+            total += worker_data.get('count', 0)
+    
+    return {'status': 'success', 'total': total}
+```
+
+**⚠️ CRITICAL NOTES:**
+- **`.get()` on GroupResult is ALLOWED** - it's specifically designed for this use case
+- **`propagate=False`** prevents exceptions from being re-raised (returns them as values instead)
+- **DO NOT iterate** over `group_result.results` and call `.result` or `.get()` on individual AsyncResult objects
+- **DO NOT use** `group_result.join()` - it also triggers the deadlock protection error!
+
+**Common Mistakes:**
+```python
+# ❌ WRONG - Iterating over individual AsyncResult objects
+for worker_result in group_result.results:
+    data = worker_result.result  # Triggers error!
+
+# ❌ WRONG - .join() also triggers the error (unexpected!)
+worker_results = group_result.join(timeout=60, propagate=False)  # Still fails!
+
+# ❌ WRONG - .get() on individual AsyncResult
+for worker_result in group_result.results:
+    data = worker_result.get(timeout=5)  # Triggers error!
+```
+
+### Pattern 2: Remove Blocking Calls - Use Database Polling Instead
+
+For non-parallel operations, replace `result.get()` with database polling (wait for status changes):
 
 ```python
 # ✅ GOOD - Poll database instead of blocking on task
@@ -447,34 +511,41 @@ def reindex_task(case_id):
 
 **Where This Occurred:**
 - **v2.1.7-2.2.3:** `coordinator_resigma.py` called `processing_clear_metadata.clear_all_queued_files()` which used `result.get()` at lines 411 and 566
-- **Impact:** Re-SIGMA coordinator failed when dispatched from Flask via `.delay()` because it internally launched subtasks and blocked on them
+- **v2.2.x:** `events_known_good.py` and `events_known_noise.py` coordinators iterated over `group_result.results` and called `.result` property
+- **Dec 2025:** Same issue in `events_known_good.py` line 1031 and `events_known_noise.py` line 776 - used `.result` instead of `group_result.get()`
+- **Impact:** Coordinators failed with "Never call result.get() within a task!" when dispatched via `.delay()` because they tried to collect worker results using forbidden methods
 
 **Fixed By:**
-- Removing the clearing phase from `coordinator_resigma.py` entirely
-- Setting files to 'Indexed' status directly instead of launching a clearing task
-- SIGMA detection already clears old violations when it runs, so explicit clearing was redundant
+- **v2.2.4 (Re-SIGMA):** Removed clearing phase entirely, reset files directly in coordinator
+- **Dec 2025 (Known-Good/Noise):** Changed from iterating over `group_result.results` with `.result` to using `group_result.get(propagate=False)`
 
 **Files Affected:**
 - `app/coordinator_resigma.py` - Removed call to `clear_all_queued_files()` (Phase 1)
-- `app/processing_clear_metadata.py` - Contains `result.get()` at lines 411, 566 (should only be called from Flask routes, not from Celery tasks)
+- `app/processing_clear_metadata.py` - Contains `result.get()` at lines 411, 566 (should only be called from Flask routes)
+- `app/events_known_good.py` - Line 1026-1045: Changed to use `group_result.get(propagate=False)`
+- `app/events_known_noise.py` - Line 771-790: Changed to use `group_result.get(propagate=False)`
 
 **Version History:**
 - **v2.1.7:** Added Re-SIGMA coordinator with clearing phase - introduced `.get()` deadlock
-- **v2.2.4:** Fixed by removing clearing phase, resetting files directly in coordinator
+- **v2.2.4:** Fixed Re-SIGMA by removing clearing phase, resetting files directly in coordinator
+- **Dec 2025:** Fixed Known-Good/Noise coordinators by switching from `.result` property to `group_result.get(propagate=False)`
 
 **Prevention:**
-- **Never call `result.get()` inside a Celery task** - use database polling instead
-- Avoid functions that dispatch subtasks and block on results (like `clear_all_queued_files`) when called from Celery tasks
-- Use `result.get()` **only** in Flask routes/endpoints where blocking is acceptable
+- **For parallel workers:** Use `group_result.get(propagate=False)` to collect results - this is THE ONLY safe method
+- **Never iterate** over `group_result.results` and call `.result` or `.get()` on individual AsyncResult objects
+- **Never use** `group_result.join()` - it triggers the same error as `.result`!
+- **For single tasks:** Use database polling instead of blocking on task results
+- **Only in Flask routes:** `result.get()` is safe to use in request handlers (not in Celery tasks)
 - If a function uses `result.get()`, document it clearly: "⚠️ Can only be called from Flask routes, not from Celery tasks"
-- Prefer direct database operations over launching subtasks when already in a task context
 - Test coordinator functions both directly and via `.delay()` to catch this issue early
 
 **Debugging Tips:**
 - Error message explicitly says: `'Never call result.get() within a task!'`
-- Task returns SUCCESS but result contains error dict
+- Also triggered by: `worker_result.result`, `group_result.join()`, `worker_result.get()`
+- Task returns SUCCESS but result contains error dict with the above message
 - Check call chain: Flask → Task A → Function → Task B → `.get()` ❌
-- Use `grep "result\.get\(|\.get\(\)" filename.py` to find blocking calls
+- Use `grep "result\.get\(|\.result\|\.join\(" filename.py` to find blocking calls
+- Look for iteration over `group_result.results` - this is usually the culprit
 
 ---
 

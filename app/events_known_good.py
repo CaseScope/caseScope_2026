@@ -149,7 +149,7 @@ def has_exclusions_configured() -> bool:
 # SINGLE EVENT DETECTION
 # =============================================================================
 
-def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional[Dict] = None) -> bool:
+def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional[Dict] = None) -> tuple:
     """
     Check if an event matches known-good patterns.
     
@@ -159,7 +159,10 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
         exclusions: Pre-loaded exclusions (optional, will load if not provided)
     
     Returns:
-        True if event is known-good and should be hidden, False otherwise
+        Tuple of (is_match: bool, category: str, reason: str)
+        - is_match: True if event is known-good and should be hidden
+        - category: 'RMM', 'EDR', 'REMOTE', 'IP', or None
+        - reason: Detailed description (e.g., "ConnectWise Automate (ltsvc.exe)")
     
     Detection Logic:
         1. RMM: If executable pattern (with .exe context) in search_blob → KNOWN GOOD
@@ -184,68 +187,64 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
     # =========================================================================
     # CHECK 1: RMM Tools - EXE or PATH
     # =========================================================================
-    # 1. If RMM EXE found in blob = noise
-    # 2. If RMM path found in blob = noise
+    # Simple: If ANY RMM pattern is in search_blob → noise
+    # This catches:
+    #   - LTSVC.exe running
+    #   - net.exe stop LTService
+    #   - Processes with parent LTSVC.exe
+    #   - Any path containing c:\windows\ltsvc
     for rmm_pattern in rmm_patterns:
-        if '*' in rmm_pattern:
-            # Wildcard: "labtech*.exe" → need prefix + .exe in blob
-            prefix = rmm_pattern.split('*')[0]
-            if prefix and prefix in blob and '.exe' in blob:
-                logger.info(f"[KNOWN_GOOD] RMM EXE match: {rmm_pattern}")
-                return True
-        else:
-            # Exact: "ltsvc.exe" must be in blob
-            if rmm_pattern in blob:
-                logger.info(f"[KNOWN_GOOD] RMM EXE match: {rmm_pattern}")
-                return True
+        # Remove wildcard and .exe for simple matching
+        search_term = rmm_pattern.replace('*', '').replace('.exe', '').strip().lower()
+        if search_term and len(search_term) >= 3:  # Avoid false positives from short terms
+            if search_term in blob:
+                tool_name = _get_rmm_tool_name(rmm_pattern, exclusions)
+                logger.info(f"[KNOWN_GOOD] RMM match: {rmm_pattern} (search_term: {search_term})")
+                return (True, 'RMM', f'{tool_name} ({rmm_pattern})')
     
     # Check configured RMM paths from database
     for rmm_path in exclusions.get('rmm_paths', []):
-        if rmm_path and rmm_path in blob:
+        if rmm_path and rmm_path.lower().strip() in blob:
+            tool_name = _get_rmm_tool_name_by_path(rmm_path, exclusions)
             logger.info(f"[KNOWN_GOOD] RMM PATH match: {rmm_path}")
-            return True
+            return (True, 'RMM', f'{tool_name} (path: {rmm_path})')
     
     # =========================================================================
     # CHECK 2: Remote Tools - EXE + ID
     # =========================================================================
-    # If remote tool EXE AND ID in blob = noise
+    # Simple: If remote tool pattern AND ID both in search_blob → noise
     for tool_config in exclusions.get('remote_tools', []):
-        pattern = tool_config.get('pattern', '')
+        pattern = tool_config.get('pattern', '').lower().strip()
         if pattern and pattern in blob:
             for known_id in tool_config.get('known_good_ids', []):
-                if known_id and known_id in blob:
+                known_id_lower = str(known_id).lower().strip()
+                if known_id_lower and known_id_lower in blob:
                     logger.info(f"[KNOWN_GOOD] Remote tool match: {tool_config['name']} + {known_id}")
-                    return True
+                    return (True, 'REMOTE', f"{tool_config['name']} ({pattern} + ID)")
     
     # =========================================================================
     # CHECK 3: EDR Tools - EXE + Routine Keyword
     # =========================================================================
-    # If EDR tool EXE AND noise keyword(s) in blob = noise
-    # (unless response pattern also present → keep it, not noise!)
+    # Simple: If EDR pattern + routine keyword in search_blob → noise
+    # UNLESS response pattern also present (keep those!)
     for edr_config in exclusions.get('edr_tools', []):
         edr_executables = edr_config.get('executables', [])
         
-        # Check if EDR executable (with .exe context) is in blob
+        # Check if ANY EDR executable pattern is in blob
         edr_in_blob = False
         matched_exe = None
         for exe in edr_executables:
-            if '*' in exe:
-                prefix = exe.split('*')[0]
-                if prefix and prefix in blob and '.exe' in blob:
-                    edr_in_blob = True
-                    matched_exe = exe
-                    break
-            else:
-                if exe in blob:
-                    edr_in_blob = True
-                    matched_exe = exe
-                    break
+            search_term = exe.replace('*', '').replace('.exe', '').strip().lower()
+            if search_term and len(search_term) >= 3 and search_term in blob:
+                edr_in_blob = True
+                matched_exe = exe
+                break
         
         if edr_in_blob:
             # Check for response action - DON'T mark as noise (attacker activity!)
             if edr_config.get('keep_responses', True):
                 response_patterns = edr_config.get('response_patterns', [])
-                if any(pattern in blob for pattern in response_patterns if pattern):
+                if any(str(pattern).lower().strip() in blob for pattern in response_patterns if pattern):
                     logger.debug(f"[KNOWN_GOOD] EDR response action, keeping: {matched_exe}")
                     continue  # Don't mark as noise, check other rules
             
@@ -253,11 +252,10 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
             if edr_config.get('exclude_routine', True):
                 routine_commands = edr_config.get('routine_commands', [])
                 for routine in routine_commands:
-                    # Routine keyword must be present anywhere in blob
-                    # This is safe because we already verified EDR exe is present above
-                    if routine and routine in blob:
+                    routine_lower = str(routine).lower().strip()
+                    if routine_lower and routine_lower in blob:
                         logger.info(f"[KNOWN_GOOD] EDR routine match: exe={matched_exe}, keyword={routine}")
-                        return True
+                        return (True, 'EDR', f"{edr_config['name']} ({matched_exe} + routine)")
     
     # =========================================================================
     # CHECK 4: Known-Good Source IPs
@@ -271,15 +269,15 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
                     network = ipaddress.ip_network(ip_range, strict=False)
                     if ip_obj in network:
                         logger.debug(f"[KNOWN_GOOD] Known-good IP: {source_ip} in {ip_range}")
-                        return True
+                        return (True, 'IP', f'Known-good IP ({source_ip})')
                 else:
                     if ip_obj == ipaddress.ip_address(ip_range):
                         logger.debug(f"[KNOWN_GOOD] Known-good IP: {source_ip}")
-                        return True
+                        return (True, 'IP', f'Known-good IP ({source_ip})')
             except ValueError:
                 pass  # Invalid IP format
     
-    return False
+    return (False, None, None)
 
 
 def _extract_source_ip(event_data: Dict) -> Optional[str]:
@@ -298,6 +296,33 @@ def _extract_source_ip(event_data: Dict) -> Optional[str]:
         source_ip = source_ip[0] if source_ip else None
     
     return source_ip
+
+
+def _get_rmm_tool_name(exe_pattern: str, exclusions: Dict) -> str:
+    """Get the tool name for an RMM executable pattern."""
+    from models import SystemToolsSetting
+    try:
+        setting = SystemToolsSetting.query.filter(
+            SystemToolsSetting.setting_type == 'rmm_tool',
+            SystemToolsSetting.executable_pattern.ilike(f'%{exe_pattern}%')
+        ).first()
+        return setting.tool_name if setting else 'RMM Tool'
+    except:
+        return 'RMM Tool'
+
+
+def _get_rmm_tool_name_by_path(rmm_path: str, exclusions: Dict) -> str:
+    """Get the tool name for an RMM path."""
+    from models import SystemToolsSetting
+    try:
+        setting = SystemToolsSetting.query.filter(
+            SystemToolsSetting.setting_type == 'rmm_tool',
+            SystemToolsSetting.rmm_path.ilike(f'%{rmm_path}%')
+        ).first()
+        return setting.tool_name if setting else 'RMM Tool'
+    except:
+        return 'RMM Tool'
+
 
 
 # =============================================================================
@@ -337,6 +362,8 @@ def process_slice(
     
     # Sliced scroll query - each slice gets 1/N of events
     # Exclude events that already have status='noise' to avoid re-processing
+    # ALSO exclude 'confirmed' - analyst-confirmed events are IMMUTABLE
+    # NOTE: 'hunted' is NOT excluded - it's automatic and may be wrong, noise filters can override it
     query = {
         "size": batch_size,
         "slice": {
@@ -347,7 +374,8 @@ def process_slice(
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"event_status": "noise"}}
+                    {"term": {"event_status": "noise"}},
+                    {"term": {"event_status": "confirmed"}}
                 ]
             }
         }
@@ -375,10 +403,13 @@ def process_slice(
             search_blob = src.get('search_blob', '')
             scanned_count += 1
             
-            if is_known_good_event(src, search_blob, exclusions):
+            is_match, category, reason = is_known_good_event(src, search_blob, exclusions)
+            if is_match:
                 events_to_hide.append({
                     '_id': hit['_id'],
-                    '_index': hit['_index']
+                    '_index': hit['_index'],
+                    'noise_type': category,
+                    'noise_reason': reason
                 })
         
         # Get next batch
@@ -410,10 +441,11 @@ def bulk_hide_events(
 ) -> int:
     """
     Bulk update event status to 'noise' for known-good events.
+    Now includes noise_type and noise_reason fields in OpenSearch.
     
     Args:
-        events_to_hide: List of dicts with {_id, _index}
-        opensearch_client: OpenSearch client instance (not used anymore, kept for compatibility)
+        events_to_hide: List of dicts with {_id, _index, noise_type, noise_reason}
+        opensearch_client: OpenSearch client instance
         index_name: Index name (used to extract case_id if not provided)
         case_id: Case ID for status updates (optional, extracted from index_name if not provided)
     
@@ -437,15 +469,42 @@ def bulk_hide_events(
     marked_count = 0
     bulk_batch_size = 500
     
-    # Update database EventStatus to 'noise' for all matched events
+    # Update OpenSearch with noise_type and noise_reason
     for i in range(0, len(events_to_hide), bulk_batch_size):
         batch = events_to_hide[i:i + bulk_batch_size]
         
+        # Build bulk update for OpenSearch
+        bulk_body = []
+        for evt in batch:
+            bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
+            bulk_body.append({
+                "doc": {
+                    "event_status": "noise",
+                    "noise_type": evt.get('noise_type', 'UNKNOWN'),
+                    "noise_reason": evt.get('noise_reason', 'Known-good pattern')
+                }
+            })
+        
+        try:
+            from main import opensearch_client as os_client
+            bulk_result = os_client.bulk(body=bulk_body, refresh=False)
+            
+            if not bulk_result.get('errors'):
+                marked_count += len(batch)
+            else:
+                # Count successful updates
+                for item in bulk_result.get('items', []):
+                    if item.get('update', {}).get('status') in [200, 201]:
+                        marked_count += 1
+        except Exception as e:
+            logger.error(f"[KNOWN_GOOD] OpenSearch bulk update failed: {e}")
+        
+        # Update database EventStatus to 'noise'
         try:
             from event_status import bulk_set_status, STATUS_NOISE
             event_ids = [evt['_id'] for evt in batch]
-            bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-marked as known-good")
-            marked_count += len(event_ids)
+            notes = f"Auto-marked as known-good: {batch[0].get('noise_type', 'UNKNOWN')}"
+            bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes=notes)
             logger.info(f"[KNOWN_GOOD] Marked {len(event_ids)} events as noise (batch {i // bulk_batch_size + 1})")
         except Exception as e:
             logger.error(f"[KNOWN_GOOD] Failed to update EventStatus for batch: {e}")
@@ -454,8 +513,10 @@ def bulk_hide_events(
 
 
 # =============================================================================
-# BULK HIDE OPERATION (legacy single-threaded)
+# LEGACY FUNCTION - NOT USED (kept for backward compatibility with old tasks.py)
 # =============================================================================
+# The system now uses process_slice_worker() + bulk_hide_events() via coordinator
+# This function is only called from deprecated tasks.py code
 
 def hide_known_good_events(
     case_id: int,
@@ -546,10 +607,13 @@ def hide_known_good_events(
             search_blob = src.get('search_blob', '')
             processed_count += 1
             
-            if is_known_good_event(src, search_blob, exclusions):
+            is_match, category, reason = is_known_good_event(src, search_blob, exclusions)
+            if is_match:
                 events_to_hide.append({
                     '_id': hit['_id'],
-                    '_index': hit['_index']
+                    '_index': hit['_index'],
+                    'noise_type': category,
+                    'noise_reason': reason
                 })
         
         # Progress callback
@@ -945,7 +1009,7 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
             
             start_time = time.time()
             timeout = 3600  # 1 hour max
-            poll_interval = 5  # Check every 5 seconds
+            poll_interval = 2  # Check every 2 seconds
             
             while not group_result.ready():
                 elapsed = time.time() - start_time
@@ -955,33 +1019,47 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
                     result['errors'].append(f'Timeout after {elapsed:.0f}s')
                     return result
                 
-                time.sleep(poll_interval)
-                
-                # Update progress
+                # Count completed workers
                 completed = sum(1 for r in group_result.results if r.ready())
                 logger.debug(f"[KNOWN_GOOD_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers complete")
+                
+                # Update progress for frontend
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'status': 'processing',
+                        'workers_completed': completed,
+                        'workers_total': MAX_SLICES,
+                        'message': f'{completed}/{MAX_SLICES} workers completed'
+                    }
+                )
+                
+                time.sleep(poll_interval)
             
             # Collect results from all workers
             logger.info(f"[KNOWN_GOOD_COORDINATOR] All workers complete, collecting results...")
             
-            for worker_result in group_result.results:
-                try:
-                    # Use .result property instead of .get(timeout) since we already waited with polling
-                    worker_data = worker_result.result
-                    
-                    if worker_data and worker_data.get('status') == 'success':
-                        result['workers_completed'] += 1
-                        result['total_scanned'] += worker_data.get('scanned', 0)
-                        result['total_hidden'] += worker_data.get('hidden', 0)
-                    else:
-                        result['workers_failed'] += 1
-                        error_msg = worker_data.get('error', 'Unknown error') if worker_data else 'No result data'
-                        result['errors'].append(f"Slice {worker_data.get('slice_id', '?') if worker_data else '?'}: {error_msg}")
-                        
-                except Exception as e:
+            # Use group_result.get() to collect all results at once (safe for GroupResult)
+            try:
+                worker_results = group_result.get(timeout=60, propagate=False)
+            except Exception as e:
+                logger.error(f"[KNOWN_GOOD_COORDINATOR] Error collecting worker results: {e}")
+                result['status'] = 'error'
+                result['errors'].append(f"Failed to collect results: {str(e)}")
+                return result
+            
+            # Process collected results
+            for worker_data in worker_results:
+                if worker_data and isinstance(worker_data, dict) and worker_data.get('status') == 'success':
+                    result['workers_completed'] += 1
+                    result['total_scanned'] += worker_data.get('scanned', 0)
+                    result['total_hidden'] += worker_data.get('hidden', 0)
+                else:
                     result['workers_failed'] += 1
-                    result['errors'].append(f"Worker result error: {str(e)}")
-                    logger.error(f"[KNOWN_GOOD_COORDINATOR] Error collecting worker result: {e}")
+                    error_msg = worker_data.get('error', 'Unknown error') if isinstance(worker_data, dict) else str(worker_data)
+                    slice_id = worker_data.get('slice_id', '?') if isinstance(worker_data, dict) else '?'
+                    result['errors'].append(f"Slice {slice_id}: {error_msg}")
+                    logger.error(f"[KNOWN_GOOD_COORDINATOR] Worker failed: {error_msg}")
             
             # Final status
             if result['workers_failed'] > 0:

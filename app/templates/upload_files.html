@@ -73,8 +73,8 @@
                         <span id="bulkProgressText">Processing...</span>
                         <span id="bulkProgressPercent">0%</span>
                     </div>
-                    <div style="background: var(--color-bg-tertiary); height: 20px; border-radius: var(--border-radius); overflow: hidden;">
-                        <div id="bulkProgressBar" style="background: var(--color-primary); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    <div style="background: var(--color-bg-tertiary); height: 20px; border-radius: var(--border-radius); overflow: hidden; position: relative;">
+                        <div id="bulkProgressBar" style="background: var(--color-primary); height: 100%; position: absolute; left: 0; top: 0; transition: width 0.3s ease-in-out;"></div>
                     </div>
                     
                     <!-- Current File -->
@@ -276,10 +276,12 @@ function resetBulkImportUI() {
     bulkImportStartTime = null;
     
     // Reset UI elements
-    document.getElementById('bulkImportBtn').disabled = false;
-    document.getElementById('bulkProgressBar').style.width = '0%';
-    document.getElementById('bulkProgressBar').style.background = '';
+    const progressBar = document.getElementById('bulkProgressBar');
+    progressBar.style.width = '0%';
+    progressBar.style.display = 'block';
+    progressBar.style.background = 'var(--color-primary)';
     document.getElementById('bulkProgressPercent').textContent = '0%';
+    document.getElementById('bulkImportBtn').disabled = false;
     document.getElementById('bulkProgressText').textContent = '';
     document.getElementById('bulkFileLists').style.display = 'none';
 }
@@ -390,7 +392,9 @@ async function checkBulkImportStatus() {
         // Update progress bar (only if not SUCCESS - SUCCESS handled separately)
         if (status.state !== 'SUCCESS') {
             const progress = status.progress || 0;
-            document.getElementById('bulkProgressBar').style.width = progress + '%';
+            const progressBar = document.getElementById('bulkProgressBar');
+            progressBar.style.width = progress + '%';
+            progressBar.style.display = 'block'; // Ensure it's visible
             document.getElementById('bulkProgressPercent').textContent = progress + '%';
             
             // Update stage text

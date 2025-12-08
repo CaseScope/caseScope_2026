@@ -64,7 +64,7 @@ FIREWALL_NOISE_KEYWORDS = [
 # DETECTION FUNCTIONS (using centralized noise_filters)
 # =============================================================================
 
-def is_noise_event(event_data: Dict) -> bool:
+def is_noise_event(event_data: Dict) -> tuple:
     """
     Check if an event is known system noise.
     
@@ -72,12 +72,15 @@ def is_noise_event(event_data: Dict) -> bool:
         event_data: The event document (OpenSearch _source or raw dict)
     
     Returns:
-        True if event is noise and should be hidden, False otherwise
+        Tuple of (is_match: bool, category: str, reason: str)
+        - is_match: True if event is noise and should be hidden
+        - category: 'NOISE_PROCESS', 'NOISE_COMMAND', 'FIREWALL', or None
+        - reason: Detailed description
     
     Detection Logic:
-        1. Process name is in NOISE_PROCESSES
-        2. Command line matches NOISE_COMMAND_PATTERNS (with generic parent)
-        3. Event is only from noise user with no meaningful activity
+        1. Process name is in NOISE_PROCESSES → NOISE_PROCESS
+        2. Command line matches NOISE_COMMAND_PATTERNS → NOISE_COMMAND
+        3. Firewall drop/deny logs → FIREWALL
     """
     proc = event_data.get('process', {})
     
@@ -97,14 +100,18 @@ def is_noise_event(event_data: Dict) -> bool:
     # CHECK 1: Noise process
     if proc_name and is_noise_process(proc_name):
         logger.debug(f"[NOISE] Process is noise: {proc_name}")
-        return True
+        return (True, 'NOISE_PROCESS', f'System noise process ({proc_name})')
     
     # CHECK 2: Noise command pattern with generic parent
     if command_line and is_noise_command(command_line, parent_name):
         logger.debug(f"[NOISE] Command is noise: {command_line[:50]}...")
-        return True
+        return (True, 'NOISE_COMMAND', f'System noise command')
     
-    return False
+    # CHECK 3: Firewall noise
+    if is_firewall_noise(event_data):
+        return (True, 'FIREWALL', 'Firewall drop/deny log')
+    
+    return (False, None, None)
 
 
 def is_firewall_noise(event_data: Dict) -> bool:
@@ -156,6 +163,8 @@ def process_slice(
     
     # Sliced scroll query - each slice gets 1/N of events
     # Exclude events that already have status='noise' to avoid re-processing
+    # ALSO exclude 'confirmed' - analyst-confirmed events are IMMUTABLE
+    # NOTE: 'hunted' is NOT excluded - it's automatic and may be wrong, noise filters can override it
     query = {
         "size": batch_size,
         "slice": {
@@ -166,7 +175,8 @@ def process_slice(
         "query": {
             "bool": {
                 "must_not": [
-                    {"term": {"event_status": "noise"}}
+                    {"term": {"event_status": "noise"}},
+                    {"term": {"event_status": "confirmed"}}
                 ]
             }
         }
@@ -193,40 +203,22 @@ def process_slice(
             src = hit.get('_source', {})
             scanned_count += 1
             
-            category = None
-            
-            # Check noise process
-            proc = src.get('process', {})
-            proc_name = (proc.get('name') or proc.get('executable') or '')
-            if proc_name:
-                if '\\' in proc_name:
-                    proc_name = proc_name.split('\\')[-1]
-                if is_noise_process(proc_name):
-                    category = 'noise_process'
-            
-            # Check noise command
-            if not category:
-                command_line = proc.get('command_line', '')
-                parent = proc.get('parent') or {}  # Handle None parent
-                parent_name = parent.get('name') or parent.get('executable') or ''
-                if parent_name and '\\' in parent_name:
-                    parent_name = parent_name.split('\\')[-1]
-                
-                if command_line and is_noise_command(command_line, parent_name):
-                    category = 'noise_command'
-            
-            # Check firewall noise
-            if not category:
-                if is_firewall_noise(src):
-                    category = 'firewall_noise'
-            
-            if category:
+            is_match, category, reason = is_noise_event(src)
+            if is_match:
                 events_to_hide.append({
                     '_id': hit['_id'],
                     '_index': hit['_index'],
-                    'category': category
+                    'noise_type': category,
+                    'noise_reason': reason
                 })
-                by_category[category] += 1
+                
+                # Track category for stats
+                if category == 'NOISE_PROCESS':
+                    by_category['noise_process'] += 1
+                elif category == 'NOISE_COMMAND':
+                    by_category['noise_command'] += 1
+                elif category == 'FIREWALL':
+                    by_category['firewall_noise'] += 1
         
         # Get next batch
         try:
@@ -261,9 +253,10 @@ def bulk_hide_events(
 ) -> int:
     """
     Bulk update events to set event_status='noise' in both OpenSearch and database.
+    Now includes noise_type and noise_reason fields.
     
     Args:
-        events_to_hide: List of dicts with {_id, _index, category}
+        events_to_hide: List of dicts with {_id, _index, noise_type, noise_reason}
         opensearch_client: OpenSearch client instance
         index_name: Index name for refresh
         case_id: Case ID for status updates (optional, extracted from index_name if not provided)
@@ -287,13 +280,14 @@ def bulk_hide_events(
     for i in range(0, len(events_to_hide), bulk_batch_size):
         batch = events_to_hide[i:i + bulk_batch_size]
         
-        # Update OpenSearch event_status field
+        # Update OpenSearch with noise_type and noise_reason
         bulk_body = []
         for evt in batch:
             bulk_body.append({"update": {"_id": evt['_id'], "_index": evt['_index']}})
             bulk_body.append({"doc": {
                 "event_status": "noise",
-                "status_reason": f"noise_{evt.get('category', 'general')}"
+                "noise_type": evt.get('noise_type', 'UNKNOWN'),
+                "noise_reason": evt.get('noise_reason', 'System noise')
             }})
         
         try:
@@ -313,7 +307,8 @@ def bulk_hide_events(
             try:
                 from event_status import bulk_set_status, STATUS_NOISE
                 event_ids = [evt['_id'] for evt in batch]
-                bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes="Auto-hidden as noise")
+                notes = f"Auto-hidden as noise: {batch[0].get('noise_type', 'UNKNOWN')}"
+                bulk_set_status(case_id, event_ids, STATUS_NOISE, user_id=None, notes=notes)
             except Exception as e:
                 logger.warning(f"[NOISE] Failed to update EventStatus for batch: {e}")
     
@@ -321,8 +316,10 @@ def bulk_hide_events(
 
 
 # =============================================================================
-# BULK HIDE OPERATION (legacy single-threaded)
+# LEGACY FUNCTION - NOT USED (kept for backward compatibility with old tasks.py)
 # =============================================================================
+# The system now uses process_slice() + bulk_hide_events() via coordinator
+# This function is only called from deprecated tasks.py code
 
 def hide_noise_events(
     case_id: int,
@@ -412,40 +409,22 @@ def hide_noise_events(
             src = hit.get('_source', {})
             processed_count += 1
             
-            category = None
-            
-            # Check noise process
-            proc = src.get('process', {})
-            proc_name = (proc.get('name') or proc.get('executable') or '')
-            if proc_name:
-                if '\\' in proc_name:
-                    proc_name = proc_name.split('\\')[-1]
-                if is_noise_process(proc_name):
-                    category = 'noise_process'
-            
-            # Check noise command
-            if not category:
-                command_line = proc.get('command_line', '')
-                parent = proc.get('parent') or {}  # Handle None parent
-                parent_name = parent.get('name') or parent.get('executable') or ''
-                if parent_name and '\\' in parent_name:
-                    parent_name = parent_name.split('\\')[-1]
-                
-                if command_line and is_noise_command(command_line, parent_name):
-                    category = 'noise_command'
-            
-            # Check firewall noise
-            if not category:
-                if is_firewall_noise(src):
-                    category = 'firewall_noise'
-            
-            if category:
+            is_match, category, reason = is_noise_event(src)
+            if is_match:
                 events_to_hide.append({
                     '_id': hit['_id'],
                     '_index': hit['_index'],
-                    'category': category
+                    'noise_type': category,
+                    'noise_reason': reason
                 })
-                result['by_category'][category] += 1
+                
+                # Track stats
+                if category == 'NOISE_PROCESS':
+                    result['by_category']['noise_process'] += 1
+                elif category == 'NOISE_COMMAND':
+                    result['by_category']['noise_command'] += 1
+                elif category == 'FIREWALL':
+                    result['by_category']['firewall_noise'] += 1
         
         # Progress callback
         if progress_callback:
@@ -775,7 +754,7 @@ def hide_noise_all_task(self, case_id: int) -> Dict[str, Any]:
             
             start_time = time.time()
             timeout = 3600  # 1 hour max
-            poll_interval = 5  # Check every 5 seconds
+            poll_interval = 2  # Check every 2 seconds
             
             while not group_result.ready():
                 elapsed = time.time() - start_time
@@ -785,37 +764,51 @@ def hide_noise_all_task(self, case_id: int) -> Dict[str, Any]:
                     result['errors'].append(f'Timeout after {elapsed:.0f}s')
                     return result
                 
-                time.sleep(poll_interval)
-                
-                # Update progress
+                # Count completed workers
                 completed = sum(1 for r in group_result.results if r.ready())
                 logger.debug(f"[NOISE_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers complete")
+                
+                # Update progress for frontend
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'status': 'processing',
+                        'workers_completed': completed,
+                        'workers_total': MAX_SLICES,
+                        'message': f'{completed}/{MAX_SLICES} workers completed'
+                    }
+                )
+                
+                time.sleep(poll_interval)
             
             # Collect results from all workers
             logger.info(f"[NOISE_COORDINATOR] All workers complete, collecting results...")
             
-            for worker_result in group_result.results:
-                try:
-                    # Use .result property instead of .get(timeout) since we already waited with polling
-                    worker_data = worker_result.result
+            # Use group_result.get() to collect all results at once (safe for GroupResult)
+            try:
+                worker_results = group_result.get(timeout=60, propagate=False)
+            except Exception as e:
+                logger.error(f"[NOISE_COORDINATOR] Error collecting worker results: {e}")
+                result['status'] = 'error'
+                result['errors'].append(f"Failed to collect results: {str(e)}")
+                return result
+            
+            # Process collected results
+            for worker_data in worker_results:
+                if worker_data and isinstance(worker_data, dict) and worker_data.get('status') == 'success':
+                    result['workers_completed'] += 1
+                    result['total_scanned'] += worker_data.get('scanned', 0)
+                    result['total_hidden'] += worker_data.get('hidden', 0)
                     
-                    if worker_data and worker_data.get('status') == 'success':
-                        result['workers_completed'] += 1
-                        result['total_scanned'] += worker_data.get('scanned', 0)
-                        result['total_hidden'] += worker_data.get('hidden', 0)
-                        
-                        # Aggregate category counts
-                        for category, count in worker_data.get('by_category', {}).items():
-                            result['by_category'][category] += count
-                    else:
-                        result['workers_failed'] += 1
-                        error_msg = worker_data.get('error', 'Unknown error') if worker_data else 'No result data'
-                        result['errors'].append(f"Slice {worker_data.get('slice_id', '?') if worker_data else '?'}: {error_msg}")
-                        
-                except Exception as e:
+                    # Aggregate category counts
+                    for category, count in worker_data.get('by_category', {}).items():
+                        result['by_category'][category] += count
+                else:
                     result['workers_failed'] += 1
-                    result['errors'].append(f"Worker result error: {str(e)}")
-                    logger.error(f"[NOISE_COORDINATOR] Error collecting worker result: {e}")
+                    error_msg = worker_data.get('error', 'Unknown error') if isinstance(worker_data, dict) else str(worker_data)
+                    slice_id = worker_data.get('slice_id', '?') if isinstance(worker_data, dict) else '?'
+                    result['errors'].append(f"Slice {slice_id}: {error_msg}")
+                    logger.error(f"[NOISE_COORDINATOR] Worker failed: {error_msg}")
             
             # Final status
             if result['workers_failed'] > 0:
