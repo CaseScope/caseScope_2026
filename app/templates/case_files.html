@@ -1882,43 +1882,29 @@ function pollHideKnownGoodStatus(caseId, taskId) {
         
         switch (data.status) {
             case 'processing':
-                // Use actual event progress if available, otherwise fall back to worker count
-                let percent;
-                if (data.total_events_estimate > 0 && data.total_events_processed !== undefined) {
-                    percent = Math.round((data.total_events_processed / data.total_events_estimate) * 100);
-                } else {
-                    const completed = data.workers_completed || 0;
-                    const total = data.workers_total || 8;
-                    percent = Math.round((completed / total) * 100);
-                }
+                // Use worker count for progress since we don't pre-count events
+                const completed = data.workers_completed || 0;
+                const total = data.workers_total || 8;
+                const percent = Math.round((completed / total) * 100);
                 
                 progressBar.style.width = percent + '%';
                 progressPercent.textContent = percent + '%';
                 
-                // Show detailed progress
-                if (data.total_events_estimate > 0) {
-                    const processed = data.total_events_processed || 0;
-                    const total = data.total_events_estimate;
-                    progressProcessed.textContent = `${formatNumber(processed)} / ${formatNumber(total)} events`;
+                // Show event count if available
+                if (data.total_events_processed > 0) {
+                    const processed = data.total_events_processed;
+                    progressProcessed.textContent = `${formatNumber(processed)} events processed`;
                 } else {
-                    const completed = data.workers_completed || 0;
-                    const totalWorkers = data.workers_total || 8;
-                    progressProcessed.textContent = `Workers: ${completed}/${totalWorkers} completed`;
+                    progressProcessed.textContent = `Workers: ${completed}/${total} completed`;
                 }
                 
-                // Show slowest worker info if available
+                // Show active worker info if available
                 if (data.worker_details && data.worker_details.length > 0) {
                     const activeWorkers = data.worker_details.filter(w => !w.done);
                     if (activeWorkers.length > 0) {
-                        // Find slowest worker
-                        const slowest = activeWorkers.reduce((prev, curr) => {
-                            const prevPct = prev.total > 0 ? (prev.current / prev.total) : 0;
-                            const currPct = curr.total > 0 ? (curr.current / curr.total) : 0;
-                            return currPct < prevPct ? curr : prev;
-                        });
-                        
-                        const workerPct = slowest.total > 0 ? Math.round((slowest.current / slowest.total) * 100) : 0;
-                        progressFound.textContent = `Worker ${slowest.id}: ${formatNumber(slowest.current)} / ${formatNumber(slowest.total)} (${workerPct}%)`;
+                        // Show count of active workers and one example
+                        const example = activeWorkers[0];
+                        progressFound.textContent = `${activeWorkers.length} workers active (Worker ${example.id}: ${formatNumber(example.current)} events)`;
                     } else {
                         progressFound.textContent = data.message || 'Processing...';
                     }

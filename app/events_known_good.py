@@ -938,32 +938,9 @@ def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: in
                 logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}: No exclusions configured")
                 return result
             
-            # Estimate total events for this slice (for progress %)
-            # Quick count query for this slice only
-            index_name = f"case_{case_id}"
-            try:
-                count_response = opensearch_client.count(
-                    index=index_name,
-                    body={
-                        "query": {
-                            "bool": {
-                                "must_not": [
-                                    {"term": {"event_status": "noise"}},
-                                    {"term": {"event_status": "confirmed"}}
-                                ]
-                            }
-                        },
-                        "slice": {
-                            "id": slice_id,
-                            "max": max_slices
-                        }
-                    }
-                )
-                total_events_estimate = count_response.get('count', 0)
-                logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices}: Estimated {total_events_estimate:,} events to process")
-            except Exception as e:
-                logger.warning(f"[KNOWN_GOOD_SLICE] Slice {slice_id}: Could not estimate total events: {e}")
-                total_events_estimate = 0
+            # Skip the count query - it's too slow for large datasets (18M+ events)
+            # We'll report progress without knowing total upfront
+            total_events_estimate = 0
             
             # Process this slice
             scanned, events_to_hide = process_slice(
@@ -1129,12 +1106,10 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
                 completed = sum(1 for r in group_result.results if r.ready())
                 
                 # Calculate overall progress
-                if total_estimate > 0:
-                    overall_progress = int((total_current / total_estimate) * 100)
-                else:
-                    overall_progress = int((completed / MAX_SLICES) * 100)
+                # Since we don't pre-count events, use worker completion as progress
+                overall_progress = int((completed / MAX_SLICES) * 100)
                 
-                logger.debug(f"[KNOWN_GOOD_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers, {total_current:,}/{total_estimate:,} events")
+                logger.debug(f"[KNOWN_GOOD_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers, {total_current:,} events processed")
                 
                 # Update progress for frontend with per-worker details
                 self.update_state(
@@ -1144,7 +1119,6 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
                         'workers_completed': completed,
                         'workers_total': MAX_SLICES,
                         'total_events_processed': total_current,
-                        'total_events_estimate': total_estimate,
                         'overall_progress': overall_progress,
                         'worker_details': worker_details,
                         'message': f'{completed}/{MAX_SLICES} workers completed'
