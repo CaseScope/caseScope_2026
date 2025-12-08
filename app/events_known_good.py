@@ -334,7 +334,9 @@ def process_slice(
     slice_id: int,
     max_slices: int,
     exclusions: Dict,
-    opensearch_client
+    opensearch_client,
+    celery_task=None,
+    total_events_estimate: int = 0
 ) -> Tuple[int, List[Dict]]:
     """
     Process a single slice of events for parallel hide operation.
@@ -348,6 +350,8 @@ def process_slice(
         max_slices: Total number of slices (usually 8 for 8 workers)
         exclusions: Pre-loaded exclusions dict from load_exclusions()
         opensearch_client: OpenSearch client instance
+        celery_task: Celery task instance for progress reporting (optional)
+        total_events_estimate: Estimated total events for this slice (for progress %)
     
     Returns:
         Tuple of (events_scanned, events_to_hide_list)
@@ -359,6 +363,7 @@ def process_slice(
     
     scroll_time = '5m'
     batch_size = 1000
+    progress_report_interval = 10000  # Report progress every 10K events
     
     # Sliced scroll query - each slice gets 1/N of events
     # Exclude events that already have status='noise' to avoid re-processing
@@ -397,6 +402,7 @@ def process_slice(
     logger.info(f"[KNOWN_GOOD] Slice {slice_id}/{max_slices}: Starting scan")
     
     # Process all events in this slice
+    last_progress_report = 0
     while hits:
         for hit in hits:
             src = hit.get('_source', {})
@@ -411,6 +417,19 @@ def process_slice(
                     'noise_type': category,
                     'noise_reason': reason
                 })
+            
+            # Report progress periodically
+            if celery_task and scanned_count - last_progress_report >= progress_report_interval:
+                celery_task.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'slice_id': slice_id,
+                        'current': scanned_count,
+                        'total': total_events_estimate if total_events_estimate > 0 else scanned_count,
+                        'found': len(events_to_hide)
+                    }
+                )
+                last_progress_report = scanned_count
         
         # Get next batch
         try:
@@ -919,13 +938,42 @@ def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: in
                 logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}: No exclusions configured")
                 return result
             
+            # Estimate total events for this slice (for progress %)
+            # Quick count query for this slice only
+            index_name = f"case_{case_id}"
+            try:
+                count_response = opensearch_client.count(
+                    index=index_name,
+                    body={
+                        "query": {
+                            "bool": {
+                                "must_not": [
+                                    {"term": {"event_status": "noise"}},
+                                    {"term": {"event_status": "confirmed"}}
+                                ]
+                            }
+                        },
+                        "slice": {
+                            "id": slice_id,
+                            "max": max_slices
+                        }
+                    }
+                )
+                total_events_estimate = count_response.get('count', 0)
+                logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices}: Estimated {total_events_estimate:,} events to process")
+            except Exception as e:
+                logger.warning(f"[KNOWN_GOOD_SLICE] Slice {slice_id}: Could not estimate total events: {e}")
+                total_events_estimate = 0
+            
             # Process this slice
             scanned, events_to_hide = process_slice(
                 case_id=case_id,
                 slice_id=slice_id,
                 max_slices=max_slices,
                 exclusions=exclusions,
-                opensearch_client=opensearch_client
+                opensearch_client=opensearch_client,
+                celery_task=self,  # Pass Celery task for progress reporting
+                total_events_estimate=total_events_estimate
             )
             
             result['scanned'] = scanned
@@ -1019,17 +1067,86 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
                     result['errors'].append(f'Timeout after {elapsed:.0f}s')
                     return result
                 
+                # Collect per-worker progress
+                worker_details = []
+                total_current = 0
+                total_estimate = 0
+                
+                for idx, async_result in enumerate(group_result.results):
+                    if async_result.ready():
+                        # Worker complete
+                        worker_result = async_result.result
+                        if isinstance(worker_result, dict):
+                            worker_details.append({
+                                'id': idx,
+                                'current': worker_result.get('scanned', 0),
+                                'total': worker_result.get('scanned', 0),
+                                'found': worker_result.get('found', 0),
+                                'done': True
+                            })
+                            total_current += worker_result.get('scanned', 0)
+                            total_estimate += worker_result.get('scanned', 0)
+                    else:
+                        # Worker still running - get progress state
+                        try:
+                            state = async_result.state
+                            info = async_result.info
+                            
+                            if state == 'PROGRESS' and isinstance(info, dict):
+                                current = info.get('current', 0)
+                                total = info.get('total', current)
+                                found = info.get('found', 0)
+                                
+                                worker_details.append({
+                                    'id': idx,
+                                    'current': current,
+                                    'total': total,
+                                    'found': found,
+                                    'done': False
+                                })
+                                total_current += current
+                                total_estimate += total
+                            else:
+                                # Worker started but no progress yet
+                                worker_details.append({
+                                    'id': idx,
+                                    'current': 0,
+                                    'total': 0,
+                                    'found': 0,
+                                    'done': False
+                                })
+                        except Exception as e:
+                            logger.debug(f"[KNOWN_GOOD_COORDINATOR] Could not get progress for worker {idx}: {e}")
+                            worker_details.append({
+                                'id': idx,
+                                'current': 0,
+                                'total': 0,
+                                'found': 0,
+                                'done': False
+                            })
+                
                 # Count completed workers
                 completed = sum(1 for r in group_result.results if r.ready())
-                logger.debug(f"[KNOWN_GOOD_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers complete")
                 
-                # Update progress for frontend
+                # Calculate overall progress
+                if total_estimate > 0:
+                    overall_progress = int((total_current / total_estimate) * 100)
+                else:
+                    overall_progress = int((completed / MAX_SLICES) * 100)
+                
+                logger.debug(f"[KNOWN_GOOD_COORDINATOR] Progress: {completed}/{MAX_SLICES} workers, {total_current:,}/{total_estimate:,} events")
+                
+                # Update progress for frontend with per-worker details
                 self.update_state(
                     state='PROGRESS',
                     meta={
                         'status': 'processing',
                         'workers_completed': completed,
                         'workers_total': MAX_SLICES,
+                        'total_events_processed': total_current,
+                        'total_events_estimate': total_estimate,
+                        'overall_progress': overall_progress,
+                        'worker_details': worker_details,
                         'message': f'{completed}/{MAX_SLICES} workers completed'
                     }
                 )

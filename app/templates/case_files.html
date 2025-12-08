@@ -1882,15 +1882,50 @@ function pollHideKnownGoodStatus(caseId, taskId) {
         
         switch (data.status) {
             case 'processing':
-                // Calculate percentage from workers
-                const completed = data.workers_completed || 0;
-                const total = data.workers_total || 8;
-                const percent = Math.round((completed / total) * 100);
+                // Use actual event progress if available, otherwise fall back to worker count
+                let percent;
+                if (data.total_events_estimate > 0 && data.total_events_processed !== undefined) {
+                    percent = Math.round((data.total_events_processed / data.total_events_estimate) * 100);
+                } else {
+                    const completed = data.workers_completed || 0;
+                    const total = data.workers_total || 8;
+                    percent = Math.round((completed / total) * 100);
+                }
                 
                 progressBar.style.width = percent + '%';
                 progressPercent.textContent = percent + '%';
-                progressProcessed.textContent = `Workers: ${completed}/${total} completed`;
-                progressFound.textContent = data.message || 'Processing...';
+                
+                // Show detailed progress
+                if (data.total_events_estimate > 0) {
+                    const processed = data.total_events_processed || 0;
+                    const total = data.total_events_estimate;
+                    progressProcessed.textContent = `${formatNumber(processed)} / ${formatNumber(total)} events`;
+                } else {
+                    const completed = data.workers_completed || 0;
+                    const totalWorkers = data.workers_total || 8;
+                    progressProcessed.textContent = `Workers: ${completed}/${totalWorkers} completed`;
+                }
+                
+                // Show slowest worker info if available
+                if (data.worker_details && data.worker_details.length > 0) {
+                    const activeWorkers = data.worker_details.filter(w => !w.done);
+                    if (activeWorkers.length > 0) {
+                        // Find slowest worker
+                        const slowest = activeWorkers.reduce((prev, curr) => {
+                            const prevPct = prev.total > 0 ? (prev.current / prev.total) : 0;
+                            const currPct = curr.total > 0 ? (curr.current / curr.total) : 0;
+                            return currPct < prevPct ? curr : prev;
+                        });
+                        
+                        const workerPct = slowest.total > 0 ? Math.round((slowest.current / slowest.total) * 100) : 0;
+                        progressFound.textContent = `Worker ${slowest.id}: ${formatNumber(slowest.current)} / ${formatNumber(slowest.total)} (${workerPct}%)`;
+                    } else {
+                        progressFound.textContent = data.message || 'Processing...';
+                    }
+                } else {
+                    progressFound.textContent = data.message || 'Processing...';
+                }
+                
                 setTimeout(() => pollHideKnownGoodStatus(caseId, taskId), 1000);
                 break;
             case 'pending':
@@ -1914,6 +1949,15 @@ function pollHideKnownGoodStatus(caseId, taskId) {
     .catch(error => {
         showHideKGError('Lost connection: ' + error.message);
     });
+}
+
+function formatNumber(num) {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'K';
+    }
+    return num.toString();
 }
 
 function showHideKGResults(data) {
