@@ -253,6 +253,7 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        remember = request.form.get('remember') == 'on'
         
         user = db.session.query(User).filter_by(username=username).first()
         
@@ -266,7 +267,7 @@ def login():
                 flash('Your account has been deactivated. Please contact an administrator.', 'error')
                 return render_template('login.html', app_version=version_info, cache_bust=CACHE_BUST_TIME)
             
-            login_user(user)
+            login_user(user, remember=remember)
             user.last_login = datetime.utcnow()
             db.session.commit()
             
