@@ -2287,7 +2287,8 @@ def triage_extract_iocs(case_id):
             'summary': summary,
             'total_reports': result['total_reports'],
             'successful_reports': result['successful_reports'],
-            'failed_reports': result['failed_reports']
+            'failed_reports': result['failed_reports'],
+            'extraction_method': result.get('extraction_method', 'unknown')
         })
     except Exception as e:
         logger.error(f"[MISTRAL_IOC] IOC extraction failed for case {case_id}: {e}")
