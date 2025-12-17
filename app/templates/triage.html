@@ -50,6 +50,10 @@
                 <span>🚫</span>
                 <span>Failed VPN Attempts</span>
             </button>
+            <button type="button" onclick="showBase64Decoder()" class="btn btn-secondary" style="justify-content: center;">
+                <span>🔓</span>
+                <span>Base64 Decode</span>
+            </button>
         </div>
     </div>
 </div>
@@ -465,6 +469,59 @@
             <button type="button" onclick="saveAndFinish()" class="btn btn-success" id="saveAndFinishBtn" style="display: none;">
                 <span>💾✓</span>
                 <span>Save & Finish</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Base64 Decoder Modal -->
+<div id="base64DecoderModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🔓 Base64 Decoder</h2>
+            <button type="button" class="modal-close" onclick="closeBase64Modal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom: var(--spacing-lg);">
+                <label style="display: block; margin-bottom: var(--spacing-sm); font-weight: 500;">Encoded Text:</label>
+                <textarea id="base64Input" 
+                          placeholder="Paste your Base64 encoded text here..." 
+                          style="width: 100%; min-height: 150px; padding: var(--spacing-md); background: var(--color-background-tertiary); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text); font-family: monospace; font-size: 0.9rem; resize: vertical;"
+                          oninput="clearBase64Result()"></textarea>
+            </div>
+            
+            <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                <button type="button" onclick="decodeBase64()" class="btn btn-primary">
+                    <span>🔓</span>
+                    <span>Decode</span>
+                </button>
+                <button type="button" onclick="clearBase64Fields()" class="btn btn-secondary" style="margin-left: var(--spacing-sm);">
+                    <span>🗑️</span>
+                    <span>Clear</span>
+                </button>
+            </div>
+            
+            <div id="base64Result" style="display: none;">
+                <label style="display: block; margin-bottom: var(--spacing-sm); font-weight: 500;">Decoded Result:</label>
+                <div style="background: var(--color-background-tertiary); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--spacing-md); max-height: 300px; overflow-y: auto;">
+                    <pre id="base64Output" style="margin: 0; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 0.9rem; color: var(--color-text);"></pre>
+                </div>
+                <div style="margin-top: var(--spacing-sm); text-align: right;">
+                    <button type="button" onclick="copyBase64Result()" class="btn btn-sm btn-secondary">
+                        <span>📋</span>
+                        <span>Copy to Clipboard</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div id="base64Error" style="display: none; margin-top: var(--spacing-md); padding: var(--spacing-md); background: rgba(220, 38, 38, 0.1); border: 1px solid var(--color-error); border-radius: var(--radius-md); color: var(--color-error);">
+                <strong>⚠️ Error:</strong> <span id="base64ErrorMessage"></span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeBase64Modal()" class="btn btn-secondary">
+                <span>✕</span>
+                <span>Close</span>
             </button>
         </div>
     </div>
@@ -1704,6 +1761,115 @@ function closeIocImportModal() {
     // Reset visibility
     document.getElementById('iocImportSteps').style.display = 'block';
     document.querySelector('.progress-bar-container').style.display = 'block';
+}
+
+// ============================================================================
+// BASE64 DECODER
+// ============================================================================
+
+function showBase64Decoder() {
+    document.getElementById('base64DecoderModal').style.display = 'flex';
+    document.getElementById('base64Input').value = '';
+    document.getElementById('base64Result').style.display = 'none';
+    document.getElementById('base64Error').style.display = 'none';
+    
+    // Focus on input
+    setTimeout(() => {
+        document.getElementById('base64Input').focus();
+    }, 100);
+}
+
+function closeBase64Modal() {
+    document.getElementById('base64DecoderModal').style.display = 'none';
+}
+
+function clearBase64Fields() {
+    document.getElementById('base64Input').value = '';
+    document.getElementById('base64Result').style.display = 'none';
+    document.getElementById('base64Error').style.display = 'none';
+    document.getElementById('base64Input').focus();
+}
+
+function clearBase64Result() {
+    document.getElementById('base64Result').style.display = 'none';
+    document.getElementById('base64Error').style.display = 'none';
+}
+
+function decodeBase64() {
+    const input = document.getElementById('base64Input').value.trim();
+    const resultDiv = document.getElementById('base64Result');
+    const outputPre = document.getElementById('base64Output');
+    const errorDiv = document.getElementById('base64Error');
+    const errorMessage = document.getElementById('base64ErrorMessage');
+    
+    // Hide previous results/errors
+    resultDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+    
+    if (!input) {
+        errorMessage.textContent = 'Please enter Base64 encoded text';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        // Decode Base64
+        const decoded = atob(input);
+        
+        // Try to display as UTF-8 text, but handle binary data gracefully
+        let displayText = '';
+        let isBinary = false;
+        
+        // Check if it's likely binary data (contains non-printable characters)
+        for (let i = 0; i < decoded.length; i++) {
+            const charCode = decoded.charCodeAt(i);
+            if (charCode < 32 && charCode !== 9 && charCode !== 10 && charCode !== 13) {
+                isBinary = true;
+                break;
+            }
+        }
+        
+        if (isBinary) {
+            // Display as hex dump for binary data
+            displayText = 'Binary data detected. Hex representation:\n\n';
+            for (let i = 0; i < decoded.length; i++) {
+                if (i > 0 && i % 16 === 0) displayText += '\n';
+                displayText += decoded.charCodeAt(i).toString(16).padStart(2, '0').toUpperCase() + ' ';
+            }
+        } else {
+            // Display as text
+            displayText = decoded;
+        }
+        
+        outputPre.textContent = displayText;
+        resultDiv.style.display = 'block';
+        
+    } catch (e) {
+        errorMessage.textContent = 'Invalid Base64 string. Please check your input.';
+        errorDiv.style.display = 'block';
+    }
+}
+
+function copyBase64Result() {
+    const outputPre = document.getElementById('base64Output');
+    const text = outputPre.textContent;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        // Change button text temporarily
+        const btn = event.target.closest('button');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span>✓</span> <span>Copied!</span>';
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-secondary');
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-secondary');
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy to clipboard: ' + err);
+    });
 }
 
 </script>
