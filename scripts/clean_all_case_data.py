@@ -47,8 +47,10 @@ def clean_postgresql():
     """Clean all case-related data from PostgreSQL"""
     from main import app, db
     from models import (
-        Case, CaseFile, SigmaViolation, IOC, EventStatus,
-        CaseTimeline, AuditLog, CaseLock, EvidenceFile, AITriageSearch, KnownUser
+        Case, CaseFile, SigmaViolation, IOC, IOCMatch, EventStatus,
+        CaseTimeline, AuditLog, CaseLock, EvidenceFile, AITriageSearch, KnownUser,
+        System, SkippedFile, SearchHistory, TimelineTag, TagExclusion,
+        AIReport, AIReportChat, ReindexProgress
     )
     
     print("\n" + "=" * 80)
@@ -62,29 +64,92 @@ def clean_postgresql():
             files_count = db.session.query(CaseFile).count()
             violations_count = db.session.query(SigmaViolation).count()
             iocs_count = db.session.query(IOC).count()
+            ioc_matches_count = db.session.query(IOCMatch).count()
             event_status_count = db.session.query(EventStatus).count()
             timeline_count = db.session.query(CaseTimeline).count()
             locks_count = db.session.query(CaseLock).count()
             evidence_count = db.session.query(EvidenceFile).count()
             triage_count = db.session.query(AITriageSearch).count()
             known_users_count = db.session.query(KnownUser).count()
+            systems_count = db.session.query(System).count()
+            skipped_count = db.session.query(SkippedFile).count()
+            search_history_count = db.session.query(SearchHistory).count()
+            timeline_tags_count = db.session.query(TimelineTag).count()
+            tag_exclusions_count = db.session.query(TagExclusion).count()
+            ai_reports_count = db.session.query(AIReport).count()
+            ai_chat_count = db.session.query(AIReportChat).count()
+            reindex_count = db.session.query(ReindexProgress).count()
             
             print(f"\n📊 Current database state:")
             print(f"   • Cases: {cases_count:,}")
             print(f"   • Files: {files_count:,}")
             print(f"   • SIGMA Violations: {violations_count:,}")
             print(f"   • IOCs: {iocs_count:,}")
+            print(f"   • IOC Matches: {ioc_matches_count:,}")
             print(f"   • Event Status Records: {event_status_count:,}")
             print(f"   • Timeline Entries: {timeline_count:,}")
             print(f"   • Case Locks: {locks_count:,}")
             print(f"   • Evidence Files: {evidence_count:,}")
             print(f"   • AI Triage Searches: {triage_count:,}")
             print(f"   • Known Users: {known_users_count:,}")
+            print(f"   • Systems: {systems_count:,}")
+            print(f"   • Skipped Files: {skipped_count:,}")
+            print(f"   • Search History: {search_history_count:,}")
+            print(f"   • Timeline Tags: {timeline_tags_count:,}")
+            print(f"   • Tag Exclusions: {tag_exclusions_count:,}")
+            print(f"   • AI Reports: {ai_reports_count:,}")
+            print(f"   • AI Report Chats: {ai_chat_count:,}")
+            print(f"   • Reindex Progress: {reindex_count:,}")
             
             print("\n🗑️  Deleting records...")
             
             # Delete in proper order (child tables first to avoid FK constraint issues)
             deleted_counts = {}
+            
+            # AI Report Chat (depends on AIReport)
+            deleted_counts['ai_chat'] = db.session.query(AIReportChat).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['ai_chat']:,} AI report chat messages")
+            
+            # AI Reports (depends on Case)
+            deleted_counts['ai_reports'] = db.session.query(AIReport).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['ai_reports']:,} AI reports")
+            
+            # IOC Matches (depends on IOC, CaseFile, Case)
+            deleted_counts['ioc_matches'] = db.session.query(IOCMatch).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['ioc_matches']:,} IOC matches")
+            
+            # Timeline Tags (depends on Case)
+            deleted_counts['timeline_tags'] = db.session.query(TimelineTag).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['timeline_tags']:,} timeline tags")
+            
+            # Tag Exclusions (depends on Case)
+            deleted_counts['tag_exclusions'] = db.session.query(TagExclusion).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['tag_exclusions']:,} tag exclusions")
+            
+            # Search History (depends on Case)
+            deleted_counts['search_history'] = db.session.query(SearchHistory).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['search_history']:,} search history entries")
+            
+            # Systems (depends on Case)
+            deleted_counts['systems'] = db.session.query(System).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['systems']:,} systems")
+            
+            # Skipped Files (depends on Case)
+            deleted_counts['skipped_files'] = db.session.query(SkippedFile).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['skipped_files']:,} skipped files")
+            
+            # Reindex Progress (depends on Case)
+            deleted_counts['reindex_progress'] = db.session.query(ReindexProgress).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['reindex_progress']:,} reindex progress records")
             
             # Evidence files
             deleted_counts['evidence_files'] = db.session.query(EvidenceFile).delete()
