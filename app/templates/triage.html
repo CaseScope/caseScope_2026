@@ -959,25 +959,22 @@ function saveAndContinue() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Show brief success message
-            showSuccessToast(`Saved ${data.added_count} new, ${data.updated_count} updated IOCs`);
-            
             // Close current modal and proceed to next report
             closeIocModal();
             
-            // Small delay to show the toast, then continue
+            // Small delay, then continue
             setTimeout(() => {
                 extractIOCs(currentReportIndex + 1);
-            }, 500);
+            }, 300);
         } else {
-            showErrorToast(data.error || 'Failed to save IOCs');
+            alert('Error: ' + (data.error || 'Failed to save IOCs'));
             btn.disabled = false;
             btn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
         }
     })
     .catch(error => {
         console.error('Error saving IOCs:', error);
-        showErrorToast('Network error while saving IOCs');
+        alert('Error: Network error while saving IOCs');
         btn.disabled = false;
         btn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
     });
