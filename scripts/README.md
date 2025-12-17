@@ -20,9 +20,13 @@ This directory contains standalone utility scripts for maintenance and administr
 
 **Manual execution:**
 ```bash
+sudo /opt/casescope/scripts/clean_all_case_data.py
+```
+
+Or with full path:
+```bash
 cd /opt/casescope
-source venv/bin/activate
-sudo -E venv/bin/python3 scripts/clean_all_case_data.py
+sudo ./scripts/clean_all_case_data.py
 ```
 
 **Safety features:**

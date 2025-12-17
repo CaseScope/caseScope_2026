@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/opt/casescope/venv/bin/python3
 """
 CaseScope Complete Data Cleanup Script
 Removes ALL case data from PostgreSQL, OpenSearch, and disk storage
@@ -11,7 +11,7 @@ Removes ALL case data from PostgreSQL, OpenSearch, and disk storage
     - Removes all archived case files from disk
 
 Usage:
-    sudo -E /opt/casescope/venv/bin/python3 /opt/casescope/scripts/clean_all_case_data.py
+    sudo /opt/casescope/scripts/clean_all_case_data.py
 """
 
 import sys
