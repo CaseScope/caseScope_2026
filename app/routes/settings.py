@@ -47,6 +47,26 @@ def set_setting(key, value, description=None):
 @admin_required
 def index():
     """System settings page"""
+    # Get AI system status (GPU + Ollama + Models)
+    ai_system_status = {}
+    try:
+        from models.settings_ai_get_gpu_info import get_gpu_info
+        from models.settings_ai_get_ollama_status import get_ai_system_status
+        
+        gpu_info = get_gpu_info()
+        ai_system_status = get_ai_system_status()
+        ai_system_status['gpu'] = gpu_info
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"[Settings] Error loading AI system status: {e}")
+        ai_system_status = {
+            'gpu': {'gpu_detected': False, 'gpu_model': 'Error', 'gpu_vram_gb': 0},
+            'ollama': {'installed': False, 'running': False, 'version': 'Error'},
+            'models': {},
+            'model_summary': 'Error loading status',
+            'ready': False
+        }
+    
     # Get DFIR-IRIS settings
     dfir_iris_enabled = get_setting('dfir_iris_enabled', 'false') == 'true'
     dfir_iris_url = get_setting('dfir_iris_url', '')
@@ -155,7 +175,8 @@ def index():
                          ai_gpu_vram=ai_gpu_vram,
                          ai_status=ai_status,
                          all_models=all_models,
-                         hardware_info=hardware_info)
+                         hardware_info=hardware_info,
+                         ai_system_status=ai_system_status)
 
 
 @settings_bp.route('/save', methods=['POST'])

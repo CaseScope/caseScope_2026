@@ -10,6 +10,198 @@
 
 <div style="max-width: 1200px; margin: 0 auto;">
     <form method="POST" action="{{ url_for('settings.save') }}">
+        <!-- AI Settings Tile (NEW) -->
+        <div class="card" style="margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-primary);">
+            <div class="card-header">
+                <h2 class="card-title">🤖 AI Settings</h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                    Configure AI features, monitor system status, and manage GPU acceleration
+                </p>
+            </div>
+            
+            <div class="card-body">
+                <!-- AI Status Summary Grid -->
+                <div class="info-tiles-grid" style="margin-bottom: var(--spacing-xl);">
+                    <!-- GPU Status Tile -->
+                    <div class="info-tile">
+                        <div class="info-tile-header">
+                            <span class="info-tile-icon" style="font-size: 1.5rem;">
+                                {% if ai_system_status.gpu.gpu_detected %}🎮{% else %}🖥️{% endif %}
+                            </span>
+                            <h3 class="info-tile-title">GPU Status</h3>
+                        </div>
+                        <div class="info-tile-rows-container">
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">GPU Model</div>
+                                <div class="info-tile-value {% if ai_system_status.gpu.gpu_detected %}success{% else %}{% endif %}">
+                                    {{ ai_system_status.gpu.gpu_model }}
+                                </div>
+                            </div>
+                            {% if ai_system_status.gpu.gpu_detected %}
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">VRAM</div>
+                                <div class="info-tile-value primary">
+                                    {{ ai_system_status.gpu.gpu_vram_gb }}GB
+                                </div>
+                            </div>
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">Driver Version</div>
+                                <div class="info-tile-value">
+                                    {{ ai_system_status.gpu.driver_version }}
+                                </div>
+                            </div>
+                            {% if ai_system_status.gpu.cuda_version != 'N/A' %}
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">CUDA</div>
+                                <div class="info-tile-value">
+                                    {{ ai_system_status.gpu.cuda_version }}
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% else %}
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">Status</div>
+                                <div class="info-tile-value" style="color: var(--color-text-muted);">
+                                    CPU-Only Mode
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- Ollama Status Tile -->
+                    <div class="info-tile">
+                        <div class="info-tile-header">
+                            <span class="info-tile-icon" style="font-size: 1.5rem;">🦙</span>
+                            <h3 class="info-tile-title">Ollama Status</h3>
+                        </div>
+                        <div class="info-tile-rows-container">
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">Service Status</div>
+                                <div class="info-tile-value {% if ai_system_status.ollama.running %}success{% elif ai_system_status.ollama.installed %}warning{% else %}error{% endif %}">
+                                    {% if ai_system_status.ollama.running %}
+                                        ✓ Running
+                                    {% elif ai_system_status.ollama.installed %}
+                                        ⚠ Installed (Not Running)
+                                    {% else %}
+                                        ✗ Not Installed
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">Version</div>
+                                <div class="info-tile-value">
+                                    {{ ai_system_status.ollama.version }}
+                                </div>
+                            </div>
+                            <div class="info-tile-row">
+                                <div class="info-tile-label">Models Installed</div>
+                                <div class="info-tile-value {% if ai_system_status.models %}success{% else %}{% endif %}">
+                                    {{ ai_system_status.models|length }} models
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Installed Models Tile -->
+                    <div class="info-tile">
+                        <div class="info-tile-header">
+                            <span class="info-tile-icon" style="font-size: 1.5rem;">📦</span>
+                            <h3 class="info-tile-title">Installed Models</h3>
+                        </div>
+                        <div class="info-tile-rows-container">
+                            {% if ai_system_status.models %}
+                                {% for model_family, version in ai_system_status.models.items() %}
+                                <div class="info-tile-row">
+                                    <div class="info-tile-label">{{ model_family }}</div>
+                                    <div class="info-tile-value primary">
+                                        {{ version }}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="info-tile-row">
+                                    <div class="info-tile-label">Status</div>
+                                    <div class="info-tile-value" style="color: var(--color-text-muted);">
+                                        No models installed
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- AI Enabled Toggle -->
+                <div style="margin-bottom: var(--spacing-xl); padding: var(--spacing-lg); background: var(--color-background-secondary); border-radius: var(--radius-lg); border: 2px solid {% if ai_enabled %}var(--color-success){% else %}var(--color-border){% endif %};">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-md);">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.125rem; font-weight: 600;">Enable AI Features</h3>
+                            <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                                Allow AI-powered IOC extraction, report generation, and triage operations
+                            </p>
+                        </div>
+                        
+                        <!-- Slider Toggle -->
+                        <label class="toggle-switch" style="margin-left: var(--spacing-lg);">
+                            <input type="checkbox" 
+                                   name="ai_enabled" 
+                                   {% if ai_enabled %}checked{% endif %}
+                                   {% if not ai_system_status.gpu.gpu_detected %}disabled{% endif %}
+                                   onchange="this.form.querySelector('.ai-toggle-status').textContent = this.checked ? 'AI Enabled' : 'AI Disabled'; this.form.querySelector('.ai-toggle-status').style.color = this.checked ? 'var(--color-success)' : 'var(--color-text-muted)';">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm); background: var(--color-background); border-radius: var(--radius-md);">
+                        <span class="ai-toggle-status" style="font-weight: 600; color: {% if ai_enabled %}var(--color-success){% else %}var(--color-text-muted){% endif %};">
+                            {% if ai_enabled %}AI Enabled{% else %}AI Disabled{% endif %}
+                        </span>
+                        {% if not ai_system_status.gpu.gpu_detected %}
+                        <span style="margin-left: auto; color: var(--color-warning); font-size: 0.875rem;">
+                            ⚠️ GPU Required - Toggle disabled in CPU-only mode
+                        </span>
+                        {% endif %}
+                    </div>
+                    
+                    {% if not ai_system_status.gpu.gpu_detected %}
+                    <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); background: var(--color-warning-bg); border-radius: var(--radius-md); border-left: 3px solid var(--color-warning);">
+                        <p style="margin: 0; font-size: 0.875rem; color: var(--color-warning);">
+                            <strong>⚠️ No GPU Detected:</strong> AI features require a compatible GPU (NVIDIA or AMD) with sufficient VRAM. 
+                            The AI enable/disable toggle is locked until a GPU is detected. Please install GPU drivers or add a compatible GPU to enable AI features.
+                        </p>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- System Readiness Summary -->
+                <div style="padding: var(--spacing-md); background: {% if ai_system_status.ready and ai_system_status.gpu.gpu_detected %}var(--color-success-bg){% elif ai_system_status.ollama.running %}var(--color-info-bg){% else %}var(--color-error-bg){% endif %}; border-radius: var(--radius-md); border-left: 3px solid {% if ai_system_status.ready and ai_system_status.gpu.gpu_detected %}var(--color-success){% elif ai_system_status.ollama.running %}var(--color-info){% else %}var(--color-error){% endif %};">
+                    <h4 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.9375rem; color: {% if ai_system_status.ready and ai_system_status.gpu.gpu_detected %}var(--color-success){% elif ai_system_status.ollama.running %}var(--color-info){% else %}var(--color-error){% endif %};">
+                        {% if ai_system_status.ready and ai_system_status.gpu.gpu_detected %}
+                            ✓ AI System Ready
+                        {% elif ai_system_status.ollama.running %}
+                            ℹ️ AI System Ready (CPU Mode)
+                        {% else %}
+                            ⚠️ AI System Not Ready
+                        {% endif %}
+                    </h4>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); font-size: 0.875rem; line-height: 1.6;">
+                        <li style="color: {% if ai_system_status.gpu.gpu_detected %}var(--color-success){% else %}var(--color-text-muted){% endif %};">
+                            GPU: {% if ai_system_status.gpu.gpu_detected %}✓ {{ ai_system_status.gpu.gpu_model }}{% else %}✗ Not detected{% endif %}
+                        </li>
+                        <li style="color: {% if ai_system_status.ollama.installed %}var(--color-success){% else %}var(--color-error){% endif %};">
+                            Ollama: {% if ai_system_status.ollama.installed %}✓ Installed{% else %}✗ Not installed{% endif %}
+                        </li>
+                        <li style="color: {% if ai_system_status.ollama.running %}var(--color-success){% else %}var(--color-error){% endif %};">
+                            Service: {% if ai_system_status.ollama.running %}✓ Running{% else %}✗ Not running{% endif %}
+                        </li>
+                        <li style="color: {% if ai_system_status.models %}var(--color-success){% else %}var(--color-error){% endif %};">
+                            Models: {% if ai_system_status.models %}✓ {{ ai_system_status.models|length }} installed{% else %}✗ No models{% endif %}
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
         <!-- DFIR-IRIS Integration -->
         <div class="card" style="margin-bottom: var(--spacing-lg);">
             <div class="card-header">
