@@ -333,7 +333,7 @@
                 <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 1: IOC Extraction</h4>
                 <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
                     {% if has_edr_report %}
-                    Extract IOCs from the configured EDR report using Mistral AI with structured JSON parsing. Supports multiple reports separated by '*** NEW REPORT ***'.
+                    Extract IOCs from the configured EDR report. Uses Mistral AI if enabled in settings, otherwise uses regex-based extraction. Supports multiple reports separated by '*** NEW REPORT ***'.
                     {% else %}
                     Requires an EDR report to be configured. <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" style="color: var(--color-primary);">Add report →</a>
                     {% endif %}
@@ -665,7 +665,7 @@ function extractIOCs() {
     document.getElementById('addIocsBtn').style.display = 'none';
     
     // Update method text
-    const methodText = 'Using Mistral AI for structured IOC extraction...';
+    const methodText = 'Extracting IOCs (Mistral AI if enabled, regex fallback otherwise)...';
     document.getElementById('iocExtractionMethod').textContent = methodText;
     
     // Disable button during extraction
@@ -728,7 +728,9 @@ function showIOCResults(data) {
                 <div style="font-size: 0.8rem; color: var(--color-text-muted);">Reports Processed</div>
             </div>
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
-                <div style="font-size: 1rem; font-weight: bold; color: var(--color-success);">Mistral AI</div>
+                <div style="font-size: 1rem; font-weight: bold; color: var(--color-success);" id="extractionMethodDisplay">
+                    ${data.extraction_method === 'mistral_ai' ? 'Mistral AI' : data.extraction_method === 'regex' ? 'Regex' : 'Unknown'}
+                </div>
                 <div style="font-size: 0.8rem; color: var(--color-text-muted);">Extraction Method</div>
             </div>
         </div>

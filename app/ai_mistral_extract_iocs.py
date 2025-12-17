@@ -5,8 +5,10 @@ AI Mistral IOC Extraction Module
 Extracts IOCs from EDR reports using the Mistral AI model with a structured prompt.
 This module uses the prompt template from ai_prompts/mistral/mistral_get_iocs.md.
 
+If AI is disabled in system settings, automatically falls back to regex-based extraction.
+
 Usage:
-    from models.ai_mistral_extract_iocs import extract_iocs_from_edr_report
+    from ai_mistral_extract_iocs import extract_iocs_from_edr_report
     
     result = extract_iocs_from_edr_report(case_id, report_content)
     # Returns: {'success': bool, 'iocs': dict, 'error': str (optional)}
@@ -22,6 +24,28 @@ from typing import Dict, List, Any
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
+
+
+def is_ai_enabled() -> bool:
+    """
+    Check if AI is enabled in system settings.
+    
+    Returns:
+        True if AI is enabled, False otherwise
+    """
+    try:
+        # Import here to avoid circular dependencies
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from models import SystemSettings
+        from main import db
+        
+        setting = db.session.query(SystemSettings).filter_by(setting_key='ai_enabled').first()
+        enabled = setting and setting.setting_value == 'true'
+        logger.info(f"[MISTRAL_IOC] AI enabled setting: {enabled}")
+        return enabled
+    except Exception as e:
+        logger.warning(f"[MISTRAL_IOC] Could not check AI setting: {e}. Defaulting to False.")
+        return False
 
 # Path to the prompt template
 PROMPT_FILE = '/opt/casescope/ai_prompts/mistral/mistral_get_iocs.md'
@@ -243,7 +267,11 @@ def extract_iocs_from_edr_report(
     max_retries: int = 2
 ) -> Dict[str, Any]:
     """
-    Main entry point: Extract IOCs from EDR report(s) using Mistral AI.
+    Main entry point: Extract IOCs from EDR report(s) using Mistral AI or regex fallback.
+    
+    Automatically checks if AI is enabled in system settings:
+    - If AI enabled: Uses Mistral AI for extraction
+    - If AI disabled: Falls back to regex-based extraction
     
     Handles both single reports and multi-report documents separated by
     '*** NEW REPORT ***'.
@@ -251,7 +279,7 @@ def extract_iocs_from_edr_report(
     Args:
         case_id: The case ID for logging purposes
         report_content: The EDR report content (may contain multiple reports)
-        max_retries: Maximum number of retry attempts per report
+        max_retries: Maximum number of retry attempts per report (AI only)
     
     Returns:
         Dictionary containing:
@@ -259,6 +287,7 @@ def extract_iocs_from_edr_report(
         - iocs: dict (aggregated IOCs from all reports)
         - total_reports: int (number of reports processed)
         - failed_reports: int (number of reports that failed)
+        - extraction_method: str ('mistral_ai' or 'regex')
         - error: str (if completely failed)
     """
     if not report_content or not report_content.strip():
@@ -267,7 +296,15 @@ def extract_iocs_from_edr_report(
             'error': 'No report content provided'
         }
     
-    logger.info(f"[MISTRAL_IOC] Starting IOC extraction for case {case_id}")
+    # Check if AI is enabled
+    ai_enabled = is_ai_enabled()
+    
+    if not ai_enabled:
+        logger.info(f"[MISTRAL_IOC] AI is disabled - falling back to regex extraction for case {case_id}")
+        from ai_regex_extract_iocs import extract_iocs_regex_all_reports
+        return extract_iocs_regex_all_reports(case_id, report_content)
+    
+    logger.info(f"[MISTRAL_IOC] AI is enabled - starting Mistral AI extraction for case {case_id}")
     
     # Split into individual reports if multi-report document
     reports = split_reports(report_content)
@@ -318,7 +355,8 @@ def extract_iocs_from_edr_report(
         'total_reports': len(reports),
         'successful_reports': len(all_extracted_iocs),
         'failed_reports': failed_count,
-        'total_ioc_count': total_ioc_count
+        'total_ioc_count': total_ioc_count,
+        'extraction_method': 'mistral_ai'
     }
 
 
