@@ -2257,7 +2257,7 @@ def triage_extract_iocs(case_id):
     Extract IOCs from the case's EDR report using Mistral AI.
     Uses the prompt template from ai_prompts/mistral/mistral_get_iocs.md.
     """
-    from models.ai_mistral_extract_iocs import extract_iocs_from_edr_report, get_ioc_summary
+    from ai_mistral_extract_iocs import extract_iocs_from_edr_report, get_ioc_summary
     
     case = db.session.get(Case, case_id)
     if not case:
