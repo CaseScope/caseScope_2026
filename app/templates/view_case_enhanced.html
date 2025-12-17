@@ -185,95 +185,69 @@
 <!-- End of Tile Row 1 -->
 
 <!-- TILE ROW 2: CASE FILES & EVENT STATS (50/50 Split) -->
-<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-lg); margin-bottom: var(--spacing-lg);">
+<div class="info-tiles-grid" style="grid-template-columns: repeat(2, 1fr);">
 
 <!-- CASE FILES TILE -->
-<div class="card" style="margin-bottom: 0; cursor: pointer;" onclick="window.location.href='{{ url_for('file_management') }}';">
-    <div class="card-header">
-        <h2 class="card-title">📁 Case Files</h2>
+<div class="info-tile" style="cursor: pointer;" onclick="window.location.href='{{ url_for('file_management') }}';">
+    <div class="info-tile-header">
+        <span class="info-tile-icon">📁</span>
+        <h2 class="info-tile-title">Case Files</h2>
     </div>
-    <div class="card-body">
-        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Files</div>
-                <div>
-                    <span id="stat-total-files" style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary);">
-                        {{ files|length }}
-                    </span>
-                </div>
-            </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Indexed Files</div>
-                <div>
-                    <span id="stat-indexed-files" style="font-size: 1.75rem; font-weight: 700; color: var(--color-success);">
-                        {{ files|selectattr('indexing_status', 'equalto', 'Completed')|list|length }}
-                    </span>
-                </div>
-            </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Files Being Processed</div>
-                <div>
-                    <span id="stat-processing-files" style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">
-                        {{ files|selectattr('indexing_status', 'in', ['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])|list|length }}
-                    </span>
-                </div>
-            </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Disk Space Used by Case Files</div>
-                <div>
-                    <strong id="stat-disk-space">{{ (files|sum(attribute='file_size') / 1024 / 1024)|round(2) }} MB</strong>
-                </div>
-            </div>
+    <div class="info-tile-rows-container">
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total Files</div>
+            <div id="stat-total-files" class="info-tile-value primary">{{ files|length }}</div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Indexed Files</div>
+            <div id="stat-indexed-files" class="info-tile-value success">{{ files|selectattr('indexing_status', 'equalto', 'Completed')|list|length }}</div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Files Being Processed</div>
+            <div id="stat-processing-files" class="info-tile-value warning">{{ files|selectattr('indexing_status', 'in', ['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])|list|length }}</div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Disk Space Used by Case Files</div>
+            <div id="stat-disk-space" class="info-tile-value">{{ (files|sum(attribute='file_size') / 1024 / 1024)|round(2) }} MB</div>
         </div>
     </div>
 </div>
 
 <!-- EVENT STATS TILE -->
-<div class="card" style="margin-bottom: 0; cursor: pointer;" onclick="window.location.href='{{ url_for('event_search', case_id=case.id) }}';">
-    <div class="card-header">
-        <h2 class="card-title">📊 Event Stats</h2>
+<div class="info-tile" style="cursor: pointer;" onclick="window.location.href='{{ url_for('event_search', case_id=case.id) }}';">
+    <div class="info-tile-header">
+        <span class="info-tile-icon">📊</span>
+        <h2 class="info-tile-title">Event Stats</h2>
     </div>
-    <div class="card-body">
-        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Events</div>
-                <div>
-                    <span id="stat-total-events" style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary);">
-                        {% set total_events = files|sum(attribute='event_count') or 0 %}
-                        {{ '{:,}'.format(total_events) }}
-                    </span>
-                </div>
+    <div class="info-tile-rows-container">
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total Events</div>
+            <div id="stat-total-events" class="info-tile-value primary">
+                {% set total_events = files|sum(attribute='event_count') or 0 %}
+                {{ '{:,}'.format(total_events) }}
             </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total SIGMA Violations</div>
-                <div>
-                    <span id="stat-total-sigma" style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">
-                        {% set total_violations = files|sum(attribute='violation_count') or 0 %}
-                        {{ '{:,}'.format(total_violations) }}
-                    </span>
-                </div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total SIGMA Violations</div>
+            <div id="stat-total-sigma" class="info-tile-value warning">
+                {% set total_violations = files|sum(attribute='violation_count') or 0 %}
+                {{ '{:,}'.format(total_violations) }}
             </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Events w/IOCs</div>
-                <div>
-                    <span id="stat-total-ioc-events" style="font-size: 1.75rem; font-weight: 700; color: var(--color-error);">
-                        {% set total_ioc_events = files|sum(attribute='ioc_event_count') or 0 %}
-                        {{ '{:,}'.format(total_ioc_events) }}
-                    </span>
-                </div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total Events w/IOCs</div>
+            <div id="stat-total-ioc-events" class="info-tile-value error">
+                {% set total_ioc_events = files|sum(attribute='ioc_event_count') or 0 %}
+                {{ '{:,}'.format(total_ioc_events) }}
             </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Number of IOCs Tracked in This Case</div>
-                <div>
-                    <span id="stat-total-iocs" style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">{{ total_iocs }}</span>
-                </div>
-            </div>
-            <div style="margin-bottom: var(--spacing-xs);">
-                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Systems Identified</div>
-                <div>
-                    <span id="stat-total-systems" style="font-size: 1.75rem; font-weight: 700; color: var(--color-info);">{{ total_systems }}</span>
-                </div>
-            </div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Number of IOCs Tracked in This Case</div>
+            <div id="stat-total-iocs" class="info-tile-value warning">{{ total_iocs }}</div>
+        </div>
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total Systems Identified</div>
+            <div id="stat-total-systems" class="info-tile-value">{{ total_systems }}</div>
         </div>
     </div>
 </div>
