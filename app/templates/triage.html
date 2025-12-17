@@ -444,14 +444,17 @@
             </div>
         </div>
         <div class="modal-footer">
-            <button type="button" onclick="closeIocModal()" class="btn btn-secondary">Close</button>
-            <button type="button" onclick="processNextReport()" class="btn btn-info" id="processNextBtn" style="display: none;">
-                <span>▶️</span>
-                <span>Process Next Report</span>
+            <button type="button" onclick="cancelExtraction()" class="btn btn-danger">
+                <span>✕</span>
+                <span>Cancel</span>
             </button>
-            <button type="button" onclick="addExtractedIOCs()" class="btn btn-primary" id="addIocsBtn" style="display: none;">
-                <span>➕</span>
-                <span>Add All IOCs to Case</span>
+            <button type="button" onclick="addExtractedIOCs()" class="btn btn-success" id="addIocsBtn" style="display: none;">
+                <span>💾</span>
+                <span>Save IOCs</span>
+            </button>
+            <button type="button" onclick="processNextReport()" class="btn btn-primary" id="processNextBtn" style="display: none;">
+                <span>▶️</span>
+                <span>Next Report</span>
             </button>
         </div>
     </div>
@@ -940,6 +943,17 @@ function processNextReport() {
     closeIocModal();
     // Extract next report
     extractIOCs(currentReportIndex + 1);
+}
+
+function cancelExtraction() {
+    // Reset state
+    currentReportIndex = 0;
+    totalReports = 0;
+    accumulatedIOCs = {};
+    extractedIOCs = null;
+    
+    // Close modal
+    closeIocModal();
 }
 
 function showIOCResults(data) {
