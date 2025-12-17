@@ -440,6 +440,16 @@
                 <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
                     <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
                     <p id="iocErrorMessage">An error occurred during extraction.</p>
+                    <div style="margin-top: var(--spacing-lg);">
+                        <button type="button" onclick="retryCurrentReport()" class="btn btn-warning" style="margin-right: var(--spacing-sm);">
+                            <span>🔄</span>
+                            <span>Retry Report</span>
+                        </button>
+                        <button type="button" onclick="skipToNextReport()" class="btn btn-secondary" id="skipToNextBtn" style="display: none;">
+                            <span>⏭️</span>
+                            <span>Skip to Next Report</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -887,12 +897,23 @@ function extractIOCs(reportIndex = 0) {
         } else {
             document.getElementById('iocExtractionError').style.display = 'block';
             document.getElementById('iocErrorMessage').textContent = data.error || 'Unknown error';
+            
+            // Show skip button if there are more reports
+            const hasMore = data.has_more || (data.report_index < data.total_reports - 1);
+            if (hasMore) {
+                document.getElementById('skipToNextBtn').style.display = 'inline-flex';
+            } else {
+                document.getElementById('skipToNextBtn').style.display = 'none';
+            }
         }
     })
     .catch(error => {
         document.getElementById('iocExtractionProgress').style.display = 'none';
         document.getElementById('iocExtractionError').style.display = 'block';
         document.getElementById('iocErrorMessage').textContent = error.message;
+        
+        // Hide skip button on network errors (we don't know if there are more reports)
+        document.getElementById('skipToNextBtn').style.display = 'none';
     })
     .finally(() => {
         // Re-enable button
@@ -997,6 +1018,16 @@ function cancelExtraction() {
     
     // Close modal
     closeIocModal();
+}
+
+function retryCurrentReport() {
+    // Retry the current report by calling extractIOCs with the same index
+    extractIOCs(currentReportIndex);
+}
+
+function skipToNextReport() {
+    // Skip the failed report and move to the next one
+    extractIOCs(currentReportIndex + 1);
 }
 
 function showIOCResults(data) {
