@@ -620,7 +620,8 @@ a:hover {
 
 /* Compact variant for tiles with many rows */
 .info-tile.compact .info-tile-row {
-    margin-bottom: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+    gap: 2px;
 }
 
 .info-tile.compact .info-tile-label {
