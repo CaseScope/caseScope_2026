@@ -2299,6 +2299,8 @@ def triage_extract_iocs(case_id):
 def triage_add_extracted_iocs(case_id):
     """
     Add extracted IOCs to the case's IOC database.
+    Handles duplicates by appending descriptions.
+    Maps IOC types correctly, uses 'other' for unknown types.
     """
     from models import IOC
     
@@ -2311,22 +2313,33 @@ def triage_add_extracted_iocs(case_id):
         return jsonify({'success': False, 'error': 'No IOCs provided'}), 400
     
     iocs = data['iocs']
+    extraction_method = data.get('extraction_method', 'unknown')
+    
     added_count = 0
+    updated_count = 0
+    skipped_count = 0
     
     try:
-        # Map Mistral IOC types to our IOC model types
+        # Map Mistral/Regex IOC types to database IOC types
+        # Database types: ip, username, user_sid, hostname, fqdn, command, command_complex, 
+        #                 filename, malware_name, hash, port, url, registry_key, email, pid, other
         type_mapping = {
             'ip_addresses': 'ip',
             'hostnames': 'hostname',
             'usernames': 'username',
-            'file_paths': 'filepath',
-            'domains': 'domain',
+            'file_paths': 'other',  # Mix of paths - categorize as other
+            'domains': 'fqdn',
             'urls': 'url',
-            'network_shares': 'filepath',
+            'network_shares': 'other',
             'ports': 'port',
-            'registry_keys': 'registry',
-            'email_addresses': 'email'
+            'registry_keys': 'registry_key',
+            'email_addresses': 'email',
+            'protocols': 'other',
+            'timestamps_utc': 'other',
+            'ssh_keys': 'other'
         }
+        
+        extraction_source = f"Extracted from EDR Report ({'Mistral AI' if extraction_method == 'mistral_ai' else 'Regex'})"
         
         # Process simple arrays
         for ioc_type, ioc_type_db in type_mapping.items():
@@ -2334,21 +2347,29 @@ def triage_add_extracted_iocs(case_id):
             if isinstance(values, list):
                 for value in values:
                     if not value or (isinstance(value, str) and not value.strip()):
+                        skipped_count += 1
                         continue
-                        
-                    # Check if IOC already exists
-                    existing = IOC.query.filter_by(
-                        case_id=case_id,
-                        ioc_type=ioc_type_db,
-                        ioc_value=str(value)[:500]  # Truncate long values
+                    
+                    value_str = str(value)[:500]  # Truncate long values
+                    
+                    # Check if IOC already exists (case-insensitive for better matching)
+                    existing = IOC.query.filter_by(case_id=case_id, ioc_type=ioc_type_db).filter(
+                        db.func.lower(IOC.ioc_value) == db.func.lower(value_str)
                     ).first()
                     
-                    if not existing:
+                    if existing:
+                        # Append to existing description if not already mentioned
+                        if extraction_source not in (existing.description or ''):
+                            existing.description = (existing.description or '') + f"\n{extraction_source}"
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
                         new_ioc = IOC(
                             case_id=case_id,
                             ioc_type=ioc_type_db,
-                            ioc_value=str(value)[:500],
-                            description='Extracted from EDR Report (Mistral AI)',
+                            ioc_value=value_str,
+                            description=extraction_source,
                             is_active=True,
                             created_by=current_user.id
                         )
@@ -2362,47 +2383,97 @@ def triage_add_extracted_iocs(case_id):
                 if isinstance(hash_values, list):
                     for hash_value in hash_values:
                         if not hash_value or not hash_value.strip():
+                            skipped_count += 1
                             continue
                         
-                        existing = IOC.query.filter_by(
-                            case_id=case_id,
-                            ioc_type='hash',
-                            ioc_value=hash_value[:500]
+                        hash_str = hash_value[:500].lower()  # Normalize to lowercase
+                        hash_desc = f"{extraction_source} ({hash_type.upper()} hash)"
+                        
+                        existing = IOC.query.filter_by(case_id=case_id, ioc_type='hash').filter(
+                            db.func.lower(IOC.ioc_value) == hash_str
                         ).first()
                         
-                        if not existing:
+                        if existing:
+                            if extraction_source not in (existing.description or ''):
+                                existing.description = (existing.description or '') + f"\n{hash_desc}"
+                                updated_count += 1
+                            else:
+                                skipped_count += 1
+                        else:
                             new_ioc = IOC(
                                 case_id=case_id,
                                 ioc_type='hash',
-                                ioc_value=hash_value[:500],
-                                description=f'Extracted from EDR Report ({hash_type.upper()} hash)',
+                                ioc_value=hash_str,
+                                description=hash_desc,
                                 is_active=True,
                                 created_by=current_user.id
                             )
                             db.session.add(new_ioc)
                             added_count += 1
         
-        # Process nested structures: credentials (usernames)
+        # Process nested structures: credentials (usernames and passwords)
         credentials = iocs.get('credentials', {})
         if isinstance(credentials, dict):
             cred_usernames = credentials.get('usernames', [])
             if isinstance(cred_usernames, list):
                 for username in cred_usernames:
                     if not username or not username.strip():
+                        skipped_count += 1
                         continue
                     
-                    existing = IOC.query.filter_by(
-                        case_id=case_id,
-                        ioc_type='username',
-                        ioc_value=username[:500]
+                    username_str = username[:500]
+                    cred_desc = f"{extraction_source} (Credential - Username)"
+                    
+                    existing = IOC.query.filter_by(case_id=case_id, ioc_type='username').filter(
+                        db.func.lower(IOC.ioc_value) == db.func.lower(username_str)
                     ).first()
                     
-                    if not existing:
+                    if existing:
+                        if extraction_source not in (existing.description or ''):
+                            existing.description = (existing.description or '') + f"\n{cred_desc}"
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
                         new_ioc = IOC(
                             case_id=case_id,
                             ioc_type='username',
-                            ioc_value=username[:500],
-                            description='Extracted from EDR Report (Credential)',
+                            ioc_value=username_str,
+                            description=cred_desc,
+                            is_active=True,
+                            created_by=current_user.id
+                        )
+                        db.session.add(new_ioc)
+                        added_count += 1
+            
+            # Handle passwords as 'other' type (sensitive data)
+            cred_passwords = credentials.get('passwords', [])
+            if isinstance(cred_passwords, list):
+                for password in cred_passwords:
+                    if not password or not password.strip():
+                        skipped_count += 1
+                        continue
+                    
+                    pwd_desc = f"{extraction_source} (Credential - Password)"
+                    
+                    existing = IOC.query.filter_by(
+                        case_id=case_id,
+                        ioc_type='other',
+                        ioc_value=password[:500]
+                    ).first()
+                    
+                    if existing:
+                        if extraction_source not in (existing.description or ''):
+                            existing.description = (existing.description or '') + f"\n{pwd_desc}"
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
+                        new_ioc = IOC(
+                            case_id=case_id,
+                            ioc_type='other',
+                            ioc_value=password[:500],
+                            description=pwd_desc,
                             is_active=True,
                             created_by=current_user.id
                         )
@@ -2416,20 +2487,31 @@ def triage_add_extracted_iocs(case_id):
             if isinstance(executables, list):
                 for executable in executables:
                     if not executable or not executable.strip():
+                        skipped_count += 1
                         continue
                     
-                    existing = IOC.query.filter_by(
-                        case_id=case_id,
-                        ioc_type='filename',
-                        ioc_value=executable[:500]
+                    exe_str = executable[:500]
+                    exe_desc = f"{extraction_source} (Executable)"
+                    
+                    # Determine if it's a complex command or simple filename
+                    ioc_type_to_use = 'command_complex' if len(exe_str) > 100 else 'filename'
+                    
+                    existing = IOC.query.filter_by(case_id=case_id, ioc_type=ioc_type_to_use).filter(
+                        db.func.lower(IOC.ioc_value) == db.func.lower(exe_str)
                     ).first()
                     
-                    if not existing:
+                    if existing:
+                        if extraction_source not in (existing.description or ''):
+                            existing.description = (existing.description or '') + f"\n{exe_desc}"
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
                         new_ioc = IOC(
                             case_id=case_id,
-                            ioc_type='filename',
-                            ioc_value=executable[:500],
-                            description='Extracted from EDR Report (Executable)',
+                            ioc_type=ioc_type_to_use,
+                            ioc_value=exe_str,
+                            description=exe_desc,
                             is_active=True,
                             created_by=current_user.id
                         )
@@ -2440,20 +2522,31 @@ def triage_add_extracted_iocs(case_id):
             if isinstance(commands, list):
                 for command in commands:
                     if not command or not command.strip():
+                        skipped_count += 1
                         continue
                     
-                    existing = IOC.query.filter_by(
-                        case_id=case_id,
-                        ioc_type='command',
-                        ioc_value=command[:500]
+                    cmd_str = command[:500]
+                    cmd_desc = f"{extraction_source} (Command Line)"
+                    
+                    # Commands are typically long, use command_complex
+                    ioc_type_to_use = 'command_complex' if len(cmd_str) > 50 else 'command'
+                    
+                    existing = IOC.query.filter_by(case_id=case_id, ioc_type=ioc_type_to_use).filter(
+                        db.func.lower(IOC.ioc_value) == db.func.lower(cmd_str)
                     ).first()
                     
-                    if not existing:
+                    if existing:
+                        if extraction_source not in (existing.description or ''):
+                            existing.description = (existing.description or '') + f"\n{cmd_desc}"
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
                         new_ioc = IOC(
                             case_id=case_id,
-                            ioc_type='command',
-                            ioc_value=command[:500],
-                            description='Extracted from EDR Report (Command)',
+                            ioc_type=ioc_type_to_use,
+                            ioc_value=cmd_str,
+                            description=cmd_desc,
                             is_active=True,
                             created_by=current_user.id
                         )
@@ -2461,15 +2554,19 @@ def triage_add_extracted_iocs(case_id):
                         added_count += 1
         
         db.session.commit()
-        logger.info(f"[MISTRAL_IOC] Added {added_count} IOCs to case {case_id} from Mistral AI extraction")
+        logger.info(f"[TRIAGE_IOC] Case {case_id}: Added {added_count}, Updated {updated_count}, Skipped {skipped_count} IOCs ({extraction_method})")
         
         return jsonify({
             'success': True,
-            'added_count': added_count
+            'added_count': added_count,
+            'updated_count': updated_count,
+            'skipped_count': skipped_count,
+            'extraction_method': extraction_method,
+            'message': f'Added {added_count} new IOCs, updated {updated_count} existing IOCs, skipped {skipped_count} duplicates'
         })
     except Exception as e:
         db.session.rollback()
-        logger.error(f"[TRIAGE] Failed to add IOCs to case {case_id}: {e}")
+        logger.error(f"[TRIAGE_IOC] Failed to add IOCs to case {case_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

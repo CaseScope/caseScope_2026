@@ -453,6 +453,95 @@
     </div>
 </div>
 
+<!-- IOC Import Progress Modal -->
+<div id="iocImportModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-container-sm">
+        <div class="modal-header">
+            <h2 class="modal-title">📥 Importing IOCs</h2>
+        </div>
+        <div class="modal-body">
+            <!-- Progress Steps -->
+            <div id="iocImportSteps">
+                <!-- Step 1: Checking AI Status -->
+                <div class="import-step" id="step1">
+                    <div class="step-icon">
+                        <span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-title">Checking AI Status</div>
+                        <div class="step-description">Verifying AI availability...</div>
+                    </div>
+                </div>
+                
+                <!-- Step 2: Processing IOCs -->
+                <div class="import-step" id="step2" style="opacity: 0.4;">
+                    <div class="step-icon">⏳</div>
+                    <div class="step-content">
+                        <div class="step-title">Processing IOCs</div>
+                        <div class="step-description">Analyzing extracted indicators...</div>
+                    </div>
+                </div>
+                
+                <!-- Step 3: Database Import -->
+                <div class="import-step" id="step3" style="opacity: 0.4;">
+                    <div class="step-icon">💾</div>
+                    <div class="step-content">
+                        <div class="step-title">Importing to Database</div>
+                        <div class="step-description">Creating/updating IOC records...</div>
+                    </div>
+                </div>
+                
+                <!-- Step 4: Summary -->
+                <div class="import-step" id="step4" style="opacity: 0.4;">
+                    <div class="step-icon">📊</div>
+                    <div class="step-content">
+                        <div class="step-title">Summary</div>
+                        <div class="step-description">Preparing results...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="progress-bar-container" style="margin-top: var(--spacing-lg);">
+                <div class="progress-bar">
+                    <div id="iocImportProgressBar" class="progress-bar-fill" style="width: 25%;"></div>
+                </div>
+                <div id="iocImportProgressText" style="text-align: center; margin-top: var(--spacing-sm); font-size: 0.875rem; color: var(--color-text-muted);">
+                    Step 1 of 4
+                </div>
+            </div>
+            
+            <!-- Summary (hidden until complete) -->
+            <div id="iocImportSummary" style="display: none; margin-top: var(--spacing-lg);">
+                <div class="info-tile-row">
+                    <span class="info-tile-label">✅ New IOCs Added:</span>
+                    <span id="summaryAdded" class="info-tile-value success">0</span>
+                </div>
+                <div class="info-tile-row">
+                    <span class="info-tile-label">🔄 Existing IOCs Updated:</span>
+                    <span id="summaryUpdated" class="info-tile-value primary">0</span>
+                </div>
+                <div class="info-tile-row">
+                    <span class="info-tile-label">⏭️ Duplicates Skipped:</span>
+                    <span id="summarySkipped" class="info-tile-value">0</span>
+                </div>
+                <div class="info-tile-row">
+                    <span class="info-tile-label">🤖 Extraction Method:</span>
+                    <span id="summaryMethod" class="info-tile-value">-</span>
+                </div>
+            </div>
+            
+            <!-- Error Message -->
+            <div id="iocImportErrorMsg" style="display: none; margin-top: var(--spacing-lg);" class="alert alert-error">
+                <strong>Error:</strong> <span id="iocImportErrorText"></span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeIocImportModal()" class="btn btn-secondary" id="iocImportCloseBtn" style="display: none;">Close</button>
+        </div>
+    </div>
+</div>
+
 <!-- Find Potential IOCs Modal (Snowball Hunting) -->
 <div id="findIocsModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 800px;">
@@ -623,6 +712,74 @@
     </div>
 </div>
 
+<style>
+/* IOC Import Progress Steps */
+.import-step {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    background: var(--color-bg-primary);
+    border-radius: var(--radius-md);
+    transition: opacity 0.3s ease, background 0.3s ease;
+}
+
+.import-step.active {
+    opacity: 1 !important;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.import-step.complete {
+    opacity: 1 !important;
+}
+
+.import-step.complete .step-icon {
+    color: var(--color-success);
+}
+
+.step-icon {
+    font-size: 1.5rem;
+    min-width: 30px;
+    text-align: center;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--color-text-primary);
+    margin-bottom: 4px;
+}
+
+.step-description {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--color-bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    transition: width 0.5s ease;
+}
+</style>
+
 <script>
 const CASE_ID = {{ case.id }};
 let extractedIOCs = null;
@@ -687,7 +844,9 @@ function extractIOCs() {
         document.getElementById('iocExtractionProgress').style.display = 'none';
         
         if (data.success) {
+            // Store IOCs with extraction method
             extractedIOCs = data.iocs;
+            extractedIOCs.extraction_method = data.extraction_method || 'regex';
             showIOCResults(data);
         } else {
             document.getElementById('iocExtractionError').style.display = 'block';
@@ -810,31 +969,37 @@ function addExtractedIOCs() {
     
     const btn = document.getElementById('addIocsBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Adding...</span>';
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Processing...</span>';
+    
+    // Close results modal and show progress modal
+    closeIocModal();
+    showIocImportProgress();
     
     fetch(`/case/${CASE_ID}/triage/add-extracted-iocs`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ iocs: extractedIOCs })
+        body: JSON.stringify({ 
+            iocs: extractedIOCs,
+            extraction_method: extractedIOCs.extraction_method || 'regex'
+        })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert(`Successfully added ${data.added_count} IOCs to the case!`);
-            closeIocModal();
-            location.reload();
+            showIocImportSummary(data);
+            setTimeout(() => {
+                closeIocImportModal();
+                location.reload();
+            }, 3000);
         } else {
-            alert('Error: ' + (data.error || 'Failed to add IOCs'));
-            btn.disabled = false;
-            btn.innerHTML = '<span>➕</span> <span>Add IOCs to Case</span>';
+            showIocImportError(data.error || 'Failed to import IOCs');
         }
     })
     .catch(error => {
-        alert('Error: ' + error.message);
-        btn.disabled = false;
-        btn.innerHTML = '<span>➕</span> <span>Add IOCs to Case</span>';
+        console.error('Error adding IOCs:', error);
+        showIocImportError('Network error while importing IOCs');
     });
 }
 
@@ -1233,6 +1398,119 @@ document.addEventListener('click', function(e) {
         closeTagEventsModal();
     }
 });
+
+// ============================================================
+// IOC Import Progress Modal Functions
+// ============================================================
+
+function showIocImportProgress() {
+    // Reset modal state
+    document.getElementById('iocImportModal').style.display = 'flex';
+    document.getElementById('iocImportSummary').style.display = 'none';
+    document.getElementById('iocImportErrorMsg').style.display = 'none';
+    document.getElementById('iocImportCloseBtn').style.display = 'none';
+    
+    // Reset all steps
+    for (let i = 1; i <= 4; i++) {
+        const step = document.getElementById(`step${i}`);
+        step.classList.remove('active', 'complete');
+        step.style.opacity = i === 1 ? '1' : '0.4';
+        
+        // Reset icons
+        const icon = step.querySelector('.step-icon');
+        if (i === 1) {
+            icon.innerHTML = '<span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>';
+        } else if (i === 2) {
+            icon.textContent = '⏳';
+        } else if (i === 3) {
+            icon.textContent = '💾';
+        } else if (i === 4) {
+            icon.textContent = '📊';
+        }
+    }
+    
+    // Start progress simulation
+    updateImportStep(1);
+    setTimeout(() => updateImportStep(2), 500);
+    setTimeout(() => updateImportStep(3), 1000);
+}
+
+function updateImportStep(stepNumber) {
+    const progressBar = document.getElementById('iocImportProgressBar');
+    const progressText = document.getElementById('iocImportProgressText');
+    
+    // Mark previous steps as complete
+    for (let i = 1; i < stepNumber; i++) {
+        const step = document.getElementById(`step${i}`);
+        step.classList.remove('active');
+        step.classList.add('complete');
+        step.style.opacity = '1';
+        step.querySelector('.step-icon').textContent = '✓';
+    }
+    
+    // Activate current step
+    const currentStep = document.getElementById(`step${stepNumber}`);
+    currentStep.classList.add('active');
+    currentStep.style.opacity = '1';
+    
+    // Update progress bar
+    const progress = (stepNumber / 4) * 100;
+    progressBar.style.width = `${progress}%`;
+    progressText.textContent = `Step ${stepNumber} of 4`;
+    
+    // Update spinner for current step
+    if (stepNumber <= 3) {
+        const icon = currentStep.querySelector('.step-icon');
+        icon.innerHTML = '<span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>';
+    }
+}
+
+function showIocImportSummary(data) {
+    // Complete all steps
+    updateImportStep(4);
+    
+    // Mark step 4 as complete
+    setTimeout(() => {
+        const step4 = document.getElementById('step4');
+        step4.classList.remove('active');
+        step4.classList.add('complete');
+        step4.querySelector('.step-icon').textContent = '✓';
+        
+        // Show summary
+        document.getElementById('summaryAdded').textContent = data.added_count || 0;
+        document.getElementById('summaryUpdated').textContent = data.updated_count || 0;
+        document.getElementById('summarySkipped').textContent = data.skipped_count || 0;
+        document.getElementById('summaryMethod').textContent = data.extraction_method === 'mistral_ai' ? 'Mistral AI' : 'Regex';
+        document.getElementById('iocImportSummary').style.display = 'block';
+        
+        // Show close button
+        document.getElementById('iocImportCloseBtn').style.display = 'inline-block';
+        
+        // Update progress bar to 100%
+        document.getElementById('iocImportProgressBar').style.width = '100%';
+        document.getElementById('iocImportProgressText').textContent = 'Complete!';
+    }, 500);
+}
+
+function showIocImportError(errorMsg) {
+    // Hide steps and progress
+    document.getElementById('iocImportSteps').style.display = 'none';
+    document.querySelector('.progress-bar-container').style.display = 'none';
+    
+    // Show error
+    document.getElementById('iocImportErrorText').textContent = errorMsg;
+    document.getElementById('iocImportErrorMsg').style.display = 'block';
+    document.getElementById('iocImportCloseBtn').style.display = 'inline-block';
+}
+
+function closeIocImportModal() {
+    document.getElementById('iocImportModal').style.display = 'none';
+    
+    // Reset visibility
+    document.getElementById('iocImportSteps').style.display = 'block';
+    document.querySelector('.progress-bar-container').style.display = 'block';
+}
+
 </script>
 
 {% endblock %}
