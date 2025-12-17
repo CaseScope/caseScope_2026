@@ -486,10 +486,6 @@ a:hover {
     margin-bottom: 0;
 }
 
-.card-body {
-    /* padding is inherited from .card */
-}
-
 
 /* ============================================================================
    STATS GRID
@@ -536,6 +532,103 @@ a:hover {
     color: var(--color-text-muted);
     font-size: 0.875rem;
     margin-top: var(--spacing-sm);
+}
+
+
+/* ============================================================================
+   INFO TILES - Standardized tiles for displaying system information
+   ============================================================================ */
+
+.info-tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+}
+
+.info-tile {
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.info-tile-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.info-tile-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.info-tile-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+}
+
+.info-tile-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+}
+
+.info-tile-row:last-child {
+    margin-bottom: 0;
+}
+
+.info-tile-label {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.info-tile-value {
+    color: var(--color-text-primary);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+/* Colored value variants */
+.info-tile-value.success {
+    color: var(--color-success);
+}
+
+.info-tile-value.warning {
+    color: var(--color-warning);
+}
+
+.info-tile-value.error {
+    color: var(--color-error);
+}
+
+.info-tile-value.primary {
+    color: var(--color-primary);
+}
+
+/* Compact variant for tiles with many rows */
+.info-tile.compact .info-tile-row {
+    margin-bottom: var(--spacing-sm);
+}
+
+.info-tile.compact .info-tile-label {
+    font-size: 0.8125rem;
+}
+
+.info-tile.compact .info-tile-value {
+    font-size: 0.9375rem;
 }
 
 

@@ -10,75 +10,6 @@
         padding: var(--spacing-lg);
     }
     
-    .diagnostics-header {
-        margin-bottom: var(--spacing-xl);
-    }
-    
-    .diagnostics-header h1 {
-        font-size: 2rem;
-        margin-bottom: var(--spacing-sm);
-        color: var(--color-text);
-    }
-    
-    .diagnostics-header p {
-        color: var(--color-text-muted);
-        font-size: 1rem;
-    }
-    
-    .diagnostics-tile {
-        background: var(--color-surface);
-        border: 1px solid var(--color-border);
-        border-radius: 8px;
-        padding: var(--spacing-lg);
-        margin-bottom: var(--spacing-lg);
-    }
-    
-    .tile-header {
-        display: flex;
-        align-items: center;
-        margin-bottom: var(--spacing-md);
-        padding-bottom: var(--spacing-md);
-        border-bottom: 1px solid var(--color-border);
-    }
-    
-    .tile-header h2 {
-        font-size: 1.5rem;
-        color: var(--color-text);
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-sm);
-    }
-    
-    .status-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: var(--spacing-md);
-        margin-bottom: var(--spacing-lg);
-    }
-    
-    .status-card {
-        background: var(--color-bg);
-        border: 1px solid var(--color-border);
-        border-radius: 6px;
-        padding: var(--spacing-md);
-    }
-    
-    .status-card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: var(--spacing-sm);
-    }
-    
-    .status-card-title {
-        font-weight: 600;
-        color: var(--color-text);
-        font-size: 0.875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    
     .status-badge {
         padding: 4px 12px;
         border-radius: 12px;
@@ -107,34 +38,6 @@
         color: #9ca3af;
     }
     
-    .status-card-content {
-        color: var(--color-text-muted);
-        font-size: 0.875rem;
-        line-height: 1.6;
-    }
-    
-    .status-card-metric {
-        display: flex;
-        justify-content: space-between;
-        padding: 6px 0;
-        border-bottom: 1px solid var(--color-border);
-    }
-    
-    .status-card-metric:last-child {
-        border-bottom: none;
-    }
-    
-    .metric-label {
-        color: var(--color-text-muted);
-        font-size: 0.875rem;
-    }
-    
-    .metric-value {
-        color: var(--color-text);
-        font-weight: 600;
-        font-size: 0.875rem;
-    }
-    
     .action-buttons {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -146,9 +49,9 @@
         flex-direction: column;
         align-items: flex-start;
         padding: var(--spacing-md);
-        background: var(--color-bg);
+        background: var(--color-bg-secondary);
         border: 1px solid var(--color-border);
-        border-radius: 6px;
+        border-radius: var(--radius-md);
         cursor: pointer;
         transition: all 0.2s ease;
     }
@@ -166,7 +69,7 @@
     .action-button-title {
         font-size: 1rem;
         font-weight: 600;
-        color: var(--color-text);
+        color: var(--color-text-primary);
         margin-bottom: var(--spacing-xs);
         display: flex;
         align-items: center;
@@ -199,15 +102,10 @@
         to { transform: rotate(360deg); }
     }
     
-    .loading {
-        opacity: 0.6;
-        pointer-events: none;
-    }
-    
     .info-panel {
         background: rgba(59, 130, 246, 0.1);
         border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 6px;
+        border-radius: var(--radius-md);
         padding: var(--spacing-md);
         margin-top: var(--spacing-lg);
     }
@@ -222,7 +120,7 @@
     }
     
     .info-panel-content {
-        color: var(--color-text);
+        color: var(--color-text-primary);
         font-size: 0.875rem;
         line-height: 1.6;
     }
@@ -231,7 +129,7 @@
         max-height: 300px;
         overflow-y: auto;
         margin-top: var(--spacing-sm);
-        background: var(--color-bg);
+        background: var(--color-bg-secondary);
         border: 1px solid var(--color-border);
         border-radius: 4px;
         padding: var(--spacing-sm);
@@ -252,36 +150,34 @@
 {% block content %}
 <div class="diagnostics-container">
     <!-- Header -->
-    <div class="diagnostics-header">
-        <h1>🔧 System Diagnostics</h1>
-        <p>Monitor system health, restart services, and manage the processing queue</p>
+    <div class="content-header">
+        <div>
+            <h1 class="content-title">System Diagnostics</h1>
+            <p class="text-secondary">Monitor system health, restart services, and manage the processing queue</p>
+        </div>
     </div>
     
-    <!-- Tile 1: System Status (Full Width) -->
-    <div class="diagnostics-tile">
-        <div class="tile-header">
-            <h2>📊 System Status</h2>
-        </div>
-        
-        <div class="status-grid" id="systemStatus">
-            <!-- Status cards will be populated by JavaScript -->
-            <div class="status-card">
-                <div class="status-card-header">
-                    <span class="status-card-title">Loading...</span>
-                    <span class="status-badge unknown">...</span>
-                </div>
-                <div class="status-card-content">
-                    <div class="spinner"></div> Fetching system status...
-                </div>
+    <!-- System Status Tiles Grid -->
+    <div class="info-tiles-grid" id="systemStatus">
+        <!-- Status tiles will be populated by JavaScript -->
+        <div class="info-tile">
+            <div class="info-tile-header">
+                <span class="info-tile-icon">⏳</span>
+                <h2 class="info-tile-title">Loading...</h2>
+            </div>
+            <div class="info-tile-row">
+                <div class="spinner"></div> Fetching system status...
             </div>
         </div>
     </div>
     
-    <!-- Tile 2: Service Controls & Queue Management -->
-    <div class="diagnostics-tile">
-        <div class="tile-header">
-            <h2>🎛️ Service Controls & Queue Management</h2>
+    <!-- Service Controls & Queue Management -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">🎛️ Service Controls & Queue Management</h2>
         </div>
+        
+        <div class="card-body">
         
         <div class="action-buttons">
             <!-- Restart Web Service -->
@@ -328,10 +224,26 @@
                     <span>Clear Queue</span>
                 </button>
             </div>
+            
+            <!-- Clear Stale Tasks -->
+            <div class="action-button">
+                <div class="action-button-title">
+                    <span>🧹</span>
+                    <span>Clear Stale Tasks</span>
+                </div>
+                <div class="action-button-description">
+                    Clears orphaned Celery task metadata from Redis. Use this if workers were forcefully stopped or if task processing appears stuck. Safe to use anytime.
+                </div>
+                <button onclick="clearStaleTasks()" class="btn btn-warning action-button-trigger" id="clearTasksBtn">
+                    <span>🧹</span>
+                    <span>Clear Stale Tasks</span>
+                </button>
+            </div>
         </div>
         
-        <!-- Results Panel -->
-        <div id="resultsPanel" style="display: none; margin-top: var(--spacing-lg);"></div>
+            <!-- Results Panel -->
+            <div id="resultsPanel" style="display: none; margin-top: var(--spacing-lg);"></div>
+        </div>
     </div>
 </div>
 
@@ -389,13 +301,14 @@ async function loadSystemStatus() {
     } catch (error) {
         console.error('Error loading system status:', error);
         document.getElementById('systemStatus').innerHTML = `
-            <div class="status-card">
-                <div class="status-card-header">
-                    <span class="status-card-title">Error</span>
-                    <span class="status-badge critical">Failed</span>
+            <div class="info-tile">
+                <div class="info-tile-header">
+                    <span class="info-tile-icon">❌</span>
+                    <h2 class="info-tile-title">Error</h2>
+                    <span class="status-badge critical" style="margin-left: auto;">Failed</span>
                 </div>
-                <div class="status-card-content">
-                    Failed to load system status: ${error.message}
+                <div class="info-tile-row">
+                    <div class="info-tile-value error">Failed to load system status: ${error.message}</div>
                 </div>
             </div>
         `;
@@ -406,27 +319,39 @@ function createStatusCard(title, status, message, metrics) {
     const statusClass = status.toLowerCase();
     const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
     
-    let metricsHtml = '';
+    // Select icon based on title
+    let icon = '📊';
+    if (title.includes('Database')) icon = '🗄️';
+    else if (title.includes('OpenSearch')) icon = '🔍';
+    else if (title.includes('Celery') || title.includes('Worker')) icon = '⚙️';
+    else if (title.includes('Disk')) icon = '💾';
+    
+    let contentHtml = '';
     if (Object.keys(metrics).length > 0) {
         for (const [label, value] of Object.entries(metrics)) {
-            metricsHtml += `
-                <div class="status-card-metric">
-                    <span class="metric-label">${label}:</span>
-                    <span class="metric-value">${value}</span>
+            contentHtml += `
+                <div class="info-tile-row">
+                    <div class="info-tile-label">${label}</div>
+                    <div class="info-tile-value">${value}</div>
                 </div>
             `;
         }
     } else {
-        metricsHtml = `<div class="status-card-content">${message}</div>`;
+        contentHtml = `
+            <div class="info-tile-row">
+                <div class="info-tile-value">${message}</div>
+            </div>
+        `;
     }
     
     return `
-        <div class="status-card">
-            <div class="status-card-header">
-                <span class="status-card-title">${title}</span>
-                <span class="status-badge ${statusClass}">${statusLabel}</span>
+        <div class="info-tile">
+            <div class="info-tile-header">
+                <span class="info-tile-icon">${icon}</span>
+                <h2 class="info-tile-title">${title}</h2>
+                <span class="status-badge ${statusClass}" style="margin-left: auto;">${statusLabel}</span>
             </div>
-            ${metricsHtml}
+            ${contentHtml}
         </div>
     `;
 }
@@ -533,6 +458,42 @@ async function clearQueue() {
             loadSystemStatus(); // Refresh status
         } else {
             showAlert('error', data.error || 'Failed to clear queue');
+        }
+        
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    } catch (error) {
+        showAlert('error', `Error: ${error.message}`);
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Clear Stale Tasks
+async function clearStaleTasks() {
+    if (!confirm('🧹 Clear Stale Tasks?\n\nThis will remove orphaned Celery task metadata from Redis. This is safe and can help resolve stuck task issues.\n\nContinue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('clearTasksBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Clearing...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/diagnostics/clear_stale_tasks', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('success', `${data.message}\n\n• Task metadata: ${data.task_metadata_cleared.toLocaleString()}\n• Unacked tasks: ${data.unacked_cleared}\n• Kombu state: ${data.kombu_cleared}`);
+            loadSystemStatus(); // Refresh status
+        } else {
+            showAlert('error', data.error || 'Failed to clear stale tasks');
         }
         
         btn.innerHTML = originalHtml;
