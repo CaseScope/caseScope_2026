@@ -838,8 +838,16 @@ function extractIOCs(reportIndex = 0) {
     document.getElementById('iocExtractionProgress').style.display = 'block';
     document.getElementById('iocExtractionResults').style.display = 'none';
     document.getElementById('iocExtractionError').style.display = 'none';
-    document.getElementById('saveAndNextBtn').style.display = 'none';
-    document.getElementById('saveAndFinishBtn').style.display = 'none';
+    
+    // Reset button states
+    const saveNextBtn = document.getElementById('saveAndNextBtn');
+    const saveFinishBtn = document.getElementById('saveAndFinishBtn');
+    saveNextBtn.style.display = 'none';
+    saveNextBtn.disabled = false;
+    saveNextBtn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
+    saveFinishBtn.style.display = 'none';
+    saveFinishBtn.disabled = false;
+    saveFinishBtn.innerHTML = '<span>💾✓</span> <span>Save & Finish</span>';
     
     // Update method text
     const methodText = reportIndex === 0 
