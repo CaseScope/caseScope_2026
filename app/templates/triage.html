@@ -444,17 +444,17 @@
             </div>
         </div>
         <div class="modal-footer">
-            <button type="button" onclick="cancelExtraction()" class="btn btn-danger">
+            <button type="button" onclick="cancelExtraction()" class="btn btn-danger" id="cancelBtn">
                 <span>✕</span>
                 <span>Cancel</span>
             </button>
-            <button type="button" onclick="addExtractedIOCs()" class="btn btn-success" id="addIocsBtn" style="display: none;">
-                <span>💾</span>
-                <span>Save IOCs</span>
+            <button type="button" onclick="saveAndContinue()" class="btn btn-primary" id="saveAndNextBtn" style="display: none;">
+                <span>💾▶️</span>
+                <span>Save & Next Report</span>
             </button>
-            <button type="button" onclick="processNextReport()" class="btn btn-primary" id="processNextBtn" style="display: none;">
-                <span>▶️</span>
-                <span>Next Report</span>
+            <button type="button" onclick="saveAndFinish()" class="btn btn-success" id="saveAndFinishBtn" style="display: none;">
+                <span>💾✓</span>
+                <span>Save & Finish</span>
             </button>
         </div>
     </div>
@@ -838,8 +838,8 @@ function extractIOCs(reportIndex = 0) {
     document.getElementById('iocExtractionProgress').style.display = 'block';
     document.getElementById('iocExtractionResults').style.display = 'none';
     document.getElementById('iocExtractionError').style.display = 'none';
-    document.getElementById('addIocsBtn').style.display = 'none';
-    document.getElementById('processNextBtn').style.display = 'none';
+    document.getElementById('saveAndNextBtn').style.display = 'none';
+    document.getElementById('saveAndFinishBtn').style.display = 'none';
     
     // Update method text
     const methodText = reportIndex === 0 
@@ -938,11 +938,49 @@ function accumulateIOCs(newIOCs, extractionMethod) {
     extractedIOCs = { ...accumulatedIOCs };
 }
 
-function processNextReport() {
-    // Close current modal
-    closeIocModal();
-    // Extract next report
-    extractIOCs(currentReportIndex + 1);
+function saveAndContinue() {
+    if (!extractedIOCs) return;
+    
+    const btn = document.getElementById('saveAndNextBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Saving...</span>';
+    
+    // Save IOCs
+    fetch(`/case/${CASE_ID}/triage/add-extracted-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            iocs: extractedIOCs,
+            extraction_method: extractedIOCs.extraction_method || 'regex'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show brief success message
+            showSuccessToast(`Saved ${data.added_count} new, ${data.updated_count} updated IOCs`);
+            
+            // Close current modal and proceed to next report
+            closeIocModal();
+            
+            // Small delay to show the toast, then continue
+            setTimeout(() => {
+                extractIOCs(currentReportIndex + 1);
+            }, 500);
+        } else {
+            showErrorToast(data.error || 'Failed to save IOCs');
+            btn.disabled = false;
+            btn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
+        }
+    })
+    .catch(error => {
+        console.error('Error saving IOCs:', error);
+        showErrorToast('Network error while saving IOCs');
+        btn.disabled = false;
+        btn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
+    });
 }
 
 function cancelExtraction() {
@@ -1064,13 +1102,13 @@ function showIOCResults(data) {
     // Show appropriate buttons based on report status
     if (accumulatedCount > 0) {
         if (hasMore) {
-            // More reports to process - show "Process Next Report" button
-            document.getElementById('processNextBtn').style.display = 'inline-flex';
-            document.getElementById('addIocsBtn').style.display = 'inline-flex'; // Also show Add button in case user wants to stop here
+            // More reports to process - show both save options
+            document.getElementById('saveAndNextBtn').style.display = 'inline-flex';
+            document.getElementById('saveAndFinishBtn').style.display = 'inline-flex';
         } else {
-            // Last report - only show "Add All IOCs to Case" button
-            document.getElementById('processNextBtn').style.display = 'none';
-            document.getElementById('addIocsBtn').style.display = 'inline-flex';
+            // Last report - only show "Save & Finish"
+            document.getElementById('saveAndNextBtn').style.display = 'none';
+            document.getElementById('saveAndFinishBtn').style.display = 'inline-flex';
         }
     }
 }
@@ -1085,12 +1123,12 @@ function closeIocModal() {
     document.getElementById('iocExtractionModal').style.display = 'none';
 }
 
-function addExtractedIOCs() {
+function saveAndFinish() {
     if (!extractedIOCs) return;
     
-    const btn = document.getElementById('addIocsBtn');
+    const btn = document.getElementById('saveAndFinishBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Processing...</span>';
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Saving...</span>';
     
     // Close results modal and show progress modal
     closeIocModal();
@@ -1119,7 +1157,7 @@ function addExtractedIOCs() {
         }
     })
     .catch(error => {
-        console.error('Error adding IOCs:', error);
+        console.error('Error saving IOCs:', error);
         showIocImportError('Network error while importing IOCs');
     });
 }
