@@ -7,7 +7,7 @@ Supports iterative processing of multiple reports.
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from models import db, Case, IOC
-from logger_config import get_logger
+from logging_config import get_logger
 import os
 import re
 
