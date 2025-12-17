@@ -50,15 +50,18 @@ def index():
     # Get AI system status (GPU + Ollama + Models)
     ai_system_status = {}
     try:
-        from models.settings_ai_get_gpu_info import get_gpu_info
-        from models.settings_ai_get_ollama_status import get_ai_system_status
+        from ai_gpu_detection import get_gpu_info
+        from ai_ollama_detection import get_ai_system_status
         
         gpu_info = get_gpu_info()
         ai_system_status = get_ai_system_status()
         ai_system_status['gpu'] = gpu_info
     except Exception as e:
         import logging
-        logging.getLogger(__name__).error(f"[Settings] Error loading AI system status: {e}")
+        import traceback
+        logger = logging.getLogger(__name__)
+        logger.error(f"[Settings] Error loading AI system status: {e}")
+        logger.error(f"[Settings] Traceback: {traceback.format_exc()}")
         ai_system_status = {
             'gpu': {'gpu_detected': False, 'gpu_model': 'Error', 'gpu_vram_gb': 0},
             'ollama': {'installed': False, 'running': False, 'version': 'Error'},
