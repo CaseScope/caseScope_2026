@@ -631,6 +631,19 @@ a:hover {
     font-size: 0.9375rem;
 }
 
+/* Two-column layout variant */
+.info-tile.two-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.info-tile.two-column .info-tile-rows-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    column-gap: var(--spacing-lg);
+}
+
 
 /* ============================================================================
    TABLES

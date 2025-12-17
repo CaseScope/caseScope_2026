@@ -19,171 +19,123 @@
 <!-- ============================================================================
      TILES ROW 1: System Status, CaseScope Status, Events Status, Software Status
      ============================================================================ -->
-<div class="dashboard-row-4">
+<div class="info-tiles-grid">
     
 <!-- SYSTEM STATUS TILE -->
-<div class="card card-no-margin">
-    <div class="card-header">
-        <h2 class="card-title">💻 System Status</h2>
+<div class="info-tile">
+    <div class="info-tile-header">
+        <span class="info-tile-icon">💻</span>
+        <h2 class="info-tile-title">System Status</h2>
     </div>
-    <div class="card-body">
-        {% if system_status %}
-        <div class="stat-grid-2col">
-            <div class="stat-item">
-                <div class="stat-item-label">OS Name & Version</div>
-                <div class="stat-item-value">{{ system_status.os_name }}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">CPU Cores / Usage</div>
-                <div class="stat-item-value">{{ system_status.cpu_cores }} cores / {{ system_status.cpu_usage }}%</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">Memory Total / Used</div>
-                <div class="stat-item-value">{{ system_status.memory_total_gb }} GB / {{ system_status.memory_used_gb }} GB ({{ system_status.memory_percent|round(1) }}%)</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">Hard Disk Size / Used</div>
-                <div class="stat-item-value">{{ system_status.disk_total_gb }} GB / {{ system_status.disk_used_gb }} GB ({{ system_status.disk_percent|round(1) }}%)</div>
-            </div>
-            {% if system_status.gpu_info %}
-            <div class="stat-item">
-                <div class="stat-item-label">GPU{% if system_status.gpu_info|length > 1 %}s{% endif %}</div>
-                <div class="stat-item-value">
-                    {% for gpu in system_status.gpu_info %}
-                        {{ gpu }}{% if not loop.last %}<br>{% endif %}
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-            <div class="stat-item">
-                <div class="stat-item-label">Space Consumed by Case Files</div>
-                <div class="stat-item-value">{{ case_files_space_gb }} GB</div>
-            </div>
+    {% if system_status %}
+    <div class="info-tile-row">
+        <div class="info-tile-label">OS Name & Version</div>
+        <div class="info-tile-value">{{ system_status.os_name }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">CPU Cores / Usage</div>
+        <div class="info-tile-value">{{ system_status.cpu_cores }} cores / {{ system_status.cpu_usage }}%</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Memory Total / Used</div>
+        <div class="info-tile-value">{{ system_status.memory_total_gb }} GB / {{ system_status.memory_used_gb }} GB ({{ system_status.memory_percent|round(1) }}%)</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Hard Disk Size / Used</div>
+        <div class="info-tile-value">{{ system_status.disk_total_gb }} GB / {{ system_status.disk_used_gb }} GB ({{ system_status.disk_percent|round(1) }}%)</div>
+    </div>
+    {% if system_status.gpu_info %}
+    <div class="info-tile-row">
+        <div class="info-tile-label">GPU{% if system_status.gpu_info|length > 1 %}s{% endif %}</div>
+        <div class="info-tile-value">
+            {% for gpu in system_status.gpu_info %}
+                {{ gpu }}{% if not loop.last %}<br>{% endif %}
+            {% endfor %}
         </div>
-        {% else %}
-        <p class="text-muted">Unable to retrieve system status</p>
-        {% endif %}
     </div>
+    {% endif %}
+    <div class="info-tile-row">
+        <div class="info-tile-label">Space Consumed by Case Files</div>
+        <div class="info-tile-value">{{ case_files_space_gb }} GB</div>
+    </div>
+    {% else %}
+    <div class="info-tile-row">
+        <div class="info-tile-value error">Unable to retrieve system status</div>
+    </div>
+    {% endif %}
 </div>
 
 <!-- CASESCOPE STATUS TILE -->
-<div class="card card-no-margin">
-    <div class="card-header">
-        <h2 class="card-title">📊 CaseScope Status</h2>
+<div class="info-tile">
+    <div class="info-tile-header">
+        <span class="info-tile-icon">📊</span>
+        <h2 class="info-tile-title">CaseScope Status</h2>
     </div>
-    <div class="card-body">
-        <div class="stat-grid-2col">
-            <div class="stat-item">
-                <div class="stat-item-label">Number of Cases</div>
-                <div>
-                    <a href="{{ url_for('case_selection') }}" class="stat-item-value-large">
-                        {{ total_cases }}
-                    </a>
-                    <span class="text-muted stat-item-caption">active cases</span>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">Total Number of Files</div>
-                <div>
-                    <a href="{{ url_for('file_management') }}" class="stat-item-value-large">
-                        {{ total_files }}
-                    </a>
-                    <span class="text-muted stat-item-caption">indexed files</span>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">Total SIGMA Rules / Enabled</div>
-                <div>
-                    <a href="{{ url_for('sigma_management') }}" class="stat-item-value-large" style="color: var(--color-purple);">
-                        {{ sigma_info.total }} / {{ sigma_info.enabled }}
-                    </a>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">SIGMA Last Checked</div>
-                <div>
-                    <a href="{{ url_for('sigma_management') }}" class="stat-item-value">
-                        {% if sigma_info.last_checked %}
-                            {{ sigma_info.last_checked.strftime('%Y-%m-%d') }}
-                        {% else %}
-                            Never
-                        {% endif %}
-                    </a>
-                </div>
-            </div>
-            
-            <!-- IOCs Section (Spans Full Width) -->
-            <div class="stat-item">
-                <div class="stat-item-label">IOCs Globally Tracked</div>
-                <div>
-                    <span class="stat-item-value-large">{{ total_iocs }}</span>
-                    <span class="text-muted stat-item-caption">indicators</span>
-                </div>
-            </div>
-            
-            <!-- Archived Cases (v1.18.0) -->
-            <div class="stat-item">
-                <div class="stat-item-label">Archived Cases</div>
-                <div>
-                    <a href="{{ url_for('case_selection') }}" class="stat-item-value-large" style="color: var(--color-text-muted);">
-                        {{ archived_cases }}
-                    </a>
-                    <span class="text-muted stat-item-caption">cases in cold storage</span>
-                </div>
-            </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Number of Cases</div>
+        <div class="info-tile-value primary">{{ total_cases }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Total Number of Files</div>
+        <div class="info-tile-value primary">{{ "{:,}".format(total_files) }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Total SIGMA Rules / Enabled</div>
+        <div class="info-tile-value">{{ sigma_info.total }} / {{ sigma_info.enabled }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">SIGMA Last Checked</div>
+        <div class="info-tile-value">
+            {% if sigma_info.last_checked %}
+                {{ sigma_info.last_checked.strftime('%Y-%m-%d') }}
+            {% else %}
+                Never
+            {% endif %}
         </div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">IOCs Globally Tracked</div>
+        <div class="info-tile-value primary">{{ total_iocs }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Archived Cases</div>
+        <div class="info-tile-value">{{ archived_cases }}</div>
     </div>
 </div>
 
 <!-- EVENTS STATUS TILE -->
-<div class="card card-no-margin">
-    <div class="card-header">
-        <h2 class="card-title">📊 Events Status</h2>
+<div class="info-tile">
+    <div class="info-tile-header">
+        <span class="info-tile-icon">📊</span>
+        <h2 class="info-tile-title">Events Status</h2>
     </div>
-    <div class="card-body">
-        <div class="stat-grid-2col">
-            <div class="stat-item">
-                <div class="stat-item-label">Total Number of Events</div>
-                <div>
-                    <span class="stat-item-value-large">
-                        {{ "{:,}".format(total_events) }}
-                    </span>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">Total SIGMA Violations Found</div>
-                <div>
-                    <a href="{{ url_for('sigma_management') }}" class="stat-item-value-large" style="color: var(--color-warning);">
-                        {{ "{:,}".format(total_sigma_violations) }}
-                    </a>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">Total IOC Events Found</div>
-                <div>
-                    <span class="stat-item-value-large" style="color: var(--color-error);">
-                        {{ "{:,}".format(total_ioc_events) }}
-                    </span>
-                </div>
-            </div>
-        </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Total Number of Events</div>
+        <div class="info-tile-value primary">{{ "{:,}".format(total_events) }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Total SIGMA Violations Found</div>
+        <div class="info-tile-value warning">{{ "{:,}".format(total_sigma_violations) }}</div>
+    </div>
+    <div class="info-tile-row">
+        <div class="info-tile-label">Total IOC Events Found</div>
+        <div class="info-tile-value error">{{ "{:,}".format(total_ioc_events) }}</div>
     </div>
 </div>
 
 <!-- SOFTWARE STATUS TILE -->
-<div class="card card-no-margin">
-    <div class="card-header">
-        <h2 class="card-title">🔧 Software Status</h2>
+<div class="info-tile compact two-column">
+    <div class="info-tile-header">
+        <span class="info-tile-icon">🔧</span>
+        <h2 class="info-tile-title">Software Status</h2>
     </div>
-    <div class="card-body">
-        <div class="stat-grid-2col">
-            {% for software, version in software_versions.items() %}
-            <div class="stat-item">
-                <div class="stat-item-label" style="display: inline;">{{ software }}:</div>
-                <span class="stat-item-value">{{ version }}</span>
-            </div>
-            {% endfor %}
+    <div class="info-tile-rows-container">
+        {% for software, version in software_versions.items() %}
+        <div class="info-tile-row">
+            <div class="info-tile-label">{{ software }}</div>
+            <div class="info-tile-value">{{ version }}</div>
         </div>
+        {% endfor %}
     </div>
 </div>
 
