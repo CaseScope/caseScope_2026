@@ -48,7 +48,7 @@ def clean_postgresql():
     from main import app, db
     from models import (
         Case, CaseFile, SigmaViolation, IOC, EventStatus,
-        CaseTimeline, AuditLog, CaseLock, EvidenceFile, AITriageSearch
+        CaseTimeline, AuditLog, CaseLock, EvidenceFile, AITriageSearch, KnownUser
     )
     
     print("\n" + "=" * 80)
@@ -67,6 +67,7 @@ def clean_postgresql():
             locks_count = db.session.query(CaseLock).count()
             evidence_count = db.session.query(EvidenceFile).count()
             triage_count = db.session.query(AITriageSearch).count()
+            known_users_count = db.session.query(KnownUser).count()
             
             print(f"\n📊 Current database state:")
             print(f"   • Cases: {cases_count:,}")
@@ -78,6 +79,7 @@ def clean_postgresql():
             print(f"   • Case Locks: {locks_count:,}")
             print(f"   • Evidence Files: {evidence_count:,}")
             print(f"   • AI Triage Searches: {triage_count:,}")
+            print(f"   • Known Users: {known_users_count:,}")
             
             print("\n🗑️  Deleting records...")
             
@@ -118,6 +120,11 @@ def clean_postgresql():
             deleted_counts['ai_triage'] = db.session.query(AITriageSearch).delete()
             db.session.commit()
             print(f"   ✓ Deleted {deleted_counts['ai_triage']:,} AI triage searches")
+            
+            # Known Users (must be before cases)
+            deleted_counts['known_users'] = db.session.query(KnownUser).delete()
+            db.session.commit()
+            print(f"   ✓ Deleted {deleted_counts['known_users']:,} known users")
             
             # Case files
             deleted_counts['files'] = db.session.query(CaseFile).delete()
