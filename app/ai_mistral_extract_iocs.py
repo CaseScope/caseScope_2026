@@ -314,16 +314,21 @@ def extract_iocs_from_edr_report(
     failed_count = 0
     
     for i, report in enumerate(reports, 1):
+        report_preview = report.strip()[:200].replace('\n', ' ')[:100]
         logger.info(f"[MISTRAL_IOC] Processing report {i}/{len(reports)} ({len(report)} chars)")
+        logger.info(f"[MISTRAL_IOC] Report {i} preview: {report_preview}...")
         
         result = extract_iocs_from_single_report(report, max_retries)
         
         if result['success']:
             all_extracted_iocs.append(result['iocs'])
-            logger.info(f"[MISTRAL_IOC] ✓ Report {i} processed successfully")
+            ioc_count = sum(len(v) if isinstance(v, list) else sum(len(sv) if isinstance(sv, list) else 0 for sv in v.values()) if isinstance(v, dict) else 0 for v in result['iocs'].values())
+            logger.info(f"[MISTRAL_IOC] ✓ Report {i}/{len(reports)} processed successfully ({ioc_count} IOCs extracted)")
         else:
             failed_count += 1
-            logger.error(f"[MISTRAL_IOC] ✗ Report {i} failed: {result.get('error', 'Unknown error')}")
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"[MISTRAL_IOC] ✗ Report {i}/{len(reports)} FAILED: {error_msg}")
+            logger.error(f"[MISTRAL_IOC] Failed report {i} preview: {report_preview}...")
     
     if not all_extracted_iocs:
         return {

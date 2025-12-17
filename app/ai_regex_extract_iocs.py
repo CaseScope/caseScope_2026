@@ -356,8 +356,12 @@ def extract_iocs_regex_all_reports(
     all_extracted_iocs = []
     
     for i, report in enumerate(reports, 1):
+        report_preview = report.strip()[:200].replace('\n', ' ')[:100]
         logger.info(f"[REGEX_IOC] Processing report {i}/{len(reports)} ({len(report)} chars)")
+        logger.info(f"[REGEX_IOC] Report {i} preview: {report_preview}...")
         iocs = extract_iocs_with_regex(report)
+        ioc_count = sum(len(v) if isinstance(v, list) else sum(len(sv) if isinstance(sv, list) else 0 for sv in v.values()) if isinstance(v, dict) else 0 for v in iocs.values())
+        logger.info(f"[REGEX_IOC] ✓ Report {i}/{len(reports)} processed ({ioc_count} IOCs extracted)")
         all_extracted_iocs.append(iocs)
     
     # Aggregate IOCs from all reports
