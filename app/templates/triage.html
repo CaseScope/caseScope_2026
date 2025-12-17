@@ -445,9 +445,13 @@
         </div>
         <div class="modal-footer">
             <button type="button" onclick="closeIocModal()" class="btn btn-secondary">Close</button>
+            <button type="button" onclick="processNextReport()" class="btn btn-info" id="processNextBtn" style="display: none;">
+                <span>▶️</span>
+                <span>Process Next Report</span>
+            </button>
             <button type="button" onclick="addExtractedIOCs()" class="btn btn-primary" id="addIocsBtn" style="display: none;">
                 <span>➕</span>
-                <span>Add IOCs to Case</span>
+                <span>Add All IOCs to Case</span>
             </button>
         </div>
     </div>
@@ -783,6 +787,9 @@
 <script>
 const CASE_ID = {{ case.id }};
 let extractedIOCs = null;
+let currentReportIndex = 0;
+let totalReports = 0;
+let accumulatedIOCs = {}; // Store IOCs from all processed reports
 
 // ============================================================================
 // SET DATE MODAL
@@ -813,16 +820,28 @@ function saveTriageDate() {
 // IOC EXTRACTION
 // ============================================================================
 
-function extractIOCs() {
+function extractIOCs(reportIndex = 0) {
+    currentReportIndex = reportIndex;
+    
+    // Reset state on first report
+    if (reportIndex === 0) {
+        accumulatedIOCs = {};
+        extractedIOCs = null;
+        totalReports = 0;
+    }
+    
     // Show modal with progress
     document.getElementById('iocExtractionModal').style.display = 'flex';
     document.getElementById('iocExtractionProgress').style.display = 'block';
     document.getElementById('iocExtractionResults').style.display = 'none';
     document.getElementById('iocExtractionError').style.display = 'none';
     document.getElementById('addIocsBtn').style.display = 'none';
+    document.getElementById('processNextBtn').style.display = 'none';
     
     // Update method text
-    const methodText = 'Extracting IOCs (Mistral AI if enabled, regex fallback otherwise)...';
+    const methodText = reportIndex === 0 
+        ? 'Detecting reports and extracting IOCs (Mistral AI if enabled, regex fallback otherwise)...'
+        : `Processing report ${reportIndex + 1}...`;
     document.getElementById('iocExtractionMethod').textContent = methodText;
     
     // Disable button during extraction
@@ -832,21 +851,27 @@ function extractIOCs() {
         btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Extracting...</span>';
     }
     
-    // Call API
+    // Call API with report index
     fetch(`/case/${CASE_ID}/triage/extract-iocs`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({
+            report_index: reportIndex
+        })
     })
     .then(response => response.json())
     .then(data => {
         document.getElementById('iocExtractionProgress').style.display = 'none';
         
         if (data.success) {
-            // Store IOCs with extraction method
-            extractedIOCs = data.iocs;
-            extractedIOCs.extraction_method = data.extraction_method || 'regex';
+            totalReports = data.total_reports;
+            
+            // Accumulate IOCs from this report
+            accumulateIOCs(data.iocs, data.extraction_method);
+            
+            // Show results for this specific report
             showIOCResults(data);
         } else {
             document.getElementById('iocExtractionError').style.display = 'block';
@@ -867,24 +892,98 @@ function extractIOCs() {
     });
 }
 
+function accumulateIOCs(newIOCs, extractionMethod) {
+    // Initialize accumulated IOCs on first run
+    if (currentReportIndex === 0) {
+        accumulatedIOCs = {};
+        accumulatedIOCs.extraction_method = extractionMethod;
+    }
+    
+    // Merge IOCs from this report into accumulated
+    for (const [category, items] of Object.entries(newIOCs)) {
+        if (category === 'extraction_method') continue;
+        
+        if (!accumulatedIOCs[category]) {
+            accumulatedIOCs[category] = Array.isArray(items) ? [] : {};
+        }
+        
+        if (Array.isArray(items)) {
+            // Simple array merge with deduplication
+            for (const item of items) {
+                if (!accumulatedIOCs[category].includes(item)) {
+                    accumulatedIOCs[category].push(item);
+                }
+            }
+        } else if (typeof items === 'object') {
+            // Nested object merge (like file_hashes, credentials, processes)
+            for (const [subKey, subItems] of Object.entries(items)) {
+                if (!accumulatedIOCs[category][subKey]) {
+                    accumulatedIOCs[category][subKey] = [];
+                }
+                if (Array.isArray(subItems)) {
+                    for (const item of subItems) {
+                        if (!accumulatedIOCs[category][subKey].includes(item)) {
+                            accumulatedIOCs[category][subKey].push(item);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Update extractedIOCs for the Add button
+    extractedIOCs = { ...accumulatedIOCs };
+}
+
+function processNextReport() {
+    // Close current modal
+    closeIocModal();
+    // Extract next report
+    extractIOCs(currentReportIndex + 1);
+}
+
 function showIOCResults(data) {
     document.getElementById('iocExtractionResults').style.display = 'block';
     
     const summary = data.summary;
     const iocs = data.iocs;
+    const reportNum = (data.report_index !== undefined ? data.report_index + 1 : 1);
+    const totalRpts = data.total_reports || 1;
+    const hasMore = data.has_more || false;
     
-    // Build summary HTML with new Mistral-specific fields
+    // Count accumulated IOCs for display
+    let accumulatedCount = 0;
+    for (const [key, value] of Object.entries(accumulatedIOCs)) {
+        if (key === 'extraction_method') continue;
+        if (Array.isArray(value)) {
+            accumulatedCount += value.length;
+        } else if (typeof value === 'object') {
+            for (const subValue of Object.values(value)) {
+                if (Array.isArray(subValue)) {
+                    accumulatedCount += subValue.length;
+                }
+            }
+        }
+    }
+    
+    // Build summary HTML with report progress
     let summaryHtml = `
         <div style="display: flex; gap: var(--spacing-lg); flex-wrap: wrap; margin-bottom: var(--spacing-md);">
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
                 <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary);">${summary.total_count}</div>
-                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Total IOCs</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">This Report</div>
             </div>
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
                 <div style="font-size: 2rem; font-weight: bold; color: var(--color-info);">
-                    ${data.successful_reports}/${data.total_reports}
+                    ${reportNum}/${totalRpts}
                 </div>
-                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Reports Processed</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Report Progress</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-success);">
+                    ${accumulatedCount}
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Total Accumulated</div>
             </div>
             <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 120px;">
                 <div style="font-size: 1.25rem; font-weight: bold; color: var(--color-success); line-height: 2rem; padding-top: 0.375rem;" id="extractionMethodDisplay">
@@ -948,9 +1047,17 @@ function showIOCResults(data) {
     
     document.getElementById('iocResultsDetail').innerHTML = detailHtml;
     
-    // Show add button if we have IOCs
-    if (summary.total_count > 0) {
-        document.getElementById('addIocsBtn').style.display = 'inline-flex';
+    // Show appropriate buttons based on report status
+    if (accumulatedCount > 0) {
+        if (hasMore) {
+            // More reports to process - show "Process Next Report" button
+            document.getElementById('processNextBtn').style.display = 'inline-flex';
+            document.getElementById('addIocsBtn').style.display = 'inline-flex'; // Also show Add button in case user wants to stop here
+        } else {
+            // Last report - only show "Add All IOCs to Case" button
+            document.getElementById('processNextBtn').style.display = 'none';
+            document.getElementById('addIocsBtn').style.display = 'inline-flex';
+        }
     }
 }
 

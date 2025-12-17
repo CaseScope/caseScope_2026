@@ -2254,10 +2254,10 @@ def triage_page(case_id):
 @login_required
 def triage_extract_iocs(case_id):
     """
-    Extract IOCs from the case's EDR report using Mistral AI.
-    Uses the prompt template from ai_prompts/mistral/mistral_get_iocs.md.
+    Extract IOCs from a specific EDR report using Mistral AI.
+    Supports iterative processing of multiple reports.
     """
-    from ai_mistral_extract_iocs import extract_iocs_from_edr_report, get_ioc_summary
+    from ai_mistral_extract_iocs import extract_iocs_from_single_report, get_ioc_summary, split_reports
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -2266,32 +2266,49 @@ def triage_extract_iocs(case_id):
     if not case.edr_report or not case.edr_report.strip():
         return jsonify({'success': False, 'error': 'No EDR report configured for this case'}), 400
     
+    data = request.get_json() or {}
+    report_index = data.get('report_index', 0)  # Which report to process (0-based)
+    
     try:
-        # Extract IOCs using Mistral AI
-        result = extract_iocs_from_edr_report(case_id, case.edr_report)
+        # Split reports
+        reports = split_reports(case.edr_report)
+        total_reports = len(reports)
+        
+        # Validate report index
+        if report_index < 0 or report_index >= total_reports:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid report index: {report_index} (total reports: {total_reports})'
+            }), 400
+        
+        # Extract from this specific report
+        logger.info(f"[MISTRAL_IOC] Extracting from report {report_index + 1}/{total_reports} for case {case_id}")
+        result = extract_iocs_from_single_report(reports[report_index])
         
         if not result['success']:
             return jsonify({
                 'success': False,
-                'error': result.get('error', 'Unknown error occurred')
+                'error': result.get('error', 'Extraction failed'),
+                'report_index': report_index,
+                'total_reports': total_reports,
+                'extraction_method': 'mistral_ai'
             }), 500
         
         summary = get_ioc_summary(result['iocs'])
         
-        logger.info(f"[MISTRAL_IOC] Extracted {result['total_ioc_count']} IOCs from case {case_id} "
-                   f"({result['successful_reports']}/{result['total_reports']} reports)")
+        logger.info(f"[MISTRAL_IOC] Extracted {summary['total_count']} IOCs from report {report_index + 1}/{total_reports} (case {case_id})")
         
         return jsonify({
             'success': True,
             'iocs': result['iocs'],
             'summary': summary,
-            'total_reports': result['total_reports'],
-            'successful_reports': result['successful_reports'],
-            'failed_reports': result['failed_reports'],
-            'extraction_method': result.get('extraction_method', 'unknown')
+            'report_index': report_index,
+            'total_reports': total_reports,
+            'has_more': (report_index + 1) < total_reports,
+            'extraction_method': 'mistral_ai'
         })
     except Exception as e:
-        logger.error(f"[MISTRAL_IOC] IOC extraction failed for case {case_id}: {e}")
+        logger.error(f"[MISTRAL_IOC] IOC extraction failed for case {case_id}, report {report_index}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
