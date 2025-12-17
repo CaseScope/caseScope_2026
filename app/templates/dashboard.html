@@ -16,34 +16,42 @@
     </div>
 </div>
 
-<!-- Stats Grid -->
-<div class="stats-grid">
-    <div class="stat-card">
-        <div style="font-size: 2rem; margin-bottom: var(--spacing-sm);">📁</div>
-        <div class="stat-label">Total Cases</div>
-        <div class="stat-value">{{ total_cases }}</div>
-        <div class="stat-subtitle">Active investigations</div>
+<!-- System Stats Grid -->
+<div class="info-tiles-grid">
+    <!-- CaseScope Status -->
+    <div class="info-tile">
+        <div class="info-tile-header">
+            <span class="info-tile-icon">📊</span>
+            <h2 class="info-tile-title">CaseScope Status</h2>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Number of Cases</div>
+            <div class="info-tile-value primary">{{ total_cases }}</div>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total Number of Files</div>
+            <div class="info-tile-value primary">{{ '{:,}'.format(total_files) }}</div>
+        </div>
     </div>
     
-    <div class="stat-card">
-        <div style="font-size: 2rem; margin-bottom: var(--spacing-sm);">📄</div>
-        <div class="stat-label">Files Indexed</div>
-        <div class="stat-value">{{ total_files }}</div>
-        <div class="stat-subtitle">EVTX & JSON files</div>
-    </div>
-    
-    <div class="stat-card">
-        <div style="font-size: 2rem; margin-bottom: var(--spacing-sm);">⚠️</div>
-        <div class="stat-label">SIGMA Violations</div>
-        <div class="stat-value">{{ total_violations }}</div>
-        <div class="stat-subtitle">Threat detections</div>
-    </div>
-    
-    <div class="stat-card">
-        <div style="font-size: 2rem; margin-bottom: var(--spacing-sm);">🎯</div>
-        <div class="stat-label">IOC Matches</div>
-        <div class="stat-value">{{ total_ioc_matches }}</div>
-        <div class="stat-subtitle">Indicator hits</div>
+    <!-- Events Status -->
+    <div class="info-tile">
+        <div class="info-tile-header">
+            <span class="info-tile-icon">📊</span>
+            <h2 class="info-tile-title">Events Status</h2>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total SIGMA Violations Found</div>
+            <div class="info-tile-value warning">{{ '{:,}'.format(total_violations) }}</div>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total IOC Events Found</div>
+            <div class="info-tile-value error">{{ '{:,}'.format(total_ioc_matches) }}</div>
+        </div>
     </div>
 </div>
 
