@@ -276,6 +276,95 @@ def get_software_versions():
     except:
         versions['Gunicorn'] = 'Unknown'
     
+    # Ollama version
+    try:
+        env = os.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+        result = subprocess.run(['ollama', '--version'], 
+                              capture_output=True, text=True, timeout=5,
+                              env=env)
+        if result.returncode == 0:
+            # Parse version from output like "ollama version is 0.1.17"
+            version_line = result.stdout.strip()
+            if 'version' in version_line.lower():
+                parts = version_line.split()
+                # Find the version number (contains dots)
+                for part in parts:
+                    if '.' in part and part[0].isdigit():
+                        versions['Ollama'] = part.strip()
+                        break
+                else:
+                    versions['Ollama'] = 'Installed'
+            else:
+                versions['Ollama'] = version_line
+        else:
+            versions['Ollama'] = 'Unknown'
+    except Exception as e:
+        print(f"Ollama version detection error: {e}")
+        versions['Ollama'] = 'Not Found'
+    
+    # Ollama Models (Mistral, Llama, Qwen)
+    try:
+        env = os.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+        result = subprocess.run(['ollama', 'list'], 
+                              capture_output=True, text=True, timeout=10,
+                              env=env)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            # Skip header line
+            model_lines = [line for line in lines[1:] if line.strip()]
+            
+            # Look for specific models (collect all variants)
+            mistral_models = []
+            llama_models = []
+            qwen_models = []
+            
+            for line in model_lines:
+                parts = line.split()
+                if parts:
+                    model_full = parts[0]  # Full model name with tag
+                    model_name = model_full.lower()
+                    
+                    # Extract version info after the colon
+                    if ':' in model_full:
+                        model_base, model_tag = model_full.split(':', 1)
+                    else:
+                        model_base = model_full
+                        model_tag = 'latest'
+                    
+                    # Collect Mistral versions
+                    if 'mistral' in model_name:
+                        # Extract meaningful version (e.g., "7b-instruct-v0.3")
+                        clean_tag = model_tag.split('-q')[0]  # Remove quantization suffix
+                        mistral_models.append(clean_tag)
+                    
+                    # Collect Llama versions
+                    if 'llama' in model_name:
+                        clean_tag = model_tag.split('-q')[0]
+                        llama_models.append(clean_tag)
+                    
+                    # Collect Qwen versions
+                    if 'qwen' in model_name:
+                        clean_tag = model_tag.split('-q')[0]
+                        qwen_models.append(clean_tag)
+            
+            # Add detected models to versions (prefer non-dfir models, or show first found)
+            if mistral_models:
+                # Prefer standard mistral over dfir-mistral
+                preferred = [m for m in mistral_models if 'latest' not in m]
+                versions['Mistral'] = preferred[0] if preferred else mistral_models[0]
+            
+            if llama_models:
+                preferred = [m for m in llama_models if 'latest' not in m]
+                versions['Llama'] = preferred[0] if preferred else llama_models[0]
+            
+            if qwen_models:
+                preferred = [m for m in qwen_models if 'latest' not in m]
+                versions['Qwen'] = preferred[0] if preferred else qwen_models[0]
+    except Exception as e:
+        print(f"Ollama models detection error: {e}")
+    
     return versions
 
 
