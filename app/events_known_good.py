@@ -236,9 +236,9 @@ def is_known_good_event(event_data: Dict, search_blob: str, exclusions: Optional
         for exe in edr_executables:
             search_term = exe.replace('*', '').replace('.exe', '').strip().lower()
             if search_term and len(search_term) >= 3 and search_term in blob:
-                edr_in_blob = True
-                matched_exe = exe
-                break
+                    edr_in_blob = True
+                    matched_exe = exe
+                    break
         
         if edr_in_blob:
             # Check for response action - DON'T mark as noise (attacker activity!)
@@ -1130,9 +1130,11 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
             # Collect results from all workers
             logger.info(f"[KNOWN_GOOD_COORDINATOR] All workers complete, collecting results...")
             
-            # Use group_result.get() to collect all results at once (safe for GroupResult)
+            # Use allow_join_result() to permit .get() within a Celery task
+            from celery.result import allow_join_result
             try:
-                worker_results = group_result.get(timeout=60, propagate=False)
+                with allow_join_result():
+                    worker_results = group_result.get(timeout=60, propagate=False)
             except Exception as e:
                 logger.error(f"[KNOWN_GOOD_COORDINATOR] Error collecting worker results: {e}")
                 result['status'] = 'error'

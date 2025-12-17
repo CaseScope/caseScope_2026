@@ -218,9 +218,21 @@ def hunt_iocs_all_files(case_id: int, operation: str = 'ioc', phase_num: int = 1
         total_files = len(files)
         logger.info(f"[IOC_PHASE] Found {total_files} files to hunt IOCs")
         
-        # Create task group
-        job = group(hunt_iocs_task.s(f.id) for f in files)
-        result = job.apply_async()
+        # Dispatch tasks individually using .delay() (proven approach from v1.x)
+        dispatched_count = 0
+        
+        for f in files:
+            try:
+                result = hunt_iocs_task.delay(f.id)
+                dispatched_count += 1
+                
+                # Log progress every 1000 files
+                if dispatched_count % 1000 == 0:
+                    logger.info(f"[IOC_PHASE] Dispatched {dispatched_count}/{total_files} tasks")
+            except Exception as e:
+                logger.error(f"[IOC_PHASE] Failed to queue file {f.id}: {e}")
+        
+        logger.info(f"[IOC_PHASE] All {dispatched_count} tasks dispatched to workers")
         
         # Wait for all tasks to complete by SIMPLE QUEUE CHECK
         logger.info(f"[IOC_PHASE] Waiting for {total_files} IOC hunting tasks to complete...")

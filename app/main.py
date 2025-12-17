@@ -2254,10 +2254,10 @@ def triage_page(case_id):
 @login_required
 def triage_extract_iocs(case_id):
     """
-    Extract IOCs from the case's EDR report.
-    Uses AI if enabled, otherwise falls back to regex.
+    Extract IOCs from the case's EDR report using Mistral AI.
+    Uses the prompt template from ai_prompts/mistral/mistral_get_iocs.md.
     """
-    from ai_triage_edr_ioc import extract_iocs_from_report, get_ioc_summary
+    from models.ai_mistral_extract_iocs import extract_iocs_from_edr_report, get_ioc_summary
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -2267,19 +2267,30 @@ def triage_extract_iocs(case_id):
         return jsonify({'success': False, 'error': 'No EDR report configured for this case'}), 400
     
     try:
-        # Extract IOCs using the modular function
-        iocs = extract_iocs_from_report(case.edr_report)
-        summary = get_ioc_summary(iocs)
+        # Extract IOCs using Mistral AI
+        result = extract_iocs_from_edr_report(case_id, case.edr_report)
         
-        logger.info(f"[TRIAGE] Extracted {summary['total_count']} IOCs from case {case_id} EDR report (method: {summary['extraction_method']})")
+        if not result['success']:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error occurred')
+            }), 500
+        
+        summary = get_ioc_summary(result['iocs'])
+        
+        logger.info(f"[MISTRAL_IOC] Extracted {result['total_ioc_count']} IOCs from case {case_id} "
+                   f"({result['successful_reports']}/{result['total_reports']} reports)")
         
         return jsonify({
             'success': True,
-            'iocs': iocs,
-            'summary': summary
+            'iocs': result['iocs'],
+            'summary': summary,
+            'total_reports': result['total_reports'],
+            'successful_reports': result['successful_reports'],
+            'failed_reports': result['failed_reports']
         })
     except Exception as e:
-        logger.error(f"[TRIAGE] IOC extraction failed for case {case_id}: {e}")
+        logger.error(f"[MISTRAL_IOC] IOC extraction failed for case {case_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -2303,47 +2314,154 @@ def triage_add_extracted_iocs(case_id):
     added_count = 0
     
     try:
-        # Map IOC types to our IOC model types
+        # Map Mistral IOC types to our IOC model types
         type_mapping = {
-            'ips': 'ip',
+            'ip_addresses': 'ip',
             'hostnames': 'hostname',
             'usernames': 'username',
-            'sids': 'user_sid',
-            'paths': 'filepath',
-            'processes': 'filename',
-            'hashes': 'hash',
-            'commands': 'command',
-            'tools': 'tool',
-            'domains': 'domain'
+            'file_paths': 'filepath',
+            'domains': 'domain',
+            'urls': 'url',
+            'network_shares': 'filepath',
+            'ports': 'port',
+            'registry_keys': 'registry',
+            'email_addresses': 'email'
         }
         
+        # Process simple arrays
         for ioc_type, ioc_type_db in type_mapping.items():
             values = iocs.get(ioc_type, [])
-            for value in values:
-                if not value or not value.strip():
-                    continue
-                    
-                # Check if IOC already exists
-                existing = IOC.query.filter_by(
-                    case_id=case_id,
-                    ioc_type=ioc_type_db,
-                    ioc_value=value[:500]  # Truncate long values
-                ).first()
-                
-                if not existing:
-                    new_ioc = IOC(
+            if isinstance(values, list):
+                for value in values:
+                    if not value or (isinstance(value, str) and not value.strip()):
+                        continue
+                        
+                    # Check if IOC already exists
+                    existing = IOC.query.filter_by(
                         case_id=case_id,
                         ioc_type=ioc_type_db,
-                        ioc_value=value[:500],
-                        description='Extracted from EDR Report',
-                        is_active=True,
-                        created_by=current_user.id
-                    )
-                    db.session.add(new_ioc)
-                    added_count += 1
+                        ioc_value=str(value)[:500]  # Truncate long values
+                    ).first()
+                    
+                    if not existing:
+                        new_ioc = IOC(
+                            case_id=case_id,
+                            ioc_type=ioc_type_db,
+                            ioc_value=str(value)[:500],
+                            description='Extracted from EDR Report (Mistral AI)',
+                            is_active=True,
+                            created_by=current_user.id
+                        )
+                        db.session.add(new_ioc)
+                        added_count += 1
+        
+        # Process nested structures: file_hashes
+        file_hashes = iocs.get('file_hashes', {})
+        if isinstance(file_hashes, dict):
+            for hash_type, hash_values in file_hashes.items():
+                if isinstance(hash_values, list):
+                    for hash_value in hash_values:
+                        if not hash_value or not hash_value.strip():
+                            continue
+                        
+                        existing = IOC.query.filter_by(
+                            case_id=case_id,
+                            ioc_type='hash',
+                            ioc_value=hash_value[:500]
+                        ).first()
+                        
+                        if not existing:
+                            new_ioc = IOC(
+                                case_id=case_id,
+                                ioc_type='hash',
+                                ioc_value=hash_value[:500],
+                                description=f'Extracted from EDR Report ({hash_type.upper()} hash)',
+                                is_active=True,
+                                created_by=current_user.id
+                            )
+                            db.session.add(new_ioc)
+                            added_count += 1
+        
+        # Process nested structures: credentials (usernames)
+        credentials = iocs.get('credentials', {})
+        if isinstance(credentials, dict):
+            cred_usernames = credentials.get('usernames', [])
+            if isinstance(cred_usernames, list):
+                for username in cred_usernames:
+                    if not username or not username.strip():
+                        continue
+                    
+                    existing = IOC.query.filter_by(
+                        case_id=case_id,
+                        ioc_type='username',
+                        ioc_value=username[:500]
+                    ).first()
+                    
+                    if not existing:
+                        new_ioc = IOC(
+                            case_id=case_id,
+                            ioc_type='username',
+                            ioc_value=username[:500],
+                            description='Extracted from EDR Report (Credential)',
+                            is_active=True,
+                            created_by=current_user.id
+                        )
+                        db.session.add(new_ioc)
+                        added_count += 1
+        
+        # Process nested structures: processes (executables and commands)
+        processes = iocs.get('processes', {})
+        if isinstance(processes, dict):
+            executables = processes.get('executables', [])
+            if isinstance(executables, list):
+                for executable in executables:
+                    if not executable or not executable.strip():
+                        continue
+                    
+                    existing = IOC.query.filter_by(
+                        case_id=case_id,
+                        ioc_type='filename',
+                        ioc_value=executable[:500]
+                    ).first()
+                    
+                    if not existing:
+                        new_ioc = IOC(
+                            case_id=case_id,
+                            ioc_type='filename',
+                            ioc_value=executable[:500],
+                            description='Extracted from EDR Report (Executable)',
+                            is_active=True,
+                            created_by=current_user.id
+                        )
+                        db.session.add(new_ioc)
+                        added_count += 1
+            
+            commands = processes.get('commands', [])
+            if isinstance(commands, list):
+                for command in commands:
+                    if not command or not command.strip():
+                        continue
+                    
+                    existing = IOC.query.filter_by(
+                        case_id=case_id,
+                        ioc_type='command',
+                        ioc_value=command[:500]
+                    ).first()
+                    
+                    if not existing:
+                        new_ioc = IOC(
+                            case_id=case_id,
+                            ioc_type='command',
+                            ioc_value=command[:500],
+                            description='Extracted from EDR Report (Command)',
+                            is_active=True,
+                            created_by=current_user.id
+                        )
+                        db.session.add(new_ioc)
+                        added_count += 1
         
         db.session.commit()
-        logger.info(f"[TRIAGE] Added {added_count} IOCs to case {case_id} from EDR extraction")
+        logger.info(f"[MISTRAL_IOC] Added {added_count} IOCs to case {case_id} from Mistral AI extraction")
         
         return jsonify({
             'success': True,

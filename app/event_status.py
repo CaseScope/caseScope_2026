@@ -21,6 +21,11 @@ Usage:
     
     # Bulk set status
     bulk_set_status(case_id, event_ids, 'noise', user_id=None)  # System action
+
+Event Status Synchronization (v1.47.0):
+    - PostgreSQL EventStatus table: Source of truth for status data
+    - OpenSearch event_status field: Synced for fast filtering/search
+    - All status changes automatically sync to both systems
 """
 
 import logging
@@ -39,6 +44,117 @@ VALID_STATUSES = [STATUS_NEW, STATUS_NOISE, STATUS_HUNTED, STATUS_CONFIRMED]
 # Default statuses to show in search (excludes noise)
 DEFAULT_VISIBLE_STATUSES = [STATUS_NEW, STATUS_HUNTED, STATUS_CONFIRMED]
 
+
+# ============================================================================
+# OPENSEARCH SYNCHRONIZATION
+# ============================================================================
+
+def sync_status_to_opensearch(case_id: int, event_id: str, status: str) -> bool:
+    """
+    Sync a single event's status to OpenSearch.
+    
+    Updates the event_status field in the OpenSearch document to match the database.
+    This enables fast filtering in search without database lookups.
+    
+    Args:
+        case_id: Case ID
+        event_id: OpenSearch document _id
+        status: Status value (new, noise, hunted, confirmed)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    from main import opensearch_client
+    
+    index_name = f"case_{case_id}"
+    
+    try:
+        # Update the document's event_status field
+        opensearch_client.update(
+            index=index_name,
+            id=event_id,
+            body={
+                "doc": {
+                    "event_status": status
+                }
+            },
+            refresh=False  # Don't force immediate refresh for performance
+        )
+        logger.debug(f"[EVENT_STATUS] Synced to OpenSearch: {event_id[:8]} -> {status}")
+        return True
+        
+    except Exception as e:
+        logger.warning(f"[EVENT_STATUS] Failed to sync status to OpenSearch for {event_id[:8]}: {e}")
+        # Don't fail the operation if OpenSearch sync fails - database is source of truth
+        return False
+
+
+def bulk_sync_status_to_opensearch(case_id: int, event_ids: List[str], status: str) -> Dict[str, int]:
+    """
+    Sync multiple events' statuses to OpenSearch using bulk API.
+    
+    Updates event_status field for multiple documents efficiently.
+    
+    Args:
+        case_id: Case ID
+        event_ids: List of OpenSearch document _ids
+        status: Status value (new, noise, hunted, confirmed)
+    
+    Returns:
+        Dict with 'synced' and 'failed' counts
+    """
+    from main import opensearch_client
+    
+    if not event_ids:
+        return {'synced': 0, 'failed': 0}
+    
+    index_name = f"case_{case_id}"
+    
+    # Build bulk update operations
+    # OpenSearch bulk format: { "update": {...} }\n{ "doc": {...} }\n
+    BATCH_SIZE = 5000  # Process in batches to avoid memory issues
+    total_synced = 0
+    total_failed = 0
+    
+    try:
+        for i in range(0, len(event_ids), BATCH_SIZE):
+            batch = event_ids[i:i + BATCH_SIZE]
+            
+            bulk_body = []
+            for event_id in batch:
+                bulk_body.append({"update": {"_index": index_name, "_id": event_id}})
+                bulk_body.append({"doc": {"event_status": status}})
+            
+            # Execute bulk update
+            response = opensearch_client.bulk(body=bulk_body, refresh=False)
+            
+            # Count successes/failures
+            if response.get('errors'):
+                for item in response.get('items', []):
+                    if 'update' in item:
+                        if item['update'].get('status') in [200, 201]:
+                            total_synced += 1
+                        else:
+                            total_failed += 1
+                            logger.debug(f"[EVENT_STATUS] Bulk sync failed for event: {item['update'].get('error', 'Unknown error')}")
+            else:
+                total_synced += len(batch)
+            
+            if (i + BATCH_SIZE) < len(event_ids):
+                logger.debug(f"[EVENT_STATUS] Bulk sync progress: {total_synced:,}/{len(event_ids):,}")
+        
+        logger.info(f"[EVENT_STATUS] Bulk synced {total_synced:,} events to OpenSearch as '{status}' ({total_failed} failed)")
+        
+        return {'synced': total_synced, 'failed': total_failed}
+        
+    except Exception as e:
+        logger.error(f"[EVENT_STATUS] Bulk sync to OpenSearch failed: {e}", exc_info=True)
+        return {'synced': 0, 'failed': len(event_ids)}
+
+
+# ============================================================================
+# STATUS MANAGEMENT
+# ============================================================================
 
 def get_status(case_id: int, event_id: str) -> str:
     """Get the status of a single event. Returns 'new' if not found."""
@@ -90,7 +206,8 @@ def get_event_ids_by_status(case_id: int, statuses: List[str]) -> Set[str]:
 
 
 def set_status(case_id: int, event_id: str, status: str, 
-               user_id: Optional[int] = None, notes: Optional[str] = None) -> bool:
+               user_id: Optional[int] = None, notes: Optional[str] = None,
+               sync_opensearch: bool = True) -> bool:
     """
     Set the status of a single event.
     
@@ -100,6 +217,7 @@ def set_status(case_id: int, event_id: str, status: str,
         status: One of: new, noise, hunted, confirmed
         user_id: User making the change (None for system actions)
         notes: Optional notes about the status change
+        sync_opensearch: Whether to sync status to OpenSearch (default: True)
     
     Returns:
         True if successful, False otherwise
@@ -136,6 +254,11 @@ def set_status(case_id: int, event_id: str, status: str,
             db.session.add(record)
         
         db.session.commit()
+        
+        # Sync to OpenSearch (v1.47.0)
+        if sync_opensearch:
+            sync_status_to_opensearch(case_id, event_id, status)
+        
         return True
         
     except Exception as e:
@@ -146,7 +269,7 @@ def set_status(case_id: int, event_id: str, status: str,
 
 def bulk_set_status(case_id: int, event_ids: List[str], status: str,
                     user_id: Optional[int] = None, notes: Optional[str] = None,
-                    db_session=None) -> Dict[str, int]:
+                    db_session=None, sync_opensearch: bool = True) -> Dict[str, int]:
     """
     Set status for multiple events efficiently with batching for large lists.
     
@@ -157,9 +280,10 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
         user_id: User making the change (None for system actions)
         notes: Optional notes about the status change
         db_session: Optional database session (for Celery workers)
+        sync_opensearch: Whether to sync statuses to OpenSearch (default: True)
     
     Returns:
-        Dict with 'updated' and 'created' counts
+        Dict with 'updated', 'created', 'synced', and 'sync_failed' counts
     """
     from models import EventStatus
     
@@ -170,10 +294,10 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
     
     if status not in VALID_STATUSES:
         logger.error(f"[EVENT_STATUS] Invalid status: {status}")
-        return {'updated': 0, 'created': 0, 'error': 'Invalid status'}
+        return {'updated': 0, 'created': 0, 'synced': 0, 'sync_failed': 0, 'error': 'Invalid status'}
     
     if not event_ids:
-        return {'updated': 0, 'created': 0}
+        return {'updated': 0, 'created': 0, 'synced': 0, 'sync_failed': 0}
     
     # CRITICAL: Batch processing for large lists (v1.46.1)
     # PostgreSQL IN clause has limits, and session.add() for 800k records will fail
@@ -234,12 +358,22 @@ def bulk_set_status(case_id: int, event_ids: List[str], status: str,
         
         logger.info(f"[EVENT_STATUS] Bulk set {len(event_ids):,} events to '{status}': {total_updated:,} updated, {total_created:,} created")
         
-        return {'updated': total_updated, 'created': total_created}
+        # Sync to OpenSearch (v1.47.0)
+        sync_result = {'synced': 0, 'failed': 0}
+        if sync_opensearch:
+            sync_result = bulk_sync_status_to_opensearch(case_id, event_ids, status)
+        
+        return {
+            'updated': total_updated,
+            'created': total_created,
+            'synced': sync_result['synced'],
+            'sync_failed': sync_result['failed']
+        }
         
     except Exception as e:
         logger.error(f"[EVENT_STATUS] Bulk set failed: {e}", exc_info=True)
         db_session.rollback()
-        return {'updated': 0, 'created': 0, 'error': str(e)}
+        return {'updated': 0, 'created': 0, 'synced': 0, 'sync_failed': 0, 'error': str(e)}
 
 
 def get_status_counts(case_id: int) -> Dict[str, int]:

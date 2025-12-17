@@ -382,14 +382,15 @@ def clear_all_queued_files(case_id):
 
 **Solution Patterns:**
 
-### Pattern 1: Use `group_result.get()` for Parallel Worker Coordinators (✅ CORRECT)
+### Pattern 1: Use `allow_join_result()` for GroupResult.get() (✅ CORRECT)
 
-When a Celery task needs to collect results from parallel workers (using `group()`), use **`group_result.get(propagate=False)`**:
+When a Celery task needs to collect results from parallel workers (using `group()`), use **`allow_join_result()` context manager** with **`group_result.get(propagate=False)`**:
 
 ```python
 @celery_app.task(bind=True)
 def coordinator_task(self, case_id: int):
     from celery import group
+    from celery.result import allow_join_result
     import time
     
     MAX_SLICES = 8
@@ -410,9 +411,10 @@ def coordinator_task(self, case_id: int):
         )
         time.sleep(2)
     
-    # ✅ CORRECT - Use group_result.get() to collect results
+    # ✅ CORRECT - Use allow_join_result() with group_result.get()
     try:
-        worker_results = group_result.get(timeout=60, propagate=False)
+        with allow_join_result():
+            worker_results = group_result.get(timeout=60, propagate=False)
     except Exception as e:
         return {'status': 'error', 'errors': [str(e)]}
     
@@ -426,13 +428,17 @@ def coordinator_task(self, case_id: int):
 ```
 
 **⚠️ CRITICAL NOTES:**
-- **`.get()` on GroupResult is ALLOWED** - it's specifically designed for this use case
+- **`allow_join_result()` is REQUIRED** - Without it, `.get()` will raise "Never call result.get() within a task!"
 - **`propagate=False`** prevents exceptions from being re-raised (returns them as values instead)
+- **DO NOT call `.get()` without `allow_join_result()`** - it will fail even on GroupResult objects
 - **DO NOT iterate** over `group_result.results` and call `.result` or `.get()` on individual AsyncResult objects
 - **DO NOT use** `group_result.join()` - it also triggers the deadlock protection error!
 
 **Common Mistakes:**
 ```python
+# ❌ WRONG - .get() without allow_join_result()
+worker_results = group_result.get(timeout=60, propagate=False)  # Fails!
+
 # ❌ WRONG - Iterating over individual AsyncResult objects
 for worker_result in group_result.results:
     data = worker_result.result  # Triggers error!
@@ -512,39 +518,45 @@ def reindex_task(case_id):
 **Where This Occurred:**
 - **v2.1.7-2.2.3:** `coordinator_resigma.py` called `processing_clear_metadata.clear_all_queued_files()` which used `result.get()` at lines 411 and 566
 - **v2.2.x:** `events_known_good.py` and `events_known_noise.py` coordinators iterated over `group_result.results` and called `.result` property
-- **Dec 2025:** Same issue in `events_known_good.py` line 1031 and `events_known_noise.py` line 776 - used `.result` instead of `group_result.get()`
-- **Impact:** Coordinators failed with "Never call result.get() within a task!" when dispatched via `.delay()` because they tried to collect worker results using forbidden methods
+- **Dec 2025:** `events_known_good.py` line 1135 and `events_known_noise.py` line 789 - used `.get()` WITHOUT `allow_join_result()` wrapper
+- **Impact:** Coordinators failed with "Never call result.get() within a task!" when dispatched via `.delay()` because they called `.get()` without the required context manager
 
 **Fixed By:**
 - **v2.2.4 (Re-SIGMA):** Removed clearing phase entirely, reset files directly in coordinator
-- **Dec 2025 (Known-Good/Noise):** Changed from iterating over `group_result.results` with `.result` to using `group_result.get(propagate=False)`
+- **Dec 2025 (Initial Known-Good/Noise):** Changed from iterating over `group_result.results` with `.result` to using `group_result.get(propagate=False)` - BUT MISSING `allow_join_result()`!
+- **Dec 2025 (Final Fix):** Added `allow_join_result()` context manager wrapper around `group_result.get()` calls
 
 **Files Affected:**
 - `app/coordinator_resigma.py` - Removed call to `clear_all_queued_files()` (Phase 1)
 - `app/processing_clear_metadata.py` - Contains `result.get()` at lines 411, 566 (should only be called from Flask routes)
-- `app/events_known_good.py` - Line 1026-1045: Changed to use `group_result.get(propagate=False)`
-- `app/events_known_noise.py` - Line 771-790: Changed to use `group_result.get(propagate=False)`
+- `app/events_known_good.py` - Line 1135-1141: Added `allow_join_result()` wrapper for `group_result.get(propagate=False)`
+- `app/events_known_noise.py` - Line 789-795: Added `allow_join_result()` wrapper for `group_result.get(propagate=False)`
+- `app/tasks.py` - Lines 2619-2622, 2820-2823: Already uses `allow_join_result()` correctly (reference implementation)
 
 **Version History:**
 - **v2.1.7:** Added Re-SIGMA coordinator with clearing phase - introduced `.get()` deadlock
 - **v2.2.4:** Fixed Re-SIGMA by removing clearing phase, resetting files directly in coordinator
-- **Dec 2025:** Fixed Known-Good/Noise coordinators by switching from `.result` property to `group_result.get(propagate=False)`
+- **Dec 2025 (Attempt 1):** Fixed Known-Good/Noise coordinators by switching from `.result` property to `group_result.get(propagate=False)` - BUT FAILED, still got deadlock error
+- **Dec 2025 (Attempt 2 - CORRECT):** Added `allow_join_result()` context manager wrapper - THIS IS THE REQUIRED SOLUTION
 
 **Prevention:**
-- **For parallel workers:** Use `group_result.get(propagate=False)` to collect results - this is THE ONLY safe method
+- **For parallel workers:** Use `allow_join_result()` with `group_result.get(propagate=False)` to collect results - this is THE ONLY safe method
+- **ALWAYS wrap `.get()` in `allow_join_result()` context manager** when calling from within a Celery task
 - **Never iterate** over `group_result.results` and call `.result` or `.get()` on individual AsyncResult objects
 - **Never use** `group_result.join()` - it triggers the same error as `.result`!
 - **For single tasks:** Use database polling instead of blocking on task results
-- **Only in Flask routes:** `result.get()` is safe to use in request handlers (not in Celery tasks)
+- **Only in Flask routes:** `result.get()` is safe to use WITHOUT `allow_join_result()` in request handlers (not in Celery tasks)
 - If a function uses `result.get()`, document it clearly: "⚠️ Can only be called from Flask routes, not from Celery tasks"
 - Test coordinator functions both directly and via `.delay()` to catch this issue early
+- Reference `app/tasks.py` lines 2619-2622 as the correct implementation pattern
 
 **Debugging Tips:**
 - Error message explicitly says: `'Never call result.get() within a task!'`
-- Also triggered by: `worker_result.result`, `group_result.join()`, `worker_result.get()`
+- Also triggered by: `worker_result.result`, `group_result.join()`, `worker_result.get()`, `group_result.get()` WITHOUT `allow_join_result()`
 - Task returns SUCCESS but result contains error dict with the above message
 - Check call chain: Flask → Task A → Function → Task B → `.get()` ❌
-- Use `grep "result\.get\(|\.result\|\.join\(" filename.py` to find blocking calls
+- Use `grep "group_result\.get\(|\.result\|\.join\(" filename.py` to find blocking calls
+- Check if `allow_join_result()` is imported and used as context manager
 - Look for iteration over `group_result.results` - this is usually the culprit
 
 ---

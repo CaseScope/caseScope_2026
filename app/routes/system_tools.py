@@ -690,6 +690,46 @@ def has_exclusions():
 # BULK HIDE KNOWN-GOOD EVENTS
 # ============================================================================
 
+@system_tools_bp.route('/case/<int:case_id>/hide-known-good/check', methods=['GET'])
+@login_required
+def check_hide_known_good_task(case_id):
+    """
+    Check if there's already a running hide-known-good task for this case.
+    Returns task_id if found, otherwise returns None.
+    v2.2.2: New endpoint for UX improvement - check without starting
+    """
+    from main import db
+    from models import Case
+    import celery_app
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Check for existing running task for this case
+    inspect = celery_app.celery_app.control.inspect()
+    active_tasks = inspect.active()
+    
+    if active_tasks:
+        for worker, tasks in active_tasks.items():
+            for task_info in tasks:
+                if task_info['name'] == 'events_known_good.hide_known_good_all_task':
+                    if task_info.get('args') and len(task_info['args']) > 0:
+                        if task_info['args'][0] == case_id:
+                            # Found existing task!
+                            return jsonify({
+                                'running': True,
+                                'task_id': task_info['id'],
+                                'message': 'Task already running'
+                            })
+    
+    # No running task found
+    return jsonify({
+        'running': False,
+        'task_id': None
+    })
+
+
 @system_tools_bp.route('/case/<int:case_id>/hide-known-good', methods=['POST'])
 @login_required
 def hide_known_good_events(case_id):
@@ -698,10 +738,13 @@ def hide_known_good_events(case_id):
     Returns task_id for progress polling.
     
     v2.1.8: Uses new parallel coordinator (hide_known_good_all_task)
+    v2.2.2: Checks for existing running task before creating new one
     """
     from main import db
     from models import Case
     from events_known_good import hide_known_good_all_task, has_exclusions_configured
+    from celery.result import AsyncResult
+    import celery_app
     
     # Permission check
     if current_user.role == 'read-only':
@@ -715,7 +758,37 @@ def hide_known_good_events(case_id):
     if not has_exclusions_configured():
         return jsonify({'error': 'No exclusions defined. Please configure System Tools settings first.'}), 400
     
-    # Start NEW parallel coordinator task
+    # Check for existing running task for this case
+    # Inspect all active tasks to see if one is already processing this case
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    inspect = celery_app.celery_app.control.inspect()
+    active_tasks = inspect.active()
+    
+    logger.info(f"[HIDE_KG] inspect.active() returned: {active_tasks}")
+    
+    if active_tasks:
+        for worker, tasks in active_tasks.items():
+            logger.info(f"[HIDE_KG] Worker '{worker}' has {len(tasks)} tasks")
+            for task_info in tasks:
+                logger.info(f"[HIDE_KG] Task name: '{task_info['name']}', ID: {task_info['id']}, Args: {task_info.get('args', [])}")
+                if task_info['name'] == 'events_known_good.hide_known_good_all_task':
+                    # Check if it's for this case_id (args[0] is case_id)
+                    if task_info.get('args') and len(task_info['args']) > 0:
+                        if task_info['args'][0] == case_id:
+                            # Found existing task!
+                            existing_task_id = task_info['id']
+                            logger.info(f"[HIDE_KG] Found existing task {existing_task_id} for case {case_id}")
+                            return jsonify({
+                                'status': 'already_running',
+                                'task_id': existing_task_id,
+                                'message': 'Hide known-good task already running (reconnected to existing task)'
+                            })
+    else:
+        logger.info(f"[HIDE_KG] No active tasks found by inspect")
+    
+    # No existing task found - start NEW parallel coordinator task
     task = hide_known_good_all_task.delay(case_id)
     
     return jsonify({
@@ -763,6 +836,46 @@ def hide_known_good_status(case_id, task_id):
 # HIDE NOISE EVENTS (v1.46.0)
 # ============================================================================
 
+@system_tools_bp.route('/case/<int:case_id>/hide-noise/check', methods=['GET'])
+@login_required
+def check_hide_noise_task(case_id):
+    """
+    Check if there's already a running hide-noise task for this case.
+    Returns task_id if found, otherwise returns None.
+    v2.2.2: New endpoint for UX improvement - check without starting
+    """
+    from main import db
+    from models import Case
+    import celery_app
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Check for existing running task for this case
+    inspect = celery_app.celery_app.control.inspect()
+    active_tasks = inspect.active()
+    
+    if active_tasks:
+        for worker, tasks in active_tasks.items():
+            for task_info in tasks:
+                if task_info['name'] == 'events_known_noise.hide_noise_all_task':
+                    if task_info.get('args') and len(task_info['args']) > 0:
+                        if task_info['args'][0] == case_id:
+                            # Found existing task!
+                            return jsonify({
+                                'running': True,
+                                'task_id': task_info['id'],
+                                'message': 'Task already running'
+                            })
+    
+    # No running task found
+    return jsonify({
+        'running': False,
+        'task_id': None
+    })
+
+
 @system_tools_bp.route('/case/<int:case_id>/hide-noise', methods=['POST'])
 @login_required
 def hide_noise_events(case_id):
@@ -771,10 +884,13 @@ def hide_noise_events(case_id):
     Returns task_id for progress polling.
     
     v2.1.8: Uses new parallel coordinator (hide_noise_all_task)
+    v2.2.2: Checks for existing running task before creating new one
     """
     from main import db
     from models import Case
     from events_known_noise import hide_noise_all_task
+    from celery.result import AsyncResult
+    import celery_app
     
     # Permission check
     if current_user.role == 'read-only':
@@ -784,8 +900,33 @@ def hide_noise_events(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # Check for existing running task for this case
+    inspect = celery_app.celery_app.control.inspect()
+    active_tasks = inspect.active()
+    
+    if active_tasks:
+        for worker, tasks in active_tasks.items():
+            for task_info in tasks:
+                if task_info['name'] == 'events_known_noise.hide_noise_all_task':
+                    # Check if it's for this case_id (args[0] is case_id)
+                    if task_info.get('args') and len(task_info['args']) > 0:
+                        if task_info['args'][0] == case_id:
+                            # Found existing task!
+                            existing_task_id = task_info['id']
+                            return jsonify({
+                                'status': 'already_running',
+                                'task_id': existing_task_id,
+                                'message': 'Hide noise task already running (reconnected to existing task)'
+                            })
+    
     # Start NEW parallel coordinator task (no config validation needed - uses hardcoded patterns)
     task = hide_noise_all_task.delay(case_id)
+    
+    return jsonify({
+        'status': 'started',
+        'task_id': task.id,
+        'message': 'Hide noise task started (8 parallel workers)'
+    })
     
     return jsonify({
         'status': 'started',

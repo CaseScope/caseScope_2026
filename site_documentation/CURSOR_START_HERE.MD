@@ -1,24 +1,19 @@
-These are you rules - do not skim this but fully read and understand them
+*** YOU MUST ADHERE TO THESE RULES ***
 
-1. Site documentation is in site_documentation. When instructed you will be provided the file to adjust. All adjustments should remove the incorrect/outdated code and information and replace with the current. You must read the file all the way through. Always read ROUTES.MD so you know the routes
-
-2. The site is based around the casescope user and group. All files should be owned by casescope (user and group) with inheretence enabled. All git commands are to be done under the casescope user using SSH.
-
-3. You can use SUDO
-
-4. Service name are casescope and casescope-worker
-
-5. Do not put to Github until told to do so
-
-6. Versioning is maintained in the version.json file; it should be updated with each bugfix or feature change. X.X.Y where Y is incremented for bugfixes; X.Y.X where Y in incremented for feature adds; Y.X.X where Y is incremented for changes which would break function with older versions completely
-
-7. The goal is to keep things as modular as possible so reuse existing pages/functions where we can and breakout new items if needed to keep individual page code low to make it easy to read and troubleshoot and also centralize tasks and code so multiple items can be fixed by modifying code in one place instead of hunting and pecking
-
-8. You are not to fix, report issues but do not fix until told to do so
-
-9. Do not make summary files
-
-10. File naming structure: 
+1. Site runs as casescope user; all proceses run as this user
+2. file permissions should be casescope user and group
+3. You can run SUDO
+4. do NOT fix only report unless asked to fix
+5. do NOT push to github until asked to do so - use casescope user for ssh
+6. celery is casescope-worker, flask is casescope
+7. file naming structure: 
 - app files /app/type_what_it_does (EX, ai_review_event.py)
 - doc files /site_documentation/what_is_it
-
+8. Versioning is maintained in the version.json file; 
+xx.xx.yy = bugfix
+xx.yy.xx = feature add
+yy.xx.xx = breaking old version compatibility
+9. read code in full FIRST so you understand what it does
+10. Goal is modularizarion so the same modules can be reused to reduce page code / easier diagnosis
+11. no MD files unless asked
+12. Summaries are short and direct

@@ -1392,12 +1392,12 @@ function quickAIReview(eventId, indexName) {
     // Store event context
     currentEventForAI.eventId = eventId;
     currentEventForAI.index = indexName;
-    
+                
     // Open AI review modal directly
     const modal = document.getElementById('aiReviewModal');
     const modalBody = document.getElementById('aiReviewBody');
     modal.style.display = 'flex';
-    
+                
     // Show loading state
     modalBody.innerHTML = `
         <div style="text-align: center; padding: var(--spacing-xl);">
@@ -1427,7 +1427,7 @@ function quickAIReview(eventId, indexName) {
                     ℹ️ <strong>Note:</strong> This analysis is AI-generated and should be used as a starting point for investigation. Always verify findings with the actual event data.
                 </div>
             `;
-        } else {
+                } else {
             // Display error
             modalBody.innerHTML = `
                 <div class="alert alert-error">
@@ -1445,7 +1445,7 @@ function quickAIReview(eventId, indexName) {
                 ${escapeHtml(error.message || 'Could not connect to server')}
             </div>
         `;
-    });
+                });
 }
 
 function aiReviewEvent() {

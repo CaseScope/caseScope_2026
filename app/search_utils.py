@@ -171,7 +171,7 @@ def build_search_query(
                     for excluded in excluded_statuses:
                         query["bool"]["must_not"].append({
                             "term": {"event_status": excluded}
-                        })
+                })
     
     # Legacy: Exclude specific event IDs (deprecated - use status_filter instead)
     if exclude_event_ids and len(exclude_event_ids) > 0:

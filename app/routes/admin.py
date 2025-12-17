@@ -507,3 +507,68 @@ def clear_queue():
             'error': str(e)
         }), 500
 
+
+@admin_bp.route('/diagnostics/clear_stale_tasks', methods=['POST'])
+@login_required
+@admin_required
+def clear_stale_tasks():
+    """Clear orphaned Celery task metadata from Redis"""
+    from audit_logger import log_action
+    from diagnostics_clear_tasks import clear_stale_tasks as clear_tasks_func
+    
+    try:
+        # Log the action
+        log_action(
+            action='clear_stale_tasks',
+            resource_type='system',
+            resource_name='redis_celery',
+            status='initiated',
+            details={'user': current_user.username}
+        )
+        
+        # Call the clear function
+        result = clear_tasks_func()
+        
+        if result['success']:
+            # Log success
+            log_action(
+                action='clear_stale_tasks',
+                resource_type='system',
+                resource_name='redis_celery',
+                status='success',
+                details={
+                    'user': current_user.username,
+                    'total_cleared': result['total_cleared'],
+                    'task_metadata': result['task_metadata_cleared'],
+                    'unacked': result['unacked_cleared'],
+                    'kombu': result['kombu_cleared']
+                }
+            )
+            
+            return jsonify(result)
+        else:
+            # Log failure
+            log_action(
+                action='clear_stale_tasks',
+                resource_type='system',
+                resource_name='redis_celery',
+                status='error',
+                details={'user': current_user.username, 'error': result.get('error', 'Unknown error')}
+            )
+            
+            return jsonify(result), 500
+        
+    except Exception as e:
+        log_action(
+            action='clear_stale_tasks',
+            resource_type='system',
+            resource_name='redis_celery',
+            status='error',
+            details={'user': current_user.username, 'error': str(e)}
+        )
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Failed to clear stale tasks: {e}'
+        }), 500
+

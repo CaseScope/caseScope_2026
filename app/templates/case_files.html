@@ -1772,23 +1772,55 @@ function showHideKnownGoodModal() {
     
     modal.style.display = 'flex';
     
-    // Check if exclusions are defined
-    fetch('/settings/system-tools/api/has-exclusions')
-        .then(response => response.json())
-        .then(data => {
-            if (data.has_exclusions) {
-                confirmPhase.style.display = 'block';
-                loadExclusionsSummary();
-            } else {
-                noExclusionsPhase.style.display = 'block';
-                startBtn.style.display = 'none';
-            }
-        })
-        .catch(error => {
-            console.error('Error checking exclusions:', error);
-            noExclusionsPhase.style.display = 'block';
+    // First, check if there's already a running task (without starting one)
+    fetch(`/settings/system-tools/case/${CASE_ID}/hide-known-good/check`)
+    .then(response => response.json())
+    .then(data => {
+        console.log('[HIDE_KG] Check for running task:', data);
+        
+        if (data.running && data.task_id) {
+            // Task already running - skip confirmation and go straight to progress
+            console.log('[HIDE_KG] Task already running, jumping to progress phase');
+            confirmPhase.style.display = 'none';
+            progressPhase.style.display = 'block';
             startBtn.style.display = 'none';
-        });
+            pollHideKnownGoodStatus(CASE_ID, data.task_id);
+        } else {
+            // No running task - show confirmation phase
+            // Check if exclusions are defined
+            fetch('/settings/system-tools/api/has-exclusions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.has_exclusions) {
+                        confirmPhase.style.display = 'block';
+                        loadExclusionsSummary();
+                    } else {
+                        noExclusionsPhase.style.display = 'block';
+                        startBtn.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking exclusions:', error);
+                    noExclusionsPhase.style.display = 'block';
+                    startBtn.style.display = 'none';
+                });
+        }
+    })
+    .catch(error => {
+        console.error('[HIDE_KG] Error checking for running task:', error);
+        // Fall back to showing confirmation
+        fetch('/settings/system-tools/api/has-exclusions')
+            .then(response => response.json())
+            .then(data => {
+                if (data.has_exclusions) {
+                    confirmPhase.style.display = 'block';
+                    loadExclusionsSummary();
+                } else {
+                    noExclusionsPhase.style.display = 'block';
+                    startBtn.style.display = 'none';
+                }
+            });
+    });
 }
 
 function loadExclusionsSummary() {
@@ -1858,7 +1890,9 @@ function startHideKnownGood() {
     })
     .then(response => response.json())
     .then(data => {
+        console.log('[HIDE_KG] Response from server:', data);
         if (data.task_id) {
+            console.log('[HIDE_KG] Starting poll for task:', data.task_id);
             pollHideKnownGoodStatus(caseId, data.task_id);
         } else if (data.success) {
             showHideKGResults(data);
@@ -1902,9 +1936,15 @@ function pollHideKnownGoodStatus(caseId, taskId) {
                 if (data.worker_details && data.worker_details.length > 0) {
                     const activeWorkers = data.worker_details.filter(w => !w.done);
                     if (activeWorkers.length > 0) {
-                        // Show count of active workers and one example
-                        const example = activeWorkers[0];
-                        progressFound.textContent = `${activeWorkers.length} workers active (Worker ${example.id}: ${formatNumber(example.current)} events)`;
+                        // Find slowest worker (lowest progress %)
+                        const slowest = activeWorkers.reduce((min, w) => {
+                            const minProgress = min.total > 0 ? (min.current / min.total) : 0;
+                            const wProgress = w.total > 0 ? (w.current / w.total) : 0;
+                            return wProgress < minProgress ? w : min;
+                        });
+                        
+                        const slowestPercent = slowest.total > 0 ? Math.round((slowest.current / slowest.total) * 100) : 0;
+                        progressFound.textContent = `${activeWorkers.length} workers active (Slowest: Worker ${slowest.id} at ${slowestPercent}%, ${formatNumber(slowest.found)} found)`;
                     } else {
                         progressFound.textContent = data.message || 'Processing...';
                     }
@@ -1989,15 +2029,43 @@ function showHideKGError(message) {
 
 function showHideNoiseModal() {
     const modal = document.getElementById('hideNoiseModal');
+    const confirmPhase = document.getElementById('hideNoiseConfirmPhase');
+    const progressPhase = document.getElementById('hideNoiseProgressPhase');
+    const resultsPhase = document.getElementById('hideNoiseResultsPhase');
+    const startBtn = document.getElementById('hideNoiseStartBtn');
+    const closeBtn = document.getElementById('hideNoiseCloseBtn');
     
     // Reset to confirm phase
-    document.getElementById('hideNoiseConfirmPhase').style.display = 'block';
-    document.getElementById('hideNoiseProgressPhase').style.display = 'none';
-    document.getElementById('hideNoiseResultsPhase').style.display = 'none';
-    document.getElementById('hideNoiseStartBtn').style.display = 'inline-flex';
-    document.getElementById('hideNoiseCloseBtn').textContent = 'Cancel';
+    confirmPhase.style.display = 'none';
+    progressPhase.style.display = 'none';
+    resultsPhase.style.display = 'none';
+    startBtn.style.display = 'inline-flex';
+    closeBtn.textContent = 'Cancel';
     
     modal.style.display = 'flex';
+    
+    // First, check if there's already a running task (without starting one)
+    fetch(`/settings/system-tools/case/${CASE_ID}/hide-noise/check`)
+    .then(response => response.json())
+    .then(data => {
+        console.log('[HIDE_NOISE] Check for running task:', data);
+        
+        if (data.running && data.task_id) {
+            // Task already running - skip confirmation and go straight to progress
+            console.log('[HIDE_NOISE] Task already running, jumping to progress phase');
+            progressPhase.style.display = 'block';
+            startBtn.style.display = 'none';
+            pollHideNoiseStatus(CASE_ID, data.task_id);
+        } else {
+            // No running task - show confirmation phase
+            confirmPhase.style.display = 'block';
+        }
+    })
+    .catch(error => {
+        console.error('[HIDE_NOISE] Error checking for running task:', error);
+        // Fall back to showing confirmation
+        confirmPhase.style.display = 'block';
+    });
 }
 
 function closeHideNoiseModal() {
@@ -2048,15 +2116,42 @@ function pollHideNoiseStatus(caseId, taskId) {
     .then(data => {
         switch (data.status) {
             case 'processing':
-                // Calculate percentage from workers
+                // Use worker count for progress since we don't pre-count events
                 const completed = data.workers_completed || 0;
                 const total = data.workers_total || 8;
                 const percent = Math.round((completed / total) * 100);
                 
                 progressBar.style.width = percent + '%';
                 progressPercent.textContent = percent + '%';
-                progressProcessed.textContent = `Workers: ${completed}/${total} completed`;
-                progressFound.textContent = data.message || 'Processing...';
+                
+                // Show event count if available
+                if (data.total_events_processed > 0) {
+                    const processed = data.total_events_processed;
+                    progressProcessed.textContent = `${formatNumber(processed)} events processed`;
+                } else {
+                    progressProcessed.textContent = `Workers: ${completed}/${total} completed`;
+                }
+                
+                // Show active worker info if available
+                if (data.worker_details && data.worker_details.length > 0) {
+                    const activeWorkers = data.worker_details.filter(w => !w.done);
+                    if (activeWorkers.length > 0) {
+                        // Find slowest worker (lowest progress %)
+                        const slowest = activeWorkers.reduce((min, w) => {
+                            const minProgress = min.total > 0 ? (min.current / min.total) : 0;
+                            const wProgress = w.total > 0 ? (w.current / w.total) : 0;
+                            return wProgress < minProgress ? w : min;
+                        });
+                        
+                        const slowestPercent = slowest.total > 0 ? Math.round((slowest.current / slowest.total) * 100) : 0;
+                        progressFound.textContent = `${activeWorkers.length} workers active (Slowest: Worker ${slowest.id} at ${slowestPercent}%, ${formatNumber(slowest.found)} found)`;
+                    } else {
+                        progressFound.textContent = data.message || 'Processing...';
+                    }
+                } else {
+                    progressFound.textContent = data.message || 'Processing...';
+                }
+                
                 setTimeout(() => pollHideNoiseStatus(caseId, taskId), 1000);
                 break;
             case 'pending':

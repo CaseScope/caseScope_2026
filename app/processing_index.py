@@ -264,9 +264,22 @@ def index_all_files_in_queue(case_id: int, operation: str = 'index', phase_num: 
         total_files = len(files)
         logger.info(f"[INDEX_PHASE] Found {total_files} files to index")
         
-        # Create task group (Celery will handle worker distribution)
-        job = group(index_file_task.s(f.id) for f in files)
-        result = job.apply_async()
+        # Dispatch tasks individually using .delay() (proven approach from v1.x)
+        # This is more reliable than group() for large batches (11K+ files)
+        dispatched_count = 0
+        
+        for f in files:
+            try:
+                result = index_file_task.delay(f.id)
+                dispatched_count += 1
+                
+                # Log progress every 1000 files
+                if dispatched_count % 1000 == 0:
+                    logger.info(f"[INDEX_PHASE] Dispatched {dispatched_count}/{total_files} tasks")
+            except Exception as e:
+                logger.error(f"[INDEX_PHASE] Failed to queue file {f.id}: {e}")
+        
+        logger.info(f"[INDEX_PHASE] All {dispatched_count} tasks dispatched to workers")
         
         # Wait for all tasks to complete by SIMPLE QUEUE CHECK
         logger.info(f"[INDEX_PHASE] Waiting for {total_files} indexing tasks to complete...")

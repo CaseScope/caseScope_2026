@@ -165,10 +165,11 @@ def render_event_details_html(event_data: dict) -> str:
         if is_nested and isinstance(field_value, dict) and len(field_value) > 0:
             # Nested dict - expandable
             unique_id = field_path.replace('.', '_').replace('[', '_').replace(']', '_')
+            indent_px = depth * 20
             html_parts = []
             html_parts.append(f'''
             <tr class="nested-field-row">
-                <td class="event-details-field" colspan="3">
+                <td class="event-details-field" colspan="3" style="padding-left: {indent_px}px;">
                     <span class="nested-toggle" onclick="toggleNested('{unique_id}')" style="cursor: pointer;">
                         ▶ <strong>{field_name_html}</strong> <span class="text-muted">({len(field_value)} fields)</span>
                     </span>
@@ -191,17 +192,18 @@ def render_event_details_html(event_data: dict) -> str:
         elif is_nested and isinstance(field_value, list) and len(field_value) > 1:
             # List with multiple items - expandable
             unique_id = field_path.replace('.', '_').replace('[', '_').replace(']', '_')
+            indent_px = depth * 20
             html_parts = []
             html_parts.append(f'''
             <tr class="nested-field-row">
-                <td class="event-details-field" colspan="3">
+                <td class="event-details-field" colspan="3" style="padding-left: {indent_px}px;">
                     <span class="nested-toggle" onclick="toggleNested('{unique_id}')" style="cursor: pointer;">
                         ▶ <strong>{field_name_html}</strong> <span class="text-muted">({len(field_value)} items)</span>
                     </span>
                 </td>
             </tr>
             <tr id="nested_{unique_id}" style="display: none;">
-                <td colspan="3" style="padding-left: 30px;">
+                <td colspan="3" style="padding-left: {indent_px + 30}px;">
             ''')
             # Render list items
             for idx, item in enumerate(field_value):
@@ -222,6 +224,7 @@ def render_event_details_html(event_data: dict) -> str:
         else:
             # Simple field or single-item list - render as row with actions
             value_html = render_value(field_value, field_path, depth)
+            indent_px = depth * 20
             
             # For action buttons, get the string value
             if isinstance(field_value, list) and len(field_value) == 1:
@@ -236,7 +239,7 @@ def render_event_details_html(event_data: dict) -> str:
             
             return f'''
             <tr>
-                <td class="event-details-field">{field_name_html}</td>
+                <td class="event-details-field" style="padding-left: {indent_px}px;">{field_name_html}</td>
                 <td class="event-details-value">{value_html}</td>
                 <td class="event-details-actions">
                     <div class="event-details-btn-group">

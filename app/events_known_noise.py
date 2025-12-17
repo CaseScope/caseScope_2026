@@ -784,9 +784,11 @@ def hide_noise_all_task(self, case_id: int) -> Dict[str, Any]:
             # Collect results from all workers
             logger.info(f"[NOISE_COORDINATOR] All workers complete, collecting results...")
             
-            # Use group_result.get() to collect all results at once (safe for GroupResult)
+            # Use allow_join_result() to permit .get() within a Celery task
+            from celery.result import allow_join_result
             try:
-                worker_results = group_result.get(timeout=60, propagate=False)
+                with allow_join_result():
+                    worker_results = group_result.get(timeout=60, propagate=False)
             except Exception as e:
                 logger.error(f"[NOISE_COORDINATOR] Error collecting worker results: {e}")
                 result['status'] = 'error'

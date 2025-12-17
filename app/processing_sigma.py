@@ -226,9 +226,21 @@ def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: 
         total_files = len(files)
         logger.info(f"[SIGMA_PHASE] Found {total_files} EVTX files to process")
         
-        # Create task group
-        job = group(sigma_detect_task.s(f.id) for f in files)
-        result = job.apply_async()
+        # Dispatch tasks individually using .delay() (proven approach from v1.x)
+        dispatched_count = 0
+        
+        for f in files:
+            try:
+                result = sigma_detect_task.delay(f.id)
+                dispatched_count += 1
+                
+                # Log progress every 500 files
+                if dispatched_count % 500 == 0:
+                    logger.info(f"[SIGMA_PHASE] Dispatched {dispatched_count}/{total_files} tasks")
+            except Exception as e:
+                logger.error(f"[SIGMA_PHASE] Failed to queue file {f.id}: {e}")
+        
+        logger.info(f"[SIGMA_PHASE] All {dispatched_count} tasks dispatched to workers")
         
         # Wait for all tasks to complete by SIMPLE QUEUE CHECK
         logger.info(f"[SIGMA_PHASE] Waiting for {total_files} SIGMA tasks to complete...")

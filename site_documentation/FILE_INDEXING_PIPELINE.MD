@@ -343,15 +343,15 @@ class EventStatus(db.Model):
         {
             "number": 1,
             "name": "Clear Data",
-            "status": "completed",
+        "status": "completed",
             "message": "Cleared old data",
             "current_count": 675,
             "total_count": 675
-        },
+    },
         {
             "number": 4,
             "name": "Known-Good Filter",
-            "status": "running",
+        "status": "running",
             "message": "Filtering known-good events...",
             "current_count": 523401,
             "total_count": 1200000
