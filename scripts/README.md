@@ -46,6 +46,10 @@ sudo ./scripts/clean_all_case_data.py
 **Purpose:** Extract Indicators of Compromise (IOCs) from EDR reports using Mistral AI  
 **Usage:** Automated IOC extraction for incident triage
 
+> **⚠️ Note:** This functionality is now integrated into the UI on the **Hunting** page.  
+> Use the "Extract IOCs from EDR Report" button for the best user experience.  
+> This standalone script remains available for testing and batch processing.
+
 **What it does:**
 - Reads EDR reports from case 27 (configurable)
 - Splits reports by `*** NEW REPORT ***` delimiter
@@ -55,7 +59,12 @@ sudo ./scripts/clean_all_case_data.py
 - Aggregates and deduplicates IOCs across all reports
 - Outputs comprehensive JSON with IOC statistics
 
-**Manual execution:**
+**UI Integration:**
+- Navigate to: `Cases → Select Case → Hunting (tab)`
+- Click: "Extract IOCs from EDR Report" button
+- IOCs are automatically parsed and can be added to the case with one click
+
+**Manual execution (for testing/batch):**
 ```bash
 sudo /opt/casescope/scripts/extract_iocs_from_edr.py
 ```
