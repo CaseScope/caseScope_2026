@@ -2302,8 +2302,93 @@ def triage_add_extracted_iocs(case_id):
     Add extracted IOCs to the case's IOC database.
     Handles duplicates by appending descriptions.
     Maps IOC types correctly, uses 'other' for unknown types.
+    Smart handling of usernames, filenames, and commands.
     """
     from models import IOC
+    import os
+    import re
+    
+    def extract_username(value):
+        """Extract username from domain\\username or domain/username format."""
+        if '\\' in value:
+            parts = value.split('\\')
+            username = parts[-1]
+            domain = parts[0] if len(parts) > 1 else None
+            return username, domain
+        elif '/' in value and not value.startswith('/'):
+            parts = value.split('/')
+            username = parts[-1]
+            domain = parts[0] if len(parts) > 1 else None
+            return username, domain
+        return value, None
+    
+    def extract_filename(value):
+        """Extract filename without extension from full path."""
+        # Get basename
+        basename = os.path.basename(value.replace('\\', '/'))
+        # Remove extension
+        filename_no_ext = os.path.splitext(basename)[0]
+        return filename_no_ext if filename_no_ext else basename
+    
+    def is_command_line(value):
+        """Determine if value is a command line (has arguments) vs just a path/filename."""
+        # Check for command-line indicators: spaces with args, pipes, redirects, &&, ||
+        if any(indicator in value for indicator in [' -', ' /', ' --', '|', '>', '<', '&&', '||']):
+            return True
+        # Check if it has spaces (but not just a path with spaces)
+        if ' ' in value.strip():
+            # If it looks like a path (starts with drive letter or /, \), might just be a path with spaces
+            if re.match(r'^[A-Za-z]:\\', value) or value.startswith('/') or value.startswith('\\'):
+                # Check if there's content after potential path
+                parts = value.split()
+                if len(parts) > 1 and not all(part.endswith('\\') or part.endswith('/') for part in parts[:-1]):
+                    return True
+            else:
+                return True
+        return False
+    
+    def find_existing_ioc_across_types(case_id, value, primary_type, alt_types=None):
+        """Find existing IOC by value, checking primary type and alternative types."""
+        # Check primary type first
+        existing = IOC.query.filter_by(case_id=case_id, ioc_type=primary_type).filter(
+            db.func.lower(IOC.ioc_value) == db.func.lower(value)
+        ).first()
+        if existing:
+            return existing
+        
+        # Check alternative types (for username cross-type matching)
+        if alt_types:
+            for alt_type in alt_types:
+                existing = IOC.query.filter_by(case_id=case_id, ioc_type=alt_type).filter(
+                    db.func.lower(IOC.ioc_value) == db.func.lower(value)
+                ).first()
+                if existing:
+                    return existing
+        return None
+    
+    def update_or_create_ioc(case_id, ioc_type, ioc_value, description, extraction_source, is_active=True, alt_types=None):
+        """Update existing IOC or create new one. Returns (action, ioc) where action is 'added', 'updated', or 'skipped'."""
+        existing = find_existing_ioc_across_types(case_id, ioc_value, ioc_type, alt_types)
+        
+        if existing:
+            # Check if this description info is new
+            if description not in (existing.description or ''):
+                existing.description = (existing.description or '') + f"\n{description}"
+                # Preserve is_active status (don't re-enable disabled IOCs)
+                return ('updated', existing)
+            else:
+                return ('skipped', existing)
+        else:
+            new_ioc = IOC(
+                case_id=case_id,
+                ioc_type=ioc_type,
+                ioc_value=ioc_value,
+                description=description,
+                is_active=is_active,
+                created_by=current_user.id
+            )
+            db.session.add(new_ioc)
+            return ('added', new_ioc)
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -2351,31 +2436,35 @@ def triage_add_extracted_iocs(case_id):
                         skipped_count += 1
                         continue
                     
-                    value_str = str(value)[:500]  # Truncate long values
+                    value_str = str(value).strip()
                     
-                    # Check if IOC already exists (case-insensitive for better matching)
-                    existing = IOC.query.filter_by(case_id=case_id, ioc_type=ioc_type_db).filter(
-                        db.func.lower(IOC.ioc_value) == db.func.lower(value_str)
-                    ).first()
-                    
-                    if existing:
-                        # Append to existing description if not already mentioned
-                        if extraction_source not in (existing.description or ''):
-                            existing.description = (existing.description or '') + f"\n{extraction_source}"
-                            updated_count += 1
-                        else:
-                            skipped_count += 1
-                    else:
-                        new_ioc = IOC(
-                            case_id=case_id,
-                            ioc_type=ioc_type_db,
-                            ioc_value=value_str,
-                            description=extraction_source,
-                            is_active=True,
-                            created_by=current_user.id
+                    # Special handling for usernames
+                    if ioc_type == 'usernames':
+                        clean_username, domain = extract_username(value_str)
+                        desc_parts = [extraction_source]
+                        if domain:
+                            desc_parts.append(f"Domain: {domain}")
+                        if value_str != clean_username:
+                            desc_parts.append(f"Full: {value_str}")
+                        description = '\n'.join(desc_parts)
+                        
+                        action, ioc = update_or_create_ioc(
+                            case_id, 'username', clean_username[:500], description,
+                            extraction_source, alt_types=['user_sid']
                         )
-                        db.session.add(new_ioc)
+                    else:
+                        # Standard processing for other types
+                        action, ioc = update_or_create_ioc(
+                            case_id, ioc_type_db, value_str[:500], extraction_source,
+                            extraction_source
+                        )
+                    
+                    if action == 'added':
                         added_count += 1
+                    elif action == 'updated':
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
         
         # Process nested structures: file_hashes
         file_hashes = iocs.get('file_hashes', {})
@@ -2387,30 +2476,19 @@ def triage_add_extracted_iocs(case_id):
                             skipped_count += 1
                             continue
                         
-                        hash_str = hash_value[:500].lower()  # Normalize to lowercase
+                        hash_str = hash_value.strip()[:500].lower()  # Normalize to lowercase
                         hash_desc = f"{extraction_source} ({hash_type.upper()} hash)"
                         
-                        existing = IOC.query.filter_by(case_id=case_id, ioc_type='hash').filter(
-                            db.func.lower(IOC.ioc_value) == hash_str
-                        ).first()
+                        action, ioc = update_or_create_ioc(
+                            case_id, 'hash', hash_str, hash_desc, extraction_source
+                        )
                         
-                        if existing:
-                            if extraction_source not in (existing.description or ''):
-                                existing.description = (existing.description or '') + f"\n{hash_desc}"
-                                updated_count += 1
-                            else:
-                                skipped_count += 1
-                        else:
-                            new_ioc = IOC(
-                                case_id=case_id,
-                                ioc_type='hash',
-                                ioc_value=hash_str,
-                                description=hash_desc,
-                                is_active=True,
-                                created_by=current_user.id
-                            )
-                            db.session.add(new_ioc)
+                        if action == 'added':
                             added_count += 1
+                        elif action == 'updated':
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
         
         # Process nested structures: credentials (usernames and passwords)
         credentials = iocs.get('credentials', {})
@@ -2422,30 +2500,29 @@ def triage_add_extracted_iocs(case_id):
                         skipped_count += 1
                         continue
                     
-                    username_str = username[:500]
-                    cred_desc = f"{extraction_source} (Credential - Username)"
+                    # Extract username from domain\username format
+                    clean_username, domain = extract_username(username.strip())
                     
-                    existing = IOC.query.filter_by(case_id=case_id, ioc_type='username').filter(
-                        db.func.lower(IOC.ioc_value) == db.func.lower(username_str)
-                    ).first()
+                    # Build description with domain info if present
+                    desc_parts = [f"{extraction_source} (Credential - Username)"]
+                    if domain:
+                        desc_parts.append(f"Domain: {domain}")
+                    if username != clean_username:
+                        desc_parts.append(f"Full: {username}")
+                    cred_desc = '\n'.join(desc_parts)
                     
-                    if existing:
-                        if extraction_source not in (existing.description or ''):
-                            existing.description = (existing.description or '') + f"\n{cred_desc}"
-                            updated_count += 1
-                        else:
-                            skipped_count += 1
-                    else:
-                        new_ioc = IOC(
-                            case_id=case_id,
-                            ioc_type='username',
-                            ioc_value=username_str,
-                            description=cred_desc,
-                            is_active=True,
-                            created_by=current_user.id
-                        )
-                        db.session.add(new_ioc)
+                    # Check for duplicates across username and user_sid types
+                    action, ioc = update_or_create_ioc(
+                        case_id, 'username', clean_username[:500], cred_desc, 
+                        extraction_source, alt_types=['user_sid']
+                    )
+                    
+                    if action == 'added':
                         added_count += 1
+                    elif action == 'updated':
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
             
             # Handle passwords as 'other' type (sensitive data)
             cred_passwords = credentials.get('passwords', [])
@@ -2457,29 +2534,16 @@ def triage_add_extracted_iocs(case_id):
                     
                     pwd_desc = f"{extraction_source} (Credential - Password)"
                     
-                    existing = IOC.query.filter_by(
-                        case_id=case_id,
-                        ioc_type='other',
-                        ioc_value=password[:500]
-                    ).first()
+                    action, ioc = update_or_create_ioc(
+                        case_id, 'other', password.strip()[:500], pwd_desc, extraction_source
+                    )
                     
-                    if existing:
-                        if extraction_source not in (existing.description or ''):
-                            existing.description = (existing.description or '') + f"\n{pwd_desc}"
-                            updated_count += 1
-                        else:
-                            skipped_count += 1
-                    else:
-                        new_ioc = IOC(
-                            case_id=case_id,
-                            ioc_type='other',
-                            ioc_value=password[:500],
-                            description=pwd_desc,
-                            is_active=True,
-                            created_by=current_user.id
-                        )
-                        db.session.add(new_ioc)
+                    if action == 'added':
                         added_count += 1
+                    elif action == 'updated':
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
         
         # Process nested structures: processes (executables and commands)
         processes = iocs.get('processes', {})
@@ -2491,33 +2555,34 @@ def triage_add_extracted_iocs(case_id):
                         skipped_count += 1
                         continue
                     
-                    exe_str = executable[:500]
-                    exe_desc = f"{extraction_source} (Executable)"
+                    exe_str = executable.strip()
                     
-                    # Determine if it's a complex command or simple filename
-                    ioc_type_to_use = 'command_complex' if len(exe_str) > 100 else 'filename'
-                    
-                    existing = IOC.query.filter_by(case_id=case_id, ioc_type=ioc_type_to_use).filter(
-                        db.func.lower(IOC.ioc_value) == db.func.lower(exe_str)
-                    ).first()
-                    
-                    if existing:
-                        if extraction_source not in (existing.description or ''):
-                            existing.description = (existing.description or '') + f"\n{exe_desc}"
-                            updated_count += 1
-                        else:
-                            skipped_count += 1
+                    # Determine if it's a command line or just a filename/path
+                    if is_command_line(exe_str):
+                        # It's a full command line
+                        ioc_type = 'command_complex' if len(exe_str) > 100 else 'command'
+                        ioc_value = exe_str[:500]
+                        description = f"{extraction_source} (Command Line)"
                     else:
-                        new_ioc = IOC(
-                            case_id=case_id,
-                            ioc_type=ioc_type_to_use,
-                            ioc_value=exe_str,
-                            description=exe_desc,
-                            is_active=True,
-                            created_by=current_user.id
-                        )
-                        db.session.add(new_ioc)
+                        # It's just a filename or path
+                        filename_clean = extract_filename(exe_str)
+                        ioc_type = 'filename'
+                        ioc_value = filename_clean[:500]
+                        desc_parts = [f"{extraction_source} (Executable/File)"]
+                        if exe_str != filename_clean:
+                            desc_parts.append(f"Full path: {exe_str}")
+                        description = '\n'.join(desc_parts)
+                    
+                    action, ioc = update_or_create_ioc(
+                        case_id, ioc_type, ioc_value, description, extraction_source
+                    )
+                    
+                    if action == 'added':
                         added_count += 1
+                    elif action == 'updated':
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
             
             commands = processes.get('commands', [])
             if isinstance(commands, list):
@@ -2526,33 +2591,34 @@ def triage_add_extracted_iocs(case_id):
                         skipped_count += 1
                         continue
                     
-                    cmd_str = command[:500]
-                    cmd_desc = f"{extraction_source} (Command Line)"
+                    cmd_str = command.strip()
                     
-                    # Commands are typically long, use command_complex
-                    ioc_type_to_use = 'command_complex' if len(cmd_str) > 50 else 'command'
-                    
-                    existing = IOC.query.filter_by(case_id=case_id, ioc_type=ioc_type_to_use).filter(
-                        db.func.lower(IOC.ioc_value) == db.func.lower(cmd_str)
-                    ).first()
-                    
-                    if existing:
-                        if extraction_source not in (existing.description or ''):
-                            existing.description = (existing.description or '') + f"\n{cmd_desc}"
-                            updated_count += 1
-                        else:
-                            skipped_count += 1
+                    # Determine if it's a command line or just a filename/path
+                    if is_command_line(cmd_str):
+                        # It's a full command line
+                        ioc_type = 'command_complex' if len(cmd_str) > 100 else 'command'
+                        ioc_value = cmd_str[:500]
+                        description = f"{extraction_source} (Command Line)"
                     else:
-                        new_ioc = IOC(
-                            case_id=case_id,
-                            ioc_type=ioc_type_to_use,
-                            ioc_value=cmd_str,
-                            description=cmd_desc,
-                            is_active=True,
-                            created_by=current_user.id
-                        )
-                        db.session.add(new_ioc)
+                        # It's just a filename or path
+                        filename_clean = extract_filename(cmd_str)
+                        ioc_type = 'filename'
+                        ioc_value = filename_clean[:500]
+                        desc_parts = [f"{extraction_source} (Filename from command)"]
+                        if cmd_str != filename_clean:
+                            desc_parts.append(f"Original: {cmd_str}")
+                        description = '\n'.join(desc_parts)
+                    
+                    action, ioc = update_or_create_ioc(
+                        case_id, ioc_type, ioc_value, description, extraction_source
+                    )
+                    
+                    if action == 'added':
                         added_count += 1
+                    elif action == 'updated':
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
         
         db.session.commit()
         logger.info(f"[TRIAGE_IOC] Case {case_id}: Added {added_count}, Updated {updated_count}, Skipped {skipped_count} IOCs ({extraction_method})")
