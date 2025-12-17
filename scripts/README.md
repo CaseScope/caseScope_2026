@@ -42,6 +42,56 @@ sudo ./scripts/clean_all_case_data.py
 
 ---
 
+### `extract_iocs_from_edr.py` 🤖 AI-POWERED
+**Purpose:** Extract Indicators of Compromise (IOCs) from EDR reports using Mistral AI  
+**Usage:** Automated IOC extraction for incident triage
+
+**What it does:**
+- Reads EDR reports from case 27 (configurable)
+- Splits reports by `*** NEW REPORT ***` delimiter
+- Uses Mistral AI with custom prompt from `ai_prompts/mistral/mistral_get_iocs.md`
+- Extracts IPs, file hashes, usernames, hostnames, executables, commands, timestamps, etc.
+- Handles JSON parsing errors with automatic retry logic
+- Aggregates and deduplicates IOCs across all reports
+- Outputs comprehensive JSON with IOC statistics
+
+**Manual execution:**
+```bash
+sudo /opt/casescope/scripts/extract_iocs_from_edr.py
+```
+
+**Requirements:**
+- Ollama installed with `mistral` model
+- EDR reports in case database with `*** NEW REPORT ***` separators
+- Prompt template at `/opt/casescope/ai_prompts/mistral/mistral_get_iocs.md`
+
+**Output format:**
+```json
+{
+  "ip_addresses": ["77.83.205.215", "192.168.1.150"],
+  "file_hashes": {"sha256": ["86d50db35a65a067..."]},
+  "usernames": ["tabadmin"],
+  "file_paths": ["C:\\ProgramData\\USOShared\\WinSCP.exe"],
+  "processes": {"executables": [...], "commands": [...]},
+  "timestamps_utc": ["2025-09-05 06:14:05 UTC"],
+  ...
+}
+```
+
+**Customization:**
+- Edit `ai_prompts/mistral/mistral_get_iocs.md` to adjust extraction behavior
+- Change case ID in script (default: 27)
+- Modify model name (default: `mistral`)
+- Adjust timeout (default: 600 seconds)
+
+**When to use:**
+- After receiving new EDR/MDR incident reports
+- For automated initial triage analysis
+- To quickly identify IOCs for hunting
+- To test AI extraction accuracy
+
+---
+
 ### `cleanup_stale_locks.py`
 **Purpose:** Clean up stale case locks from the database  
 **Usage:** Meant to run as a cron job
