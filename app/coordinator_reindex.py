@@ -105,9 +105,10 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                     CaseFile.is_deleted == False
                 ).all()
             
-            # Prepare files for reindexing
+            # Prepare files for reindexing (v2.2.0: use celery_task_id as queue marker)
             for f in files:
                 f.is_indexed = False
+                f.celery_task_id = f'reindex-{case_id}-{f.id}'  # Queue marker for processing
                 # Note: file_state will be set properly by processing_index.py
             
             db.session.commit()
