@@ -109,12 +109,24 @@ class CaseFile(db.Model):
     file_type = db.Column(db.String(20))  # EVTX, JSON, NDJSON, CSV, ZIP
     mime_type = db.Column(db.String(100))
     
-    # Processing status
+    # Processing status (LEGACY - being phased out)
     indexing_status = db.Column(db.String(50), default='Queued')  # Queued, Indexing, Completed, Failed
     error_message = db.Column(db.Text)  # Detailed error message for failed files
+    
+    # Processing flags (NEW v2.2.0 - State Tracking System)
+    is_new = db.Column(db.Boolean, default=True, index=True)  # Newly uploaded, not indexed yet
     is_indexed = db.Column(db.Boolean, default=False)
-    is_hidden = db.Column(db.Boolean, default=False)  # Hide 0-event files
+    sigma_hunted = db.Column(db.Boolean, default=False, index=True)  # SIGMA detection complete (EVTX only)
+    ioc_hunted = db.Column(db.Boolean, default=False, index=True)  # IOC hunting complete
+    known_good = db.Column(db.Boolean, default=False, index=True)  # Known-good filtering complete
+    known_noise = db.Column(db.Boolean, default=False, index=True)  # Known-noise filtering complete
+    is_hidden = db.Column(db.Boolean, default=False)  # Hide 0-event files or filtered files
     is_deleted = db.Column(db.Boolean, default=False)
+    failed = db.Column(db.Boolean, default=False, index=True)  # Failed at any step
+    
+    # State tracking (NEW v2.2.0)
+    file_state = db.Column(db.String(50), default='New', index=True)  # Current state for UI display
+    previous_state = db.Column(db.String(50))  # State before re-operation (for restoration)
     
     # Event counts
     event_count = db.Column(db.Integer, default=0)
@@ -135,6 +147,47 @@ class CaseFile(db.Model):
     
     # Relationships
     case = db.relationship('Case', back_populates='files')
+    
+    @property
+    def is_completed(self):
+        """
+        Determines if file processing is fully completed based on file type and phase flags.
+        
+        A file is completed when:
+        - It has been indexed
+        - IOC hunting is complete
+        - Known-good and known-noise filtering are both complete
+        - For EVTX files: SIGMA detection is also complete
+        - It is not hidden, failed, or has 0 events
+        
+        Returns:
+            bool: True if all applicable processing phases are complete
+        """
+        # Files with 0 events, hidden, or failed are never "completed"
+        if self.is_hidden or self.failed or self.event_count == 0:
+            return False
+        
+        # Check if file is EVTX (needs SIGMA)
+        is_evtx = self.original_filename.lower().endswith('.evtx')
+        
+        # All files need: indexed, IOC hunted, noise checked (both known_good AND known_noise)
+        base_complete = (
+            self.is_indexed and
+            self.ioc_hunted and
+            self.known_good and
+            self.known_noise
+        )
+        
+        # EVTX files additionally need SIGMA
+        if is_evtx:
+            return base_complete and self.sigma_hunted
+        else:
+            return base_complete
+    
+    @property
+    def is_queued(self):
+        """Check if file is currently queued for processing"""
+        return self.celery_task_id is not None
 
 
 class SigmaRule(db.Model):

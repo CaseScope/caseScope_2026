@@ -88,7 +88,7 @@ def commit_with_retry(session, max_retries=3, logger_instance=None):
 @celery_app.task(bind=True, name='tasks.process_file')
 def process_file(self, file_id, operation='full'):
     """
-    Process a file through the 4-step modular pipeline
+    Process a file through the 4-step modular pipeline (v2.2.0 - State Tracking)
     
     Steps:
     1. duplicate_check() - Skip if duplicate
@@ -101,12 +101,15 @@ def process_file(self, file_id, operation='full'):
     - 'reindex': Clear + re-index
     - 'chainsaw_only': SIGMA only
     - 'ioc_only': IOC only
+    
+    v2.2.0: Now uses file_state_manager for consistent state tracking
     """
     from file_processing import duplicate_check, index_file, chainsaw_file, hunt_iocs
     from main import app, db
     from models import Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, SkippedFile
     from main import opensearch_client
     from utils import make_index_name
+    import file_state_manager as fsm
     
     logger.info(f"[TASK] Processing file_id={file_id}, operation={operation}")
     
@@ -195,7 +198,7 @@ def process_file(self, file_id, operation='full'):
             
             index_name = make_index_name(case.id, case_file.original_filename)
             
-            # FULL OPERATION
+            # FULL OPERATION (v2.2.0 - State Tracking)
             if operation == 'full':
                 # Step 1: Duplicate check
                 dup_result = duplicate_check(
@@ -210,11 +213,14 @@ def process_file(self, file_id, operation='full'):
                 )
                 
                 if dup_result['status'] == 'skip':
-                    case_file.indexing_status = 'Completed'
+                    fsm.finalize_processing(case_file)  # Mark as completed (duplicate)
                     commit_with_retry(db.session, logger_instance=logger)
                     return {'status': 'success', 'message': 'Skipped (duplicate)'}
                 
                 # Step 2: Index file
+                fsm.start_indexing(case_file)  # Set state to 'Indexing', is_new=False
+                db.session.commit()
+                
                 index_result = index_file(
                     db=db,
                     opensearch_client=opensearch_client,
@@ -233,19 +239,21 @@ def process_file(self, file_id, operation='full'):
                 
                 if index_result['status'] == 'error':
                     error_msg = index_result.get('message', 'Unknown indexing error')
-                    case_file.indexing_status = 'Failed'
-                    case_file.error_message = error_msg[:500]
+                    fsm.mark_failed(case_file, error_msg)
                     db.session.commit()
                     return index_result
                 
+                # Mark indexing complete (will set Hidden if 0 events)
+                fsm.complete_indexing(case_file, index_result['event_count'])
+                db.session.commit()
+                
                 if index_result['event_count'] == 0:
-                    # File already marked as hidden and indexed by file_processing.py
-                    # No need to modify or commit again
+                    # File hidden (0 events)
                     return {'status': 'success', 'message': '0 events (hidden)'}
                 
                 # Step 3: SIGMA Testing (EVTX only)
                 if case_file.original_filename.lower().endswith('.evtx'):
-                    case_file.indexing_status = 'SIGMA Testing'
+                    fsm.start_sigma_hunting(case_file)
                     db.session.commit()
                     
                     chainsaw_result = chainsaw_file(
@@ -258,12 +266,16 @@ def process_file(self, file_id, operation='full'):
                         index_name=index_name,
                         celery_task=self
                     )
+                    
+                    # Mark SIGMA complete
+                    fsm.complete_sigma_hunting(case_file)
+                    db.session.commit()
                 else:
                     logger.info(f"[TASK] Skipping SIGMA (non-EVTX file): {case_file.original_filename}")
                     chainsaw_result = {'status': 'success', 'message': 'Skipped (non-EVTX)', 'violations': 0}
                 
                 # Step 4: IOC Hunting
-                case_file.indexing_status = 'IOC Hunting'
+                fsm.start_ioc_hunting(case_file)
                 db.session.commit()
                 
                 ioc_result = hunt_iocs(
@@ -277,6 +289,10 @@ def process_file(self, file_id, operation='full'):
                     celery_task=self
                 )
                 
+                # Mark IOC complete
+                fsm.complete_ioc_hunting(case_file)
+                db.session.commit()
+                
                 # CRITICAL: Validate index exists before marking "Completed"
                 # Prevents data corruption if worker crashes during indexing
                 if not case_file.is_hidden and case_file.event_count > 0:
@@ -285,8 +301,7 @@ def process_file(self, file_id, operation='full'):
                             error_msg = f'Index {index_name} does not exist despite file having {case_file.event_count} events. Worker may have crashed during indexing, or index was deleted externally.'
                             logger.error(f"[TASK] ❌ VALIDATION FAILED: {error_msg}")
                             logger.error(f"[TASK] ❌ Setting status to 'Failed' to prevent data corruption")
-                            case_file.indexing_status = 'Failed: Index missing after processing'
-                            case_file.error_message = error_msg
+                            fsm.mark_failed(case_file, 'Index missing after processing')
                             case_file.celery_task_id = None
                             db.session.commit()
                             return {
@@ -298,8 +313,13 @@ def process_file(self, file_id, operation='full'):
                         logger.error(f"[TASK] ❌ Index validation error: {e}")
                         # Continue anyway - might be OpenSearch connectivity issue
                 
-                # Mark as completed
-                case_file.indexing_status = 'Completed'
+                # Step 5: Noise checking (mark as complete for now, actual checking done via bulk operations)
+                # Set both known_good and known_noise to True (will be run separately)
+                case_file.known_good = True
+                case_file.known_noise = True
+                
+                # Finalize processing (checks is_completed and sets state to 'Completed')
+                fsm.finalize_processing(case_file)
                 case_file.celery_task_id = None
                 commit_with_retry(db.session, logger_instance=logger)
                 

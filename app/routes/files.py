@@ -231,9 +231,9 @@ def view_hidden_files(case_id):
 @files_bp.route('/case/<int:case_id>/failed_files')
 @login_required
 def view_failed_files(case_id):
-    """View failed files with search support"""
+    """View failed files with search support (v2.2.0 - uses failed flag)"""
     from main import db, Case
-    from hidden_files import get_failed_files, get_failed_files_count
+    import file_statistics as fstats
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -244,8 +244,12 @@ def view_failed_files(case_id):
     search_term = request.args.get('search', '', type=str).strip()
     per_page = 50
     
-    pagination = get_failed_files(db.session, case_id, page, per_page, search_term)
-    failed_count = get_failed_files_count(db.session, case_id)
+    # Use new statistics module (v2.2.0)
+    pagination = fstats.get_failed_files_paginated(
+        db.session, CaseFile, case_id=case_id,
+        page=page, per_page=per_page, search_term=search_term
+    )
+    failed_count = fstats.get_failed_files_count(db.session, CaseFile, case_id=case_id)
     
     return render_template('failed_files.html',
                           case=case,
@@ -1389,9 +1393,9 @@ def queue_status_global():
             CaseFile.is_hidden == False
         ).order_by(CaseFile.id).limit(100).all()
         
-        # Get failed files (not hidden)
+        # Get failed files (not hidden) - v2.2.0 uses failed flag
         failed_count = db.session.query(CaseFile).filter(
-            CaseFile.indexing_status.like('Failed%'),
+            CaseFile.failed == True,
             CaseFile.is_hidden == False,
             CaseFile.is_deleted == False
         ).count()
