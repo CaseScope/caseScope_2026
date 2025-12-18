@@ -963,12 +963,20 @@ def hide_known_good_slice_task(self, case_id: int, slice_id: int, max_slices: in
                 result['hidden'] = hidden_count
                 logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices}: Hidden {hidden_count} events")
             
+            # v2.2.0: Increment slice completion counter
+            from progress_tracker import increment_counter
+            increment_counter(case_id, 'reindex', 5, 'completed')  # Track slices, not events
+            
             logger.info(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices} complete: scanned={scanned}, found={len(events_to_hide)}, hidden={result['hidden']}")
             
         except Exception as e:
             logger.error(f"[KNOWN_GOOD_SLICE] Slice {slice_id}/{max_slices} error: {e}", exc_info=True)
             result['status'] = 'error'
             result['error'] = str(e)
+            
+            # v2.2.0: Increment failed counter
+            from progress_tracker import increment_counter
+            increment_counter(case_id, 'reindex', 5, 'failed')
     
     return result
 
@@ -1018,6 +1026,10 @@ def hide_known_good_all_task(self, case_id: int) -> Dict[str, Any]:
                 logger.info(f"[KNOWN_GOOD_COORDINATOR] No exclusions configured for case {case_id}")
                 result['success'] = True
                 return result
+            
+            # v2.2.0: Initialize atomic counters for slice-based progress
+            from progress_tracker import init_phase_counters
+            init_phase_counters(case_id, 'reindex', 5, total=MAX_SLICES)
             
             # Dispatch 8 parallel slice tasks
             logger.info(f"[KNOWN_GOOD_COORDINATOR] Dispatching {MAX_SLICES} parallel workers...")

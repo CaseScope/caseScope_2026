@@ -682,6 +682,10 @@ def hide_noise_slice_task(self, case_id: int, slice_id: int, max_slices: int) ->
                 result['hidden'] = hidden_count
                 logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices}: Hidden {hidden_count} events")
             
+            # v2.2.0: Increment slice completion counter
+            from progress_tracker import increment_counter
+            increment_counter(case_id, 'reindex', 6, 'completed')
+            
             logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} complete: scanned={result['scanned']}, found={result['found']}, hidden={result['hidden']}")
             logger.info(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} breakdown: {result['by_category']}")
             
@@ -689,6 +693,10 @@ def hide_noise_slice_task(self, case_id: int, slice_id: int, max_slices: int) ->
             logger.error(f"[NOISE_SLICE] Slice {slice_id}/{max_slices} error: {e}", exc_info=True)
             result['status'] = 'error'
             result['error'] = str(e)
+            
+            # v2.2.0: Increment failed counter
+            from progress_tracker import increment_counter
+            increment_counter(case_id, 'reindex', 6, 'failed')
     
     return result
 
@@ -739,6 +747,14 @@ def hide_noise_all_task(self, case_id: int) -> Dict[str, Any]:
     
     with app.app_context():
         try:
+            # v2.2.0: Initialize atomic counters for slice-based progress
+            from progress_tracker import init_phase_counters
+            init_phase_counters(case_id, 'reindex', 6, total=MAX_SLICES)
+            
+            # v2.2.0: Initialize atomic counters for slice-based progress
+            from progress_tracker import init_phase_counters
+            init_phase_counters(case_id, 'reindex', 6, total=MAX_SLICES)
+            
             # Dispatch 8 parallel slice tasks
             logger.info(f"[NOISE_COORDINATOR] Dispatching {MAX_SLICES} parallel workers...")
             
