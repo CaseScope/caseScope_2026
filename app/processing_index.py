@@ -116,6 +116,11 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                 logger.info(f"[INDEX_TASK] File {file_id} already indexed, skipping")
                 case_file.celery_task_id = None
                 db.session.commit()
+                
+                # v2.2.0: Increment skipped counter
+                from progress_tracker import increment_counter
+                increment_counter(case.id, 'reindex', 3, 'skipped')
+                
                 return {
                     'status': 'skipped',
                     'message': 'File already indexed',
@@ -163,6 +168,10 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
             case_file.celery_task_id = None
             commit_with_retry(db.session, logger_instance=logger)
             
+            # v2.2.0: Increment completion counter for real-time progress
+            from progress_tracker import increment_counter
+            increment_counter(case.id, 'reindex', 3, 'completed')
+            
             logger.info(f"[INDEX_TASK] ✓ File {file_id} indexed successfully: {index_result['event_count']} events")
             
             return {
@@ -180,6 +189,12 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                     fsm.mark_failed(case_file, str(e)[:500])
                     case_file.celery_task_id = None
                     db.session.commit()
+                    
+                    # v2.2.0: Increment failed counter
+                    from progress_tracker import increment_counter
+                    case = db.session.get(Case, case_file.case_id)
+                    if case:
+                        increment_counter(case.id, 'reindex', 3, 'failed')
             except:
                 pass
             
@@ -283,62 +298,54 @@ def index_all_files_in_queue(case_id: int, operation: str = 'index', phase_num: 
         
         logger.info(f"[INDEX_PHASE] All {dispatched_count} tasks dispatched to workers")
         
-        # Wait for all tasks to complete by SIMPLE QUEUE CHECK
+        # Wait for all tasks to complete using ATOMIC COUNTERS (v2.2.0)
         logger.info(f"[INDEX_PHASE] Waiting for {total_files} indexing tasks to complete...")
+        logger.info(f"[INDEX_PHASE] Tasks will update Redis counters as they finish (real-time progress)")
         
-        # Poll DATABASE for completion (with timeout)
+        # Poll REDIS COUNTERS for completion (lightweight, accurate)
+        from progress_tracker import get_phase_progress, update_phase
+        
         start_time = time.time()
         timeout = 7200  # 2 hours max
         last_log_time = 0
+        last_update_time = 0
         
         while True:
             elapsed = time.time() - start_time
             if elapsed > timeout:
                 logger.error(f"[INDEX_PHASE] Timeout after {timeout}s")
-                # Get partial results from DB
-                completed = db.session.query(CaseFile).filter(
-                    CaseFile.case_id == case_id,
-                    CaseFile.indexing_status.in_(['Indexed', 'Completed'])
-                ).count()
-                failed = db.session.query(CaseFile).filter(
-                    CaseFile.case_id == case_id,
-                    CaseFile.indexing_status.like('Failed%')
-                ).count()
+                progress = get_phase_progress(case_id, operation, phase_num)
                 return {
                     'status': 'error',
                     'total_files': total_files,
-                    'indexed': completed,
-                    'skipped': 0,
-                    'failed': failed,
+                    'indexed': progress['completed'],
+                    'skipped': progress['skipped'],
+                    'failed': progress['failed'],
                     'errors': ['Indexing phase timeout']
                 }
             
-            # SIMPLE QUEUE CHECK: Count files that are still queued or indexing
-            in_progress = db.session.query(CaseFile).filter(
-                CaseFile.case_id == case_id,
-                CaseFile.indexing_status.in_(['Queued', 'Indexing'])
-            ).count()
+            # Get progress from Redis counters (updated by tasks in real-time)
+            progress = get_phase_progress(case_id, operation, phase_num)
+            completed_count = progress['completed'] + progress['skipped'] + progress['failed']
             
-            # Calculate completed for progress bar
-            completed_count = total_files - in_progress
-            
-            # Update progress tracker with counts for progress bar
-            from progress_tracker import update_phase
-            update_phase(case_id, operation, phase_num, 'Indexing Files', 'running', 
-                        f'{completed_count}/{total_files} files indexed',
-                        current=completed_count, total=total_files)
+            # Update progress display every 2 seconds (more responsive than 5s)
+            if elapsed - last_update_time >= 2:
+                update_phase(case_id, operation, phase_num, 'Indexing Files', 'running', 
+                            f'{completed_count}/{total_files} files indexed',
+                            current=completed_count, total=total_files)
+                last_update_time = elapsed
             
             # Log progress every 30 seconds
             if elapsed - last_log_time >= 30:
-                logger.info(f"[INDEX_PHASE] Progress: {in_progress} files still in queue, {completed_count}/{total_files} done")
+                logger.info(f"[INDEX_PHASE] Progress: {completed_count}/{total_files} done (completed={progress['completed']}, skipped={progress['skipped']}, failed={progress['failed']})")
                 last_log_time = elapsed
             
-            # QUEUE CHECK: All done when nothing in queue!
-            if in_progress == 0:
-                logger.info(f"[INDEX_PHASE] Queue empty, all files processed")
+            # All done when all files are accounted for
+            if completed_count >= total_files:
+                logger.info(f"[INDEX_PHASE] All {total_files} files processed")
                 break
             
-            time.sleep(5)
+            time.sleep(2)  # Poll every 2 seconds (lighter weight)
         
         # Collect results from DATABASE
         indexed = db.session.query(CaseFile).filter(

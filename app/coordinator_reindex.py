@@ -152,6 +152,10 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             logger.info("[REINDEX_COORDINATOR] PHASE 3: Indexing files...")
             update_phase(case_id, 'reindex', 3, 'Indexing Files', 'running', 'Indexing events...')
             
+            # v2.2.0: Initialize atomic counters for task-based progress
+            from progress_tracker import init_phase_counters
+            init_phase_counters(case_id, 'reindex', 3, len(files))
+            
             from processing_index import index_all_files_in_queue
             
             index_result = index_all_files_in_queue(case_id, operation='reindex', phase_num=3)

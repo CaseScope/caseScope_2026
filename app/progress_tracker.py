@@ -298,6 +298,133 @@ def clear_old_progress(max_age_seconds: int = 3600) -> int:
 
 
 # ==============================================================================
+# ATOMIC COUNTER FUNCTIONS (v2.2.0)
+# ==============================================================================
+
+def _get_counter_key(case_id: int, operation: str, phase_num: int, counter_name: str) -> str:
+    """Generate Redis key for atomic counter"""
+    return f"casescope:counter:{case_id}:{operation}:phase{phase_num}:{counter_name}"
+
+
+def init_phase_counters(case_id: int, operation: str, phase_num: int, total: int) -> None:
+    """
+    Initialize counters for a phase.
+    
+    Args:
+        case_id: Case ID
+        operation: Operation type
+        phase_num: Phase number
+        total: Total items to process
+    """
+    if not redis_client:
+        return
+    
+    try:
+        # Set total counter
+        total_key = _get_counter_key(case_id, operation, phase_num, 'total')
+        redis_client.setex(total_key, 7200, total)  # 2 hour TTL
+        
+        # Initialize completed counter to 0
+        completed_key = _get_counter_key(case_id, operation, phase_num, 'completed')
+        redis_client.setex(completed_key, 7200, 0)
+        
+        # Initialize failed counter to 0
+        failed_key = _get_counter_key(case_id, operation, phase_num, 'failed')
+        redis_client.setex(failed_key, 7200, 0)
+        
+        logger.info(f"[PROGRESS] Initialized counters: case={case_id}, operation={operation}, phase={phase_num}, total={total}")
+    except Exception as e:
+        logger.error(f"[PROGRESS] Failed to init counters: {e}")
+
+
+def increment_counter(case_id: int, operation: str, phase_num: int, counter_name: str, amount: int = 1) -> int:
+    """
+    Atomically increment a phase counter.
+    
+    Args:
+        case_id: Case ID
+        operation: Operation type
+        phase_num: Phase number
+        counter_name: Counter name ('completed', 'failed', 'skipped')
+        amount: Amount to increment (default 1)
+        
+    Returns:
+        New counter value after increment
+    """
+    if not redis_client:
+        return 0
+    
+    try:
+        key = _get_counter_key(case_id, operation, phase_num, counter_name)
+        new_value = redis_client.incrby(key, amount)
+        redis_client.expire(key, 7200)  # Refresh TTL
+        return new_value
+    except Exception as e:
+        logger.error(f"[PROGRESS] Failed to increment counter: {e}")
+        return 0
+
+
+def get_counter(case_id: int, operation: str, phase_num: int, counter_name: str) -> int:
+    """
+    Get current value of a phase counter.
+    
+    Args:
+        case_id: Case ID
+        operation: Operation type
+        phase_num: Phase number
+        counter_name: Counter name ('total', 'completed', 'failed', 'skipped')
+        
+    Returns:
+        Current counter value
+    """
+    if not redis_client:
+        return 0
+    
+    try:
+        key = _get_counter_key(case_id, operation, phase_num, counter_name)
+        value = redis_client.get(key)
+        return int(value) if value else 0
+    except Exception as e:
+        logger.error(f"[PROGRESS] Failed to get counter: {e}")
+        return 0
+
+
+def get_phase_progress(case_id: int, operation: str, phase_num: int) -> Dict[str, int]:
+    """
+    Get all counters for a phase.
+    
+    Returns:
+        dict: {
+            'total': int,
+            'completed': int,
+            'failed': int,
+            'skipped': int
+        }
+    """
+    return {
+        'total': get_counter(case_id, operation, phase_num, 'total'),
+        'completed': get_counter(case_id, operation, phase_num, 'completed'),
+        'failed': get_counter(case_id, operation, phase_num, 'failed'),
+        'skipped': get_counter(case_id, operation, phase_num, 'skipped')
+    }
+
+
+def clear_phase_counters(case_id: int, operation: str, phase_num: int) -> None:
+    """Clear all counters for a specific phase"""
+    if not redis_client:
+        return
+    
+    try:
+        pattern = f"casescope:counter:{case_id}:{operation}:phase{phase_num}:*"
+        keys = redis_client.keys(pattern)
+        if keys:
+            redis_client.delete(*keys)
+            logger.info(f"[PROGRESS] Cleared {len(keys)} counters for phase {phase_num}")
+    except Exception as e:
+        logger.error(f"[PROGRESS] Failed to clear counters: {e}")
+
+
+# ==============================================================================
 # HELPER: Format Progress for Display
 # ==============================================================================
 
