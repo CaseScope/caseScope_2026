@@ -159,7 +159,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                 }
             
             # Mark as indexed (but not completed - SIGMA and IOC still pending)
-            fsm.complete_indexing(case_file)
+            fsm.complete_indexing(case_file, index_result['event_count'])
             case_file.celery_task_id = None
             commit_with_retry(db.session, logger_instance=logger)
             
