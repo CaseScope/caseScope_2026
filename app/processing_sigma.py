@@ -121,6 +121,11 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
                 error_msg = chainsaw_result.get('message', 'Unknown SIGMA error')
                 fsm.mark_failed(case_file, error_msg[:500])
                 db.session.commit()
+                
+                # v2.2.0: Increment failed counter
+                from progress_tracker import increment_counter
+                increment_counter(case.id, 'reindex', 4, 'failed')
+                
                 return {
                     'status': 'error',
                     'message': error_msg,
@@ -133,6 +138,10 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
             violations = chainsaw_result.get('violations', 0)
             fsm.complete_sigma_hunting(case_file)
             commit_with_retry(db.session, logger_instance=logger)
+            
+            # v2.2.0: Increment completion counter for real-time progress
+            from progress_tracker import increment_counter
+            increment_counter(case.id, 'reindex', 4, 'completed')
             
             logger.info(f"[SIGMA_TASK] ✓ File {file_id} SIGMA complete: {violations} violations")
             
@@ -150,6 +159,12 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
                 if case_file:
                     fsm.mark_failed(case_file, f'SIGMA: {str(e)[:500]}')
                     db.session.commit()
+                    
+                    # v2.2.0: Increment failed counter
+                    from progress_tracker import increment_counter
+                    case = db.session.get(Case, case_file.case_id)
+                    if case:
+                        increment_counter(case.id, 'reindex', 4, 'failed')
             except:
                 pass
             

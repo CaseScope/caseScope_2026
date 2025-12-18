@@ -180,6 +180,14 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             logger.info("[REINDEX_COORDINATOR] PHASE 4: SIGMA detection...")
             update_phase(case_id, 'reindex', 4, 'SIGMA Detection', 'running', 'Running SIGMA rules...')
             
+            # v2.2.0: Initialize atomic counters for SIGMA phase
+            evtx_files = CaseFile.query.filter_by(
+                case_id=case_id,
+                is_indexed=True,
+                is_deleted=False
+            ).filter(CaseFile.original_filename.ilike('%.evtx')).count()
+            init_phase_counters(case_id, 'reindex', 4, evtx_files)
+            
             from processing_sigma import sigma_detect_all_files
             
             sigma_result = sigma_detect_all_files(case_id, operation='reindex', phase_num=4)
@@ -277,6 +285,14 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             # ===============================================================
             logger.info("[REINDEX_COORDINATOR] PHASE 7: IOC matching...")
             update_phase(case_id, 'reindex', 7, 'IOC Matching', 'running', 'Matching IOCs...')
+            
+            # v2.2.0: Initialize atomic counters for IOC phase
+            indexed_files = CaseFile.query.filter_by(
+                case_id=case_id,
+                is_indexed=True,
+                is_deleted=False
+            ).filter(CaseFile.event_count > 0).count()
+            init_phase_counters(case_id, 'reindex', 7, indexed_files)
             
             from processing_ioc import hunt_iocs_all_files
             

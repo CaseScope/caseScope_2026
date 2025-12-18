@@ -111,6 +111,11 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
                 error_msg = hunt_result.get('message', 'Unknown IOC error')
                 fsm.mark_failed(case_file, error_msg[:500])
                 db.session.commit()
+                
+                # v2.2.0: Increment failed counter
+                from progress_tracker import increment_counter
+                increment_counter(case.id, 'reindex', 7, 'failed')
+                
                 return {
                     'status': 'error',
                     'message': error_msg,
@@ -123,6 +128,10 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
             matches = hunt_result.get('matches', 0)
             fsm.complete_ioc_hunting(case_file)
             commit_with_retry(db.session, logger_instance=logger)
+            
+            # v2.2.0: Increment completion counter for real-time progress
+            from progress_tracker import increment_counter
+            increment_counter(case.id, 'reindex', 7, 'completed')
             
             logger.info(f"[IOC_TASK] ✓ File {file_id} IOC hunting complete: {matches} matches")
             
@@ -140,6 +149,12 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
                 if case_file:
                     fsm.mark_failed(case_file, f'IOC: {str(e)[:500]}')
                     db.session.commit()
+                    
+                    # v2.2.0: Increment failed counter
+                    from progress_tracker import increment_counter
+                    case = db.session.get(Case, case_file.case_id)
+                    if case:
+                        increment_counter(case.id, 'reindex', 7, 'failed')
             except:
                 pass
             
