@@ -83,11 +83,11 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
         
         for file_obj in zero_event_files:
             logger.info(f"[QUEUE CLEANUP] Fixing 0-event file {file_obj.id}: {file_obj.original_filename}")
-            logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.indexing_status} → Completed (Hidden)")
+            logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.file_state or 'Unknown'} → Hidden")
             
             file_obj.is_hidden = True
             file_obj.is_indexed = True
-            file_obj.indexing_status = 'Completed'
+            file_obj.file_state = 'Hidden'
             file_obj.celery_task_id = None  # Clear any stale task_id
             
             result['failed_fixed'] += 1
@@ -113,11 +113,11 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
             
             for file_obj in cylr_files:
                 logger.info(f"[QUEUE CLEANUP] Fixing CyLR artifact {file_obj.id}: {file_obj.original_filename}")
-                logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.indexing_status} → Completed (Hidden)")
+                logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.file_state or 'Unknown'} → Hidden")
                 
                 file_obj.is_hidden = True
                 file_obj.is_indexed = True
-                file_obj.indexing_status = 'Completed'
+                file_obj.file_state = 'Hidden'
                 file_obj.celery_task_id = None  # Clear any stale task_id
                 
                 result['failed_fixed'] += 1

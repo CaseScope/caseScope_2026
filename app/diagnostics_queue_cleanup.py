@@ -108,8 +108,10 @@ def cleanup_all_queues(case_id: int) -> Dict[str, Any]:
             file_status_details = {}
             
             for file in files_to_reset:
-                old_status = file.indexing_status
-                file.indexing_status = 'Failed - Queue Cleared'
+                old_status = file.file_state or 'Unknown'
+                file.failed = True
+                file.error_message = 'Queue Cleared'
+                file.celery_task_id = None
                 files_reset_count += 1
                 
                 # Track what statuses we reset
@@ -299,13 +301,13 @@ def get_queue_diagnostics(case_id: int) -> Dict[str, Any]:
                     count = CaseFile.query.filter(
                         CaseFile.case_id == case_id,
                         CaseFile.is_deleted == False,
-                        CaseFile.indexing_status.like('Failed%')
+                        CaseFile.failed == True
                     ).count()
                 else:
                     count = CaseFile.query.filter(
                         CaseFile.case_id == case_id,
                         CaseFile.is_deleted == False,
-                        CaseFile.indexing_status == state
+                        CaseFile.file_state == state
                     ).count()
                 processing_states[state] = count
             

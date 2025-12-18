@@ -106,10 +106,10 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                     CaseFile.is_deleted == False
                 ).all()
             
-            # Mark files for reindexing
+            # Prepare files for reindexing
             for f in files:
-                f.indexing_status = 'Queued'
                 f.is_indexed = False
+                # Note: file_state will be set properly by processing_index.py
             
             db.session.commit()
             
@@ -295,16 +295,15 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             files_to_finalize = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
                 CaseFile.is_deleted == False,
-                CaseFile.indexing_status.in_(['SIGMA Complete', 'Indexed'])
+                CaseFile.celery_task_id.isnot(None)
             ).all()
             
             for f in files_to_finalize:
-                f.indexing_status = 'Completed'
                 f.celery_task_id = None
             
             from tasks import commit_with_retry
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[REINDEX_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
+            logger.info(f"[REINDEX_COORDINATOR] Cleared task IDs for {len(files_to_finalize)} files")
             
             # Complete progress tracking (clears progress bar)
             complete_progress(case_id, 'reindex', success=(result['status'] in ['success', 'partial']))

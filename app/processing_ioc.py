@@ -22,6 +22,7 @@ import logging
 from typing import Dict, Any, Optional
 from celery_app import celery_app
 from sqlalchemy import func
+from app import file_state_manager as fsm
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,10 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
             # Get index name
             index_name = make_index_name(case_file.case_id)
             
+            # Start IOC hunting
+            fsm.start_ioc_hunting(case_file)
+            db.session.commit()
+            
             # Hunt IOCs using existing hunt_iocs function
             hunt_result = hunt_iocs(
                 db=db,
@@ -104,8 +109,7 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
             
             if hunt_result['status'] == 'error':
                 error_msg = hunt_result.get('message', 'Unknown IOC error')
-                case_file.indexing_status = 'Failed (IOC)'
-                case_file.error_message = error_msg[:500]
+                fsm.mark_failed(case_file, error_msg[:500])
                 db.session.commit()
                 return {
                     'status': 'error',
@@ -115,13 +119,9 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
                     'error': error_msg
                 }
             
-            # Update status to IOC Complete (keep SIGMA Complete if it was set)
+            # Update status to IOC Complete
             matches = hunt_result.get('matches', 0)
-            if case_file.indexing_status == 'SIGMA Complete':
-                case_file.indexing_status = 'Completed'  # All phases done
-            elif case_file.indexing_status == 'IOC Hunting':
-                case_file.indexing_status = 'IOC Complete'
-            
+            fsm.complete_ioc_hunting(case_file)
             commit_with_retry(db.session, logger_instance=logger)
             
             logger.info(f"[IOC_TASK] ✓ File {file_id} IOC hunting complete: {matches} matches")
@@ -138,7 +138,7 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
             try:
                 case_file = db.session.get(CaseFile, file_id)
                 if case_file:
-                    case_file.indexing_status = f'Failed (IOC): {str(e)[:150]}'
+                    fsm.mark_failed(case_file, f'IOC: {str(e)[:500]}')
                     db.session.commit()
             except:
                 pass
@@ -270,7 +270,7 @@ def hunt_iocs_all_files(case_id: int, operation: str = 'ioc', phase_num: int = 1
             # SIMPLE QUEUE CHECK: Count files still being IOC hunted
             in_progress = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
-                CaseFile.indexing_status == 'IOC Hunting'
+                CaseFile.celery_task_id.isnot(None)
             ).count()
             
             # Calculate completed for progress bar

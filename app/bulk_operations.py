@@ -537,7 +537,13 @@ def reset_file_metadata(file_obj: Any, reset_opensearch_key: bool = True):
     file_obj.violation_count = 0
     file_obj.ioc_event_count = 0
     file_obj.is_indexed = False
-    file_obj.indexing_status = 'Queued'
+    # Reset state flags
+    file_obj.sigma_hunted = False
+    file_obj.ioc_hunted = False
+    file_obj.known_good = False
+    file_obj.known_noise = False
+    file_obj.failed = False
+    file_obj.file_state = 'New'
     
     if reset_opensearch_key:
         file_obj.opensearch_key = None
@@ -581,9 +587,9 @@ def prepare_files_for_rechainsaw(db, files: List[Any], scope: str = 'case') -> i
         Number of files prepared
     """
     for f in files:
-        f.indexing_status = 'Queued'
         f.celery_task_id = None
         f.violation_count = 0
+        # State will be set by processing_sigma.py
     
     db.session.commit()
     logger.info(f"[BULK OPS] [{scope.upper()}] Prepared {len(files)} file(s) for re-SIGMA")
@@ -604,9 +610,9 @@ def prepare_files_for_rehunt(db, files: List[Any], scope: str = 'case') -> int:
         Number of files prepared
     """
     for f in files:
-        f.indexing_status = 'Queued'
         f.celery_task_id = None
         f.ioc_event_count = 0
+        # State will be set by processing_ioc.py
     
     db.session.commit()
     logger.info(f"[BULK OPS] [{scope.upper()}] Prepared {len(files)} file(s) for IOC re-hunting")
@@ -647,9 +653,10 @@ def requeue_failed_files(db, scope: str = 'case', case_id: Optional[int] = None)
     
     count = 0
     for f in failed_files:
-        f.indexing_status = 'Queued'
         f.celery_task_id = None
         f.error_message = None
+        f.failed = False  # Clear failed flag
+        # State will be set by processing modules
         count += 1
     
     db.session.commit()

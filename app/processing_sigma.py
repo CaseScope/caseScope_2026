@@ -22,6 +22,7 @@ import logging
 from typing import Dict, Any, Optional
 from celery_app import celery_app
 from sqlalchemy import func
+from app import file_state_manager as fsm
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
                 }
             
             # Update status
-            case_file.indexing_status = 'SIGMA Testing'
+            fsm.start_sigma_hunting(case_file)
             db.session.commit()
             
             # Get index name
@@ -118,8 +119,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
             
             if chainsaw_result['status'] == 'error':
                 error_msg = chainsaw_result.get('message', 'Unknown SIGMA error')
-                case_file.indexing_status = 'Failed (SIGMA)'
-                case_file.error_message = error_msg[:500]
+                fsm.mark_failed(case_file, error_msg[:500])
                 db.session.commit()
                 return {
                     'status': 'error',
@@ -131,7 +131,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
             
             # Update status
             violations = chainsaw_result.get('violations', 0)
-            case_file.indexing_status = 'SIGMA Complete'
+            fsm.complete_sigma_hunting(case_file)
             commit_with_retry(db.session, logger_instance=logger)
             
             logger.info(f"[SIGMA_TASK] ✓ File {file_id} SIGMA complete: {violations} violations")
@@ -148,7 +148,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
             try:
                 case_file = db.session.get(CaseFile, file_id)
                 if case_file:
-                    case_file.indexing_status = f'Failed (SIGMA): {str(e)[:150]}'
+                    fsm.mark_failed(case_file, f'SIGMA: {str(e)[:500]}')
                     db.session.commit()
             except:
                 pass
@@ -257,12 +257,12 @@ def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: 
                 completed = db.session.query(CaseFile).filter(
                     CaseFile.case_id == case_id,
                     CaseFile.original_filename.ilike('%.evtx'),
-                    CaseFile.indexing_status == 'SIGMA Complete'
+                    CaseFile.sigma_hunted == True
                 ).count()
                 failed = db.session.query(CaseFile).filter(
                     CaseFile.case_id == case_id,
                     CaseFile.original_filename.ilike('%.evtx'),
-                    CaseFile.indexing_status.like('Failed%SIGMA%')
+                    CaseFile.failed == True
                 ).count()
                 violations = db.session.query(func.sum(CaseFile.violation_count)).filter(
                     CaseFile.case_id == case_id,
@@ -294,7 +294,7 @@ def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: 
                     CaseFile.case_id == case_id,
                     CaseFile.original_filename.ilike('%.evtx'),
                     CaseFile.is_deleted == False,
-                    CaseFile.indexing_status == 'SIGMA Complete'
+                    CaseFile.sigma_hunted == True
                 ).count()
                 
                 # Remaining = in queue + currently processing
@@ -340,13 +340,13 @@ def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: 
         processed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.original_filename.ilike('%.evtx'),
-            CaseFile.indexing_status == 'SIGMA Complete'
+            CaseFile.sigma_hunted == True
         ).count()
         
         failed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.original_filename.ilike('%.evtx'),
-            CaseFile.indexing_status.like('Failed%SIGMA%')
+            CaseFile.failed == True
         ).count()
         
         # Get total violations from DB
@@ -358,7 +358,7 @@ def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: 
         failed_files = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.original_filename.ilike('%.evtx'),
-            CaseFile.indexing_status.like('Failed%SIGMA%')
+            CaseFile.failed == True
         ).all()
         
         skipped = 0  # Non-EVTX files weren't queued, so no skipped count

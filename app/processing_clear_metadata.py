@@ -219,15 +219,23 @@ def clear_file_task(self, file_id: int, clear_type: str = 'all') -> Dict[str, An
                     case_file.ioc_event_count = 0
                     case_file.is_indexed = False
                     case_file.is_hidden = False
-                    case_file.indexing_status = 'Queued'
                     case_file.error_message = None
                     case_file.celery_task_id = None
+                    # Reset all state flags
+                    case_file.sigma_hunted = False
+                    case_file.ioc_hunted = False
+                    case_file.known_good = False
+                    case_file.known_noise = False
+                    case_file.failed = False
+                    case_file.file_state = 'New'
                 elif clear_type == 'sigma':
                     case_file.violation_count = 0
-                    case_file.indexing_status = 'Indexed'  # Back to indexed state
+                    case_file.sigma_hunted = False
+                    # State will be managed by coordinator
                 elif clear_type == 'ioc':
                     case_file.ioc_event_count = 0
-                    # Keep indexing_status as-is
+                    case_file.ioc_hunted = False
+                    # State will be managed by coordinator
                 
                 commit_with_retry(db.session, logger_instance=logger)
                 logger.info(f"[CLEAR_TASK] Reset file metadata (clear_type={clear_type})")
@@ -518,14 +526,14 @@ def clear_entire_case(case_id: int, keep_files: bool = True) -> Dict[str, Any]:
     logger.info(f"[CLEAR_CASE] Clearing entire case {case_id} (keep_files={keep_files})")
     
     with app.app_context():
-        # Mark all files for clearing
+        # Prepare files for clearing
         files = CaseFile.query.filter_by(
             case_id=case_id,
             is_deleted=False
         ).all()
         
         for f in files:
-            f.indexing_status = 'Queued'
+            # State will be managed by processing modules
             if not keep_files:
                 f.is_deleted = True
         
@@ -580,10 +588,7 @@ def clear_specific_files(case_id: int, file_ids: List[int]) -> Dict[str, Any]:
                 'errors': []
             }
         
-        # Mark files for clearing
-        for f in files:
-            f.indexing_status = 'Queued'
-        
+        # Prepare files for clearing (state will be managed by processing modules)
         db.session.commit()
         
         logger.info(f"[CLEAR_SPECIFIC] Marked {len(files)} files for clearing")
@@ -871,9 +876,15 @@ def bulk_clear_case(case_id: int) -> Dict[str, Any]:
                     f.ioc_event_count = 0
                     f.is_indexed = False
                     f.is_hidden = False
-                    f.indexing_status = 'Queued'
                     f.error_message = None
                     f.celery_task_id = None
+                    # Reset all state flags
+                    f.sigma_hunted = False
+                    f.ioc_hunted = False
+                    f.known_good = False
+                    f.known_noise = False
+                    f.failed = False
+                    f.file_state = 'New'
                 
                 commit_with_retry(db.session, logger_instance=logger)
                 logger.info(f"[BULK_CLEAR_CASE] ✓ Reset metadata for {len(files)} files")

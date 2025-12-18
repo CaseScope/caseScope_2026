@@ -70,14 +70,12 @@ def global_files():
         ft = f.file_type or 'Unknown'
         file_types[ft] = file_types.get(ft, 0) + 1
     
-    # Processing state counts
-    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
-    files_completed = all_visible.filter_by(indexing_status='Completed').count()
-    files_queued = all_visible.filter_by(indexing_status='Queued').count()
-    files_indexing = all_visible.filter_by(indexing_status='Indexing').count()
-    files_sigma = all_visible.filter_by(indexing_status='SIGMA Testing').count()
-    files_ioc_hunting = all_visible.filter_by(indexing_status='IOC Hunting').count()
-    files_failed = all_visible.filter(~CaseFile.indexing_status.in_(known_statuses)).count()
+    # Processing state counts using new state tracking system
+    from app import file_statistics as fs
+    files_completed = fs.get_completed_files_count(case_id=None)
+    files_queued = fs.get_queued_files_count(case_id=None)
+    files_failed = fs.get_failed_files_count(case_id=None)
+    # Note: files_indexing, files_sigma, files_ioc_hunting are tracked by celery_task_id now
     
     return render_template('global_files.html',
                           files=files,
@@ -92,9 +90,9 @@ def global_files():
                           total_ioc_events=ioc_events,
                           files_completed=files_completed,
                           files_queued=files_queued,
-                          files_indexing=files_indexing,
-                          files_sigma=files_sigma,
-                          files_ioc_hunting=files_ioc_hunting,
+                          files_indexing=0,  # Tracked by celery_task_id
+                          files_sigma=0,     # Tracked by celery_task_id
+                          files_ioc_hunting=0,  # Tracked by celery_task_id
                           files_failed=files_failed)
 
 
@@ -585,10 +583,16 @@ def reindex_single_file(case_id, file_id):
     case_file.violation_count = 0
     case_file.ioc_event_count = 0
     case_file.is_indexed = False
-    case_file.indexing_status = 'Queued'
     case_file.opensearch_key = None
     case_file.celery_task_id = None
     case_file.error_message = None
+    # Reset state flags
+    case_file.sigma_hunted = False
+    case_file.ioc_hunted = False
+    case_file.known_good = False
+    case_file.known_noise = False
+    case_file.failed = False
+    case_file.file_state = 'New'
     clear_file_sigma_violations(db, file_id)
     clear_file_ioc_matches(db, file_id)
     db.session.commit()
@@ -770,9 +774,10 @@ def rehunt_iocs_single_file(case_id, file_id):
     except Exception as e:
         logger.warning(f"[REHUNT IOCS SINGLE] Could not clear OpenSearch IOC flags: {e}")
     
-    # Reset IOC count
+    # Reset IOC count and start IOC hunting
     case_file.ioc_event_count = 0
-    case_file.indexing_status = 'IOC Hunting'
+    from app import file_state_manager as fsm
+    fsm.start_ioc_hunting(case_file)
     db.session.commit()
     
     # Run IOC hunting synchronously
@@ -796,20 +801,20 @@ def rehunt_iocs_single_file(case_id, file_id):
         })
         
         if result['status'] == 'success':
-            # Update status back to Completed
+            # Mark IOC hunting complete
             from tasks import commit_with_retry
-            case_file.indexing_status = 'Completed'
+            fsm.complete_ioc_hunting(case_file)
             commit_with_retry(db.session, logger_instance=logger)
             flash(f'IOC re-hunting complete for "{case_file.original_filename}". Found {result.get("matches", 0)} IOC match(es).', 'success')
         else:
             from tasks import commit_with_retry
-            case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
+            fsm.mark_failed(case_file, result.get("message", "Unknown error"))
             commit_with_retry(db.session, logger_instance=logger)
             flash(f'IOC re-hunting failed: {result.get("message")}', 'error')
     except Exception as e:
         logger.error(f"[REHUNT IOCS SINGLE] Error: {e}", exc_info=True)
         from tasks import commit_with_retry
-        case_file.indexing_status = f'Failed: {str(e)[:100]}'
+        fsm.mark_failed(case_file, str(e)[:500])
         commit_with_retry(db.session, logger_instance=logger)
         flash(f'IOC re-hunting failed: {str(e)}', 'error')
     
@@ -1078,12 +1083,12 @@ def bulk_rehunt_selected(case_id):
         flash('No valid indexed files found', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear IOC data for each file and set to Queued status
+    # Clear IOC data for each file
     for file in files:
         clear_file_ioc_matches(db, file.id)
         file.ioc_event_count = 0
-        file.indexing_status = 'Queued'
         file.celery_task_id = None
+        # State will be set by processing_ioc.py
     
     db.session.commit()
     
@@ -1231,52 +1236,25 @@ def file_stats_case(case_id):
         # ========================================================================
         # FILE STATUS COUNTS (for queue monitoring)
         # ========================================================================
-        # v2.0.0: Changed 'Completed' to 'Indexed' for modular system compatibility
+        # v2.2.0: Using new file state tracking system
         # ========================================================================
-        # FILE STATUS COUNTS (for Processing Status tile)
-        # ========================================================================
-        # v2.0.4: New modular processing stats
         
-        # COMPLETED: Files that finished ALL phases (only 'Completed' status)
-        # Note: 'IOC Complete' is counted separately in "IOC Checked"
-        completed = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'Completed',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        from app import file_statistics as fs
         
-        # FAILED: Files with any Failed status
-        failed = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status.like('Failed%'),
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        # COMPLETED: Files that finished ALL phases
+        completed = fs.get_completed_files_count(case_id=case_id)
+        
+        # FAILED: Files with failed flag
+        failed = fs.get_failed_files_count(case_id=case_id)
         
         # INDEXED: Files indexed but not fully complete
-        indexed = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'Indexed',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        indexed = fs.get_indexed_files_count(case_id=case_id)
         
         # SIGMA CHECKED: Files that completed SIGMA
-        sigma_checked = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'SIGMA Complete',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        sigma_checked = fs.get_sigma_checked_files_count(case_id=case_id)
         
         # IOC CHECKED: Files that completed IOC hunting
-        ioc_checked = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'IOC Complete',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        ioc_checked = fs.get_ioc_checked_files_count(case_id=case_id)
         
         # QUEUE: Files currently being processed (Queued, Indexing, SIGMA Testing, IOC Hunting)
         queued = db.session.query(CaseFile).filter(
@@ -1384,34 +1362,27 @@ def file_stats_case(case_id):
 def queue_status_global():
     """Get global queue status across all cases"""
     from main import db, CaseFile, Case
+    from app import file_statistics as fs
     
     try:
-        # Get queued files (all cases)
+        # Get queued files (all cases) - files with celery_task_id
         queued_files = db.session.query(CaseFile, Case.name).join(Case).filter(
-            CaseFile.indexing_status == 'Queued',
+            CaseFile.celery_task_id.isnot(None),
             CaseFile.is_deleted == False,
             CaseFile.is_hidden == False
         ).order_by(CaseFile.id).limit(100).all()
         
         # Get failed files (not hidden) - v2.2.0 uses failed flag
-        failed_count = db.session.query(CaseFile).filter(
-            CaseFile.failed == True,
-            CaseFile.is_hidden == False,
-            CaseFile.is_deleted == False
-        ).count()
+        failed_count = fs.get_failed_files_count(case_id=None)
         
-        # Get actively processing (all cases)
+        # Get actively processing (all cases) - files with celery_task_id and file_state
         processing = db.session.query(CaseFile, Case.name).join(Case).filter(
-            CaseFile.indexing_status.in_(['Staging', 'Indexing', 'SIGMA Testing', 'IOC Hunting']),
+            CaseFile.celery_task_id.isnot(None),
             CaseFile.is_deleted == False
         ).all()
         
         # Get total queued count
-        queued_count = db.session.query(CaseFile).filter(
-            CaseFile.indexing_status == 'Queued',
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        queued_count = fs.get_queued_files_count(case_id=None)
         
         return jsonify({
             'status': 'success',
@@ -1426,7 +1397,7 @@ def queue_status_global():
             'processing': [{
                 'id': f.id,
                 'filename': f.original_filename,
-                'status': f.indexing_status,
+                'status': f.file_state or 'Processing',
                 'case_name': case_name,
                 'case_id': f.case_id
             } for f, case_name in processing]
@@ -1506,25 +1477,22 @@ def queue_status_case(case_id):
     
     try:
         # Get queued files (exclude hidden 0-event files)
+        # Get queued files (files with celery_task_id)
         queued_files = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
-            CaseFile.indexing_status == 'Queued',
+            CaseFile.celery_task_id.isnot(None),
             CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False  # CRITICAL FIX (v1.13.9): Don't show hidden files in Processing Queue UI
+            CaseFile.is_hidden == False
         ).order_by(CaseFile.id).limit(100).all()
         
-        # Get failed files (not hidden)
-        failed_files = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status.like('Failed%'),
-            CaseFile.is_hidden == False,
-            CaseFile.is_deleted == False
-        ).count()
+        # Get failed files (not hidden) - v2.2.0 uses failed flag
+        from app import file_statistics as fs
+        failed_files = fs.get_failed_files_count(case_id=case_id)
         
-        # Get actively processing
+        # Get actively processing (files with celery_task_id)
         processing = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
-            CaseFile.indexing_status.in_(['Indexing', 'SIGMA Testing', 'SIGMA Hunting']),
+            CaseFile.celery_task_id.isnot(None),
             CaseFile.is_deleted == False
         ).all()
         
@@ -1533,14 +1501,14 @@ def queue_status_case(case_id):
             'queued': [{
                 'id': f.id,
                 'filename': f.original_filename,
-                'status': f.indexing_status
+                'status': f.file_state or 'Queued'
             } for f in queued_files],
             'queued_count': len(queued_files),
             'failed_count': failed_files,
             'processing': [{
                 'id': f.id,
                 'filename': f.original_filename,
-                'status': f.indexing_status
+                'status': f.file_state or 'Processing'
             } for f in processing],
             'processing_count': len(processing)
         })
@@ -1641,13 +1609,12 @@ def bulk_requeue_selected(case_id):
         return redirect(url_for('files.view_failed_files', case_id=case_id))
     
     try:
-        # Find selected files that are failed
-        known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+        # Find selected files that are failed (using new failed flag)
         failed_files = db.session.query(CaseFile).filter(
             CaseFile.id.in_(file_ids),
             CaseFile.case_id == case_id,
             CaseFile.is_deleted == False,
-            ~CaseFile.indexing_status.in_(known_statuses)
+            CaseFile.failed == True
         ).all()
         
         if not failed_files:
@@ -1679,8 +1646,9 @@ def bulk_requeue_selected(case_id):
                     args=[case_file.id, 'full']
                 )
                 
-                # Update database
-                case_file.indexing_status = 'Queued'
+                # Update database - clear failed flag, set task ID
+                case_file.failed = False
+                case_file.error_message = None
                 case_file.celery_task_id = task.id
                 db.session.commit()
                 
@@ -1728,10 +1696,10 @@ def requeue_failed_files(case_id):
         return jsonify({'status': 'error', 'message': 'Case not found'}), 404
     
     try:
-        # Find all failed files that are NOT hidden
+        # Find all failed files that are NOT hidden (v2.2.0 uses failed flag)
         failed_files = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
-            CaseFile.indexing_status.like('Failed%'),
+            CaseFile.failed == True,
             CaseFile.is_hidden == False,
             CaseFile.is_deleted == False
         ).all()
@@ -1768,8 +1736,9 @@ def requeue_failed_files(case_id):
                     args=[case_file.id]
                 )
                 
-                # Update database
-                case_file.indexing_status = 'Queued'
+                # Update database - clear failed flag, set task ID
+                case_file.failed = False
+                case_file.error_message = None
                 case_file.celery_task_id = task.id
                 db.session.commit()
                 

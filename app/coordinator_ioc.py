@@ -177,21 +177,21 @@ def reioc_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[str,
             from tasks import commit_with_retry
             
             logger.info("[REIOC_COORDINATOR] Finalizing: marking files as completed...")
-            update_phase(case_id, 'reioc', 3, 'Finalization', 'running', 'Marking files as completed...')
+            update_phase(case_id, 'reioc', 3, 'Finalization', 'running', 'Clearing task IDs...')
             
             # Re-query files from database to get fresh status
-            # Mark all IOC Complete files as fully Completed
+            # Clear any lingering task IDs
             files_to_finalize = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
                 CaseFile.is_deleted == False,
-                CaseFile.indexing_status == 'IOC Complete'
+                CaseFile.celery_task_id.isnot(None)
             ).all()
             
             for f in files_to_finalize:
-                f.indexing_status = 'Completed'
+                f.celery_task_id = None
             
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[REIOC_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
+            logger.info(f"[REIOC_COORDINATOR] Cleared task IDs for {len(files_to_finalize)} files")
             
             update_phase(case_id, 'reioc', 3, 'Finalization', 'completed', f'Finalized {len(files_to_finalize)} files')
             complete_progress(case_id, 'reioc', success=True)

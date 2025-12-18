@@ -449,17 +449,23 @@ def clear_queue():
                 'id': file.id,
                 'filename': file.original_filename,
                 'case_id': file.case_id,
-                'previous_status': file.indexing_status
+                'previous_status': file.file_state or 'Unknown'
             }
             
-            # Reset to initial state
+            # Reset to initial state using new state system
             file.celery_task_id = None
-            file.indexing_status = 'Pending'
             file.is_indexed = False
             file.event_count = 0
             file.ioc_event_count = 0
             file.violation_count = 0
             file.error_message = None
+            # Reset all state flags
+            file.sigma_hunted = False
+            file.ioc_hunted = False
+            file.known_good = False
+            file.known_noise = False
+            file.failed = False
+            file.file_state = 'New'
             
             reset_files.append(file_info)
         

@@ -85,10 +85,7 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                     CaseFile.is_indexed == True
                 ).all()
             
-            # Mark files for re-SIGMA (keep indexed status, just update to trigger SIGMA)
-            for f in files:
-                f.indexing_status = 'Indexed'  # Reset to post-index state
-            
+            # Prepare files for re-SIGMA (flags will be handled by processing_sigma.py)
             db.session.commit()
             
             logger.info(f"[RESIGMA_COORDINATOR] Queued {len(files)} files for SIGMA")
@@ -148,20 +145,19 @@ def resigma_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             from tasks import commit_with_retry
             
             # Re-query files from database to get fresh status
-            # (Don't use stale 'files' variable from line 80-95)
-            # Include 'SIGMA Complete' (processed) AND 'Indexed' (skipped 0-event files)
+            # Clear any lingering task IDs
             files_to_finalize = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
                 CaseFile.is_deleted == False,
-                CaseFile.indexing_status.in_(['SIGMA Complete', 'Indexed'])
+                CaseFile.celery_task_id.isnot(None)
             ).all()
             
-            # Mark files as completed
+            # Clear task IDs
             for f in files_to_finalize:
-                f.indexing_status = 'Completed'
+                f.celery_task_id = None
             
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[RESIGMA_COORDINATOR] Marked {len(files_to_finalize)} files as completed")
+            logger.info(f"[RESIGMA_COORDINATOR] Cleared task IDs for {len(files_to_finalize)} files")
             
             update_phase(case_id, 'resigma', 3, 'Finalization', 'completed', f'Finalized {len(files_to_finalize)} files')
             complete_progress(case_id, 'resigma', success=True)

@@ -22,6 +22,7 @@ import logging
 import os
 from typing import Dict, Any, Optional
 from celery_app import celery_app
+from app import file_state_manager as fsm
 
 logger = logging.getLogger(__name__)
 
@@ -122,9 +123,9 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                     'event_count': case_file.event_count or 0
                 }
             
-            # Set task ID and status
+            # Set task ID and start indexing
             case_file.celery_task_id = self.request.id
-            case_file.indexing_status = 'Indexing'
+            fsm.start_indexing(case_file)
             db.session.commit()
             
             # Index the file using existing index_file function
@@ -147,8 +148,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
             
             if index_result['status'] == 'error':
                 error_msg = index_result.get('message', 'Unknown indexing error')
-                case_file.indexing_status = 'Failed'
-                case_file.error_message = error_msg[:500]
+                fsm.mark_failed(case_file, error_msg[:500])
                 case_file.celery_task_id = None
                 db.session.commit()
                 return {
@@ -159,8 +159,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                 }
             
             # Mark as indexed (but not completed - SIGMA and IOC still pending)
-            case_file.indexing_status = 'Indexed'
-            case_file.is_indexed = True
+            fsm.complete_indexing(case_file)
             case_file.celery_task_id = None
             commit_with_retry(db.session, logger_instance=logger)
             
@@ -178,7 +177,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
             try:
                 case_file = db.session.get(CaseFile, file_id)
                 if case_file:
-                    case_file.indexing_status = f'Failed: {str(e)[:150]}'
+                    fsm.mark_failed(case_file, str(e)[:500])
                     case_file.celery_task_id = None
                     db.session.commit()
             except:
@@ -392,9 +391,8 @@ def is_indexing_complete(case_id: int) -> bool:
             case_id=case_id,
             is_indexed=False,
             is_deleted=False,
-            is_hidden=False
-        ).filter(
-            CaseFile.indexing_status != 'Failed'
+            is_hidden=False,
+            failed=False
         ).count()
         
         return unindexed_count == 0

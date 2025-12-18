@@ -231,20 +231,19 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
             from tasks import commit_with_retry
             from progress_tracker import complete_progress
             
-            # Mark all indexed files as completed
+            # Clear any lingering task IDs
             files = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
                 CaseFile.is_indexed == True,
                 CaseFile.is_deleted == False,
-                CaseFile.indexing_status != 'Completed'
+                CaseFile.celery_task_id.isnot(None)
             ).all()
             
             for f in files:
-                f.indexing_status = 'Completed'
                 f.celery_task_id = None
             
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[INDEX_COORDINATOR] Marked {len(files)} files as completed")
+            logger.info(f"[INDEX_COORDINATOR] Cleared task IDs for {len(files)} files")
             
             # Complete progress tracking (clears progress bar) - only for 'index' operation
             if operation == 'index':

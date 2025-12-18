@@ -740,9 +740,9 @@ def filter_zero_event_files(db, CaseFile, SkippedFile, queue: List[Tuple], case_
                 if case_file:
                     # Update CaseFile: keep record for audit, but mark as hidden
                     case_file.event_count = 0
-                    case_file.indexing_status = 'Completed'
                     case_file.is_indexed = True
                     case_file.is_hidden = True  # Hidden from UI
+                    case_file.file_state = 'Hidden'
                     
                     # Set file_type based on extension if not already set
                     if not case_file.file_type or case_file.file_type == 'UNKNOWN':

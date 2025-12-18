@@ -269,8 +269,8 @@ def handle_chunked_upload_finalize_v96(app, db, Case, CaseFile, SkippedFile, cel
             case_file = db.session.get(CaseFile, file_id)
             if case_file:
                 case_file.uploaded_by = current_user.id
-                case_file.indexing_status = 'Queued'  # Mark as queued
                 case_file.is_indexed = False
+                # State will be set by processing modules
                 valid_file_ids.append(file_id)
         
         db.session.commit()
