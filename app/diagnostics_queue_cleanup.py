@@ -109,9 +109,23 @@ def cleanup_all_queues(case_id: int) -> Dict[str, Any]:
             
             for file in files_to_reset:
                 old_status = file.file_state or 'Unknown'
-                file.failed = True
-                file.error_message = 'Queue Cleared'
+                
+                # v2.2.0: Reset to clean 'New' state (ready for reindex)
+                file.is_indexed = False
+                file.sigma_hunted = False
+                file.ioc_hunted = False
+                file.known_good = False
+                file.known_noise = False
+                file.failed = False
+                file.is_hidden = False
+                file.file_state = 'New'
+                file.indexing_status = 'Pending'
+                file.error_message = None
                 file.celery_task_id = None
+                file.event_count = 0
+                file.violation_count = 0
+                file.ioc_event_count = 0
+                
                 files_reset_count += 1
                 
                 # Track what statuses we reset
@@ -127,9 +141,9 @@ def cleanup_all_queues(case_id: int) -> Dict[str, Any]:
             logger.info(f"[QUEUE_CLEANUP] ✓ Reset {files_reset_count} files: {file_status_details}")
             
             # ==================================================================
-            # STEP 2: Clear Redis progress tracking data
+            # STEP 2: Clear Redis progress tracking data + Atomic Counters (v2.2.0)
             # ==================================================================
-            logger.info(f"[QUEUE_CLEANUP] Step 2: Clearing Redis progress data...")
+            logger.info(f"[QUEUE_CLEANUP] Step 2: Clearing Redis progress data and atomic counters...")
             
             try:
                 redis_client = redis.Redis(
@@ -139,11 +153,12 @@ def cleanup_all_queues(case_id: int) -> Dict[str, Any]:
                     decode_responses=True
                 )
                 
-                # Find all progress keys for this case
+                # Find all progress and counter keys for this case (v2.2.0)
                 progress_patterns = [
                     f'casescope:progress:{case_id}:*',
                     f'casescope:phase:{case_id}:*',
-                    f'casescope:operation:{case_id}:*'
+                    f'casescope:operation:{case_id}:*',
+                    f'casescope:counter:{case_id}:*'  # v2.2.0: Atomic counters
                 ]
                 
                 redis_keys_cleared = 0
@@ -211,9 +226,22 @@ def cleanup_all_queues(case_id: int) -> Dict[str, Any]:
                 result['details']['celery_error'] = str(e)
             
             # ==================================================================
-            # STEP 4: Clear OpenSearch scroll contexts (to free up resources)
+            # STEP 4: Purge Celery Queue (v2.2.0)
             # ==================================================================
-            logger.info(f"[QUEUE_CLEANUP] Step 4: Clearing OpenSearch scroll contexts...")
+            logger.info(f"[QUEUE_CLEANUP] Step 4: Purging Celery queue...")
+            
+            try:
+                # Purge the default Celery queue
+                celery_app.control.purge()
+                logger.info(f"[QUEUE_CLEANUP] ✓ Purged Celery queue")
+            except Exception as e:
+                logger.error(f"[QUEUE_CLEANUP] Celery purge error: {e}")
+                result['details']['celery_purge_error'] = str(e)
+            
+            # ==================================================================
+            # STEP 5: Clear OpenSearch scroll contexts (to free up resources)
+            # ==================================================================
+            logger.info(f"[QUEUE_CLEANUP] Step 5: Clearing OpenSearch scroll contexts...")
             
             try:
                 index_name = make_index_name(case_id)
@@ -238,9 +266,12 @@ def cleanup_all_queues(case_id: int) -> Dict[str, Any]:
             
             if files_reset_count > 0:
                 result['message'] = (
-                    f"⚠️ Queue cleanup complete. Reset {files_reset_count} files to 'Failed - Queue Cleared'. "
-                    f"Cleared {redis_keys_cleared} Redis keys and revoked {result['celery_tasks_revoked']} tasks. "
-                    f"⚠️ IMPORTANT: A full reindex is recommended to ensure data integrity."
+                    f"⚠️ Queue cleanup complete. "
+                    f"Reset {files_reset_count} files to clean 'New' state. "
+                    f"Cleared {redis_keys_cleared} Redis keys (progress + counters), "
+                    f"revoked {result['celery_tasks_revoked']} active tasks, "
+                    f"and purged Celery queue. "
+                    f"✅ System ready for fresh reindex."
                 )
             else:
                 result['message'] = "✅ Queue is clean. No files were in processing state."
