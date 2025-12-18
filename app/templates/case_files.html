@@ -51,7 +51,7 @@
                 <div class="stat-item">
                     <div class="stat-item-label">Hidden Files (0 events)</div>
                     <a href="{{ url_for('files.view_hidden_files', case_id=case.id) }}" style="text-decoration: none;">
-                        <div class="stat-item-value-large" style="color: {% if hidden_files > 0 %}var(--color-warning){% else %}var(--color-text-secondary){% endif %}; cursor: pointer;">
+                        <div class="stat-item-value-large" id="hiddenFilesCount" style="color: {% if hidden_files > 0 %}var(--color-warning){% else %}var(--color-text-secondary){% endif %}; cursor: pointer;">
                             {{ hidden_files }}
                         </div>
                     </a>
@@ -790,6 +790,18 @@ function refreshFileStats() {
                 const filesWithEventsEl = document.getElementById('filesWithEvents');
                 if (filesWithEventsEl && data.files_with_events !== undefined) {
                     filesWithEventsEl.textContent = data.files_with_events.toLocaleString();
+                }
+                
+                // Update hidden files count (v2.2.0)
+                const hiddenFilesEl = document.getElementById('hiddenFilesCount');
+                if (hiddenFilesEl && data.hidden_files !== undefined) {
+                    hiddenFilesEl.textContent = data.hidden_files.toLocaleString();
+                    // Update color based on count
+                    if (data.hidden_files > 0) {
+                        hiddenFilesEl.style.color = 'var(--color-warning)';
+                    } else {
+                        hiddenFilesEl.style.color = 'var(--color-text-secondary)';
+                    }
                 }
                 
                 // ====================================================================
