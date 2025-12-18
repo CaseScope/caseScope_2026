@@ -114,11 +114,19 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                 # Note: file_state will be set properly by processing_index.py
             
             logger.info(f"[REINDEX_COORDINATOR] DEBUG: Set celery_task_id on {queue_count} files")
+            db.session.flush()  # Ensure changes are written to database
             db.session.commit()
             db.session.expire_all()  # Force refresh of all objects on next access
-            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Database committed and session expired")
+            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Database flushed, committed, and session expired")
             
             logger.info(f"[REINDEX_COORDINATOR] Queued {len(files)} files for reindexing")
+            
+            # CRITICAL: Verify the celery_task_id was actually set in the database
+            verify_count = db.session.query(CaseFile).filter_by(
+                case_id=case_id,
+                is_indexed=False
+            ).filter(CaseFile.celery_task_id.isnot(None)).count()
+            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Verification query found {verify_count} files with celery_task_id")
             
             # ===============================================================
             # PHASE 1: CLEAR METADATA
