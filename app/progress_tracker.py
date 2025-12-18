@@ -54,6 +54,13 @@ def start_progress(case_id: int, operation: str, total_phases: int, description:
     
     key = _get_redis_key(case_id, operation)
     
+    # CRITICAL: Clear any stale progress data from previous runs
+    try:
+        redis_client.delete(key)
+        logger.debug(f"[PROGRESS] Cleared stale progress data: case={case_id}, operation={operation}")
+    except Exception as e:
+        logger.warning(f"[PROGRESS] Failed to clear stale progress: {e}")
+    
     progress_data = {
         'status': 'running',
         'current_phase': 0,
@@ -176,6 +183,31 @@ def complete_progress(case_id: int, operation: str, success: bool = True, error_
         
     except Exception as e:
         logger.error(f"[PROGRESS] Failed to complete progress: {e}")
+
+
+def clear_progress(case_id: int, operation: str) -> None:
+    """
+    Explicitly clear progress data for an operation.
+    
+    Useful for:
+    - Clearing stale progress before starting new operation
+    - Manual cleanup after operation completes
+    - Resetting after errors or cancellations
+    
+    Args:
+        case_id: Case ID
+        operation: Operation type
+    """
+    if not redis_client:
+        return
+    
+    key = _get_redis_key(case_id, operation)
+    
+    try:
+        redis_client.delete(key)
+        logger.info(f"[PROGRESS] Cleared progress: case={case_id}, operation={operation}")
+    except Exception as e:
+        logger.error(f"[PROGRESS] Failed to clear progress: {e}")
 
 
 def get_progress(case_id: int, operation: str) -> Optional[Dict[str, Any]]:

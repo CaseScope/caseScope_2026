@@ -1591,7 +1591,13 @@ function startPhaseMonitoring(operation = 'reindex') {
 function updateProcessingStatusPhase(phase) {
     /**
      * Update the Processing Status tile with current operation phase
+     * v2.2.0: Only show progress for 'running' status
      */
+    // Don't show progress for completed/failed phases - only running
+    if (phase.status !== 'running') {
+        return;
+    }
+    
     const phaseMap = {
         'Queuing Files': { icon: '📋', text: 'Queuing files for reindex' },
         'Queueing Files': { icon: '📋', text: 'Queuing files' },
@@ -1608,18 +1614,14 @@ function updateProcessingStatusPhase(phase) {
     
     const phaseInfo = phaseMap[phase.name] || { icon: '⚙️', text: phase.name };
     
-    if (phase.status === 'running') {
-        // Pass progress counts if available
-        showProcessingStatusPhase(
-            phaseInfo.icon, 
-            phaseInfo.text, 
-            'running',
-            phase.current,
-            phase.total
-        );
-    } else if (phase.status === 'completed') {
-        showProcessingStatusPhase('✅', phaseInfo.text + ' - Complete', 'success');
-    }
+    // Pass progress counts if available
+    showProcessingStatusPhase(
+        phaseInfo.icon, 
+        phaseInfo.text, 
+        'running',
+        phase.current,
+        phase.total
+    );
 }
 
 function showProcessingStatusPhase(icon, text, status = 'running', current = null, total = null) {
@@ -1660,11 +1662,19 @@ function showProcessingStatusPhase(icon, text, status = 'running', current = nul
 
 function hideProcessingStatusPhase() {
     /**
-     * Hide the operation phase indicator
+     * Hide and RESET the operation phase indicator
+     * v2.2.0: Now clears content to prevent showing stale data
      */
     const phaseContainer = document.getElementById('current-operation-phase');
     if (phaseContainer) {
         phaseContainer.style.display = 'none';
+        phaseContainer.style.background = ''; // Reset background
+        
+        // Reset text content to defaults
+        const phaseIcon = document.getElementById('operation-phase-icon');
+        const phaseText = document.getElementById('operation-phase-text');
+        if (phaseIcon) phaseIcon.textContent = '⚙️';
+        if (phaseText) phaseText.textContent = 'Processing...';
     }
 }
 
