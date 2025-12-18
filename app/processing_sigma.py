@@ -199,12 +199,11 @@ def sigma_detect_all_files(case_id: int, operation: str = 'reindex', phase_num: 
     logger.info(f"[SIGMA_PHASE] Starting SIGMA detection phase for case {case_id}")
     
     with app.app_context():
-        # Get all indexed EVTX files
+        # Get all indexed EVTX files that need SIGMA (v2.2.0: no is_hidden filter)
         files = CaseFile.query.filter_by(
             case_id=case_id,
             is_indexed=True,
-            is_deleted=False,
-            is_hidden=False
+            is_deleted=False
         ).filter(
             CaseFile.original_filename.ilike('%.evtx')
         ).filter(
@@ -395,16 +394,15 @@ def is_sigma_complete(case_id: int) -> bool:
     from models import CaseFile
     
     with app.app_context():
-        # Check for any indexed EVTX files that haven't had SIGMA run
+        # Check for any indexed EVTX files that haven't had SIGMA run (v2.2.0: use sigma_hunted flag)
         pending_count = CaseFile.query.filter_by(
             case_id=case_id,
             is_indexed=True,
             is_deleted=False,
-            is_hidden=False
+            sigma_hunted=False  # v2.2.0: explicit flag instead of status string
         ).filter(
             CaseFile.original_filename.ilike('%.evtx'),
-            CaseFile.event_count > 0,
-            CaseFile.indexing_status.notin_(['SIGMA Complete', 'Completed'])
+            CaseFile.event_count > 0
         ).count()
         
         return pending_count == 0

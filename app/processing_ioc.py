@@ -193,12 +193,11 @@ def hunt_iocs_all_files(case_id: int, operation: str = 'ioc', phase_num: int = 1
     logger.info(f"[IOC_PHASE] Starting IOC hunting phase for case {case_id}")
     
     with app.app_context():
-        # Get all indexed files (skip hidden/deleted)
+        # Get all indexed files (v2.2.0: no is_hidden filter - process all)
         files = CaseFile.query.filter_by(
             case_id=case_id,
             is_indexed=True,
-            is_deleted=False,
-            is_hidden=False
+            is_deleted=False
         ).filter(
             CaseFile.event_count > 0
         ).all()
@@ -356,15 +355,14 @@ def is_ioc_hunting_complete(case_id: int) -> bool:
     from models import CaseFile
     
     with app.app_context():
-        # Check for any indexed files that haven't had IOC hunting run
+        # Check for any indexed files that haven't had IOC hunting run (v2.2.0: use ioc_hunted flag)
         pending_count = CaseFile.query.filter_by(
             case_id=case_id,
             is_indexed=True,
             is_deleted=False,
-            is_hidden=False
+            ioc_hunted=False  # v2.2.0: explicit flag instead of status string
         ).filter(
-            CaseFile.event_count > 0,
-            CaseFile.indexing_status.notin_(['IOC Complete', 'Completed'])
+            CaseFile.event_count > 0
         ).count()
         
         return pending_count == 0

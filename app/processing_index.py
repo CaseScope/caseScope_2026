@@ -239,14 +239,14 @@ def index_all_files_in_queue(case_id: int, operation: str = 'index', phase_num: 
     logger.info(f"[INDEX_PHASE] Starting indexing phase for case {case_id}")
     
     with app.app_context():
-        # Get all unindexed files that are queued
+        # Get all unindexed files (v2.2.0: uses file state flags, not indexing_status)
+        # Note: Include hidden files - they'll be re-evaluated after indexing
         files = CaseFile.query.filter_by(
             case_id=case_id,
             is_indexed=False,
-            is_deleted=False,
-            is_hidden=False
+            is_deleted=False
         ).filter(
-            CaseFile.indexing_status.in_(['Queued', 'Failed'])
+            CaseFile.celery_task_id.isnot(None)  # File is queued (has task ID)
         ).all()
         
         if not files:
