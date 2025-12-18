@@ -1,8 +1,17 @@
 # File State Tracking System
 
 **Version:** 2.2.0  
-**Date:** 2025-12-18  
-**Status:** Active
+**Date:** December 18, 2025  
+**Status:** ✅ Active - Fully Operational
+
+## Recent Updates
+
+**December 18, 2025 - Coordinator Finalization Fix:**
+- **Issue**: Noise filtering flags (`known_good`, `known_noise`) were never being set
+- **Root Cause**: Noise filtering modules operate on OpenSearch events, not CaseFile records
+- **Fix**: Coordinators now set these flags in finalization phase after all phases complete
+- **Files Updated**: `app/coordinator_index.py`, `app/coordinator_reindex.py`
+- **Impact**: Files now properly reach `Completed` state after all phases done
 
 ## Overview
 
@@ -304,6 +313,8 @@ print(summary)
 
 ### Initial Upload (tasks.py `process_file()`)
 
+**Note**: Individual file processing sets most flags, but `known_good` and `known_noise` are set by the coordinator after bulk noise filtering completes.
+
 ```python
 # Step 1: Duplicate check
 dup_result = duplicate_check(...)
@@ -346,13 +357,42 @@ ioc_result = hunt_iocs(...)
 fsm.complete_ioc_hunting(case_file)  # State='IOC Checked', ioc_hunted=True
 db.session.commit()
 
-# Step 5: Noise checking (set flags, actual bulk operation done separately)
-case_file.known_good = True
-case_file.known_noise = True
+# Note: known_good/known_noise flags are NOT set here
+# They are set by the coordinator after bulk noise filtering
+```
 
-# Finalize (checks is_completed and sets state='Completed')
-fsm.finalize_processing(case_file)
-case_file.celery_task_id = None
+### Coordinator Finalization (coordinator_index.py, coordinator_reindex.py)
+
+**This is where `known_good` and `known_noise` flags are finally set:**
+
+```python
+# After all 5 phases complete (Index, SIGMA, Known-Good, Known-Noise, IOC):
+
+# Phase 6: Finalization
+files = db.session.query(CaseFile).filter(
+    CaseFile.case_id == case_id,
+    CaseFile.is_indexed == True,
+    CaseFile.celery_task_id.isnot(None)
+).all()
+
+for f in files:
+    # Clear celery_task_id
+    f.celery_task_id = None
+    
+    # Update noise checking flags (NOW SET!)
+    if not f.known_good:
+        f.known_good = True   # Noise filtering completed
+    if not f.known_noise:
+        f.known_noise = True  # Noise filtering completed
+    
+    # Update file_state based on completion
+    if f.is_completed:  # This property checks all flags
+        f.file_state = 'Completed'
+    elif f.failed:
+        f.file_state = 'Failed'
+    elif f.is_hidden:
+        f.file_state = 'Hidden'
+
 db.session.commit()
 ```
 
