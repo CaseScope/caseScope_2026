@@ -71,7 +71,7 @@ def global_files():
         file_types[ft] = file_types.get(ft, 0) + 1
     
     # Processing state counts using new state tracking system
-    from app import file_statistics as fs
+    import file_statistics as fs
     files_completed = fs.get_completed_files_count(case_id=None)
     files_queued = fs.get_queued_files_count(case_id=None)
     files_failed = fs.get_failed_files_count(case_id=None)
@@ -776,7 +776,7 @@ def rehunt_iocs_single_file(case_id, file_id):
     
     # Reset IOC count and start IOC hunting
     case_file.ioc_event_count = 0
-    from app import file_state_manager as fsm
+    import file_state_manager as fsm
     fsm.start_ioc_hunting(case_file)
     db.session.commit()
     
@@ -1239,7 +1239,7 @@ def file_stats_case(case_id):
         # v2.2.0: Using new file state tracking system
         # ========================================================================
         
-        from app import file_statistics as fs
+        import file_statistics as fs
         
         # COMPLETED: Files that finished ALL phases
         completed = fs.get_completed_files_count(case_id=case_id)
@@ -1362,7 +1362,7 @@ def file_stats_case(case_id):
 def queue_status_global():
     """Get global queue status across all cases"""
     from main import db, CaseFile, Case
-    from app import file_statistics as fs
+    import file_statistics as fs
     
     try:
         # Get queued files (all cases) - files with celery_task_id
@@ -1486,7 +1486,7 @@ def queue_status_case(case_id):
         ).order_by(CaseFile.id).limit(100).all()
         
         # Get failed files (not hidden) - v2.2.0 uses failed flag
-        from app import file_statistics as fs
+        import file_statistics as fs
         failed_files = fs.get_failed_files_count(case_id=case_id)
         
         # Get actively processing (files with celery_task_id)

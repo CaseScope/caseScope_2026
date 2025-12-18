@@ -22,7 +22,7 @@ import logging
 from typing import Dict, Any, Optional
 from celery_app import celery_app
 from sqlalchemy import func
-from app import file_state_manager as fsm
+import file_state_manager as fsm
 
 logger = logging.getLogger(__name__)
 
