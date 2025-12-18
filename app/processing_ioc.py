@@ -114,7 +114,7 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
                 
                 # v2.2.0: Increment failed counter
                 from progress_tracker import increment_counter
-                increment_counter(case.id, 'reindex', 7, 'failed')
+                increment_counter(case_file.case_id, 'reindex', 7, 'failed')
                 
                 return {
                     'status': 'error',
@@ -131,7 +131,7 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
             
             # v2.2.0: Increment completion counter for real-time progress
             from progress_tracker import increment_counter
-            increment_counter(case.id, 'reindex', 7, 'completed')
+            increment_counter(case_file.case_id, 'reindex', 7, 'completed')
             
             logger.info(f"[IOC_TASK] ✓ File {file_id} IOC hunting complete: {matches} matches")
             
@@ -152,9 +152,7 @@ def hunt_iocs_task(self, file_id: int) -> Dict[str, Any]:
                     
                     # v2.2.0: Increment failed counter
                     from progress_tracker import increment_counter
-                    case = db.session.get(Case, case_file.case_id)
-                    if case:
-                        increment_counter(case.id, 'reindex', 7, 'failed')
+                    increment_counter(case_file.case_id, 'reindex', 7, 'failed')
             except:
                 pass
             

@@ -119,7 +119,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                 
                 # v2.2.0: Increment skipped counter
                 from progress_tracker import increment_counter
-                increment_counter(case.id, 'reindex', 3, 'skipped')
+                increment_counter(case_file.case_id, 'reindex', 3, 'skipped')
                 
                 return {
                     'status': 'skipped',
@@ -170,7 +170,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
             
             # v2.2.0: Increment completion counter for real-time progress
             from progress_tracker import increment_counter
-            increment_counter(case.id, 'reindex', 3, 'completed')
+            increment_counter(case_file.case_id, 'reindex', 3, 'completed')
             
             logger.info(f"[INDEX_TASK] ✓ File {file_id} indexed successfully: {index_result['event_count']} events")
             
@@ -192,9 +192,7 @@ def index_file_task(self, file_id: int) -> Dict[str, Any]:
                     
                     # v2.2.0: Increment failed counter
                     from progress_tracker import increment_counter
-                    case = db.session.get(Case, case_file.case_id)
-                    if case:
-                        increment_counter(case.id, 'reindex', 3, 'failed')
+                    increment_counter(case_file.case_id, 'reindex', 3, 'failed')
             except:
                 pass
             

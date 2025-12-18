@@ -124,7 +124,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
                 
                 # v2.2.0: Increment failed counter
                 from progress_tracker import increment_counter
-                increment_counter(case.id, 'reindex', 4, 'failed')
+                increment_counter(case_file.case_id, 'reindex', 4, 'failed')
                 
                 return {
                     'status': 'error',
@@ -141,7 +141,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
             
             # v2.2.0: Increment completion counter for real-time progress
             from progress_tracker import increment_counter
-            increment_counter(case.id, 'reindex', 4, 'completed')
+            increment_counter(case_file.case_id, 'reindex', 4, 'completed')
             
             logger.info(f"[SIGMA_TASK] ✓ File {file_id} SIGMA complete: {violations} violations")
             
@@ -162,9 +162,7 @@ def sigma_detect_task(self, file_id: int) -> Dict[str, Any]:
                     
                     # v2.2.0: Increment failed counter
                     from progress_tracker import increment_counter
-                    case = db.session.get(Case, case_file.case_id)
-                    if case:
-                        increment_counter(case.id, 'reindex', 4, 'failed')
+                    increment_counter(case_file.case_id, 'reindex', 4, 'failed')
             except:
                 pass
             
