@@ -106,12 +106,17 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                 ).all()
             
             # Prepare files for reindexing (v2.2.0: use celery_task_id as queue marker)
+            queue_count = 0
             for f in files:
                 f.is_indexed = False
                 f.celery_task_id = f'reindex-{case_id}-{f.id}'  # Queue marker for processing
+                queue_count += 1
                 # Note: file_state will be set properly by processing_index.py
             
+            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Set celery_task_id on {queue_count} files")
             db.session.commit()
+            db.session.expire_all()  # Force refresh of all objects on next access
+            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Database committed and session expired")
             
             logger.info(f"[REINDEX_COORDINATOR] Queued {len(files)} files for reindexing")
             

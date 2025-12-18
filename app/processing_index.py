@@ -249,6 +249,8 @@ def index_all_files_in_queue(case_id: int, operation: str = 'index', phase_num: 
             CaseFile.celery_task_id.isnot(None)  # File is queued (has task ID)
         ).all()
         
+        logger.info(f"[INDEX_PHASE] DEBUG: Query found {len(files)} files")
+        
         if not files:
             logger.info(f"[INDEX_PHASE] No files to index for case {case_id}")
             return {
