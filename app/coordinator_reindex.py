@@ -92,11 +92,10 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             update_phase(case_id, 'reindex', 1, 'Queuing Files', 'running', 'Preparing files for reindex...')
             
             if file_ids is None:
-                # Reindex ALL files
+                # Reindex ALL files (including hidden - they'll be re-evaluated)
                 files = CaseFile.query.filter_by(
                     case_id=case_id,
-                    is_deleted=False,
-                    is_hidden=False
+                    is_deleted=False
                 ).all()
             else:
                 # Reindex specific files
