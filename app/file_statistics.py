@@ -412,3 +412,60 @@ Phase Completion:
     
     return summary
 
+
+# ============================================================================
+# INDIVIDUAL HELPER FUNCTIONS (for routes compatibility)
+# ============================================================================
+
+def get_completed_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of completed files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['completed_files']
+
+
+def get_failed_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of failed files"""
+    from main import db, CaseFile
+    
+    base_filter = [CaseFile.is_deleted == False, CaseFile.failed == True]
+    if case_id is not None:
+        base_filter.append(CaseFile.case_id == case_id)
+    
+    return db.session.query(func.count(CaseFile.id)).filter(and_(*base_filter)).scalar() or 0
+
+
+def get_queued_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of queued files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['queued_files']
+
+
+def get_indexed_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of indexed files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['indexed_files']
+
+
+def get_sigma_checked_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of SIGMA-checked files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['sigma_checked']
+
+
+def get_ioc_checked_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of IOC-checked files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['ioc_checked']
+
+
+def get_noise_checked_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of noise-checked files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['noise_checked']
+
+
+def get_hidden_files_count(case_id: Optional[int] = None) -> int:
+    """Get count of hidden files"""
+    from main import db, CaseFile
+    return get_file_statistics(db.session, CaseFile, case_id)['hidden_files']
+
