@@ -86,7 +86,8 @@ def index_file_simple(db, opensearch_client, file_id: int, case_id: int) -> Dict
             
             with open(json_path, 'w') as f:
                 for record in parser.records_json():
-                    json_line = json.dumps(record.data)
+                    # record is already a Python dict (not an object with .data)
+                    json_line = json.dumps(record)
                     f.write(json_line + '\n')
                     records_written += 1
             

@@ -854,8 +854,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 
                 with open(json_path, 'w') as f:
                     for record in parser.records_json():
-                        # record.data is already a Python dict, no XML parsing needed
-                        json_line = json.dumps(record.data)
+                        # record is already a Python dict (not an object with .data)
+                        json_line = json.dumps(record)
                         f.write(json_line + '\n')
                         records_written += 1
                 
