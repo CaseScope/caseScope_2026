@@ -877,14 +877,14 @@ def bulk_clear_case(case_id: int) -> Dict[str, Any]:
                     f.is_indexed = False
                     f.is_hidden = False
                     f.error_message = None
-                    f.celery_task_id = None
+                    f.celery_task_id = f'reindex-{case_id}-{f.id}'  # Queue marker (v2.2.0)
                     # Reset all state flags
                     f.sigma_hunted = False
                     f.ioc_hunted = False
                     f.known_good = False
                     f.known_noise = False
                     f.failed = False
-                    f.file_state = 'New'
+                    f.file_state = 'Queued'  # Ready for processing
                 
                 commit_with_retry(db.session, logger_instance=logger)
                 logger.info(f"[BULK_CLEAR_CASE] ✓ Reset metadata for {len(files)} files")

@@ -105,32 +105,16 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                     CaseFile.is_deleted == False
                 ).all()
             
-            # Prepare files for reindexing (v2.2.0: use celery_task_id as queue marker)
-            queue_count = 0
+            # Prepare files for reindexing (v2.2.0: bulk_clear_case already sets celery_task_id)
+            # Just reset is_indexed flag for files being reindexed
             for f in files:
                 f.is_indexed = False
-                f.celery_task_id = f'reindex-{case_id}-{f.id}'  # Queue marker for processing
-                queue_count += 1
+                # Note: celery_task_id is already set by bulk_clear_case
                 # Note: file_state will be set properly by processing_index.py
             
-            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Set celery_task_id on {queue_count} files")
-            db.session.flush()  # Ensure changes are written to database
             db.session.commit()
             
-            # CRITICAL: Close this session so processing_index gets a fresh one
-            db.session.close()
-            db.session.remove()
-            
-            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Database committed and session closed")
-            
             logger.info(f"[REINDEX_COORDINATOR] Queued {len(files)} files for reindexing")
-            
-            # Verify with a FRESH session
-            verify_count = db.session.query(CaseFile).filter_by(
-                case_id=case_id,
-                is_indexed=False
-            ).filter(CaseFile.celery_task_id.isnot(None)).count()
-            logger.info(f"[REINDEX_COORDINATOR] DEBUG: Fresh session verification found {verify_count} files")
             
             # ===============================================================
             # PHASE 1: CLEAR METADATA
