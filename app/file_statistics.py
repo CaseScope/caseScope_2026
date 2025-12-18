@@ -113,10 +113,15 @@ def get_file_statistics(db_session, CaseFile, case_id: Optional[int] = None) -> 
     ).scalar() or 0
     
     # Queued files (has celery_task_id)
+    # Queued files: Files waiting to be processed OR currently processing
+    # v2.2.0: Use file_state or indexing_status (not just celery_task_id)
     queued_files = db_session.query(func.count(CaseFile.id)).filter(
         and_(
             *base_filter,
-            CaseFile.celery_task_id != None
+            or_(
+                CaseFile.file_state.in_(['Queued', 'Indexing', 'SIGMA Hunting', 'IOC Hunting']),
+                CaseFile.indexing_status.in_(['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])
+            )
         )
     ).scalar() or 0
     
