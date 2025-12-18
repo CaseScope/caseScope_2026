@@ -1,8 +1,8 @@
 # CaseScope Database Structure
 
 **Complete PostgreSQL Schema Documentation**  
-**Last Updated:** December 17, 2025  
-**Version:** CaseScope 2026 v1.0.0
+**Last Updated:** December 18, 2025  
+**Version:** CaseScope 2026 v2.2.0
 
 ---
 
@@ -70,17 +70,30 @@ CaseScope PostgreSQL Database
 │   │   ├── file_hash (String 64, Indexed) - SHA256 hash for deduplication
 │   │   ├── file_type (String 20) - EVTX, JSON, NDJSON, CSV, ZIP
 │   │   ├── mime_type (String 100) - MIME type detection result
-│   │   ├── indexing_status (String 50, Default='Queued') - Queued, Indexing, Completed, Failed
+│   │   │
+│   │   ├── ⚠️  LEGACY FIELDS (v2.2.0 - Being phased out):
+│   │   ├── indexing_status (String 50, Default='Queued') - DEPRECATED: Use file_state + flags instead
 │   │   ├── error_message (Text) - Detailed error for failed files
+│   │   │
+│   │   ├── 🆕 STATE TRACKING (v2.2.0 - Flag-Based System):
+│   │   ├── is_new (Boolean, Default=True, Indexed) - Newly uploaded, not indexed yet
 │   │   ├── is_indexed (Boolean, Default=False) - Indexing completed successfully
-│   │   ├── is_hidden (Boolean, Default=False) - Hide 0-event files from UI
+│   │   ├── sigma_hunted (Boolean, Default=False, Indexed) - SIGMA detection complete (EVTX only)
+│   │   ├── ioc_hunted (Boolean, Default=False, Indexed) - IOC hunting complete
+│   │   ├── known_good (Boolean, Default=False, Indexed) - Known-good filtering complete
+│   │   ├── known_noise (Boolean, Default=False, Indexed) - Known-noise filtering complete
+│   │   ├── is_hidden (Boolean, Default=False) - Hide 0-event or filtered files
+│   │   ├── failed (Boolean, Default=False, Indexed) - Failed at any processing step
+│   │   ├── file_state (String 50, Default='New', Indexed) - Current state: New, Indexing, Indexed, SIGMA Hunting, SIGMA Checked, IOC Hunting, IOC Checked, Noise Checking, Noise Checked, Completed, Failed, Hidden
+│   │   ├── previous_state (String 50) - State before re-operation (for restoration)
+│   │   │
 │   │   ├── is_deleted (Boolean, Default=False) - Soft delete flag
 │   │   ├── event_count (Integer, Default=0) - Actual indexed events
 │   │   ├── estimated_event_count (Integer, Default=0) - Pre-index estimate
 │   │   ├── violation_count (Integer, Default=0) - Active SIGMA violations
 │   │   ├── ioc_event_count (Integer, Default=0) - Events matching IOCs
 │   │   ├── opensearch_key (String 200, Indexed) - OpenSearch document field reference
-│   │   ├── celery_task_id (String 255) - Current processing task ID
+│   │   ├── celery_task_id (String 255) - Current processing task ID (NULL = not queued)
 │   │   ├── upload_type (String 20, Default='http') - http, bulk, staging
 │   │   ├── uploaded_by (FK → user.id) - Who uploaded the file
 │   │   └── uploaded_at (DateTime, Default=utcnow)
@@ -567,9 +580,11 @@ ai_report_chat
 **Heavily Indexed Fields for Performance:**
 - All primary keys (`id`)
 - All foreign keys (`case_id`, `user_id`, `file_id`, etc.)
-- Status fields (`status`, `indexing_status`, `is_enabled`, `is_active`)
+- Status fields (`status`, `is_enabled`, `is_active`)
+- **File state flags (v2.2.0)**: `is_new`, `sigma_hunted`, `ioc_hunted`, `known_good`, `known_noise`, `failed`, `file_state`
 - Search fields (`username`, `event_id`, `file_hash`, `ioc_value`)
 - Timestamp fields (`created_at`, `updated_at`, `last_activity`)
+- ⚠️ **Deprecated**: `indexing_status` (still indexed but replaced by flag-based system)
 
 ---
 
@@ -614,6 +629,7 @@ ai_report_chat
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v2.2.0 | 2025-12-18 | **MAJOR**: File State Tracking System - Added 8 boolean flags (is_new, sigma_hunted, ioc_hunted, known_good, known_noise, failed, file_state, previous_state) to `case_file`. Replaced fragile status string parsing with explicit phase tracking. Added 7 new indexes. See `FILE_STATS.MD` for details. |
 | v1.0.0 | 2025-12-17 | Initial comprehensive documentation |
 | v1.46.0 | 2024 | Added `reindex_progress` table |
 | v1.43.0 | 2024 | Added `vpn_ip_ranges` to case |
@@ -666,6 +682,46 @@ ai_report_chat
    8. Process Tree Building
    9. MITRE Pattern Matching + Timeline Auto-Tagging
    ```
+
+8. **File State Tracking System (v2.2.0)**:
+   - Uses **boolean flags** instead of status string parsing
+   - Each processing phase has a dedicated flag (is_indexed, sigma_hunted, ioc_hunted, etc.)
+   - `file_state` provides UI-friendly state display
+   - `previous_state` enables partial re-operations (save/restore state)
+   - Completion logic is file-type aware:
+     ```
+     EVTX files:     indexed + SIGMA + IOC + noise checked = completed
+     Non-EVTX files: indexed + IOC + noise checked = completed (SIGMA skipped)
+     ```
+   - See `FILE_STATS.MD` for complete documentation
+   - **Migration required**: Run `migrations/add_file_state_tracking.sql`
+
+9. **File Processing States** (v2.2.0):
+   ```
+   INITIAL UPLOAD:
+   New → Indexing → Indexed → SIGMA Hunting → SIGMA Checked → 
+   IOC Hunting → IOC Checked → Noise Checking → Noise Checked → Completed
+
+   RE-OPERATIONS:
+   Completed → Reindexing → [full pipeline] → Completed
+   Completed → SIGMA Hunting → SIGMA Checked → Completed (restore)
+   Completed → IOC Hunting → IOC Checked → Completed (restore)
+   Completed → Noise Checking → Noise Checked → Completed (restore)
+
+   SPECIAL:
+   Any state → Failed (on error)
+   Indexed → Hidden (if 0 events)
+   Noise Checked → Hidden (if matched noise patterns)
+   ```
+
+10. **Statistics Queries (v2.2.0)**:
+    - **Completed files**: Uses `is_completed` property (file-type aware)
+    - **Failed files**: Uses `failed` flag (not status string)
+    - **SIGMA checked**: Uses `sigma_hunted` flag
+    - **IOC checked**: Uses `ioc_hunted` flag
+    - **Noise checked**: Uses `known_good` AND `known_noise` flags
+    - **Queued files**: Uses `celery_task_id IS NOT NULL`
+    - All queries use indexed boolean columns for fast performance
 
 ---
 
