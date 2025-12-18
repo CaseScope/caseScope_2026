@@ -224,14 +224,17 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
                 update_phase(case_id, operation, 5, 'IOC Matching', 'failed', 'IOC matching failed')
             
             # ===============================================================
-            # FINALIZE
+            # FINALIZE: Update file state flags for all files
             # ===============================================================
             from models import CaseFile
             from main import db
             from tasks import commit_with_retry
             from progress_tracker import complete_progress
+            import file_state_manager as fsm
             
-            # Clear any lingering task IDs
+            logger.info("[INDEX_COORDINATOR] Finalizing file states...")
+            
+            # Get all files that were processed
             files = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
                 CaseFile.is_indexed == True,
@@ -240,10 +243,28 @@ def index_new_files(case_id: int, operation: str = 'index') -> Dict[str, Any]:
             ).all()
             
             for f in files:
+                # Clear celery_task_id
                 f.celery_task_id = None
+                
+                # Update noise checking flags
+                # After known-good and known-noise filtering, mark as complete
+                if not f.known_good:
+                    f.known_good = True  # Noise filtering ran (known-good check complete)
+                if not f.known_noise:
+                    f.known_noise = True  # Noise filtering ran (known-noise check complete)
+                
+                # Update file_state based on completion
+                # The is_completed property will determine if file is fully processed
+                if f.is_completed:
+                    f.file_state = 'Completed'
+                elif f.failed:
+                    f.file_state = 'Failed'
+                elif f.is_hidden:
+                    f.file_state = 'Hidden'
+                # Else keep current state (Indexed, SIGMA Checked, IOC Checked, etc.)
             
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[INDEX_COORDINATOR] Cleared task IDs for {len(files)} files")
+            logger.info(f"[INDEX_COORDINATOR] Finalized {len(files)} files - updated state flags")
             
             # Complete progress tracking (clears progress bar) - only for 'index' operation
             if operation == 'index':

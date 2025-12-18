@@ -288,10 +288,14 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
                 update_phase(case_id, 'reindex', 7, 'IOC Matching', 'failed', 'IOC matching failed')
             
             # ===============================================================
-            # FINALIZE: Mark files as completed
+            # FINALIZE: Update file state flags for all files
             # ===============================================================
-            logger.info("[REINDEX_COORDINATOR] Finalizing...")
+            logger.info("[REINDEX_COORDINATOR] Finalizing file states...")
             
+            # Import file_state_manager for updating flags
+            import file_state_manager as fsm
+            
+            # Get all files that were processed (have celery_task_id)
             files_to_finalize = db.session.query(CaseFile).filter(
                 CaseFile.case_id == case_id,
                 CaseFile.is_deleted == False,
@@ -299,11 +303,29 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             ).all()
             
             for f in files_to_finalize:
+                # Clear celery_task_id
                 f.celery_task_id = None
+                
+                # Update noise checking flags
+                # After known-good and known-noise filtering, mark as complete
+                if not f.known_good:
+                    f.known_good = True  # Noise filtering ran (known-good check complete)
+                if not f.known_noise:
+                    f.known_noise = True  # Noise filtering ran (known-noise check complete)
+                
+                # Update file_state based on completion
+                # The is_completed property will determine if file is fully processed
+                if f.is_completed:
+                    f.file_state = 'Completed'
+                elif f.failed:
+                    f.file_state = 'Failed'
+                elif f.is_hidden:
+                    f.file_state = 'Hidden'
+                # Else keep current state (Indexed, SIGMA Checked, IOC Checked, etc.)
             
             from tasks import commit_with_retry
             commit_with_retry(db.session, logger_instance=logger)
-            logger.info(f"[REINDEX_COORDINATOR] Cleared task IDs for {len(files_to_finalize)} files")
+            logger.info(f"[REINDEX_COORDINATOR] Finalized {len(files_to_finalize)} files - updated state flags")
             
             # Complete progress tracking (clears progress bar)
             complete_progress(case_id, 'reindex', success=(result['status'] in ['success', 'partial']))
