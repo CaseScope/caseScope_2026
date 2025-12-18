@@ -177,6 +177,11 @@ def case_files(case_id):
     tracked_events = status_counts.get('hunted', 0) + status_counts.get('confirmed', 0) + status_counts.get('noise', 0)
     status_counts['new'] = max(0, stats['total_events'] - tracked_events)
     
+    # v2.2.0: Get Known Good/Noise counts for new stats
+    import file_statistics as fs
+    files_known_good = fs.get_noise_checked_files_count(case_id=case_id)
+    files_known_noise = fs.get_noise_checked_files_count(case_id=case_id)
+    
     return render_template('case_files.html',
                           case=case,
                           files=files,
@@ -192,7 +197,8 @@ def case_files(case_id):
                           total_hidden_events=stats.get('hidden_events', 0),
                           status_counts=status_counts,
                           files_completed=stats.get('files_completed', 0),
-                          files_queued=stats.get('files_queued', 0),
+                          files_known_good=files_known_good,
+                          files_known_noise=files_known_noise,
                           files_indexing=stats.get('files_indexing', 0),
                           files_sigma=stats.get('files_sigma', 0),
                           files_ioc_hunting=stats.get('files_ioc_hunting', 0),
@@ -1324,6 +1330,9 @@ def file_stats_case(case_id):
         # ========================================================================
         # RETURN ALL DATA SYNCHRONOUSLY (one response, all updates together)
         # ========================================================================
+        # v2.2.0: Get noise checked count for new stats
+        noise_checked = fs.get_noise_checked_files_count(case_id=case_id)
+        
         return jsonify({
             'status': 'success',
             # File status counts (Processing Status tile) - v2.0.4 new layout
@@ -1332,7 +1341,7 @@ def file_stats_case(case_id):
             'indexed': indexed,
             'sigma_checked': sigma_checked,
             'ioc_checked': ioc_checked,
-            'queued': queued,
+            'noise_checked': noise_checked,  # v2.2.0: Replaces queued
             # Event counts (Event Statistics tile)
             'total_events': total_events,
             'sigma_events': sigma_events,
