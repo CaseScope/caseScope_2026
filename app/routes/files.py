@@ -369,7 +369,7 @@ def file_status(case_id, file_id):
         return jsonify({'error': 'File not found'}), 404
     
     return jsonify({
-        'status': file.indexing_status,
+        'status': file.file_state or 'Unknown',  # v2.2.0: Use file_state instead of indexing_status
         'is_indexed': file.is_indexed,
         'is_hidden': file.is_hidden,
         'event_count': file.event_count,
@@ -1256,13 +1256,9 @@ def file_stats_case(case_id):
         # IOC CHECKED: Files that completed IOC hunting
         ioc_checked = fs.get_ioc_checked_files_count(case_id=case_id)
         
-        # QUEUE: Files currently being processed (Queued, Indexing, SIGMA Testing, IOC Hunting)
-        queued = db.session.query(CaseFile).filter(
-            CaseFile.case_id == case_id,
-            CaseFile.indexing_status.in_(['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting']),
-            CaseFile.is_deleted == False,
-            CaseFile.is_hidden == False
-        ).count()
+        # QUEUE: Files currently being processed (has celery_task_id)
+        # v2.2.0: Uses new state tracking - celery_task_id indicates active processing
+        queued = fs.get_queued_files_count(case_id=case_id)
         
         # ========================================================================
         # EVENT COUNTS (for Event Statistics tile)
@@ -1538,9 +1534,8 @@ def requeue_single_file(case_id, file_id):
         flash('File not found', 'error')
         return redirect(url_for('files.view_failed_files', case_id=case_id))
     
-    # Check if file is actually failed
-    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
-    if case_file.indexing_status in known_statuses:
+    # Check if file is actually failed (v2.2.0: use failed flag)
+    if not case_file.failed:
         flash('File is not in a failed state', 'warning')
         return redirect(url_for('files.view_failed_files', case_id=case_id))
     
@@ -1567,8 +1562,9 @@ def requeue_single_file(case_id, file_id):
             args=[case_file.id, 'full']
         )
         
-        # Update database
-        case_file.indexing_status = 'Queued'
+        # Update database - v2.2.0: Use file_state_manager
+        import file_state_manager as fsm
+        fsm.start_indexing(case_file)  # Sets file_state = 'Indexing', is_new = False, failed = False
         case_file.celery_task_id = task.id
         db.session.commit()
         
@@ -1578,7 +1574,7 @@ def requeue_single_file(case_id, file_id):
             'case_id': case_id,
             'case_name': case.name,
             'task_id': task.id,
-            'previous_status': case_file.indexing_status
+            'file_state': case_file.file_state
         })
         
         flash(f'✅ File "{case_file.original_filename}" requeued for processing', 'success')

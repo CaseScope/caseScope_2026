@@ -353,18 +353,22 @@
                         </td>
                         <td>{{ (file.file_size / 1024 / 1024)|round(2) }}</td>
                         <td class="status-cell">
-                            {% if file.indexing_status == 'Completed' %}
+                            {% if file.file_state == 'Completed' %}
                                 <span class="status-badge status-completed">Completed</span>
-                            {% elif file.indexing_status == 'Indexing' %}
+                            {% elif file.file_state == 'Indexing' %}
                                 <span class="status-badge status-indexing pulsing">Indexing</span>
-                            {% elif file.indexing_status == 'SIGMA Testing' %}
-                                <span class="status-badge status-sigma pulsing">SIGMA Testing</span>
-                            {% elif file.indexing_status == 'IOC Hunting' %}
+                            {% elif file.file_state == 'SIGMA Hunting' %}
+                                <span class="status-badge status-sigma pulsing">SIGMA Hunting</span>
+                            {% elif file.file_state == 'IOC Hunting' %}
                                 <span class="status-badge status-ioc pulsing">IOC Hunting</span>
-                            {% elif file.indexing_status == 'Queued' %}
-                                <span class="status-badge status-queued">Queued</span>
+                            {% elif file.file_state == 'Indexed' %}
+                                <span class="status-badge status-completed">Indexed</span>
+                            {% elif file.file_state == 'Failed' or file.failed %}
+                                <span class="status-badge status-failed">Failed</span>
+                            {% elif file.file_state == 'Hidden' or file.is_hidden %}
+                                <span class="status-badge status-hidden">Hidden</span>
                             {% else %}
-                                <span class="status-badge status-failed">{{ file.indexing_status }}</span>
+                                <span class="status-badge status-pending">{{ file.file_state or 'Pending' }}</span>
                             {% endif %}
                         </td>
                         <td class="event-count">
@@ -397,8 +401,8 @@
                         </td>
                         <td>
                             <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-                                {% if file.is_indexed and file.indexing_status == 'Completed' %}
-                                <!-- Re-Index button -->
+                                {% if file.is_indexed and not file.celery_task_id %}
+                                <!-- Re-Index button - v2.2.0: show when indexed and not queued -->
                                 <button onclick="reindexSingleFile({{ file.id }})" 
                                         class="btn btn-sm" 
                                         style="background: var(--color-info); color: white; padding: 4px 8px; font-size: 0.75rem;"

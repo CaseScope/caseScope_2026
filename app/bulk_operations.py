@@ -634,12 +634,11 @@ def requeue_failed_files(db, scope: str = 'case', case_id: Optional[int] = None)
     """
     from models import CaseFile
     
-    # Get failed files (any status not in known good statuses)
-    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    # Get failed files (v2.2.0: use failed flag)
     query = db.session.query(CaseFile).filter(
         CaseFile.is_deleted == False,
         CaseFile.is_hidden == False,
-        ~CaseFile.indexing_status.in_(known_statuses)
+        CaseFile.failed == True
     )
     
     if scope == 'case' and case_id:

@@ -29,13 +29,13 @@ def case_stats(case_id):
         case_id=case_id, is_deleted=False, is_hidden=False, is_indexed=True
     ).count()
     
-    # Files being processed (not completed)
-    known_statuses = ['Completed']
+    # Files being processed (not completed) - v2.2.0: use file_state_manager
+    import file_statistics as fs
     processing_files = db.session.query(CaseFile).filter(
         CaseFile.case_id == case_id,
         CaseFile.is_deleted == False,
         CaseFile.is_hidden == False,
-        ~CaseFile.indexing_status.in_(known_statuses)
+        CaseFile.celery_task_id != None  # Files actively in queue
     ).count()
     
     # Disk space

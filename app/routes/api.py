@@ -24,7 +24,7 @@ def case_file_status(case_id):
     return jsonify({
         'files': [{
             'id': f.id,
-            'status': f.indexing_status,
+            'status': f.file_state or 'Unknown',  # v2.2.0: Use file_state instead
             'event_count': f.event_count or 0,
             'violation_count': f.violation_count or 0,
             'ioc_event_count': f.ioc_event_count or 0
