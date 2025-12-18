@@ -117,6 +117,11 @@ def reindex_files(case_id: int, file_ids: Optional[List[int]] = None) -> Dict[st
             db.session.flush()  # Ensure changes are written to database
             db.session.commit()
             db.session.expire_all()  # Force refresh of all objects on next access
+            
+            # CRITICAL: Give database a moment to make the transaction visible to other sessions
+            import time
+            time.sleep(0.5)  # 500ms delay to ensure transaction visibility
+            
             logger.info(f"[REINDEX_COORDINATOR] DEBUG: Database flushed, committed, and session expired")
             
             logger.info(f"[REINDEX_COORDINATOR] Queued {len(files)} files for reindexing")
