@@ -70,35 +70,58 @@ def index_file_simple(db, opensearch_client, file_id: int, case_id: int) -> Dict
     db.session.commit()
     
     try:
-        # STEP 1: Convert EVTX to JSONL
-        logger.info(f"[INDEX] Converting EVTX to JSON...")
+        # STEP 1: Convert EVTX to JSONL (Rust evtx library - 2-5x faster)
+        logger.info(f"[INDEX] Converting EVTX to JSON (Rust evtx library)...")
         json_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
         json_path = json_file.name
         json_file.close()
         
-        cmd = ['/opt/casescope/bin/evtx_dump', '-o', 'jsonl', file_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        
-        if result.returncode != 0:
-            error_msg = f'evtx_dump failed: {result.stderr[:200]}'
+        # Use Rust evtx library (v2.2.0 - 2-5x faster than subprocess evtx_dump)
+        try:
+            from evtx import PyEvtxParser
+            import json
+            
+            parser = PyEvtxParser(file_path)
+            records_written = 0
+            
+            with open(json_path, 'w') as f:
+                for record in parser.records_json():
+                    json_line = json.dumps(record.data)
+                    f.write(json_line + '\n')
+                    records_written += 1
+            
+            output_path = json_path
+            logger.info(f"[INDEX] ✓ EVTX converted to JSONL: {records_written:,} records")
+            
+        except Exception as e:
+            error_msg = f'Rust evtx parsing failed: {str(e)[:100]}'
             logger.error(f"[INDEX] {error_msg}")
-            case_file.indexing_status = 'Failed: EVTX parsing failed'
-            case_file.error_message = error_msg
-            db.session.commit()
-            if os.path.exists(json_path):
-                os.unlink(json_path)
-            return {'status': 'error', 'message': error_msg, 'events_indexed': 0}
-        
-        # Move output to proper location
-        output_path = json_path.replace('.jsonl', '.json')
-        if os.path.exists(f"{file_path}.json"):
-            output_path = f"{file_path}.json"
-        elif os.path.exists(json_path):
-            import shutil
-            shutil.move(json_path, output_path)
+            logger.warning(f"[INDEX] Falling back to legacy evtx_dump...")
+            
+            # FALLBACK: Use legacy evtx_dump
+            cmd = ['/opt/casescope/bin/evtx_dump', '-o', 'jsonl', file_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            
+            if result.returncode != 0:
+                error_msg = f'evtx_dump fallback also failed: {result.stderr[:200]}'
+                logger.error(f"[INDEX] {error_msg}")
+                case_file.indexing_status = 'Failed: EVTX parsing failed'
+                case_file.error_message = error_msg
+                db.session.commit()
+                if os.path.exists(json_path):
+                    os.unlink(json_path)
+                return {'status': 'error', 'message': error_msg, 'events_indexed': 0}
+            
+            # Move output to proper location
+            output_path = json_path.replace('.jsonl', '.json')
+            if os.path.exists(f"{file_path}.json"):
+                output_path = f"{file_path}.json"
+            elif os.path.exists(json_path):
+                import shutil
+                shutil.move(json_path, output_path)
         
         if not os.path.exists(output_path):
-            error_msg = 'evtx_dump produced no output'
+            error_msg = 'EVTX parsing produced no output'
             case_file.indexing_status = 'Failed: No output'
             case_file.error_message = error_msg
             db.session.commit()

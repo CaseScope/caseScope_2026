@@ -839,34 +839,70 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
     try:
         # STEP 1: Convert EVTX to JSONL (if needed) or prepare CSV
         if is_evtx:
-            logger.info("[INDEX FILE] Converting EVTX to JSONL...")
+            logger.info("[INDEX FILE] Converting EVTX to JSONL (Rust evtx library - 2-5x faster)...")
             json_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
             json_path = json_file.name
             json_file.close()
             
-            # Run evtx_dump
-            cmd = ['/opt/casescope/bin/evtx_dump', '-o', 'jsonl', file_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-            
-            if result.returncode != 0:
-                error_msg = f'evtx_dump failed: {result.stderr[:100]}'
+            # Use Rust evtx library (v2.2.0 - 2-5x faster than subprocess evtx_dump)
+            try:
+                from evtx import PyEvtxParser
+                import json
+                
+                parser = PyEvtxParser(file_path)
+                records_written = 0
+                
+                with open(json_path, 'w') as f:
+                    for record in parser.records_json():
+                        # record.data is already a Python dict, no XML parsing needed
+                        json_line = json.dumps(record.data)
+                        f.write(json_line + '\n')
+                        records_written += 1
+                
+                logger.info(f"[INDEX FILE] ✓ EVTX converted to JSONL: {json_path} ({records_written:,} records)")
+                
+            except Exception as e:
+                error_msg = f'Rust evtx parsing failed: {str(e)[:100]}'
                 logger.error(f"[INDEX FILE] {error_msg}")
-                case_file.indexing_status = 'Failed'
-                case_file.error_message = f'EVTX parsing failed. {result.stderr[:400]}'
-                commit_with_retry(db.session, logger_instance=logger)
-                return {
-                    'status': 'error',
-                    'message': error_msg,
-                    'file_id': file_id,
-                    'event_count': 0,
-                    'index_name': index_name
-                }
-            
-            # Write JSONL to file
-            with open(json_path, 'w') as f:
-                f.write(result.stdout)
-            
-            logger.info(f"[INDEX FILE] ✓ EVTX converted to JSONL: {json_path}")
+                logger.warning(f"[INDEX FILE] Falling back to legacy evtx_dump...")
+                
+                # FALLBACK: Use legacy evtx_dump if Rust library fails
+                try:
+                    cmd = ['/opt/casescope/bin/evtx_dump', '-o', 'jsonl', file_path]
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                    
+                    if result.returncode != 0:
+                        error_msg = f'evtx_dump fallback also failed: {result.stderr[:100]}'
+                        logger.error(f"[INDEX FILE] {error_msg}")
+                        case_file.indexing_status = 'Failed'
+                        case_file.error_message = f'EVTX parsing failed. {result.stderr[:400]}'
+                        commit_with_retry(db.session, logger_instance=logger)
+                        return {
+                            'status': 'error',
+                            'message': error_msg,
+                            'file_id': file_id,
+                            'event_count': 0,
+                            'index_name': index_name
+                        }
+                    
+                    # Write JSONL to file
+                    with open(json_path, 'w') as f:
+                        f.write(result.stdout)
+                    
+                    logger.info(f"[INDEX FILE] ✓ EVTX converted via fallback: {json_path}")
+                except Exception as fallback_error:
+                    error_msg = f'All EVTX parsing methods failed: {str(fallback_error)[:100]}'
+                    logger.error(f"[INDEX FILE] {error_msg}")
+                    case_file.indexing_status = 'Failed'
+                    case_file.error_message = f'EVTX parsing failed. {str(fallback_error)[:400]}'
+                    commit_with_retry(db.session, logger_instance=logger)
+                    return {
+                        'status': 'error',
+                        'message': error_msg,
+                        'file_id': file_id,
+                        'event_count': 0,
+                        'index_name': index_name
+                    }
         elif is_csv:
             # CSV files will be processed directly (no conversion needed)
             json_path = None
