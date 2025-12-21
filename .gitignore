@@ -40,3 +40,5 @@ data/
 # Evidence storage directories
 evidence/
 evidence_uploads/
+ssl/
+*.pem

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🔍 CaseScope 2026</h1>
+        <p class="content-subtitle">Digital Forensics & Incident Response Platform</p>
+    </div>
+</div>
+
+<div class="grid grid-3">
+    <div class="stat-card">
+        <div class="stat-label">Total Cases</div>
+        <div class="stat-value stat-value-primary">0</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Active Investigations</div>
+        <div class="stat-value stat-value-success">0</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Total Events</div>
+        <div class="stat-value stat-value-info">0</div>
+    </div>
+</div>
+
+<div class="card" style="margin-top: 2rem;">
+    <div class="card-header">
+        <h2 class="card-title">🎉 Welcome to CaseScope 2026</h2>
+    </div>
+    <div class="card-body">
+        <p style="margin-bottom: 1rem;">
+            Clean slate installation - ready to build your DFIR platform.
+        </p>
+        <p style="color: var(--color-text-secondary); font-size: 0.875rem;">
+            Database: PostgreSQL (empty) • Search Engine: OpenSearch (ready) • Previous system backed up to !old_site/
+        </p>
+    </div>
+</div>
+{% endblock %}
