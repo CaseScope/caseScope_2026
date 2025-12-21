@@ -52,6 +52,11 @@ def auth_login():
         user.last_login = datetime.utcnow()
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('login', resource_type='user', resource_id=user.id, 
+                   resource_name=username, details={'role': user.role})
+        
         logger.info(f"User logged in: {username} (role: {user.role})")
         flash(f'Welcome back, {user.full_name or user.username}!', 'success')
         
@@ -69,6 +74,12 @@ def auth_login():
 def auth_logout():
     """Logout"""
     username = current_user.username
+    user_id = current_user.id
+    
+    # Audit log before logout
+    from audit_logger import log_action
+    log_action('logout', resource_type='user', resource_id=user_id, resource_name=username)
+    
     logout_user()
     logger.info(f"User logged out: {username}")
     flash('You have been logged out', 'info')

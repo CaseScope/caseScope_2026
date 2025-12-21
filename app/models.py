@@ -54,3 +54,30 @@ class Case(db.Model):
     
     def __repr__(self):
         return f'<Case {self.name}>'
+
+
+class AuditLog(db.Model):
+    """
+    Audit trail for security-sensitive actions
+    Tracks user actions for compliance and security review
+    """
+    __tablename__ = 'audit_log'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), index=True, nullable=True)
+    username = db.Column(db.String(80))  # Denormalized for deleted users
+    action = db.Column(db.String(100), index=True, nullable=False)
+    resource_type = db.Column(db.String(50), index=True)  # user, case, file, ioc, etc.
+    resource_id = db.Column(db.Integer)
+    resource_name = db.Column(db.String(500))
+    ip_address = db.Column(db.String(45))  # IPv4 or IPv6
+    user_agent = db.Column(db.Text)
+    details = db.Column(db.Text)  # JSON string with additional context
+    status = db.Column(db.String(20), default='success')  # success, failed, error
+    
+    # Relationships
+    user = db.relationship('User', backref='audit_logs')
+    
+    def __repr__(self):
+        return f'<AuditLog {self.action} by {self.username}>'

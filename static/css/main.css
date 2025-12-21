@@ -224,6 +224,16 @@ a:hover {
     text-align: center;
 }
 
+.sidebar-section-header {
+    padding: 16px 16px 8px 16px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-muted);
+    margin-top: var(--spacing-lg);
+}
+
 .main-container {
     margin-left: var(--sidebar-width);
     flex: 1;

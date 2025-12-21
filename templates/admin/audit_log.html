@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Log - CaseScope 2026{% endblock %}
+{% block header_title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📋 Audit Log</h2>
+    </div>
+    <div class="card-body">
+        <!-- Filters -->
+        <form method="GET" style="margin-bottom: var(--spacing-lg); display: flex; gap: var(--spacing-md);">
+            <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                <input type="text" 
+                       name="action" 
+                       class="form-input" 
+                       placeholder="Filter by action..."
+                       value="{{ action_filter }}">
+            </div>
+            <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                <input type="text" 
+                       name="user" 
+                       class="form-input" 
+                       placeholder="Filter by username..."
+                       value="{{ user_filter }}">
+            </div>
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a href="/admin/audit-log" class="btn btn-secondary">Clear</a>
+        </form>
+        
+        <!-- Audit Log Table -->
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Resource</th>
+                        <th>IP Address</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td style="font-family: var(--font-mono); font-size: 0.8125rem;">
+                            {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                        </td>
+                        <td>{{ log.username }}</td>
+                        <td>
+                            <span class="badge badge-info">{{ log.action }}</span>
+                        </td>
+                        <td>
+                            {% if log.resource_type %}
+                            <span style="color: var(--color-text-muted); font-size: 0.8125rem;">
+                                {{ log.resource_type }}:
+                            </span>
+                            {{ log.resource_name or log.resource_id }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td style="font-family: var(--font-mono); font-size: 0.8125rem;">
+                            {{ log.ip_address or '-' }}
+                        </td>
+                        <td>
+                            <span class="badge badge-{% if log.status == 'success' %}success{% elif log.status == 'failed' %}warning{% else %}error{% endif %}">
+                                {{ log.status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if pagination.pages > 1 %}
+        <div style="display: flex; justify-content: center; gap: var(--spacing-sm); margin-top: var(--spacing-lg);">
+            {% if pagination.has_prev %}
+            <a href="?page={{ pagination.prev_num }}" class="btn btn-secondary btn-sm">← Previous</a>
+            {% endif %}
+            
+            <span style="padding: var(--spacing-sm) var(--spacing-md); color: var(--color-text-secondary);">
+                Page {{ pagination.page }} of {{ pagination.pages }}
+            </span>
+            
+            {% if pagination.has_next %}
+            <a href="?page={{ pagination.next_num }}" class="btn btn-secondary btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

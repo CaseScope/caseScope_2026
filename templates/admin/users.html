@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - CaseScope 2026{% endblock %}
+{% block header_title %}User Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">👥 User Management</h2>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Full Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.full_name or '-' }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>
+                            <span class="badge badge-{% if user.role == 'administrator' %}primary{% elif user.role == 'analyst' %}success{% else %}secondary{% endif %}">
+                                {{ user.role }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if user.is_active %}
+                            <span class="badge badge-success">Active</span>
+                            {% else %}
+                            <span class="badge badge-error">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary">Edit</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

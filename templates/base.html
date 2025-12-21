@@ -49,11 +49,25 @@
                     <span>Search</span>
                 </a>
                 
-                <!-- Settings -->
-                <a href="/settings" class="sidebar-nav-item">
+                <!-- Administrator Section -->
+                {% if current_user and current_user.is_authenticated and current_user.role == 'administrator' %}
+                <div class="sidebar-section-header">Administrator</div>
+                
+                <a href="/admin/settings" class="sidebar-nav-item">
                     <span class="sidebar-nav-icon">⚙️</span>
                     <span>Settings</span>
                 </a>
+                
+                <a href="/admin/users" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">👥</span>
+                    <span>Users</span>
+                </a>
+                
+                <a href="/admin/audit-log" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">📋</span>
+                    <span>Audit Log</span>
+                </a>
+                {% endif %}
             </nav>
         </aside>
         
