@@ -5,7 +5,7 @@ Clean, modular DFIR platform
 
 from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager
+from flask_login import LoginManager, login_required
 import os
 
 # Initialize Flask
@@ -19,16 +19,20 @@ app.config.from_object('config.Config')
 # Initialize database
 db = SQLAlchemy(app)
 
+# Import models after db initialization
+from models import User, Case
+
 # Initialize login manager
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
+login_manager.login_view = 'auth_login'
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.login_message_category = 'info'
 
 # User loader (required by Flask-Login)
 @login_manager.user_loader
 def load_user(user_id):
-    # TODO: Implement when User model is created
-    return None
+    return User.query.get(int(user_id))
 
 # Create upload directories
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -63,8 +67,9 @@ if routes_path.exists():
 # ============================================================================
 
 @app.route('/')
+@login_required
 def index():
-    """Homepage"""
+    """Homepage - requires authentication"""
     return render_template('index.html')
 
 @app.route('/health')

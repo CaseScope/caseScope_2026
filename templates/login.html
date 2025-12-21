@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - CaseScope 2026</title>
+    
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    
+    <style>
+        .login-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: var(--spacing-lg);
+        }
+        
+        .login-box {
+            background: var(--color-bg-secondary);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-2xl);
+            width: 100%;
+            max-width: 400px;
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .login-logo {
+            text-align: center;
+            margin-bottom: var(--spacing-2xl);
+        }
+        
+        .login-logo .logo-text {
+            font-size: 2rem;
+            font-weight: 700;
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 4px;
+        }
+        
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-lg);
+        }
+        
+        .login-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-logo">
+                <div class="logo-text">
+                    <span class="logo-case">case</span><span class="logo-scope">Scope</span>
+                </div>
+                <div class="logo-year" style="text-align: center; margin-top: 4px;">2026</div>
+                <p style="color: var(--color-text-secondary); font-size: 0.875rem; margin-top: 8px;">
+                    Digital Forensics & Incident Response Platform
+                </p>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="flash-message flash-{{ category }}" style="margin-bottom: var(--spacing-lg);">
+                    <span class="flash-icon">
+                        {% if category == 'success' %}✓{% elif category == 'error' %}✗{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                    </span>
+                    <span class="flash-text">{{ message }}</span>
+                </div>
+                {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <form method="POST" action="/login" class="login-form">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <input type="text" 
+                           id="username" 
+                           name="username" 
+                           class="form-input" 
+                           required 
+                           autofocus
+                           autocomplete="username">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <input type="password" 
+                           id="password" 
+                           name="password" 
+                           class="form-input" 
+                           required
+                           autocomplete="current-password">
+                </div>
+                
+                <div class="login-actions">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="remember" value="1">
+                        <span style="font-size: 0.875rem; color: var(--color-text-secondary);">Remember me</span>
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                    <span>🔐</span>
+                    <span>Login</span>
+                </button>
+            </form>
+            
+            <div style="text-align: center; margin-top: var(--spacing-xl); color: var(--color-text-muted); font-size: 0.75rem;">
+                Default credentials: admin / admin
+            </div>
+        </div>
+    </div>
+</body>
+</html>

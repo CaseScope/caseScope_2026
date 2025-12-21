@@ -78,8 +78,11 @@ MAX_UPLOAD_SIZE_MB = 500
 # SESSION SETTINGS (User Adjustable)
 # ============================================================================
 
-# Session timeout in seconds (default: 1 hour)
-SESSION_TIMEOUT = 3600
+# Session timeout in hours (default: 8 hours)
+SESSION_TIMEOUT_HOURS = 8
+
+# Session timeout in seconds (calculated from hours)
+SESSION_TIMEOUT = SESSION_TIMEOUT_HOURS * 3600
 
 # Secret key for session encryption
 # CHANGE THIS IN PRODUCTION!
