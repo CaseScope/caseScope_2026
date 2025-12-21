@@ -19,8 +19,12 @@ class User(UserMixin, db.Model):
     full_name = db.Column(db.String(120))
     role = db.Column(db.String(20), default='analyst')  # administrator, analyst, read-only
     is_active = db.Column(db.Boolean, default=True)
+    case_assigned = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=True)  # For read-only users
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
+    
+    # Relationships
+    assigned_case = db.relationship('Case', foreign_keys=[case_assigned], backref='viewers')
     
     def set_password(self, password):
         """Hash and set password"""
