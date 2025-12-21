@@ -246,12 +246,27 @@ function closeUserModal() {
 }
 
 function deleteUser(userId, username) {
+    // First confirmation
     if (!confirm(`⚠️ Delete User: ${username}\n\nThis action cannot be undone.\n\nContinue?`)) {
         return;
     }
     
+    // Prompt for reason
+    const reason = prompt(`Please provide a reason for deleting user '${username}':\n\n(This will be recorded in the audit log)`);
+    
+    if (!reason || reason.trim() === '') {
+        alert('Deletion cancelled - reason is required');
+        return;
+    }
+    
     fetch(`/admin/users/${userId}/delete`, {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            reason: reason.trim()
+        })
     })
     .then(response => response.json())
     .then(data => {

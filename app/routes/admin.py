@@ -318,6 +318,7 @@ def delete_user(user_id):
     Delete a user
     Only administrators can delete users
     Cannot delete yourself
+    Requires reason for audit trail
     """
     from main import db
     from models import User
@@ -326,6 +327,13 @@ def delete_user(user_id):
     # Cannot delete yourself
     if user_id == current_user.id:
         return jsonify({'success': False, 'error': 'Cannot delete your own account'}), 400
+    
+    # Get reason from request
+    data = request.get_json() or {}
+    reason = data.get('reason', '').strip()
+    
+    if not reason:
+        return jsonify({'success': False, 'error': 'Deletion reason is required'}), 400
     
     user = User.query.get_or_404(user_id)
     
@@ -337,6 +345,7 @@ def delete_user(user_id):
         # Capture case assignment if viewer
         audit_details = {
             'deleted_by': current_user.username,
+            'reason': reason,  # Include the deletion reason
             'role': user_role,
             'email': user_email,
             'was_active': user.is_active
@@ -353,7 +362,7 @@ def delete_user(user_id):
         db.session.delete(user)
         db.session.commit()
         
-        # Audit log with full context
+        # Audit log with full context including reason
         log_action('delete_user', resource_type='user', resource_id=user_id,
                    resource_name=username,
                    details=audit_details)
