@@ -26,11 +26,13 @@ def hunt_all_iocs_task(self, job_id, case_id):
     """
     
     # Import here to avoid circular import (main imports celery_app which imports this)
-    from main import db, opensearch_client
+    from main import db, opensearch_client, app
     from models import IOC, Case
     from model_ioc_hunt import IOCHuntJob, IOCHuntMatch
     
-    job = IOCHuntJob.query.get(job_id)
+    # CRITICAL: Must run within Flask app context for database access
+    with app.app_context():
+        job = IOCHuntJob.query.get(job_id)
     if not job:
         return {"error": "Job not found"}
     
@@ -237,12 +239,12 @@ def hunt_all_iocs_task(self, job_id, case_id):
         job.message = f"Hunt complete: {total_matches} matches found across {processed} IOCs"
         db.session.commit()
         
-        logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches")
-        
-    except Exception as e:
-        logger.exception(f"[IOC_HUNT] Job {job_id} failed: {e}")
-        job.status = "failed"
-        job.message = f"Error: {str(e)}"
-        job.completed_at = datetime.utcnow()
-        db.session.commit()
-        raise
+            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches")
+            
+        except Exception as e:
+            logger.exception(f"[IOC_HUNT] Job {job_id} failed: {e}")
+            job.status = "failed"
+            job.message = f"Error: {str(e)}"
+            job.completed_at = datetime.utcnow()
+            db.session.commit()
+            raise
