@@ -38,6 +38,7 @@
                         <th>User</th>
                         <th>Action</th>
                         <th>Resource</th>
+                        <th>Details</th>
                         <th>IP Address</th>
                         <th>Status</th>
                     </tr>
@@ -60,6 +61,18 @@
                             {{ log.resource_name or log.resource_id }}
                             {% else %}
                             -
+                            {% endif %}
+                        </td>
+                        <td style="max-width: 400px;">
+                            {% if log.details %}
+                            <details style="cursor: pointer;">
+                                <summary style="color: var(--color-primary); font-size: 0.8125rem;">
+                                    View Details
+                                </summary>
+                                <div style="margin-top: var(--spacing-sm); padding: var(--spacing-sm); background: var(--color-bg-tertiary); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.75rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">{{ log.details }}</div>
+                            </details>
+                            {% else %}
+                            <span style="color: var(--color-text-muted); font-size: 0.8125rem;">-</span>
                             {% endif %}
                         </td>
                         <td style="font-family: var(--font-mono); font-size: 0.8125rem;">
