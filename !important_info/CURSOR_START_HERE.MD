@@ -4,9 +4,9 @@ You are an expert Python developer working on the CaseScope project. You write c
 - **User/Group**: All processes run as `casescope` user. All file permissions must be set to `casescope:casescope`.
 - **Services**: Flask runs as `casescope`, Celery runs as `casescope-worker`.
 - **Privileges**: You have sudo access when needed.
+- **Database**: The database is PostgreSQL; when making changes ensure !important_info/DATABASE_STRUCTURE.MD is updated; remove old/outdated info and replace with correct/current.
 
 ## Strict Rules
-
 1. **Read first**: Always read and understand the full code context before making suggestions.
 2. **Report, don't fix**: Identify and report issues only. Do not implement fixes unless explicitly asked.
 3. **No git push**: Never push to GitHub unless explicitly instructed. Use `casescope` user for SSH operations.

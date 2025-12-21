@@ -59,57 +59,48 @@
 </div>
 
 <!-- ============================================================================
-     EVENT STATISTICS TILE (Full Width)
+     EVENT STATISTICS TILE (Full Width) - Professional Layout
      ============================================================================ -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-header">
         <h2 class="card-title">📊 Event Statistics</h2>
     </div>
     <div class="card-body">
-        <div class="stat-grid-case" style="grid-template-columns: repeat(3, 1fr);">
-            <div class="stat-item">
-                <div class="stat-item-label">Total Events</div>
-                <div id="stat-total-events" class="stat-item-value-large" style="color: var(--color-primary);">
-                    {{ '{:,}'.format(case.total_event_count or 0) }}
-                </div>
+        <!-- Top Row: Main Metrics -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-lg); margin-bottom: var(--spacing-xl);">
+            <div style="text-align: center; padding: var(--spacing-lg); background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)); border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.2);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-sm); font-weight: 500;">Total Events</div>
+                <div style="font-size: 2.5rem; font-weight: 700; color: #3b82f6;">{{ '{:,}'.format(total_events) }}</div>
             </div>
-            <div class="stat-item">
-                <div class="stat-item-label">SIGMA Violations</div>
-                <div id="stat-sigma-events" class="stat-item-value-large" style="color: var(--color-success);">
-                    {{ '{:,}'.format(case.total_events_with_sigma or 0) }}
-                </div>
+            <div style="text-align: center; padding: var(--spacing-lg); background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05)); border-radius: var(--radius-md); border: 1px solid rgba(34, 197, 94, 0.2);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-sm); font-weight: 500;">SIGMA Violations</div>
+                <div style="font-size: 2.5rem; font-weight: 700; color: #22c55e;">{{ '{:,}'.format(total_sigma_events) }}</div>
             </div>
-            <div class="stat-item">
-                <div class="stat-item-label">IOC Events</div>
-                <div id="stat-ioc-events" class="stat-item-value-large" style="color: var(--color-error);">
-                    {{ '{:,}'.format(case.total_events_with_iocs or 0) }}
-                </div>
+            <div style="text-align: center; padding: var(--spacing-lg); background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); border-radius: var(--radius-md); border: 1px solid rgba(239, 68, 68, 0.2);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-sm); font-weight: 500;">IOC Events</div>
+                <div style="font-size: 2.5rem; font-weight: 700; color: #ef4444;">{{ '{:,}'.format(total_ioc_events) }}</div>
             </div>
         </div>
-        <!-- Event Status Counts -->
-        <div class="stat-grid-case" style="grid-template-columns: repeat(4, 1fr); margin-top: var(--spacing-sm);">
-            <div class="stat-item">
-                <div class="stat-item-label">New</div>
-                <div class="stat-item-value-large" style="color: var(--color-text-secondary);">
-                    {{ '{:,}'.format((case.total_event_count or 0) - ((case.total_events_hunted or 0) + (case.total_events_confirmed or 0) + (case.total_events_noise or 0))) }}
+        
+        <!-- Bottom Row: Event Status Breakdown -->
+        <div style="padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-md); font-weight: 600;">Event Status Distribution</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-md);">
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">New</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-secondary);">{{ '{:,}'.format(status_counts.new|default(0)) }}</div>
                 </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">🎯 Hunted</div>
-                <div class="stat-item-value-large" style="color: #9b59b6;">
-                    {{ '{:,}'.format(case.total_events_hunted or 0) }}
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">🎯 Hunted</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #9b59b6;">{{ '{:,}'.format(status_counts.hunted|default(0)) }}</div>
                 </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">✓ Confirmed</div>
-                <div class="stat-item-value-large" style="color: #c0392b;">
-                    {{ '{:,}'.format(case.total_events_confirmed or 0) }}
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">✓ Confirmed</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #c0392b;">{{ '{:,}'.format(status_counts.confirmed|default(0)) }}</div>
                 </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-item-label">🔇 Noise</div>
-                <div class="stat-item-value-large" style="color: var(--color-muted);">
-                    {{ '{:,}'.format(case.total_events_noise or 0) }}
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">🔇 Noise</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-muted);">{{ '{:,}'.format(status_counts.noise|default(0)) }}</div>
                 </div>
             </div>
         </div>

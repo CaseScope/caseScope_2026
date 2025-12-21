@@ -2235,6 +2235,16 @@ def triage_page(case_id):
     from routes.settings import get_setting
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
     
+    # === EVENT STATISTICS ===
+    # Get event counts from case model
+    total_events = case.total_event_count or 0
+    total_sigma_events = case.total_events_with_sigma or 0
+    total_ioc_events = case.total_events_with_iocs or 0
+    
+    # Get event status counts
+    from event_status import get_status_counts
+    status_counts = get_status_counts(case_id)
+    
     return render_template('triage.html',
         case=case,
         # Prerequisite data
@@ -2247,6 +2257,11 @@ def triage_page(case_id):
         tag_count=tag_count,
         has_triage_date=has_triage_date,
         triage_date=triage_date,
+        # Event statistics
+        total_events=total_events,
+        total_sigma_events=total_sigma_events,
+        total_ioc_events=total_ioc_events,
+        status_counts=status_counts,
         # Previous triages
         previous_triages=previous_triages,
         # AI settings
