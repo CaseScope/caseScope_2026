@@ -158,10 +158,26 @@ def add_user():
         db.session.add(user)
         db.session.commit()
         
-        # Audit log
+        # Audit log with full details
+        audit_details = {
+            'created_by': current_user.username,
+            'role': role,
+            'email': email,
+            'is_active': is_active
+        }
+        
+        # For viewers, include case assignment
+        if role == 'read-only' and case_assigned:
+            from models import Case
+            case = Case.query.get(case_assigned)
+            audit_details['case_assigned'] = {
+                'case_id': case_assigned,
+                'case_name': case.name if case else 'Unknown'
+            }
+        
         log_action('create_user', resource_type='user', resource_id=user.id,
                    resource_name=username,
-                   details={'role': role, 'created_by': current_user.username})
+                   details=audit_details)
         
         return jsonify({'success': True, 'user_id': user.id})
         
@@ -239,11 +255,26 @@ def edit_user(user_id):
         
         db.session.commit()
         
-        # Audit log
+        # Audit log with detailed change tracking
         if changes:
+            audit_details = {
+                'modified_by': current_user.username,
+                'changes': changes,
+                'current_role': user.role
+            }
+            
+            # Add case assignment info if viewer
+            if user.role == 'read-only' and user.case_assigned:
+                from models import Case
+                case = Case.query.get(user.case_assigned)
+                audit_details['current_case_assigned'] = {
+                    'case_id': user.case_assigned,
+                    'case_name': case.name if case else 'Unknown'
+                }
+            
             log_action('modify_user', resource_type='user', resource_id=user.id,
                        resource_name=user.username,
-                       details={'changes': changes, 'modified_by': current_user.username})
+                       details=audit_details)
         
         return jsonify({'success': True})
         
@@ -301,14 +332,31 @@ def delete_user(user_id):
     try:
         username = user.username
         user_role = user.role
+        user_email = user.email
+        
+        # Capture case assignment if viewer
+        audit_details = {
+            'deleted_by': current_user.username,
+            'role': user_role,
+            'email': user_email,
+            'was_active': user.is_active
+        }
+        
+        if user_role == 'read-only' and user.case_assigned:
+            from models import Case
+            case = Case.query.get(user.case_assigned)
+            audit_details['case_assigned'] = {
+                'case_id': user.case_assigned,
+                'case_name': case.name if case else 'Unknown'
+            }
         
         db.session.delete(user)
         db.session.commit()
         
-        # Audit log
+        # Audit log with full context
         log_action('delete_user', resource_type='user', resource_id=user_id,
                    resource_name=username,
-                   details={'role': user_role, 'deleted_by': current_user.username})
+                   details=audit_details)
         
         return jsonify({'success': True})
         
