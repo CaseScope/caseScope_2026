@@ -845,6 +845,51 @@ def file_details(case_id, file_id):
                           file=case_file)
 
 
+@files_bp.route('/case/<int:case_id>/bulk_reindex', methods=['POST'])
+@login_required
+def bulk_reindex(case_id):
+    """Re-index ALL visible files in the case"""
+    from main import db, CaseFile
+    from bulk_operations import clear_case_metadata, queue_file_processing
+    from tasks import process_file
+    from celery_health import check_workers_available
+    
+    # Safety check: Ensure Celery workers are available
+    workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
+    if not workers_ok:
+        return jsonify({'success': False, 'error': f'Cannot start bulk operation: {error_msg}'}), 500
+    
+    # Get all visible, indexed files
+    files = db.session.query(CaseFile).filter_by(
+        case_id=case_id,
+        is_deleted=False,
+        is_hidden=False
+    ).all()
+    
+    if not files:
+        return jsonify({'success': False, 'error': 'No files to reindex'}), 400
+    
+    # Clear metadata for all files
+    clear_case_metadata(db, case_id)
+    
+    # Queue files for reindexing
+    queue_file_processing(process_file, files, operation='reindex')
+    
+    # Audit log
+    from audit_logger import log_action
+    from main import Case
+    case = db.session.get(Case, case_id)
+    log_action('bulk_reindex_files', resource_type='file', resource_id=None,
+              resource_name=f'{len(files)} files',
+              details={
+                  'case_id': case_id,
+                  'case_name': case.name if case else None,
+                  'file_count': len(files)
+              })
+    
+    return jsonify({'success': True, 'queued': len(files)})
+
+
 @files_bp.route('/case/<int:case_id>/bulk_reindex_selected', methods=['POST'])
 @login_required
 def bulk_reindex_selected(case_id):
