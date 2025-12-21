@@ -70,11 +70,20 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 logger.warning(f"[IOC_HUNT] Error checking index: {e}")
                 # Continue anyway - might be transient error
             
+            # Get total event count in the index
+            try:
+                count_result = opensearch_client.count(index=index_name)
+                total_events_in_index = count_result.get('count', 0)
+            except Exception as e:
+                logger.warning(f"[IOC_HUNT] Could not get event count: {e}")
+                total_events_in_index = 0
+            
             job.total_iocs = len(iocs)
+            job.total_events_searched = total_events_in_index
             job.status = "running"
             db.session.commit()
             
-            logger.info(f"[IOC_HUNT] Starting global hunt: {len(iocs)} IOCs, case {case_id}")
+            logger.info(f"[IOC_HUNT] Starting global hunt: {len(iocs)} IOCs across {total_events_in_index:,} events, case {case_id}")
             
             processed = 0
             total_matches = 0

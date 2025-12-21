@@ -145,6 +145,7 @@ def hunt_status(case_id, job_id):
         'total_iocs': job.total_iocs,
         'processed_iocs': job.processed_iocs,
         'match_count': job.match_count,
+        'total_events_searched': job.total_events_searched,
         'message': job.message,
         'created_at': job.created_at.isoformat() if job.created_at else None,
         'completed_at': job.completed_at.isoformat() if job.completed_at else None

@@ -26,6 +26,7 @@ class IOCHuntJob(db.Model):
     total_iocs = db.Column(db.Integer, default=0)
     processed_iocs = db.Column(db.Integer, default=0)
     match_count = db.Column(db.Integer, default=0)
+    total_events_searched = db.Column(db.BigInteger, default=0)  # Total events in the index
     
     message = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
