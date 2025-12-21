@@ -78,6 +78,12 @@ CREATE INDEX IF NOT EXISTS idx_hunt_match_case_event ON ioc_hunt_match(case_id, 
 -- 5. Global hunts do NOT update has_ioc flag in OpenSearch (file processing does)
 -- ============================================================================
 
+-- Grant permissions to casescope user
+GRANT ALL PRIVILEGES ON TABLE ioc_hunt_job TO casescope;
+GRANT ALL PRIVILEGES ON TABLE ioc_hunt_match TO casescope;
+GRANT USAGE, SELECT ON SEQUENCE ioc_hunt_job_id_seq TO casescope;
+GRANT USAGE, SELECT ON SEQUENCE ioc_hunt_match_id_seq TO casescope;
+
 -- Verify tables were created
 SELECT 'IOC Hunt tables created successfully' AS status;
 SELECT COUNT(*) AS ioc_hunt_job_count FROM ioc_hunt_job;
