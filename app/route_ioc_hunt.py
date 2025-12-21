@@ -190,7 +190,7 @@ def view_results(case_id, job_id):
         func.count(IOCHuntMatch.id).label('match_count')
     ).join(IOCHuntMatch).filter(
         IOCHuntMatch.job_id == job_id
-    ).group_by(IOC.id).order_by(func.count(IOCHuntMatch.id).desc()).all()
+    ).group_by(IOC.id, IOC.ioc_value, IOC.ioc_type).order_by(func.count(IOCHuntMatch.id).desc()).all()
     
     return render_template(
         'ioc_hunt_results.html',
