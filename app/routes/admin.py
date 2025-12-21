@@ -105,8 +105,18 @@ def audit_log():
     # Paginate
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
+    # Convert logs to dict for JavaScript
+    logs_dict = [{
+        'id': log.id,
+        'action': log.action,
+        'username': log.username,
+        'timestamp': log.timestamp.isoformat() if log.timestamp else None,
+        'details': log.details
+    } for log in pagination.items]
+    
     return render_template('admin/audit_log.html', 
                          logs=pagination.items,
+                         logs_json=logs_dict,
                          pagination=pagination,
                          action_filter=action_filter,
                          user_filter=user_filter)

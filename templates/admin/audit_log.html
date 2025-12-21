@@ -63,14 +63,12 @@
                             -
                             {% endif %}
                         </td>
-                        <td style="max-width: 400px;">
+                        <td>
                             {% if log.details %}
-                            <details style="cursor: pointer;">
-                                <summary style="color: var(--color-primary); font-size: 0.8125rem;">
-                                    View Details
-                                </summary>
-                                <div style="margin-top: var(--spacing-sm); padding: var(--spacing-sm); background: var(--color-bg-tertiary); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.75rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">{{ log.details }}</div>
-                            </details>
+                            <button onclick="showAuditDetails({{ log.id }}, '{{ log.action }}', '{{ log.username }}', '{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}')" 
+                                    class="btn btn-sm btn-primary">
+                                View Details
+                            </button>
                             {% else %}
                             <span style="color: var(--color-text-muted); font-size: 0.8125rem;">-</span>
                             {% endif %}
@@ -107,4 +105,152 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Audit Details Modal -->
+<div id="auditDetailsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2 class="modal-title">📋 Audit Log Details</h2>
+            <button type="button" class="modal-close" onclick="closeAuditDetailsModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <!-- Audit Summary -->
+            <div style="margin-bottom: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-bg-tertiary); border-radius: var(--radius-md);">
+                <div style="display: grid; grid-template-columns: 120px 1fr; gap: var(--spacing-sm); font-size: 0.875rem;">
+                    <strong>Action:</strong>
+                    <span id="auditActionText"></span>
+                    
+                    <strong>User:</strong>
+                    <span id="auditUserText"></span>
+                    
+                    <strong>Timestamp:</strong>
+                    <span id="auditTimestampText"></span>
+                </div>
+            </div>
+            
+            <!-- Details Content -->
+            <div id="auditDetailsContent"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeAuditDetailsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const auditData = {{ logs_json|tojson|safe }};
+
+function showAuditDetails(logId, action, username, timestamp) {
+    // Find the log entry
+    const log = auditData.find(l => l.id === logId);
+    if (!log || !log.details) return;
+    
+    // Parse details JSON
+    let details;
+    try {
+        details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+    } catch (e) {
+        details = { raw: log.details };
+    }
+    
+    // Set summary
+    document.getElementById('auditActionText').innerHTML = `<span class="badge badge-info">${action}</span>`;
+    document.getElementById('auditUserText').textContent = username;
+    document.getElementById('auditTimestampText').textContent = timestamp;
+    
+    // Format details based on action type
+    let html = '<div style="display: flex; flex-direction: column; gap: var(--spacing-md);">';
+    
+    if (action === 'delete_user' && details.reason) {
+        html += `
+            <div>
+                <strong style="color: var(--color-error);">Deletion Reason:</strong>
+                <div style="margin-top: var(--spacing-xs); padding: var(--spacing-md); background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--color-error); border-radius: var(--radius-sm);">
+                    ${escapeHtml(details.reason)}
+                </div>
+            </div>
+        `;
+    }
+    
+    if (details.changes) {
+        html += '<div><strong>Changes Made:</strong><div style="margin-top: var(--spacing-sm);">';
+        for (const [field, change] of Object.entries(details.changes)) {
+            if (typeof change === 'object' && change.old !== undefined) {
+                html += `
+                    <div style="padding: var(--spacing-sm); margin-bottom: var(--spacing-xs); background: var(--color-bg-tertiary); border-radius: var(--radius-sm);">
+                        <strong>${field}:</strong>
+                        <span style="color: var(--color-error);">${formatValue(change.old)}</span>
+                        →
+                        <span style="color: var(--color-success);">${formatValue(change.new)}</span>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div style="padding: var(--spacing-sm); margin-bottom: var(--spacing-xs); background: var(--color-bg-tertiary); border-radius: var(--radius-sm);">
+                        <strong>${field}:</strong> ${formatValue(change)}
+                    </div>
+                `;
+            }
+        }
+        html += '</div></div>';
+    }
+    
+    if (details.case_assigned) {
+        html += `
+            <div>
+                <strong>Case Assignment:</strong>
+                <div style="margin-top: var(--spacing-xs); padding: var(--spacing-md); background: var(--color-bg-tertiary); border-radius: var(--radius-sm);">
+                    <div><strong>Case ID:</strong> ${details.case_assigned.case_id}</div>
+                    <div><strong>Case Name:</strong> ${escapeHtml(details.case_assigned.case_name)}</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Show other relevant fields
+    const excludeKeys = ['changes', 'case_assigned', 'reason', 'modified_by', 'created_by', 'deleted_by', 'current_case_assigned'];
+    const otherDetails = Object.entries(details).filter(([key]) => !excludeKeys.includes(key));
+    
+    if (otherDetails.length > 0) {
+        html += '<div><strong>Additional Information:</strong><div style="margin-top: var(--spacing-sm);">';
+        for (const [key, value] of otherDetails) {
+            html += `
+                <div style="padding: var(--spacing-sm); margin-bottom: var(--spacing-xs); background: var(--color-bg-tertiary); border-radius: var(--radius-sm);">
+                    <strong>${key}:</strong> ${formatValue(value)}
+                </div>
+            `;
+        }
+        html += '</div></div>';
+    }
+    
+    html += '</div>';
+    
+    document.getElementById('auditDetailsContent').innerHTML = html;
+    document.getElementById('auditDetailsModal').style.display = 'flex';
+}
+
+function closeAuditDetailsModal() {
+    document.getElementById('auditDetailsModal').style.display = 'none';
+}
+
+function formatValue(value) {
+    if (value === null || value === undefined) return '<em>null</em>';
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (typeof value === 'object') return '<code>' + escapeHtml(JSON.stringify(value, null, 2)) + '</code>';
+    return escapeHtml(String(value));
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close modal on background click
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'auditDetailsModal') {
+        closeAuditDetailsModal();
+    }
+});
+</script>
 {% endblock %}
