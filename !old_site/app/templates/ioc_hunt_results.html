@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}IOC Hunt Results - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🎯 IOC Hunt Results - {{ case.name }}</h1>
+        <p class="text-secondary">Job #{{ job.id }} • {{ job.match_count }} matches found across {{ job.total_iocs }} IOCs</p>
+    </div>
+    <div>
+        <a href="{{ url_for('triage_page', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Triage</span>
+        </a>
+    </div>
+</div>
+
+<!-- Job Summary -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">📊 Hunt Summary</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-lg);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">Status</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-success);">{{ job.status|title }}</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">IOCs Searched</div>
+                <div style="font-size: 1.5rem; font-weight: 700;">{{ job.total_iocs }}</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">Total Matches</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-error);">{{ job.match_count }}</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">Completed</div>
+                <div style="font-size: 0.875rem; font-weight: 600;">{{ job.completed_at.strftime('%Y-%m-%d %H:%M:%S') if job.completed_at else 'N/A' }}</div>
+            </div>
+        </div>
+        {% if job.message %}
+        <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: var(--radius-sm);">
+            <strong>Message:</strong> {{ job.message }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Matches by IOC -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🎯 Matches by IOC</h2>
+    </div>
+    <div class="card-body">
+        {% if ioc_match_counts %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>IOC Type</th>
+                        <th>IOC Value</th>
+                        <th style="text-align: right;">Matches Found</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ioc_value, ioc_type, match_count in ioc_match_counts %}
+                    <tr>
+                        <td>
+                            <span class="badge-pill badge-pill-primary">{{ ioc_type }}</span>
+                        </td>
+                        <td style="font-family: monospace;">{{ ioc_value }}</td>
+                        <td style="text-align: right; font-weight: 700; color: var(--color-error);">
+                            {{ match_count }}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('search_events', case_id=case.id) }}?search={{ ioc_value }}" class="btn btn-sm btn-primary">
+                                <span>🔍</span>
+                                <span>View Events</span>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🔍</div>
+            <p>No IOC matches found in this hunt.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

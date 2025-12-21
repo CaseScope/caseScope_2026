@@ -1,0 +1,1084 @@
+{% extends "base.html" %}
+
+{% block title %}System Tools Settings{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h1 class="content-title">🔧 System Tools Settings</h1>
+            <p style="color: var(--color-text-muted); margin: 0;">
+                Define known-good tools and networks to exclude from AI hunting and auto-tagging
+            </p>
+        </div>
+        <a href="{{ url_for('settings.index') }}" class="btn" style="background: var(--color-secondary);">
+            ← Back to Settings
+        </a>
+    </div>
+</div>
+
+<div style="max-width: 1200px; margin: 0 auto;">
+    
+    <!-- Info Banner -->
+    <div class="card" style="margin-bottom: var(--spacing-lg); background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border-left: 4px solid var(--color-info);">
+        <div class="card-body" style="padding: var(--spacing-md);">
+            <h3 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">💡 How Exclusions Work</h3>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.6;">
+                When AI Triage Search hunts for suspicious activity, it can match legitimate tools used by your IT team.
+                Configure exclusions here to prevent false positives:
+            </p>
+            <ul style="margin: var(--spacing-sm) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.9rem;">
+                <li><strong>RMM Tools:</strong> Events spawned by these processes (e.g., LabTech running <code>whoami</code>) are fully excluded</li>
+                <li><strong>Remote Tools:</strong> Sessions with known-good IDs are excluded; unknown IDs are still flagged</li>
+                <li><strong>EDR/Security Tools:</strong> Routine health checks excluded, but <strong>isolation/response actions KEPT</strong></li>
+                <li><strong>Known-Good IPs:</strong> Events from internal networks or analyst IPs are excluded</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- RMM Tools Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                    <span style="font-size: 1.5rem;">🖥️</span>
+                    RMM Tools
+                </h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                    Remote Monitoring & Management tools (LabTech, Datto, Kaseya, etc.)
+                </p>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="showAddRMMModal()">
+                + Add RMM Tool
+            </button>
+        </div>
+        
+        <div class="card-body">
+            {% if rmm_settings %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tool Name</th>
+                        <th>Executable Patterns</th>
+                        <th>RMM Path</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th style="width: 180px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for setting in rmm_settings %}
+                    <tr>
+                        <td><strong>{{ setting.tool_name }}</strong></td>
+                        <td><code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.executable_pattern }}</code></td>
+                        <td>
+                            {% if setting.rmm_path %}
+                            <code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.rmm_path }}</code>
+                            {% else %}
+                            <span style="color: var(--color-text-muted);">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="color: var(--color-text-muted);">{{ setting.description or '-' }}</td>
+                        <td>
+                            {% if setting.is_active %}
+                            <span class="badge" style="background: var(--color-success);">Active</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--color-text-muted);">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="editRMMSetting({{ setting.id }}, '{{ setting.tool_name }}', '{{ setting.executable_pattern }}', '{{ setting.rmm_path or '' }}', '{{ setting.description or '' }}')" title="Edit">
+                                ✏️
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="toggleSetting({{ setting.id }})" title="Toggle">
+                                {{ '⏸️' if setting.is_active else '▶️' }}
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+                <p style="font-size: 1.1rem; margin-bottom: var(--spacing-sm);">No RMM tools configured</p>
+                <p style="font-size: 0.9rem;">Add tools like ConnectWise Automate, Datto RMM, or Kaseya to exclude their activity from hunting</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Remote Connectivity Tools Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                    <span style="font-size: 1.5rem;">🔗</span>
+                    Remote Connectivity Tools
+                </h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                    ScreenConnect, TeamViewer, AnyDesk, etc. with known-good session IDs
+                </p>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="showAddRemoteModal()">
+                + Add Remote Tool
+            </button>
+        </div>
+        
+        <div class="card-body">
+            {% if remote_settings %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tool Name</th>
+                        <th>Executable Patterns</th>
+                        <th>Known-Good IDs</th>
+                        <th>Status</th>
+                        <th style="width: 150px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for setting in remote_settings %}
+                    <tr>
+                        <td><strong>{{ setting.tool_name }}</strong></td>
+                        <td><code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.executable_pattern }}</code></td>
+                        <td>
+                            {% set ids = setting.known_good_ids | tojson | safe %}
+                            {% if ids and ids != 'null' %}
+                                {% set id_list = ids | replace('[', '') | replace(']', '') | replace('"', '') | replace("'", "") %}
+                                <span style="color: var(--color-success);">{{ id_list.split(',') | length }} IDs configured</span>
+                            {% else %}
+                                <span style="color: var(--color-warning);">No IDs (all flagged)</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if setting.is_active %}
+                            <span class="badge" style="background: var(--color-success);">Active</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--color-text-muted);">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm" onclick="editRemoteTool({{ setting.id }}, '{{ setting.tool_name }}', '{{ setting.known_good_ids | default('[]', true) | e }}')" title="Edit IDs">
+                                ✏️
+                            </button>
+                            <button class="btn btn-sm" onclick="toggleSetting({{ setting.id }})" title="Toggle">
+                                {{ '⏸️' if setting.is_active else '▶️' }}
+                            </button>
+                            <button class="btn btn-sm" style="background: var(--color-danger);" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+                <p style="font-size: 1.1rem; margin-bottom: var(--spacing-sm);">No remote tools configured</p>
+                <p style="font-size: 0.9rem;">Add tools like ScreenConnect with known-good session IDs to distinguish legitimate IT support from attackers</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- EDR/Security Tools Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                    <span style="font-size: 1.5rem;">🛡️</span>
+                    EDR / Security Tools
+                </h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                    Huntress, SentinelOne, CrowdStrike, etc. - Exclude routine checks, <strong>KEEP response actions</strong>
+                </p>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="showAddEDRModal()">
+                + Add EDR Tool
+            </button>
+        </div>
+        
+        <div class="card-body">
+            <!-- Info about EDR behavior -->
+            <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.1)); border-left: 4px solid var(--color-success); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md);">
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                    <strong style="color: var(--color-success);">Context-Aware Exclusion:</strong> 
+                    EDR tools run routine health checks (whoami, systeminfo) that create noise. 
+                    These are excluded. However, <strong>isolation and response actions are ALWAYS kept</strong> in the timeline 
+                    because they're critical to understanding the incident response.
+                </p>
+            </div>
+            
+            {% if edr_settings %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tool Name</th>
+                        <th>Executable Patterns</th>
+                        <th>Behavior</th>
+                        <th>Status</th>
+                        <th style="width: 150px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for setting in edr_settings %}
+                    <tr>
+                        <td><strong>{{ setting.tool_name }}</strong></td>
+                        <td><code style="font-size: 0.85rem; background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px;">{{ setting.executable_pattern }}</code></td>
+                        <td>
+                            {% if setting.exclude_routine %}
+                            <span class="badge" style="background: var(--color-warning); margin-right: 4px;">Routine: Excluded</span>
+                            {% endif %}
+                            {% if setting.keep_responses %}
+                            <span class="badge" style="background: var(--color-success);">Responses: Kept</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if setting.is_active %}
+                            <span class="badge" style="background: var(--color-success);">Active</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--color-text-muted);">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm" onclick="editEDRTool({{ setting.id }}, '{{ setting.tool_name }}', '{{ setting.executable_pattern | e }}', '{{ setting.routine_commands | default('[]', true) | e }}', '{{ setting.response_patterns | default('[]', true) | e }}', {{ 'true' if setting.exclude_routine else 'false' }}, {{ 'true' if setting.keep_responses else 'false' }}, '{{ setting.description | default('', true) | e }}')" title="Edit">
+                                ✏️
+                            </button>
+                            <button class="btn btn-sm" onclick="toggleSetting({{ setting.id }})" title="Toggle">
+                                {{ '⏸️' if setting.is_active else '▶️' }}
+                            </button>
+                            <button class="btn btn-sm" style="background: var(--color-danger);" onclick="deleteSetting({{ setting.id }}, '{{ setting.tool_name }}')" title="Delete">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+                <p style="font-size: 1.1rem; margin-bottom: var(--spacing-sm);">No EDR tools configured</p>
+                <p style="font-size: 0.9rem;">Add tools like Huntress, SentinelOne, or CrowdStrike to exclude routine health checks while keeping isolation/response actions</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Known-Good IPs Section -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-header">
+            <h2 class="card-title" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                <span style="font-size: 1.5rem;">🌐</span>
+                Known-Good IP Addresses / Networks
+            </h2>
+            <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                Internal networks, VPN ranges, and analyst workstation IPs to exclude from hunting
+            </p>
+        </div>
+        
+        <div class="card-body">
+            <form id="ipForm" onsubmit="saveIPExclusions(event)">
+                <div class="form-group">
+                    <label for="ip_list">Enter IPs or CIDR ranges (one per line)</label>
+                    <textarea id="ip_list" 
+                              name="ip_list" 
+                              rows="10" 
+                              style="width: 100%; font-family: monospace; font-size: 0.9rem;"
+                              placeholder="# Example entries:
+192.168.1.0/24
+10.0.0.0/8
+172.16.0.0/12
+203.0.113.50
+
+# Lines starting with # are ignored">{% for setting in ip_settings %}{{ setting.ip_or_cidr }}
+{% endfor %}</textarea>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        Supports single IPs (192.168.1.50) and CIDR notation (10.0.0.0/8). Comments start with #
+                    </p>
+                </div>
+                
+                <div style="display: flex; gap: var(--spacing-md); align-items: center;">
+                    <button type="submit" class="btn btn-primary">
+                        💾 Save IP Exclusions
+                    </button>
+                    <span id="ipSaveStatus" style="color: var(--color-text-muted);"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<!-- Add RMM Tool Modal -->
+<div id="addRMMModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🖥️ Add RMM Tool Exclusion</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addRMMModal')">✕</button>
+        </div>
+        <form id="addRMMForm" onsubmit="submitRMMForm(event)">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="rmm_tool_key" class="form-label">Select RMM Tool</label>
+                    <select id="rmm_tool_key" name="tool_key" class="form-input" onchange="updateRMMFields()" required>
+                        <option value="">-- Select Tool --</option>
+                        {% for key, tool in rmm_tools.items() %}
+                        <option value="{{ key }}" data-executables="{{ tool.executables }}" data-description="{{ tool.description }}">
+                            {{ tool.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div id="rmmCustomFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="rmm_custom_name" class="form-label">Custom Tool Name</label>
+                        <input type="text" id="rmm_custom_name" name="custom_name" class="form-input" placeholder="My Custom RMM">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rmm_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="rmm_executables" name="custom_executables" class="form-input"
+                           placeholder="process1.exe,process2.exe,Tool*.exe"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Wildcards (*) supported.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rmm_path" class="form-label">RMM Installation Path (optional)</label>
+                    <input type="text" id="rmm_path" name="custom_path" class="form-input"
+                           placeholder="C:\Program Files\LabTech\"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Installation directory path. Used to match events referencing the RMM folder.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rmm_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="rmm_description" name="description" class="form-input" placeholder="Why this tool is excluded">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addRMMModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add RMM Tool</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit RMM Tool Modal -->
+<div id="editRMMModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Edit RMM Tool: <span id="editRMMToolName"></span></h2>
+            <button type="button" class="modal-close" onclick="closeModal('editRMMModal')">✕</button>
+        </div>
+        <form id="editRMMForm" onsubmit="submitEditRMMForm(event)">
+            <input type="hidden" id="edit_rmm_setting_id" name="setting_id">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_rmm_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="edit_rmm_executables" name="executable_pattern" class="form-input"
+                           placeholder="process1.exe,process2.exe,Tool*.exe"
+                           style="font-family: monospace;" required>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Wildcards (*) supported.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_rmm_path" class="form-label">RMM Installation Path (optional)</label>
+                    <input type="text" id="edit_rmm_path" name="rmm_path" class="form-input"
+                           placeholder="C:\Program Files\LabTech\"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Installation directory path. Used to match events referencing the RMM folder.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_rmm_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="edit_rmm_description" name="description" class="form-input" placeholder="Why this tool is excluded">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editRMMModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Remote Tool Modal -->
+<div id="addRemoteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🔗 Add Remote Connectivity Tool</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addRemoteModal')">✕</button>
+        </div>
+        <form id="addRemoteForm" onsubmit="submitRemoteForm(event)">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="remote_tool_key" class="form-label">Select Remote Tool</label>
+                    <select id="remote_tool_key" name="tool_key" class="form-input" onchange="updateRemoteFields()" required>
+                        <option value="">-- Select Tool --</option>
+                        {% for key, tool in remote_tools.items() %}
+                        <option value="{{ key }}" data-executables="{{ tool.executables }}" data-idfield="{{ tool.id_field }}" data-description="{{ tool.description }}">
+                            {{ tool.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div id="remoteCustomFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="remote_custom_name" class="form-label">Custom Tool Name</label>
+                        <input type="text" id="remote_custom_name" name="custom_name" class="form-input" placeholder="My Remote Tool">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="remote_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="remote_executables" name="custom_executables" class="form-input"
+                           placeholder="tool.exe,Tool*.exe"
+                           style="font-family: monospace;">
+                </div>
+                
+                <div class="form-group">
+                    <label for="remote_known_ids" class="form-label">Known-Good <span id="idFieldLabel">Session IDs</span> (one per line)</label>
+                    <textarea id="remote_known_ids" name="known_good_ids" class="form-textarea" rows="5" 
+                              style="font-family: monospace;"
+                              placeholder="24a22b9fc261d141
+98f7c3a2b1e45678
+abc123def456"></textarea>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Sessions with these IDs will be excluded. Unknown IDs are still flagged as suspicious.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="remote_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="remote_description" name="description" class="form-input" placeholder="IT support sessions, etc.">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addRemoteModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Remote Tool</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add EDR Tool Modal -->
+<div id="addEDRModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🛡️ Add EDR / Security Tool</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addEDRModal')">✕</button>
+        </div>
+        <form id="addEDRForm" onsubmit="submitEDRForm(event)">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edr_tool_key" class="form-label">Select EDR Tool</label>
+                    <select id="edr_tool_key" name="tool_key" class="form-input" onchange="updateEDRFields()" required>
+                        <option value="">-- Select Tool --</option>
+                        {% for key, tool in edr_tools.items() %}
+                        <option value="{{ key }}" 
+                                data-executables="{{ tool.executables }}" 
+                                data-routine="{{ tool.routine_commands }}"
+                                data-responses="{{ tool.response_patterns }}"
+                                data-description="{{ tool.description }}">
+                            {{ tool.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div id="edrCustomFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="edr_custom_name" class="form-label">Custom Tool Name</label>
+                        <input type="text" id="edr_custom_name" name="custom_name" class="form-input" placeholder="My EDR Tool">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edr_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="edr_executables" name="custom_executables" class="form-input"
+                           placeholder="Agent.exe,Service.exe"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Events spawned by these processes will be evaluated.
+                    </p>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md);">
+                    <div class="form-group">
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <input type="checkbox" id="edr_exclude_routine" name="exclude_routine" value="true" checked>
+                            Exclude Routine Health Checks
+                        </label>
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                            Excludes whoami, systeminfo, ipconfig, etc.
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <input type="checkbox" id="edr_keep_responses" name="keep_responses" value="true" checked>
+                            Keep Response Actions
+                        </label>
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                            Always keeps isolation, quarantine, block actions
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edr_routine" class="form-label">Routine Commands to Exclude (comma-separated)</label>
+                    <input type="text" id="edr_routine" name="custom_routine" class="form-input"
+                           placeholder="whoami,systeminfo,ipconfig,hostname"
+                           style="font-family: monospace;">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edr_responses" class="form-label">Response Patterns to KEEP (comma-separated)</label>
+                    <input type="text" id="edr_responses" name="custom_responses" class="form-input"
+                           placeholder="isolat,quarantin,block,remediat"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        If command line contains any of these patterns, the event is <strong>KEPT</strong> even if parent is the EDR agent.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edr_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="edr_description" name="description" class="form-input" placeholder="Why this tool is configured">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addEDRModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add EDR Tool</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Remote Tool Modal -->
+<div id="editRemoteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Edit Known-Good IDs: <span id="editRemoteToolName"></span></h2>
+            <button type="button" class="modal-close" onclick="closeModal('editRemoteModal')">✕</button>
+        </div>
+        <form id="editRemoteForm" onsubmit="submitEditRemoteForm(event)">
+            <input type="hidden" id="edit_setting_id" name="setting_id">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_known_ids" class="form-label">Known-Good IDs (one per line)</label>
+                    <textarea id="edit_known_ids" name="known_good_ids" class="form-textarea" rows="8" 
+                              style="font-family: monospace;"
+                              placeholder="24a22b9fc261d141
+98f7c3a2b1e45678"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editRemoteModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit EDR Tool Modal -->
+<div id="editEDRModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Edit EDR Tool: <span id="editEDRToolName"></span></h2>
+            <button type="button" class="modal-close" onclick="closeModal('editEDRModal')">✕</button>
+        </div>
+        <form id="editEDRForm" onsubmit="submitEditEDRForm(event)">
+            <input type="hidden" id="edit_edr_setting_id" name="setting_id">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_edr_executables" class="form-label">Executable Patterns</label>
+                    <input type="text" id="edit_edr_executables" name="executable_pattern" class="form-input"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        Comma-separated. Events spawned by these processes will be evaluated.
+                    </p>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md);">
+                    <div class="form-group">
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <input type="checkbox" id="edit_edr_exclude_routine" name="exclude_routine" value="true">
+                            Exclude Routine Health Checks
+                        </label>
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                            Excludes whoami, systeminfo, ipconfig, etc.
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <input type="checkbox" id="edit_edr_keep_responses" name="keep_responses" value="true">
+                            Keep Response Actions
+                        </label>
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                            Always keeps isolation, quarantine, block actions
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_edr_routine" class="form-label">Routine Commands to Exclude (comma-separated)</label>
+                    <input type="text" id="edit_edr_routine" name="routine_commands" class="form-input"
+                           style="font-family: monospace;">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_edr_responses" class="form-label">Response Patterns to KEEP (comma-separated)</label>
+                    <input type="text" id="edit_edr_responses" name="response_patterns" class="form-input"
+                           style="font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.85rem;">
+                        If command line contains any of these patterns, the event is <strong>KEPT</strong> even if parent is the EDR agent.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_edr_description" class="form-label">Description (optional)</label>
+                    <input type="text" id="edit_edr_description" name="description" class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editEDRModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+/* Page-specific styles - modal styles inherited from theme.css */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: white;
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 0.85rem;
+}
+</style>
+
+<script>
+function showAddRMMModal() {
+    document.getElementById('addRMMForm').reset();
+    document.getElementById('rmmCustomFields').style.display = 'none';
+    document.getElementById('rmm_executables').value = '';
+    document.getElementById('addRMMModal').style.display = 'flex';
+}
+
+function showAddRemoteModal() {
+    document.getElementById('addRemoteForm').reset();
+    document.getElementById('remoteCustomFields').style.display = 'none';
+    document.getElementById('remote_executables').value = '';
+    document.getElementById('addRemoteModal').style.display = 'flex';
+}
+
+function showAddEDRModal() {
+    document.getElementById('addEDRForm').reset();
+    document.getElementById('edrCustomFields').style.display = 'none';
+    document.getElementById('edr_executables').value = '';
+    document.getElementById('edr_routine').value = '';
+    document.getElementById('edr_responses').value = '';
+    document.getElementById('edr_exclude_routine').checked = true;
+    document.getElementById('edr_keep_responses').checked = true;
+    document.getElementById('addEDRModal').style.display = 'flex';
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).style.display = 'none';
+}
+
+function updateRMMFields() {
+    const select = document.getElementById('rmm_tool_key');
+    const option = select.options[select.selectedIndex];
+    const customFields = document.getElementById('rmmCustomFields');
+    const executablesField = document.getElementById('rmm_executables');
+    const descField = document.getElementById('rmm_description');
+    
+    if (select.value === 'other') {
+        customFields.style.display = 'block';
+        executablesField.value = '';
+        executablesField.required = true;
+    } else {
+        customFields.style.display = 'none';
+        executablesField.value = option.dataset.executables || '';
+        descField.value = option.dataset.description || '';
+        executablesField.required = false;
+    }
+}
+
+function updateRemoteFields() {
+    const select = document.getElementById('remote_tool_key');
+    const option = select.options[select.selectedIndex];
+    const customFields = document.getElementById('remoteCustomFields');
+    const executablesField = document.getElementById('remote_executables');
+    const descField = document.getElementById('remote_description');
+    const idFieldLabel = document.getElementById('idFieldLabel');
+    
+    if (select.value === 'other') {
+        customFields.style.display = 'block';
+        executablesField.value = '';
+        executablesField.required = true;
+        idFieldLabel.textContent = 'IDs';
+    } else {
+        customFields.style.display = 'none';
+        executablesField.value = option.dataset.executables || '';
+        descField.value = option.dataset.description || '';
+        idFieldLabel.textContent = option.dataset.idfield || 'IDs';
+        executablesField.required = false;
+    }
+}
+
+function updateEDRFields() {
+    const select = document.getElementById('edr_tool_key');
+    const option = select.options[select.selectedIndex];
+    const customFields = document.getElementById('edrCustomFields');
+    const executablesField = document.getElementById('edr_executables');
+    const routineField = document.getElementById('edr_routine');
+    const responsesField = document.getElementById('edr_responses');
+    const descField = document.getElementById('edr_description');
+    
+    if (select.value === 'other') {
+        customFields.style.display = 'block';
+        executablesField.value = '';
+        executablesField.required = true;
+        routineField.value = 'whoami,systeminfo,ipconfig,hostname';
+        responsesField.value = 'isolat,quarantin,block,remediat,contain,kill';
+    } else {
+        customFields.style.display = 'none';
+        executablesField.value = option.dataset.executables || '';
+        routineField.value = option.dataset.routine || '';
+        responsesField.value = option.dataset.responses || '';
+        descField.value = option.dataset.description || '';
+        executablesField.required = false;
+    }
+}
+
+async function submitRMMForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.add_rmm_tool") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('addRMMModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function submitRemoteForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.add_remote_tool") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('addRemoteModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function submitEDRForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    // Handle checkboxes - they're not sent if unchecked
+    if (!document.getElementById('edr_exclude_routine').checked) {
+        formData.set('exclude_routine', 'false');
+    }
+    if (!document.getElementById('edr_keep_responses').checked) {
+        formData.set('keep_responses', 'false');
+    }
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.add_edr_tool") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('addEDRModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+
+// Edit RMM Tool
+function editRMMSetting(settingId, toolName, executables, rmmPath, description) {
+    document.getElementById('edit_rmm_setting_id').value = settingId;
+    document.getElementById('editRMMToolName').textContent = toolName;
+    document.getElementById('edit_rmm_executables').value = executables || '';
+    document.getElementById('edit_rmm_path').value = rmmPath || '';
+    document.getElementById('edit_rmm_description').value = description || '';
+    
+    document.getElementById('editRMMModal').style.display = 'flex';
+}
+
+async function submitEditRMMForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const settingId = formData.get('setting_id');
+    
+    try {
+        const response = await fetch(`{{ url_for('system_tools.edit_setting', setting_id=0) }}`.replace('/0/', `/${settingId}/`), {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + (result.error || 'Failed to update'));
+        }
+    } catch (error) {
+        alert('Network error: ' + error.message);
+    }
+}
+
+// Edit Remote Tool
+function editRemoteTool(settingId, toolName, knownGoodIds) {
+    document.getElementById('edit_setting_id').value = settingId;
+    document.getElementById('editRemoteToolName').textContent = toolName;
+    
+    // Parse JSON and display as newline-separated
+    try {
+        const ids = JSON.parse(knownGoodIds || '[]');
+        document.getElementById('edit_known_ids').value = ids.join('\n');
+    } catch (e) {
+        document.getElementById('edit_known_ids').value = '';
+    }
+    
+    document.getElementById('editRemoteModal').style.display = 'flex';
+}
+
+async function submitEditRemoteForm(event) {
+    event.preventDefault();
+    const settingId = document.getElementById('edit_setting_id').value;
+    const formData = new FormData(event.target);
+    
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/edit`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('editRemoteModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function editEDRTool(settingId, toolName, executables, routineCommands, responsePatterns, excludeRoutine, keepResponses, description) {
+    document.getElementById('edit_edr_setting_id').value = settingId;
+    document.getElementById('editEDRToolName').textContent = toolName;
+    document.getElementById('edit_edr_executables').value = executables || '';
+    document.getElementById('edit_edr_description').value = description || '';
+    document.getElementById('edit_edr_exclude_routine').checked = excludeRoutine;
+    document.getElementById('edit_edr_keep_responses').checked = keepResponses;
+    
+    // Parse JSON arrays and convert to comma-separated strings
+    try {
+        const routine = JSON.parse(routineCommands || '[]');
+        document.getElementById('edit_edr_routine').value = routine.join(',');
+    } catch (e) {
+        document.getElementById('edit_edr_routine').value = '';
+    }
+    
+    try {
+        const responses = JSON.parse(responsePatterns || '[]');
+        document.getElementById('edit_edr_responses').value = responses.join(',');
+    } catch (e) {
+        document.getElementById('edit_edr_responses').value = '';
+    }
+    
+    document.getElementById('editEDRModal').style.display = 'flex';
+}
+
+async function submitEditEDRForm(event) {
+    event.preventDefault();
+    const settingId = document.getElementById('edit_edr_setting_id').value;
+    const formData = new FormData(event.target);
+    
+    // Handle checkboxes - they're not sent if unchecked
+    if (!document.getElementById('edit_edr_exclude_routine').checked) {
+        formData.set('exclude_routine', 'false');
+    }
+    if (!document.getElementById('edit_edr_keep_responses').checked) {
+        formData.set('keep_responses', 'false');
+    }
+    
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/edit`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            closeModal('editEDRModal');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function toggleSetting(settingId) {
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/toggle`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function deleteSetting(settingId, name) {
+    if (!confirm(`Delete exclusion for "${name}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/settings/system-tools/setting/${settingId}/delete`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function saveIPExclusions(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const statusEl = document.getElementById('ipSaveStatus');
+    
+    statusEl.textContent = 'Saving...';
+    statusEl.style.color = 'var(--color-info)';
+    
+    try {
+        const response = await fetch('{{ url_for("system_tools.save_ip_exclusions") }}', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            statusEl.textContent = `✅ Saved ${result.count} IP exclusions`;
+            statusEl.style.color = 'var(--color-success)';
+        } else {
+            statusEl.textContent = '❌ ' + result.error;
+            statusEl.style.color = 'var(--color-danger)';
+        }
+    } catch (error) {
+        statusEl.textContent = '❌ ' + error.message;
+        statusEl.style.color = 'var(--color-danger)';
+    }
+}
+
+// Close modals on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay').forEach(modal => {
+            modal.style.display = 'none';
+        });
+    }
+});
+
+// Close modals on backdrop click
+document.querySelectorAll('.modal-overlay').forEach(modal => {
+    modal.addEventListener('click', function(e) {
+        if (e.target === this) {
+            this.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}
+

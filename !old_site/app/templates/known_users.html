@@ -1,0 +1,846 @@
+{% extends "base.html" %}
+
+{% block title %}Known Users - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content">
+    <div class="content-header">
+        <div>
+            <h1>👥 Known Users: {{ case.name }}</h1>
+            <p class="text-muted">Legitimate users in the environment for this case</p>
+        </div>
+        <div>
+            <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+                <span>←</span>
+                <span>Back to Case</span>
+            </a>
+        </div>
+        <div class="content-actions">
+            <button class="btn btn-primary" onclick="showAddUserModal()">
+                ➕ Add User
+            </button>
+            <button class="btn" style="background: var(--color-success); color: white;" onclick="showUploadCSVModal()">
+                📤 Upload CSV
+            </button>
+            <a href="{{ url_for('known_users.export_csv', case_id=case_id) }}" class="btn btn-secondary">
+                📥 Export CSV
+            </a>
+        </div>
+    </div>
+    
+    <!-- Stats Cards -->
+    <div class="stats-grid" style="margin-bottom: var(--spacing-lg);">
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: var(--color-primary-bg); color: var(--color-primary);">👥</div>
+            <div class="stat-card-content">
+                <div class="stat-card-label">Total Users</div>
+                <div class="stat-card-value">{{ total_users }}</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: var(--color-success-bg); color: var(--color-success);">🏢</div>
+            <div class="stat-card-content">
+                <div class="stat-card-label">Domain Users</div>
+                <div class="stat-card-value">{{ domain_users }}</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: var(--color-info-bg); color: var(--color-info);">💻</div>
+            <div class="stat-card-content">
+                <div class="stat-card-label">Local Users</div>
+                <div class="stat-card-value">{{ local_users }}</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: var(--color-error-bg); color: var(--color-error);">⚠️</div>
+            <div class="stat-card-content">
+                <div class="stat-card-label">Compromised</div>
+                <div class="stat-card-value">{{ compromised_users }}</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Search Bar -->
+    <div class="card" style="margin-bottom: var(--spacing-md);">
+        <div class="card-body">
+            <form action="{{ url_for('known_users.list_known_users', case_id=case_id) }}" method="GET" style="display: flex; gap: var(--spacing-sm);">
+                <input type="text" 
+                       name="search" 
+                       value="{{ search_query }}" 
+                       placeholder="Search by username..." 
+                       class="form-input" 
+                       style="flex: 1;">
+                <button type="submit" class="btn btn-primary">
+                    <span>🔍</span>
+                    <span>Search</span>
+                </button>
+                {% if search_query %}
+                <a href="{{ url_for('known_users.list_known_users', case_id=case_id) }}" class="btn btn-secondary">
+                    <span>Clear</span>
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    
+    <!-- Users Table -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">📋 Known Users ({{ pagination.total }})</h2>
+        </div>
+        <div class="card-body">
+            {% if known_users %}
+            <!-- Bulk Actions Toolbar (v1.22.0) -->
+            <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 8px; display: flex; gap: var(--spacing-sm); flex-wrap: wrap; align-items: center;">
+                <span style="font-weight: 600; margin-right: var(--spacing-sm);">Bulk Actions:</span>
+                <button id="bulkEditBtn" onclick="showBulkEditModal()" class="btn btn-sm btn-secondary" disabled>
+                    ✏️ Edit (<span id="countEdit">0</span>)
+                </button>
+                {% if current_user.role == 'administrator' %}
+                <button id="bulkDeleteBtn" onclick="bulkDeleteUsers()" class="btn btn-sm btn-danger" disabled>
+                    🗑️ Delete (<span id="countDelete">0</span>) - Admin Only
+                </button>
+                {% endif %}
+            </div>
+            
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">
+                                <input type="checkbox" id="selectAllUsers" onclick="toggleSelectAllUsers()" title="Select All">
+                            </th>
+                            <th>Username</th>
+                            <th>Type</th>
+                            <th>Compromised</th>
+                            <th>Active</th>
+                            <th>Added Type</th>
+                            <th>Added By</th>
+                            <th>Date Added</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in known_users %}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="user-checkbox" value="{{ user.id }}" onchange="updateBulkButtons()">
+                            </td>
+                            <td>
+                                <strong>{{ user.username }}</strong>
+                            </td>
+                            <td>
+                                <span class="status-badge {% if user.user_type == 'domain' %}status-completed{% elif user.user_type == 'local' %}status-sigma{% else %}{% endif %}">
+                                    {% if user.user_type == 'domain' %}
+                                    🏢 Domain
+                                    {% elif user.user_type == 'local' %}
+                                    💻 Local
+                                    {% else %}
+                                    — Unknown
+                                    {% endif %}
+                                </span>
+                            </td>
+                            <td>
+                                {% if user.compromised %}
+                                <span class="status-badge status-failed">⚠️ YES</span>
+                                {% else %}
+                                <span class="status-badge status-completed">✅ NO</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if user.active %}
+                                <span class="status-badge status-completed">🟢 Active</span>
+                                {% else %}
+                                <span class="status-badge">⚪ Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="status-badge">
+                                    {% if user.added_method == 'csv' %}📤 CSV
+                                    {% elif user.added_method == 'ioc_sync' %}🔄 IOC
+                                    {% else %}✍️ Manual{% endif %}
+                                </span>
+                            </td>
+                            <td class="text-muted">{{ user.creator.username if user.creator else 'Unknown' }}</td>
+                            <td class="text-muted">{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A' }}</td>
+                            <td>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-secondary" onclick="editUser({{ user.id }})" title="Edit">✏️</button>
+                                    {% if current_user.role == 'administrator' %}
+                                    <button class="btn btn-sm btn-danger" onclick="deleteUser({{ user.id }})" title="Delete">🗑️</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            {% if pagination.pages > 1 %}
+            <div style="margin-top: var(--spacing-lg); display: flex; justify-content: center; gap: var(--spacing-sm); align-items: center;">
+                {% if pagination.has_prev %}
+                <a href="{{ url_for('known_users.list_known_users', case_id=case_id, page=pagination.prev_num, search=search_query) }}" class="btn btn-sm btn-secondary">← Previous</a>
+                {% endif %}
+                
+                <span class="text-muted">
+                    Page {{ pagination.page }} of {{ pagination.pages }} ({{ pagination.total }} total)
+                </span>
+                
+                {% if pagination.has_next %}
+                <a href="{{ url_for('known_users.list_known_users', case_id=case_id, page=pagination.next_num, search=search_query) }}" class="btn btn-sm btn-secondary">Next →</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">👥</div>
+                <div class="empty-state-title">No Known Users</div>
+                <div class="empty-state-description">
+                    Add known users manually or upload a CSV file to get started.
+                </div>
+                <button class="btn btn-primary" onclick="showAddUserModal()">
+                    ➕ Add First User
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal (v1.21.0: Added user_sid field, updated types) -->
+<div id="addUserModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">➕ Add Known User</h2>
+            <button type="button" class="modal-close" onclick="closeModal('addUserModal')">✕</button>
+        </div>
+        <form id="addUserForm" onsubmit="addUser(event)">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="username" class="form-label">Username <span style="color: var(--color-error);">*</span></label>
+                    <input type="text" id="username" name="username" class="form-input" required placeholder="e.g., jdoe or DOMAIN\jdoe">
+                </div>
+                
+                <div class="form-group">
+                    <label for="user_type" class="form-label">Type</label>
+                    <select id="user_type" name="user_type" class="form-input">
+                        <option value="domain">Domain User</option>
+                        <option value="local">Local User</option>
+                        <option value="unknown" selected>Unknown</option>
+                        <option value="invalid">Invalid (should not exist)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="user_sid" class="form-label">
+                        User SID 
+                        <span style="color: var(--color-text-muted); font-size: 0.875rem;">(optional)</span>
+                    </label>
+                    <input type="text" id="user_sid" name="user_sid" class="form-input" placeholder="S-1-5-21-XXXXXXXXXX-XXXXXXXXXX-XXXXXXXXXX-XXXX">
+                    <small style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        Windows Security Identifier for precise tracking
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="compromised_status" class="form-label">Compromised Status</label>
+                    <select id="compromised_status" name="compromised" class="form-input">
+                        <option value="false" selected>Not Compromised</option>
+                        <option value="true">Compromised</option>
+                    </select>
+                    <small style="color: var(--color-info); display: block; margin-top: 4px;">
+                        ℹ️ Marking as compromised will auto-create a username IOC
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="active_status" class="form-label">Active Status</label>
+                    <select id="active_status" name="active" class="form-input">
+                        <option value="true" selected>Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addUserModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit User Modal (v1.21.0: Added user_sid field, updated types) -->
+<div id="editUserModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Edit Known User</h2>
+            <button type="button" class="modal-close" onclick="closeModal('editUserModal')">✕</button>
+        </div>
+        <form id="editUserForm" onsubmit="updateUser(event)">
+            <input type="hidden" id="edit_user_id" name="user_id">
+            
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="edit_username" class="form-label">Username <span style="color: var(--color-error);">*</span></label>
+                    <input type="text" id="edit_username" name="username" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_user_type" class="form-label">Type</label>
+                    <select id="edit_user_type" name="user_type" class="form-input">
+                        <option value="domain">Domain User</option>
+                        <option value="local">Local User</option>
+                        <option value="unknown">Unknown</option>
+                        <option value="invalid">Invalid (should not exist)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_user_sid" class="form-label">
+                        User SID 
+                        <span style="color: var(--color-text-muted); font-size: 0.875rem;">(optional)</span>
+                    </label>
+                    <input type="text" id="edit_user_sid" name="user_sid" class="form-input" placeholder="S-1-5-21-XXXXXXXXXX-XXXXXXXXXX-XXXXXXXXXX-XXXX">
+                    <small style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        Windows Security Identifier for precise tracking
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_compromised_status" class="form-label">Compromised Status</label>
+                    <select id="edit_compromised_status" name="compromised" class="form-input">
+                        <option value="false">Not Compromised</option>
+                        <option value="true">Compromised</option>
+                    </select>
+                    <small style="color: var(--color-info); display: block; margin-top: 4px;">
+                        ℹ️ Marking as compromised will auto-create a username IOC
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_active_status" class="form-label">Active Status</label>
+                    <select id="edit_active_status" name="active" class="form-input">
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editUserModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Bulk Edit Modal (v1.22.0) -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Bulk Edit Known Users</h2>
+            <button type="button" class="modal-close" onclick="closeModal('bulkEditModal')">✕</button>
+        </div>
+        <form id="bulkEditForm" onsubmit="bulkEditUsers(event)">
+            <div class="modal-body">
+                <div style="background: var(--color-info-bg); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid var(--color-info);">
+                    <p style="margin: 0; color: var(--color-info);">
+                        ℹ️ <strong><span id="bulkEditCount">0</span> users</strong> selected for bulk edit.<br>
+                        <small>Only fields you change will be updated. Leave unchanged to keep current values.</small>
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">User Type</label>
+                    <select id="bulk_user_type" name="user_type" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="domain">Domain User</option>
+                        <option value="local">Local User</option>
+                        <option value="unknown">Unknown</option>
+                        <option value="invalid">Invalid (should not exist)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Compromised Status</label>
+                    <select id="bulk_compromised" name="compromised" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="false">Not Compromised</option>
+                        <option value="true">Compromised</option>
+                    </select>
+                    <small style="color: var(--color-info); display: block; margin-top: 4px;">
+                        ℹ️ Marking as compromised will auto-create username IOCs
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Active Status</label>
+                    <select id="bulk_active" name="active" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('bulkEditModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update Selected Users</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Upload CSV Modal (v1.20.0: Standardized) -->
+<div id="uploadCSVModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">📤 Upload CSV</h2>
+            <button type="button" class="modal-close" onclick="closeModal('uploadCSVModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: var(--spacing-md); color: var(--color-text-muted);">
+                Upload a CSV file with columns: <strong>Username, Type, Compromised, Active</strong>
+            </p>
+            
+            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md);">
+            <h4 style="margin-bottom: var(--spacing-sm);">CSV Format:</h4>
+            <pre style="background: var(--color-background); padding: var(--spacing-sm); border-radius: var(--border-radius); overflow-x: auto;"><code>Username,Type,Compromised,Active,UserSID
+jdoe,domain,false,true,S-1-5-21-3623811015-3361044348-30300820-1013
+admin,local,true,false,
+backup,domain,false,true,S-1-5-21-3623811015-3361044348-30300820-2045</code></pre>
+            <ul style="margin-top: var(--spacing-sm); padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem;">
+                <li><strong>Type</strong>: Must be "domain", "local", "unknown", or "invalid" (defaults to "unknown")</li>
+                <li><strong>Compromised</strong>: Must be "true" or "false" (case-insensitive)</li>
+                <li><strong>Active</strong>: Must be "true" or "false" (defaults to "true" if omitted)</li>
+                <li><strong>UserSID</strong>: Optional Windows Security Identifier (e.g., S-1-5-21-...)</li>
+                <li>Duplicate usernames will be skipped</li>
+                <li>✨ Compromised users will automatically create username IOCs</li>
+            </ul>
+            </div>
+            
+            <form id="uploadCSVForm" onsubmit="uploadCSV(event)">
+                <div class="form-group">
+                    <label for="csv_file" class="form-label">CSV File <span style="color: var(--color-error);">*</span></label>
+                    <input type="file" id="csv_file" name="csv_file" class="form-input" accept=".csv" required>
+                </div>
+            </form>
+        </div>
+        
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('uploadCSVModal')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('uploadCSVForm').requestSubmit()">Upload & Import</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Modal management
+function showAddUserModal() {
+    document.getElementById('addUserModal').style.display = 'flex';
+    document.getElementById('addUserForm').reset();
+}
+
+function showUploadCSVModal() {
+    document.getElementById('uploadCSVModal').style.display = 'flex';
+    document.getElementById('uploadCSVForm').reset();
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).style.display = 'none';
+}
+
+// Close modals when clicking outside (v1.20.0: Updated for modal-overlay)
+window.onclick = function(event) {
+    if (event.target.classList.contains('modal-overlay')) {
+        event.target.style.display = 'none';
+    }
+}
+
+// Add user
+function addUser(event) {
+    event.preventDefault();
+    
+    const formData = new FormData(event.target);
+    
+    // v1.20.0: Button is now in modal-footer, not inside form
+    const modal = document.getElementById('addUserModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Adding...';
+    }
+    
+    fetch('/case/{{ case_id }}/known_users/add', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to add user'));
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Add User';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Add user error:', err);
+        alert('❌ Error: ' + err.message);
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Add User';
+        }
+    });
+}
+
+// Edit user
+function editUser(userId) {
+    // Fetch user data and populate the edit modal
+    fetch(`/case/{{ case_id }}/known_users/${userId}/get`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const user = data.user;
+                document.getElementById('edit_user_id').value = userId;
+                document.getElementById('edit_username').value = user.username;
+                document.getElementById('edit_user_type').value = user.user_type || 'unknown';  // v1.21.0: Default to 'unknown'
+                document.getElementById('edit_user_sid').value = user.user_sid || '';  // v1.21.0: SID field
+                
+                // v1.21.0: Set dropdown values (not checkboxes)
+                document.getElementById('edit_compromised_status').value = user.compromised ? 'true' : 'false';
+                document.getElementById('edit_active_status').value = user.active ? 'true' : 'false';
+                
+                document.getElementById('editUserModal').style.display = 'flex';
+            } else {
+                alert('❌ Error loading user data');
+            }
+        })
+        .catch(err => {
+            console.error('Load user error:', err);
+            // Fallback: Just open the modal empty
+            document.getElementById('edit_user_id').value = userId;
+            document.getElementById('editUserModal').style.display = 'flex';
+        });
+}
+
+function updateUser(event) {
+    event.preventDefault();
+    
+    const userId = document.getElementById('edit_user_id').value;
+    const formData = new FormData(event.target);
+    
+    // v1.20.0: Button is now in modal-footer, not inside form
+    const modal = document.getElementById('editUserModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Updating...';
+    }
+    
+    fetch(`/case/{{ case_id }}/known_users/${userId}/update`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to update user'));
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Update User';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Update user error:', err);
+        alert('❌ Error: ' + err.message);
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Update User';
+        }
+    });
+}
+
+// Delete user
+function deleteUser(userId) {
+    if (!confirm('⚠️ Are you sure you want to delete this user?\n\nThis action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/case/{{ case_id }}/known_users/${userId}/delete`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to delete user'));
+        }
+    })
+    .catch(err => {
+        console.error('Delete user error:', err);
+        alert('❌ Error: ' + err.message);
+    });
+}
+
+// Upload CSV
+function uploadCSV(event) {
+    event.preventDefault();
+    
+    const formData = new FormData(event.target);
+    
+    // v1.20.0: Button is now in modal-footer, not inside form
+    const modal = document.getElementById('uploadCSVModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Uploading...';
+    }
+    
+    fetch('/case/{{ case_id }}/known_users/upload_csv', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✅ CSV import complete!\n\n`;
+            message += `Added: ${data.added} users\n`;
+            if (data.skipped > 0) {
+                message += `Skipped: ${data.skipped} (duplicates or invalid)\n`;
+            }
+            if (data.errors && data.errors.length > 0) {
+                message += `\nErrors:\n${data.errors.slice(0, 5).join('\n')}`;
+                if (data.errors.length > 5) {
+                    message += `\n... and ${data.errors.length - 5} more`;
+                }
+            }
+            alert(message);
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to upload CSV'));
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Upload & Import';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Upload CSV error:', err);
+        alert('❌ Error: ' + err.message);
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Upload & Import';
+        }
+    });
+}
+
+// ============================================================================
+// BULK OPERATIONS (v1.22.0)
+// ============================================================================
+
+// Store selected IDs across pagination
+let selectedUserIds = new Set();
+
+// Toggle select all checkboxes
+function toggleSelectAllUsers() {
+    const selectAll = document.getElementById('selectAllUsers');
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+    
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+        if (selectAll.checked) {
+            selectedUserIds.add(parseInt(cb.value));
+        } else {
+            selectedUserIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    updateBulkButtons();
+}
+
+// Update bulk action buttons based on selection
+function updateBulkButtons() {
+    const checkboxes = document.querySelectorAll('.user-checkbox:checked');
+    const count = checkboxes.length;
+    
+    // Update selected IDs set
+    document.querySelectorAll('.user-checkbox').forEach(cb => {
+        if (cb.checked) {
+            selectedUserIds.add(parseInt(cb.value));
+        } else {
+            selectedUserIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    // Use the set size for total count (includes selections from other pages)
+    const totalCount = selectedUserIds.size;
+    
+    // Update button counts
+    document.getElementById('countEdit').textContent = totalCount;
+    {% if current_user.role == 'administrator' %}
+    document.getElementById('countDelete').textContent = totalCount;
+    {% endif %}
+    
+    // Enable/disable buttons
+    const hasSelection = totalCount > 0;
+    document.getElementById('bulkEditBtn').disabled = !hasSelection;
+    {% if current_user.role == 'administrator' %}
+    document.getElementById('bulkDeleteBtn').disabled = !hasSelection;
+    {% endif %}
+}
+
+// Show bulk edit modal
+function showBulkEditModal() {
+    if (selectedUserIds.size === 0) {
+        alert('⚠️ Please select at least one user to edit.');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedUserIds.size;
+    document.getElementById('bulkEditForm').reset();
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+// Bulk edit users
+function bulkEditUsers(event) {
+    event.preventDefault();
+    
+    if (selectedUserIds.size === 0) {
+        alert('⚠️ No users selected.');
+        return;
+    }
+    
+    const userType = document.getElementById('bulk_user_type').value;
+    const compromised = document.getElementById('bulk_compromised').value;
+    const active = document.getElementById('bulk_active').value;
+    
+    // Check if at least one field is being changed
+    if (!userType && !compromised && !active) {
+        alert('⚠️ Please select at least one field to update.');
+        return;
+    }
+    
+    const modal = document.getElementById('bulkEditModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Updating...';
+    }
+    
+    // Build request payload
+    const payload = {
+        user_ids: Array.from(selectedUserIds)
+    };
+    
+    if (userType) payload.user_type = userType;
+    if (compromised) payload.compromised = compromised === 'true';
+    if (active) payload.active = active === 'true';
+    
+    fetch('/case/{{ case_id }}/known_users/bulk_edit', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Bulk edit complete!\n\nUpdated: ${data.updated} users`);
+            selectedUserIds.clear();  // Clear selection
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to bulk edit users'));
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Update Selected Users';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Bulk edit error:', err);
+        alert('❌ Error: ' + err.message);
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Update Selected Users';
+        }
+    });
+}
+
+// Bulk delete users
+function bulkDeleteUsers() {
+    if (selectedUserIds.size === 0) {
+        alert('⚠️ Please select at least one user to delete.');
+        return;
+    }
+    
+    if (!confirm(`⚠️ Are you sure you want to delete ${selectedUserIds.size} selected user(s)?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    const button = document.getElementById('bulkDeleteBtn');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Deleting...';
+    
+    fetch('/case/{{ case_id }}/known_users/bulk_delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            user_ids: Array.from(selectedUserIds)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Bulk delete complete!\n\nDeleted: ${data.deleted} users`);
+            selectedUserIds.clear();  // Clear selection
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + (data.error || 'Failed to bulk delete users'));
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    })
+    .catch(err => {
+        console.error('Bulk delete error:', err);
+        alert('❌ Error: ' + err.message);
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
+// Restore checkbox states on page load (for pagination)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.user-checkbox').forEach(cb => {
+        if (selectedUserIds.has(parseInt(cb.value))) {
+            cb.checked = true;
+        }
+    });
+    updateBulkButtons();
+});
+</script>
+
+{% endblock %}
+

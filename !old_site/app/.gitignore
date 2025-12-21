@@ -1,0 +1,243 @@
+# CaseScope 2026 - Git Ignore File
+# Exclude sensitive, generated, and environment-specific files
+
+# ============================================================================
+# SENSITIVE DATA - NEVER COMMIT
+# ============================================================================
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/
+casescope.db
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+config.local.py
+secret_key.txt
+
+# User uploads and case data
+uploads/
+staging/
+archive/
+local_uploads/
+*.evtx
+*.evtx.json
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# ============================================================================
+# PYTHON
+# ============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# ============================================================================
+# EXTERNAL TOOLS & BINARIES
+# ============================================================================
+
+# Downloaded binaries
+bin/evtx_dump*
+bin/chainsaw*
+
+# SIGMA rules repository (cloned from GitHub)
+sigma_rules/
+sigma_rules_repo/
+
+# Chainsaw mappings (downloaded)
+chainsaw/
+
+# ============================================================================
+# BACKUP FILES
+# ============================================================================
+
+*.backup
+*.bak
+*.old
+*.orig
+*~
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backup copies of Python files
+*.py.backup
+
+# ============================================================================
+# IDE / EDITOR
+# ============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================================================
+# OPERATING SYSTEM
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================================================
+# TEMPORARY FILES
+# ============================================================================
+
+tmp/
+temp/
+*.tmp
+.cache/
+
+# ============================================================================
+# GIT
+# ============================================================================
+
+*.orig
+*.patch
+*.diff
+
+# ============================================================================
+# DOCUMENTATION (Generated)
+# ============================================================================
+
+# Sphinx documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# ============================================================================
+# NODE (if using npm for any front-end tools)
+# ============================================================================
+
+node_modules/
+package-lock.json
+yarn.lock
+.npm
+.eslintcache
+
+# ============================================================================
+# SYSTEMD / SERVICE FILES (Keep in repo but ignore local modifications)
+# ============================================================================
+
+# Don't ignore these - they should be in the repo
+# casescope.service
+# casescope-worker.service
+
+# ============================================================================
+# KEEP THESE FILES (Override patterns above)
+# ============================================================================
+
+# Keep example/template files
+!config.example.py
+!.env.example
+
+# Keep static assets
+!static/
+!static/**/*
+
+# Keep templates
+!templates/
+!templates/**/*
+
+# Keep requirements
+!requirements.txt
+
+# Keep documentation
+!*.md
+!docs/
+
+# Keep shell scripts
+!*.sh

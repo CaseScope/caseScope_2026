@@ -1,0 +1,934 @@
+{% extends "base.html" %}
+
+{% block title %}Systems Management - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content">
+    <div class="content-header">
+        <div>
+            <h1>💻 Systems Management</h1>
+            <p class="text-muted">Case: {{ case.name }}</p>
+        </div>
+        <div class="content-actions">
+            <button class="btn btn-primary" onclick="showAddSystemModal()">
+                ➕ Add System
+            </button>
+            <button onclick="scanSystems()" class="btn" style="background: var(--color-success); color: white;">
+                🔍 Find Systems
+            </button>
+            {% if dfir_iris_enabled %}
+            <button onclick="bulkSyncAllSystems()" class="btn" style="background: #8b5cf6; color: white;">
+                🔄 Sync All to DFIR-IRIS
+            </button>
+            {% endif %}
+            <a href="{{ url_for('systems.export_systems_csv', case_id=case.id) }}" class="btn" style="background: var(--color-success); color: white;">
+                📥 Export CSV
+            </a>
+            <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+                ← Back to Case
+            </a>
+        </div>
+    </div>
+    
+    <!-- Stats Dashboard -->
+    <div class="dashboard-row-2" style="margin-bottom: var(--spacing-lg);">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">📊 System Statistics</h2>
+            </div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-md);">
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(59, 130, 246, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">🖥️ Servers</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-primary);">{{ stats.servers }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(16, 185, 129, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">💻 Workstations</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-success);">{{ stats.workstations }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(251, 146, 60, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">🔥 Firewalls</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-warning);">{{ stats.firewalls }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(139, 92, 246, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">🔀 Switches</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #8b5cf6;">{{ stats.switches }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(100, 116, 139, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">🖨️ Printers</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-text-secondary);">{{ stats.printers }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(251, 191, 36, 0.1); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">❓ Unknown</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #f59e0b;">{{ stats.unknown }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(239, 68, 68, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">⚠️ Actor Systems</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-error);">{{ stats.actor_systems }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(139, 92, 246, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">📊 Total</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-info);">{{ stats.total }}</div>
+                    </div>
+                    <div style="text-align: center; padding: var(--spacing-md); background: rgba(100, 116, 139, 0.05); border-radius: 8px;">
+                        <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 4px;">🙈 Hidden</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: var(--color-text-muted);">{{ stats.hidden }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Integration Status Banner -->
+    <div class="dashboard-row-2" style="margin-bottom: var(--spacing-lg);">
+        <div class="card">
+            <div class="card-body">
+                <h3 style="margin-bottom: var(--spacing-md);">🔗 Integrations</h3>
+                <div class="stat-grid-2col">
+                    <div class="stat-item">
+                        <div class="stat-item-label">OpenCTI Enrichment</div>
+                        <div class="stat-item-value">
+                            {% if opencti_enabled %}
+                            <span class="status-badge status-completed">✅ Enabled</span>
+                            {% else %}
+                            <span class="status-badge">⚪ Disabled</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-item-label">DFIR-IRIS Sync</div>
+                        <div class="stat-item-value">
+                            {% if dfir_iris_enabled %}
+                            <span class="status-badge status-completed">✅ Enabled</span>
+                            {% if dfir_iris_auto_sync %}
+                            <span class="stat-item-caption">(Auto-sync ON)</span>
+                            {% endif %}
+                            {% else %}
+                            <span class="status-badge">⚪ Disabled</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Systems Table -->
+    <div class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 class="card-title">💻 Systems ({{ total_count }})</h2>
+            <div style="display: flex; gap: var(--spacing-sm); align-items: center;">
+                <label style="font-size: 0.875rem; color: var(--color-text-secondary);">Per Page:</label>
+                <select onchange="changePerPage(this.value)" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-bg-secondary);">
+                    <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                    <option value="250" {% if per_page == 250 %}selected{% endif %}>250</option>
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if systems %}
+            <!-- Bulk Actions Toolbar (v1.23.0) -->
+            <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 8px; display: flex; gap: var(--spacing-sm); flex-wrap: wrap; align-items: center;">
+                <span style="font-weight: 600; margin-right: var(--spacing-sm);">Bulk Actions:</span>
+                <button id="bulkEditBtn" onclick="showBulkEditModal()" class="btn btn-sm btn-secondary" disabled>
+                    ✏️ Edit (<span id="countEdit">0</span>)
+                </button>
+                {% if current_user.role == 'administrator' %}
+                <button id="bulkDeleteBtn" onclick="bulkDeleteSystems()" class="btn btn-sm btn-danger" disabled>
+                    🗑️ Delete (<span id="countDelete">0</span>) - Admin Only
+                </button>
+                {% endif %}
+            </div>
+            
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">
+                                <input type="checkbox" id="selectAllSystems" onclick="toggleSelectAllSystems()" title="Select All">
+                            </th>
+                            <th>
+                                <a href="javascript:void(0)" onclick="sortBy('system_name')" style="color: inherit; text-decoration: none; cursor: pointer;">
+                                    System Name
+                                    {% if sort_field == 'system_name' %}
+                                        <span>{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th>IP Address</th>
+                            <th>
+                                <a href="javascript:void(0)" onclick="sortBy('system_type')" style="color: inherit; text-decoration: none; cursor: pointer;">
+                                    Type
+                                    {% if sort_field == 'system_type' %}
+                                        <span>{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th>
+                                <a href="javascript:void(0)" onclick="sortBy('added_by')" style="color: inherit; text-decoration: none; cursor: pointer;">
+                                    Added By
+                                    {% if sort_field == 'added_by' %}
+                                        <span>{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th>
+                                <a href="javascript:void(0)" onclick="sortBy('created_at')" style="color: inherit; text-decoration: none; cursor: pointer;">
+                                    Created
+                                    {% if sort_field == 'created_at' %}
+                                        <span>{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th>Events</th>
+                            <th>Integrations</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for system in systems %}
+                        <tr {% if system.hidden %}style="opacity: 0.5;"{% endif %}>
+                            <td>
+                                <input type="checkbox" class="system-checkbox" value="{{ system.id }}" onchange="updateBulkButtons()">
+                            </td>
+                            <td>
+                                <strong>{{ system.system_name }}</strong>
+                                {% if system.hidden %}
+                                <span class="status-badge" style="background: rgba(100, 116, 139, 0.1);">🙈 Hidden</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if system.ip_address %}
+                                <span class="text-muted">{{ system.ip_address }}</span>
+                                {% else %}
+                                <span class="text-muted" style="opacity: 0.5;">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if system.system_type == 'server' %}
+                                <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary);">🖥️ Server</span>
+                                {% elif system.system_type == 'workstation' %}
+                                <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success);">💻 Workstation</span>
+                                {% elif system.system_type == 'firewall' %}
+                                <span class="status-badge" style="background: rgba(251, 146, 60, 0.1); color: var(--color-warning);">🔥 Firewall</span>
+                                {% elif system.system_type == 'switch' %}
+                                <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">🔀 Switch</span>
+                                {% elif system.system_type == 'printer' %}
+                                <span class="status-badge" style="background: rgba(100, 116, 139, 0.1); color: var(--color-text-secondary);">🖨️ Printer</span>
+                                {% elif system.system_type == 'actor_system' %}
+                                <span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: var(--color-error);">⚠️ Actor System</span>
+                                {% else %}
+                                <span class="status-badge">{{ system.system_type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ system.added_by }}</td>
+                            <td>{{ system.created_at.strftime('%Y-%m-%d %H:%M') if system.created_at else 'N/A' }}</td>
+                            <td>
+                                <a href="/case/{{ case.id }}/search?q={{ system.system_name|urlencode }}" 
+                                   class="btn btn-sm" 
+                                   style="background: var(--color-info); color: white; padding: 4px 8px; font-size: 0.75rem;">
+                                    🔍 Search Events
+                                </a>
+                            </td>
+                            <td>
+                                <div style="display: flex; gap: 4px;">
+                                    {% if opencti_enabled %}
+                                    {% if system.opencti_enrichment %}
+                                    <button onclick="viewEnrichment({{ system.id }})" 
+                                            class="btn btn-sm" 
+                                            style="background: var(--color-success); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                            title="View OpenCTI Data">
+                                        ✅ CTI
+                                    </button>
+                                    {% else %}
+                                    <button onclick="enrichSystem({{ system.id }})" 
+                                            class="btn btn-sm" 
+                                            style="background: var(--color-warning); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                            title="Enrich from OpenCTI">
+                                        🔄 CTI
+                                    </button>
+                                    {% endif %}
+                                    {% endif %}
+                                    
+                                    {% if dfir_iris_enabled %}
+                                    {% if system.dfir_iris_synced %}
+                                    <span class="status-badge status-completed" title="Synced to DFIR-IRIS" style="font-size: 0.75rem; padding: 4px 8px;">✅ IRIS</span>
+                                    {% else %}
+                                    <button onclick="syncSystem({{ system.id }})" 
+                                            class="btn btn-sm" 
+                                            style="background: var(--color-info); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                            title="Sync to DFIR-IRIS">
+                                        ↗️ IRIS
+                                    </button>
+                                    {% endif %}
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div style="display: flex; gap: 4px;">
+                                    <button onclick="editSystem({{ system.id }})" 
+                                            class="btn btn-sm" 
+                                            style="background: var(--color-warning); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                            title="Edit">
+                                        ✏️
+                                    </button>
+                                    <button onclick="toggleHidden({{ system.id }})" 
+                                            class="btn btn-sm" 
+                                            style="background: var(--color-text-secondary); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                            title="{% if system.hidden %}Unhide{% else %}Hide{% endif %}">
+                                        {% if system.hidden %}👁️{% else %}🙈{% endif %}
+                                    </button>
+                                    {% if current_user.role == 'administrator' %}
+                                    <button onclick="deleteSystem({{ system.id }})" 
+                                            class="btn btn-sm" 
+                                            style="background: var(--color-error); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                            title="Delete">
+                                        🗑️
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+            <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-lg); border-top: 1px solid var(--color-border); margin-top: var(--spacing-md);">
+                <div class="pagination-info" style="color: var(--color-text-secondary); font-size: 0.875rem;">
+                    Showing {{ ((page - 1) * per_page) + 1 }} 
+                    to {% if page * per_page > total_count %}{{ total_count }}{% else %}{{ page * per_page }}{% endif %} 
+                    of {{ total_count }} systems
+                </div>
+                <div class="pagination-controls" style="display: flex; gap: var(--spacing-xs);">
+                    {% if page > 1 %}
+                    <button onclick="goToPage(1)" class="btn btn-sm" style="padding: 6px 12px;">
+                        ⏮ First
+                    </button>
+                    <button onclick="goToPage({{ page - 1 }})" class="btn btn-sm" style="padding: 6px 12px;">
+                        ◀ Prev
+                    </button>
+                    {% endif %}
+                    
+                    {% for p in range(1, total_pages + 1) %}
+                        {% if p == page %}
+                        <button class="btn btn-sm btn-primary" style="padding: 6px 12px; cursor: default;">
+                            {{ p }}
+                        </button>
+                        {% elif (p >= page - 2 and p <= page + 2) or p == 1 or p == total_pages %}
+                        <button onclick="goToPage({{ p }})" class="btn btn-sm" style="padding: 6px 12px;">
+                            {{ p }}
+                        </button>
+                        {% elif p == page - 3 or p == page + 3 %}
+                        <span style="padding: 6px; color: var(--color-text-secondary);">...</span>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page < total_pages %}
+                    <button onclick="goToPage({{ page + 1 }})" class="btn btn-sm" style="padding: 6px 12px;">
+                        Next ▶
+                    </button>
+                    <button onclick="goToPage({{ total_pages }})" class="btn btn-sm" style="padding: 6px 12px;">
+                        Last ⏭
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% else %}
+            <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+                <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">💻</div>
+                <h3>No systems found</h3>
+                <p>Click "Find Systems" to auto-discover systems from your case files, or "Add System" to manually add one.</p>
+                <div style="margin-top: var(--spacing-lg);">
+                    <button onclick="scanSystems()" class="btn btn-primary">
+                        🔍 Find Systems
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- System Modal (Add/Edit) -->
+<div id="systemModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 id="systemModalTitle" class="modal-title">Add System</h2>
+            <button onclick="closeSystemModal()" class="modal-close">✕</button>
+        </div>
+        <form id="systemForm" onsubmit="submitSystem(event)" class="modal-body">
+            <input type="hidden" id="systemId" value="">
+            
+            <div class="form-group">
+                <label for="systemName">System Name *</label>
+                <input type="text" id="systemName" name="system_name" required class="form-control" placeholder="e.g., WORKSTATION-01">
+            </div>
+            
+            <div class="form-group">
+                <label for="systemIpAddress">IP Address</label>
+                <input type="text" id="systemIpAddress" name="ip_address" class="form-control" placeholder="e.g., 192.168.1.100" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$">
+                <small class="text-muted">IPv4 or IPv6 address (optional)</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="systemType">System Type *</label>
+                <select id="systemType" name="system_type" required class="form-control">
+                    <option value="workstation">💻 Workstation</option>
+                    <option value="server">🖥️ Server</option>
+                    <option value="firewall">🔥 Firewall</option>
+                    <option value="switch">🔀 Switch</option>
+                    <option value="printer">🖨️ Printer</option>
+                    <option value="unknown">❓ Unknown</option>
+                    <option value="actor_system">⚠️ Actor System</option>
+                </select>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" onclick="closeSystemModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save System</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Bulk Edit Modal (v1.23.0) -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Bulk Edit Systems</h2>
+            <button type="button" class="modal-close" onclick="closeBulkEditModal()">✕</button>
+        </div>
+        <form id="bulkEditForm" onsubmit="bulkEditSystems(event)">
+            <div class="modal-body">
+                <div style="background: var(--color-info-bg); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid var(--color-info);">
+                    <p style="margin: 0; color: var(--color-info);">
+                        ℹ️ <strong><span id="bulkEditCount">0</span> systems</strong> selected for bulk edit.<br>
+                        <small>Only fields you change will be updated. System names and IP addresses cannot be changed in bulk.</small>
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">System Type</label>
+                    <select id="bulk_system_type" name="system_type" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="workstation">💻 Workstation</option>
+                        <option value="server">🖥️ Server</option>
+                        <option value="firewall">🔥 Firewall</option>
+                        <option value="switch">🔀 Switch</option>
+                        <option value="printer">🖨️ Printer</option>
+                        <option value="unknown">❓ Unknown</option>
+                        <option value="actor_system">⚠️ Actor System</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Hidden Status</label>
+                    <select id="bulk_hidden" name="hidden" class="form-input">
+                        <option value="" selected>— No Change —</option>
+                        <option value="false">Visible</option>
+                        <option value="true">Hidden</option>
+                    </select>
+                    <small style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        Hidden systems are excluded from case statistics but remain in the database.
+                    </small>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeBulkEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update Selected Systems</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const caseId = {{ case.id }};
+
+// Pagination and sorting functions
+function goToPage(page) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', page);
+    window.location.href = url.toString();
+}
+
+function sortBy(field) {
+    const url = new URL(window.location.href);
+    const currentSort = url.searchParams.get('sort') || 'system_name';
+    const currentOrder = url.searchParams.get('order') || 'asc';
+    
+    if (currentSort === field) {
+        // Toggle order
+        url.searchParams.set('order', currentOrder === 'desc' ? 'asc' : 'desc');
+    } else {
+        // New field, default to asc
+        url.searchParams.set('sort', field);
+        url.searchParams.set('order', 'asc');
+    }
+    
+    url.searchParams.set('page', '1'); // Reset to page 1 when sorting changes
+    window.location.href = url.toString();
+}
+
+function changePerPage(perPage) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('per_page', perPage);
+    url.searchParams.set('page', '1'); // Reset to page 1 when per_page changes
+    window.location.href = url.toString();
+}
+
+// Helper function to show flash messages
+function showFlash(message, type) {
+    const flash = document.createElement('div');
+    flash.className = `flash-message flash-${type}`;
+    flash.textContent = message;
+    flash.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 15px 20px; background: var(--color-success); color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; animation: slideIn 0.3s ease;';
+    if (type === 'error') {
+        flash.style.background = 'var(--color-error)';
+    }
+    document.body.appendChild(flash);
+    setTimeout(() => {
+        flash.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => flash.remove(), 300);
+    }, 3000);
+}
+
+// Show/hide modal functions
+function showAddSystemModal() {
+    document.getElementById('systemModalTitle').textContent = '🎯 Add System';
+    document.getElementById('systemForm').reset();
+    document.getElementById('systemId').value = '';
+    document.getElementById('systemModal').style.display = 'block';
+}
+
+function closeSystemModal() {
+    document.getElementById('systemModal').style.display = 'none';
+}
+
+// Submit system (add or edit)
+function submitSystem(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const systemId = document.getElementById('systemId').value;
+    
+    const url = systemId 
+        ? `/case/${caseId}/systems/${systemId}/edit`
+        : `/case/${caseId}/systems/add`;
+    
+    fetch(url, {
+        method: 'POST',
+        body: formData
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                closeSystemModal();
+                location.reload();  // Reload immediately - flash will show after reload
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
+            }
+        })
+        .catch(err => {
+            showFlash('Failed to save system', 'error');
+            console.error('Error saving system:', err);
+        });
+}
+
+// Edit system - load data and show modal
+function editSystem(systemId) {
+    fetch(`/case/${caseId}/systems/${systemId}/get`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('systemModalTitle').textContent = '✏️ Edit System';
+                document.getElementById('systemId').value = data.system.id;
+                document.getElementById('systemName').value = data.system.system_name;
+                document.getElementById('systemIpAddress').value = data.system.ip_address || '';
+                document.getElementById('systemType').value = data.system.system_type;
+                document.getElementById('systemModal').style.display = 'block';
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
+            }
+        })
+        .catch(err => {
+            showFlash('Failed to load system details', 'error');
+            console.error(err);
+        });
+}
+
+// Scan systems
+function scanSystems() {
+    if (!confirm('Scan case files to discover systems? This may take a few moments.')) {
+        return;
+    }
+    
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>🔄</span><span> Scanning...</span>';
+    
+    fetch(`/case/${caseId}/systems/scan`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            
+            if (data.success) {
+                showFlash(`System scan complete: ${data.new_systems} new, ${data.existing_systems} existing`, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
+            }
+        })
+        .catch(err => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            showFlash('Failed to scan systems', 'error');
+        });
+}
+
+// Toggle hidden
+function toggleHidden(systemId) {
+    fetch(`/case/${caseId}/systems/${systemId}/toggle_hidden`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash(data.hidden ? 'System hidden' : 'System visible', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
+            }
+        })
+        .catch(err => {
+            showFlash('Failed to toggle visibility', 'error');
+            console.error(err);
+        });
+}
+
+// Delete system
+function deleteSystem(systemId) {
+    if (!confirm('Are you sure you want to delete this system? This action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/case/${caseId}/systems/${systemId}/delete`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash('System deleted successfully', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
+            }
+        })
+        .catch(err => {
+            showFlash('Failed to delete system', 'error');
+            console.error(err);
+        });
+}
+
+// Enrich system
+function enrichSystem(systemId) {
+    fetch(`/case/${caseId}/systems/${systemId}/enrich`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash('System enriched from OpenCTI', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showFlash('OpenCTI enrichment not available', 'error');
+            }
+        })
+        .catch(err => {
+            showFlash('Failed to enrich system', 'error');
+            console.error(err);
+        });
+}
+
+// Sync to DFIR-IRIS
+function syncSystem(systemId) {
+    fetch(`/case/${caseId}/systems/${systemId}/sync`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash('System synced to DFIR-IRIS', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showFlash('DFIR-IRIS sync not available', 'error');
+            }
+        })
+        .catch(err => {
+            showFlash('Failed to sync system', 'error');
+            console.error(err);
+        });
+}
+
+function bulkSyncAllSystems() {
+    if (!confirm('Sync all systems in this case to DFIR-IRIS? This will create/update assets in DFIR-IRIS.')) {
+        return;
+    }
+    
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>🔄</span><span> Syncing...</span>';
+    
+    fetch(`/case/${caseId}/systems/sync_all`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            
+            if (data.success) {
+                showFlash(data.message, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showFlash(data.message || 'Sync failed', 'error');
+            }
+        })
+        .catch(error => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            showFlash('Failed to sync systems: ' + error, 'error');
+        });
+}
+
+// Close modal when clicking outside of it
+document.getElementById('systemModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeSystemModal();
+    }
+});
+
+// ============================================================================
+// BULK OPERATIONS (v1.23.0)
+// ============================================================================
+
+// Store selected IDs across pagination
+let selectedSystemIds = new Set();
+
+// Toggle select all checkboxes
+function toggleSelectAllSystems() {
+    const selectAll = document.getElementById('selectAllSystems');
+    const checkboxes = document.querySelectorAll('.system-checkbox');
+    
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+        if (selectAll.checked) {
+            selectedSystemIds.add(parseInt(cb.value));
+        } else {
+            selectedSystemIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    updateBulkButtons();
+}
+
+// Update bulk action buttons based on selection
+function updateBulkButtons() {
+    const checkboxes = document.querySelectorAll('.system-checkbox:checked');
+    const count = checkboxes.length;
+    
+    // Update selected IDs set
+    document.querySelectorAll('.system-checkbox').forEach(cb => {
+        if (cb.checked) {
+            selectedSystemIds.add(parseInt(cb.value));
+        } else {
+            selectedSystemIds.delete(parseInt(cb.value));
+        }
+    });
+    
+    // Use the set size for total count (includes selections from other pages)
+    const totalCount = selectedSystemIds.size;
+    
+    // Update button counts
+    document.getElementById('countEdit').textContent = totalCount;
+    const deleteBtn = document.getElementById('countDelete');
+    if (deleteBtn) {
+        deleteBtn.textContent = totalCount;
+    }
+    
+    // Enable/disable buttons
+    const hasSelection = totalCount > 0;
+    document.getElementById('bulkEditBtn').disabled = !hasSelection;
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.disabled = !hasSelection;
+    }
+}
+
+// Show bulk edit modal
+function showBulkEditModal() {
+    if (selectedSystemIds.size === 0) {
+        alert('⚠️ Please select at least one system to edit.');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedSystemIds.size;
+    document.getElementById('bulkEditForm').reset();
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+// Close bulk edit modal
+function closeBulkEditModal() {
+    document.getElementById('bulkEditModal').style.display = 'none';
+}
+
+// Bulk edit systems
+function bulkEditSystems(event) {
+    event.preventDefault();
+    
+    if (selectedSystemIds.size === 0) {
+        alert('⚠️ No systems selected.');
+        return;
+    }
+    
+    const systemType = document.getElementById('bulk_system_type').value;
+    const hidden = document.getElementById('bulk_hidden').value;
+    
+    // Check if at least one field is being changed
+    if (!systemType && !hidden) {
+        alert('⚠️ Please select at least one field to update.');
+        return;
+    }
+    
+    const modal = document.getElementById('bulkEditModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Updating...';
+    }
+    
+    // Build request payload
+    const payload = {
+        system_ids: Array.from(selectedSystemIds)
+    };
+    
+    if (systemType) payload.system_type = systemType;
+    if (hidden) payload.hidden = hidden === 'true';
+    
+    fetch(`/case/${caseId}/systems/bulk_edit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showFlash(`✅ Bulk edit complete! Updated: ${data.updated} systems`, 'success');
+            selectedSystemIds.clear();  // Clear selection
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showFlash('❌ Error: ' + (data.error || 'Failed to bulk edit systems'), 'error');
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Update Selected Systems';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Bulk edit error:', err);
+        showFlash('❌ Error: ' + err.message, 'error');
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Update Selected Systems';
+        }
+    });
+}
+
+// Bulk delete systems
+function bulkDeleteSystems() {
+    if (selectedSystemIds.size === 0) {
+        alert('⚠️ Please select at least one system to delete.');
+        return;
+    }
+    
+    if (!confirm(`⚠️ Are you sure you want to delete ${selectedSystemIds.size} selected system(s)?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    const button = document.getElementById('bulkDeleteBtn');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Deleting...';
+    
+    fetch(`/case/${caseId}/systems/bulk_delete`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            system_ids: Array.from(selectedSystemIds)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showFlash(`✅ Bulk delete complete! Deleted: ${data.deleted} systems`, 'success');
+            selectedSystemIds.clear();  // Clear selection
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showFlash('❌ Error: ' + (data.error || 'Failed to bulk delete systems'), 'error');
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    })
+    .catch(err => {
+        console.error('Bulk delete error:', err);
+        showFlash('❌ Error: ' + err.message, 'error');
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
+// Restore checkbox states on page load (for pagination)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.system-checkbox').forEach(cb => {
+        if (selectedSystemIds.has(parseInt(cb.value))) {
+            cb.checked = true;
+        }
+    });
+    updateBulkButtons();
+});
+
+// Close bulk edit modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+    const bulkModal = document.getElementById('bulkEditModal');
+    if (bulkModal) {
+        bulkModal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeBulkEditModal();
+            }
+        });
+    }
+});
+
+</script>
+{% endblock %}
+

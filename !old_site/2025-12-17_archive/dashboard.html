@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">System Dashboard</h1>
+        <p class="text-secondary">Digital Forensics & Incident Response Platform</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('create_case') }}" class="btn btn-primary">
+            <span>+</span>
+            <span>New Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- System Stats Grid -->
+<div class="info-tiles-grid">
+    <!-- CaseScope Status -->
+    <div class="info-tile">
+        <div class="info-tile-header">
+            <span class="info-tile-icon">📊</span>
+            <h2 class="info-tile-title">CaseScope Status</h2>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Number of Cases</div>
+            <div class="info-tile-value primary">{{ total_cases }}</div>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total Number of Files</div>
+            <div class="info-tile-value primary">{{ '{:,}'.format(total_files) }}</div>
+        </div>
+    </div>
+    
+    <!-- Events Status -->
+    <div class="info-tile">
+        <div class="info-tile-header">
+            <span class="info-tile-icon">📊</span>
+            <h2 class="info-tile-title">Events Status</h2>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total SIGMA Violations Found</div>
+            <div class="info-tile-value warning">{{ '{:,}'.format(total_violations) }}</div>
+        </div>
+        
+        <div class="info-tile-row">
+            <div class="info-tile-label">Total IOC Events Found</div>
+            <div class="info-tile-value error">{{ '{:,}'.format(total_ioc_matches) }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Cases -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Active Cases</h2>
+        <span class="text-secondary">{{ cases|length }} case(s)</span>
+    </div>
+    
+    <div class="card-body">
+        {% if cases %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Case Name</th>
+                        <th>Company</th>
+                        <th>Files</th>
+                        <th>Events</th>
+                        <th>SIGMA</th>
+                        <th>IOCs</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for case in cases %}
+                    <tr>
+                        <td>
+                            <strong>{{ case.name }}</strong>
+                            {% if case.description %}
+                            <br><span class="text-muted" style="font-size: 0.875rem;">{{ case.description[:50] }}...</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ case.company or 'N/A' }}</td>
+                        <td>{{ case.files.filter_by(is_deleted=False, is_hidden=False).count() }}</td>
+                        <td>
+                            {% set total_events = case.files.filter_by(is_deleted=False, is_hidden=False).with_entities(db.func.sum(CaseFile.event_count)).scalar() or 0 %}
+                            {{ '{:,}'.format(total_events) }}
+                        </td>
+                        <td>
+                            {% set total_sigs = case.files.filter_by(is_deleted=False, is_hidden=False).with_entities(db.func.sum(CaseFile.violation_count)).scalar() or 0 %}
+                            <span class="status-badge status-sigma">{{ total_sigs }}</span>
+                        </td>
+                        <td>
+                            {% set total_iocs = case.files.filter_by(is_deleted=False, is_hidden=False).with_entities(db.func.sum(CaseFile.ioc_event_count)).scalar() or 0 %}
+                            <span class="status-badge status-ioc">{{ total_iocs }}</span>
+                        </td>
+                        <td>{{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-primary btn-sm">
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📁</div>
+            <h3>No cases yet</h3>
+            <p>Create your first case to get started with CaseScope 2026</p>
+            <a href="{{ url_for('create_case') }}" class="btn btn-primary" style="margin-top: var(--spacing-lg);">
+                Create First Case
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

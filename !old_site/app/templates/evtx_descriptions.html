@@ -1,0 +1,488 @@
+{% extends "base.html" %}
+
+{% block title %}EVTX Event Descriptions - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">EVTX Event Descriptions</h1>
+        <p class="text-secondary">Manage Windows Event ID descriptions for friendly display</p>
+    </div>
+    <div class="content-actions">
+        <button onclick="openAddEventModal()" class="btn" style="background: var(--color-success); color: white;">
+            <span>➕</span>
+            <span>Add Custom Event</span>
+        </button>
+        <button onclick="confirmUpdate()" class="btn btn-primary">
+            <span>🔄</span>
+            <span>Update from Sources</span>
+        </button>
+        <button onclick="confirmRefreshDescriptions()" class="btn" style="background: var(--color-warning); color: white;">
+            <span>🔁</span>
+            <span>Refresh All Events</span>
+        </button>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Dashboard</span>
+        </a>
+    </div>
+</div>
+
+<!-- Single Full-Width Stats & Search Tile -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-body" style="padding: var(--spacing-lg);">
+        <!-- Row 1: Total + First 3 Sources + Last Updated -->
+        <div style="display: grid; grid-template-columns: 1.5fr repeat(3, 1fr) 1fr; gap: var(--spacing-xl); align-items: center; margin-bottom: var(--spacing-md); padding-bottom: var(--spacing-md); border-bottom: 1px solid var(--color-border);">
+            
+            <!-- Total Events -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Total Event IDs</div>
+                <a href="{{ url_for('evtx_descriptions', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Show all events">
+                    <div style="font-size: 2rem; font-weight: 700; color: {% if not source_filter %}var(--color-primary){% else %}var(--color-text-secondary){% endif %}; line-height: 1;">{{ total_events }}</div>
+                </a>
+            </div>
+            
+            <!-- Source 1: Ultimate Windows Security -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Ultimate Windows Security</div>
+                <a href="{{ url_for('evtx_descriptions', source='uws', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Ultimate Windows Security">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'uws' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Ultimate Windows Security', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 2: GitHub Gist -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub Gist</div>
+                <a href="{{ url_for('evtx_descriptions', source='github', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by GitHub Gist">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'github' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('GitHub Gist', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 3: Infrasos -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
+                <a href="{{ url_for('evtx_descriptions', source='infrasos', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Infrasos">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'infrasos' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Infrasos', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Last Updated -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Last Updated</div>
+                {% if last_updated %}
+                <div style="font-size: 0.875rem; font-weight: 600; color: var(--color-text-primary);">
+                    {{ last_updated.strftime('%Y-%m-%d') }}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">{{ last_updated.strftime('%H:%M') }}</div>
+                {% else %}
+                <div style="font-size: 0.875rem; color: var(--color-text-muted);">Never</div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Row 2: Additional Sources (4 columns) - FIXED: Added missing border-top separator -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-xl); align-items: center; margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
+            
+            <!-- Source 4: MyEventLog.com -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MyEventLog.com</div>
+                <a href="{{ url_for('evtx_descriptions', source='myeventlog', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by MyEventLog.com">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'myeventlog' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('MyEventLog.com', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 5: Microsoft Sysmon -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Microsoft Sysmon</div>
+                <a href="{{ url_for('evtx_descriptions', source='ms_sysmon', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Sysmon">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_sysmon' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Microsoft Sysmon', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 6: Microsoft Security Auditing -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Microsoft Security Auditing</div>
+                <a href="{{ url_for('evtx_descriptions', source='ms_security', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Security Auditing">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Microsoft Security Auditing', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 7: Custom Events (v1.13.7) -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Custom Events</div>
+                <a href="{{ url_for('evtx_descriptions', source='custom', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Custom Events">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'custom' %}var(--color-success){% else %}var(--color-success){% endif %}; opacity: {% if source_filter == 'custom' %}1{% else %}0.7{% endif %};">
+                        {{ source_stats.get('Custom Events', 0) }}
+                    </div>
+                </a>
+            </div>
+        </div>
+        
+        <!-- Search Bar -->
+        <div style="margin-top: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <form method="GET" action="{{ url_for('evtx_descriptions') }}" style="display: flex; gap: var(--spacing-sm);">
+                {% if source_filter %}
+                <input type="hidden" name="source" value="{{ source_filter }}">
+                {% endif %}
+                <input 
+                    type="text" 
+                    name="q" 
+                    value="{{ search_query or '' }}" 
+                    placeholder="Search by Event ID or friendly name..." 
+                    class="form-input" 
+                    style="flex: 1;"
+                    autofocus
+                >
+                <button type="submit" class="btn btn-primary">
+                    <span>🔍</span>
+                    <span>Search</span>
+                </button>
+                {% if search_query or source_filter %}
+                <a href="{{ url_for('evtx_descriptions') }}" class="btn btn-secondary">
+                    <span>✕</span>
+                    <span>Clear All</span>
+                </a>
+                {% endif %}
+            </form>
+            <div style="margin-top: var(--spacing-sm); font-size: 0.875rem; color: var(--color-text-secondary);">
+                {% if source_filter %}
+                <span style="background: var(--color-primary); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; margin-right: 0.5rem;">
+                    Filtered by: 
+                    {% if source_filter == 'uws' %}Ultimate Windows Security
+                    {% elif source_filter == 'github' %}GitHub Gist
+                    {% elif source_filter == 'infrasos' %}Infrasos
+                    {% elif source_filter == 'myeventlog' %}MyEventLog.com
+                    {% elif source_filter == 'ms_sysmon' %}Microsoft Sysmon
+                    {% elif source_filter == 'ms_security' %}Microsoft Security Auditing
+                    {% endif %}
+                </span>
+                {% endif %}
+                {% if search_query %}
+                Showing results for: <strong>{{ search_query }}</strong>
+                {% endif %}
+                {% if pagination.total == 0 %}
+                    (no matches found)
+                {% elif search_query or source_filter %}
+                    ({{ pagination.total }} match{% if pagination.total != 1 %}es{% endif %})
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Events Table -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📄 Event Descriptions</h2>
+        {% if pagination.total > 0 %}
+        <span class="text-muted">
+            {% if search_query %}
+                {{ pagination.total }} result{% if pagination.total != 1 %}s{% endif %} • 
+            {% endif %}
+            Page {{ pagination.page }} of {{ pagination.pages }}
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if events %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 100px;">Event ID</th>
+                        <th style="width: 150px;">Source</th>
+                        <th>Title & Description</th>
+                        <th style="width: 120px;">Category</th>
+                        <th style="width: 120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in events %}
+                    <tr>
+                        <td>
+                            {% if event.source_url %}
+                            <a href="{{ event.source_url }}" target="_blank" rel="noopener noreferrer" 
+                               style="text-decoration: none; cursor: pointer;"
+                               onmouseover="this.style.textDecoration='underline'" 
+                               onmouseout="this.style.textDecoration='none'">
+                                <strong style="color: var(--color-primary); font-size: 1.125rem;">{{ event.event_id }}</strong>
+                            </a>
+                            {% else %}
+                            <strong style="color: var(--color-primary); font-size: 1.125rem;">{{ event.event_id }}</strong>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if event.is_custom %}
+                            <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success); font-size: 0.75rem;">
+                                ✏️ Custom
+                            </span>
+                            {% else %}
+                            <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info); font-size: 0.75rem;">
+                                {{ event.event_source }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div style="font-weight: 600; margin-bottom: 0.25rem;">{{ event.title }}</div>
+                            {% if event.description and event.description != event.title %}
+                            <div class="text-muted" style="font-size: 0.875rem;">{{ event.description[:150] }}{% if event.description|length > 150 %}...{% endif %}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if event.category %}
+                            <span class="text-muted" style="font-size: 0.875rem;">{{ event.category }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if event.is_custom %}
+                            <button onclick="openEditEventModal({{ event.id }}, {{ event.event_id }}, '{{ event.title|replace("'", "\\'") }}', '{{ event.description|replace("'", "\\'") if event.description else "" }}', '{{ event.category|replace("'", "\\'") if event.category else "" }}')" 
+                                    class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; background: var(--color-primary); color: white; margin-right: 0.25rem;">
+                                ✏️ Edit
+                            </button>
+                            <button onclick="confirmDeleteEvent({{ event.id }}, {{ event.event_id }})" 
+                                    class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; background: var(--color-error); color: white;">
+                                🗑️ Delete
+                            </button>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination Controls -->
+        {% if pagination.pages > 1 %}
+        {% set endpoint = 'evtx_descriptions' %}
+        {% include 'components/pagination.html' %}
+        {% endif %}
+        
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            {% if search_query %}
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🔍</div>
+            <h3>No results found</h3>
+            <p style="margin-bottom: var(--spacing-lg);">Try a different search term or clear the filter</p>
+            <a href="{{ url_for('evtx_descriptions') }}" class="btn btn-secondary">
+                <span>✕</span>
+                <span>Clear Search</span>
+            </a>
+            {% else %}
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
+            <h3>No event descriptions loaded</h3>
+            <p style="margin-bottom: var(--spacing-lg);">Update from sources to populate the database</p>
+            <button onclick="confirmUpdate()" class="btn btn-primary">
+                <span>🔄</span>
+                <span>Update from Sources</span>
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add/Edit Custom Event Modal -->
+<!-- Add/Edit Event Modal (v1.20.0: Standardized) -->
+<div id="eventModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2 class="modal-title" id="modalTitle">➕ Add Custom Event</h2>
+            <button type="button" onclick="closeEventModal()" class="modal-close">✕</button>
+        </div>
+        <form id="eventForm" onsubmit="submitEvent(event)" class="modal-body">
+            <input type="hidden" id="eventId" value="">
+            
+            <div class="form-group">
+                <label class="form-label" for="eventEventId">Event ID <span style="color: var(--color-error);">*</span></label>
+                <input type="number" id="eventEventId" name="event_id" required min="0" max="999999" 
+                       placeholder="e.g., 9999" class="form-input">
+                <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                    Numeric Windows Event ID (0-999999)
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="eventTitle">Title <span style="color: var(--color-error);">*</span></label>
+                <input type="text" id="eventTitle" name="title" required maxlength="500" 
+                       placeholder="e.g., Custom Security Event" class="form-input">
+                <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                    Short, descriptive name for the event
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="eventDescription">Enrichment / Description</label>
+                <textarea id="eventDescription" name="description" rows="4" maxlength="2000" 
+                          placeholder="Additional context, what to look for, investigation tips..." 
+                          class="form-input" style="resize: vertical;"></textarea>
+                <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                    Detailed description or enrichment text (optional)
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="eventCategory">Category</label>
+                <input type="text" id="eventCategory" name="category" maxlength="100" 
+                       placeholder="e.g., Security, Application, Custom" class="form-input">
+                <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                    Event category or channel (optional)
+                </div>
+            </div>
+        </form>
+        
+        <div class="modal-footer">
+            <button type="button" onclick="closeEventModal()" class="btn btn-secondary">
+                Cancel
+            </button>
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('eventForm').requestSubmit()" id="submitBtn">
+                <span id="submitBtnText">➕ Add Event</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ============================================================================
+// UPDATE FROM SOURCES
+// ============================================================================
+function confirmUpdate() {
+    if (confirm('🔄 Update EVTX Event Descriptions\n\nThis will fetch from 6 data sources:\n• Ultimate Windows Security\n• GitHub Gist\n• Infrasos\n• MyEventLog.com\n• Microsoft Sysmon (29 events)\n• Microsoft Security Auditing (50+ events)\n\nThe system will:\n• Update existing events with new information\n• Add any new events found\n\nThis may take 1-2 minutes.\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("evtx_descriptions_update") }}';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// ============================================================================
+// REFRESH EVENT DESCRIPTIONS IN OPENSEARCH
+// ============================================================================
+function confirmRefreshDescriptions() {
+    if (confirm('🔁 Refresh Event Descriptions in ALL Cases\n\nThis will update event_title, event_description, and event_category fields for ALL indexed events across ALL cases.\n\nUse this after:\n• Adding custom event descriptions\n• Updating event descriptions from sources\n• Fixing event description data\n\nThis operation:\n• Updates OpenSearch WITHOUT re-indexing files\n• Processes all cases in the background\n• Does not affect file processing queue\n\nThis may take several minutes depending on event count.\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("refresh_descriptions_global_route") }}';
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'redirect_to';
+        input.value = 'evtx_descriptions';
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// ============================================================================
+// CUSTOM EVENT MODAL FUNCTIONS
+// ============================================================================
+function openAddEventModal() {
+    document.getElementById('modalTitle').textContent = '➕ Add Custom Event';
+    document.getElementById('submitBtnText').textContent = '➕ Add Event';
+    document.getElementById('eventId').value = '';
+    document.getElementById('eventEventId').value = '';
+    document.getElementById('eventEventId').readOnly = false;
+    document.getElementById('eventTitle').value = '';
+    document.getElementById('eventDescription').value = '';
+    document.getElementById('eventCategory').value = '';
+    document.getElementById('eventModal').style.display = 'flex';
+    document.getElementById('eventEventId').focus();
+}
+
+function openEditEventModal(id, eventId, title, description, category) {
+    document.getElementById('modalTitle').textContent = '✏️ Edit Custom Event';
+    document.getElementById('submitBtnText').textContent = '✅ Save Changes';
+    document.getElementById('eventId').value = id;
+    document.getElementById('eventEventId').value = eventId;
+    document.getElementById('eventEventId').readOnly = true; // Can't change Event ID
+    document.getElementById('eventTitle').value = title;
+    document.getElementById('eventDescription').value = description || '';
+    document.getElementById('eventCategory').value = category || '';
+    document.getElementById('eventModal').style.display = 'flex';
+    document.getElementById('eventTitle').focus();
+}
+
+function closeEventModal() {
+    document.getElementById('eventModal').style.display = 'none';
+}
+
+function submitEvent(e) {
+    e.preventDefault();
+    
+    const id = document.getElementById('eventId').value;
+    const formData = {
+        event_id: parseInt(document.getElementById('eventEventId').value),
+        title: document.getElementById('eventTitle').value.trim(),
+        description: document.getElementById('eventDescription').value.trim() || null,
+        category: document.getElementById('eventCategory').value.trim() || null
+    };
+    
+    const url = id ? `/evtx_descriptions/custom/${id}` : '/evtx_descriptions/custom';
+    const method = id ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeEventModal();
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to save event'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+    });
+}
+
+function confirmDeleteEvent(id, eventId) {
+    if (confirm(`🗑️ Delete Custom Event\n\nAre you sure you want to delete Event ID ${eventId}?\n\nThis action cannot be undone.`)) {
+        fetch(`/evtx_descriptions/custom/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + (data.error || 'Failed to delete event'));
+            }
+        })
+        .catch(err => {
+            alert('Error: ' + err.message);
+        });
+    }
+}
+
+// Close modal on background click
+window.onclick = function(e) {
+    const modal = document.getElementById('eventModal');
+    if (e.target === modal) {
+        closeEventModal();
+    }
+};
+</script>
+{% endblock %}

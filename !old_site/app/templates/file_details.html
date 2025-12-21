@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}File Details - {{ file.original_filename }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📄 {{ file.original_filename }}</h1>
+        <p class="text-secondary">File details and event search</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('files.case_files', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Files</span>
+        </a>
+    </div>
+</div>
+
+<!-- File Details Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📋 File Information</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--spacing-lg);">
+            <!-- Basic Info -->
+            <div>
+                <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-text-secondary);">Basic Information</h3>
+                <div style="display: grid; gap: var(--spacing-sm);">
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Filename</div>
+                        <div><strong>{{ file.original_filename }}</strong></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">File Type</div>
+                        <div><span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info);">{{ file.file_type or 'UNKNOWN' }}</span></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">File Size</div>
+                        <div><strong>{{ (file.file_size / 1024 / 1024)|round(2) }} MB</strong></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">SHA256 Hash</div>
+                        <div style="font-family: monospace; font-size: 0.875rem; word-break: break-all;">{{ file.file_hash }}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Processing Status -->
+            <div>
+                <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-text-secondary);">Processing Status</h3>
+                <div style="display: grid; gap: var(--spacing-sm);">
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Status</div>
+                        <div>
+                            {% if file.indexing_status == 'Completed' %}
+                                <span class="status-badge status-completed">Completed</span>
+                            {% elif file.indexing_status == 'Indexing' %}
+                                <span class="status-badge status-indexing">Indexing</span>
+                            {% elif file.indexing_status == 'SIGMA Testing' %}
+                                <span class="status-badge status-sigma">SIGMA Testing</span>
+                            {% elif file.indexing_status == 'IOC Hunting' %}
+                                <span class="status-badge status-ioc">IOC Hunting</span>
+                            {% elif file.indexing_status == 'Queued' %}
+                                <span class="status-badge status-queued">Queued</span>
+                            {% else %}
+                                <span class="status-badge status-failed">{{ file.indexing_status }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Total Events</div>
+                        <div><strong>{{ '{:,}'.format(file.event_count) }}</strong></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">SIGMA Violations</div>
+                        <div>
+                            {% if file.violation_count > 0 %}
+                            <span class="status-badge status-sigma">{{ file.violation_count }}</span>
+                            {% else %}
+                            <span class="text-muted">0</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">IOC Events</div>
+                        <div>
+                            {% if file.ioc_event_count > 0 %}
+                            <span class="status-badge status-ioc">{{ file.ioc_event_count }}</span>
+                            {% else %}
+                            <span class="text-muted">0</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Upload Info -->
+            <div>
+                <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-text-secondary);">Upload Information</h3>
+                <div style="display: grid; gap: var(--spacing-sm);">
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Uploaded At</div>
+                        <div><strong>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M:%S') }}</strong></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Uploaded By</div>
+                        <div>
+                            {% if file.uploaded_by %}
+                            <span class="text-muted">User #{{ file.uploaded_by }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Upload Method</div>
+                        <div><span class="text-muted">{{ file.upload_type or 'HTTP' }}</span></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 0.875rem;">Indexed</div>
+                        <div>
+                            {% if file.is_indexed %}
+                            <span style="color: var(--color-success);">✓ Yes</span>
+                            {% else %}
+                            <span style="color: var(--color-error);">✗ No</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Actions Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔍 Search Events</h2>
+    </div>
+    <div class="card-body">
+        <p style="margin-bottom: var(--spacing-md); color: var(--color-text-secondary);">
+            View all events from this file in the advanced search interface.
+        </p>
+        {% if file.event_count > 0 %}
+        <a href="{{ url_for('search_events', case_id=case.id) }}?source_file={{ file.opensearch_key }}" class="btn btn-primary">
+            <span>🔎</span>
+            <span>View {{ '{:,}'.format(file.event_count) }} Events</span>
+        </a>
+        {% else %}
+        <div class="text-muted">
+            No events available for this file.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+

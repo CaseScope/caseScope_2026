@@ -1,0 +1,2179 @@
+{% extends "base.html" %}
+
+{% block title %}Triage - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🎯 Hunting - {{ case.name }}</h1>
+        <p class="text-secondary">Case ID: {{ case.id }} • Quick analysis and AI-powered attack chain analysis</p>
+    </div>
+    <div>
+        <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- ============================================================================
+     QUICK ANALYSIS BUTTONS (New Tile)
+     ============================================================================ -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">⚡ Quick Analysis</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-md);">
+            <button type="button" onclick="showLoginsOK()" class="btn btn-primary" style="justify-content: center;">
+                <span>🔐</span>
+                <span>Show Logins OK</span>
+            </button>
+            <button type="button" onclick="showLoginsFailed()" class="btn btn-danger" style="justify-content: center;">
+                <span>🚫</span>
+                <span>Failed Logins</span>
+            </button>
+            <button type="button" onclick="showRDPConnections()" class="btn btn-success" style="justify-content: center;">
+                <span>🖥️</span>
+                <span>RDP Connections</span>
+            </button>
+            <button type="button" onclick="showConsoleLogins()" class="btn btn-warning" style="justify-content: center;">
+                <span>💻</span>
+                <span>Console Logins</span>
+            </button>
+            <button type="button" onclick="showVPNAuthentications()" class="btn btn-primary" style="justify-content: center;">
+                <span>🔒</span>
+                <span>VPN Authentications</span>
+            </button>
+            <button type="button" onclick="showFailedVPNAttempts()" class="btn btn-danger" style="justify-content: center;">
+                <span>🚫</span>
+                <span>Failed VPN Attempts</span>
+            </button>
+            <button type="button" onclick="showBase64Decoder()" class="btn btn-secondary" style="justify-content: center;">
+                <span>🔓</span>
+                <span>Base64 Decode</span>
+            </button>
+            {% if has_iocs %}
+            <button type="button" onclick="startGlobalIOCHunt()" class="btn btn-warning" style="justify-content: center;" id="globalHuntBtn">
+                <span>🎯</span>
+                <span>Hunt All IOCs</span>
+            </button>
+            {% else %}
+            <button type="button" disabled class="btn btn-secondary" style="justify-content: center; opacity: 0.5; cursor: not-allowed;" title="Add IOCs first">
+                <span>🎯</span>
+                <span>Hunt All IOCs</span>
+            </button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     EVENT STATISTICS TILE (Full Width) - Professional Layout
+     ============================================================================ -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">📊 Event Statistics</h2>
+    </div>
+    <div class="card-body">
+        <!-- Top Row: Main Metrics -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-lg); margin-bottom: var(--spacing-xl);">
+            <div style="text-align: center; padding: var(--spacing-lg); background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)); border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.2);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-sm); font-weight: 500;">Total Events</div>
+                <div style="font-size: 2.5rem; font-weight: 700; color: #3b82f6;">{{ '{:,}'.format(total_events) }}</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-lg); background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05)); border-radius: var(--radius-md); border: 1px solid rgba(34, 197, 94, 0.2);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-sm); font-weight: 500;">SIGMA Violations</div>
+                <div style="font-size: 2.5rem; font-weight: 700; color: #22c55e;">{{ '{:,}'.format(total_sigma_events) }}</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-lg); background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); border-radius: var(--radius-md); border: 1px solid rgba(239, 68, 68, 0.2);">
+                <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-sm); font-weight: 500;">IOC Events</div>
+                <div style="font-size: 2.5rem; font-weight: 700; color: #ef4444;">{{ '{:,}'.format(total_ioc_events) }}</div>
+            </div>
+        </div>
+        
+        <!-- Bottom Row: Event Status Breakdown -->
+        <div style="padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-md); font-weight: 600;">Event Status Distribution</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-md);">
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">New</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-secondary);">{{ '{:,}'.format(status_counts.new|default(0)) }}</div>
+                </div>
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">🎯 Hunted</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #9b59b6;">{{ '{:,}'.format(status_counts.hunted|default(0)) }}</div>
+                </div>
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">✓ Confirmed</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #c0392b;">{{ '{:,}'.format(status_counts.confirmed|default(0)) }}</div>
+                </div>
+                <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">🔇 Noise</div>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-muted);">{{ '{:,}'.format(status_counts.noise|default(0)) }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     PREREQUISITES TILE (Full Width)
+     Shows what needs to be configured before running triage
+     ============================================================================ -->
+
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">📋 Triage Prerequisites</h2>
+    </div>
+    <div class="card-body">
+        
+        <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 4px solid var(--color-info);">
+            <h4 style="margin: 0 0 var(--spacing-sm) 0; color: var(--color-info);">ℹ️ Why Prerequisites Matter</h4>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                AI Triage works best when it has context about your investigation. Systems help identify lateral movement, 
+                EDR reports provide IOCs to hunt, and events marked as hunted/confirmed provide investigation focus. Complete these steps for optimal results.
+            </p>
+        </div>
+        
+        <!-- Prerequisites Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--spacing-lg);">
+            
+            <!-- ============================================
+                 PREREQ 1: System Scan
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if systems_configured %}var(--color-success){% else %}var(--color-warning){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if systems_configured %}✅{% else %}⚠️{% endif %}
+                            1. System Scan
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Identify servers, workstations, and network devices in case
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if systems_configured %}badge-pill-success{% else %}badge-pill-warning{% endif %}">
+                        {{ system_count }} Systems
+                    </span>
+                </div>
+                
+                {% if systems_configured %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ Systems configured - triage can identify lateral movement between hosts
+                </p>
+                <a href="{{ url_for('systems.systems_management', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🖥️</span>
+                    <span>View Systems</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⚠️ No systems defined - lateral movement detection will be limited
+                </p>
+                <a href="{{ url_for('systems.systems_management', case_id=case.id) }}" class="btn btn-primary btn-sm">
+                    <span>🖥️</span>
+                    <span>Configure Systems</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 2: EDR Report
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_edr_report %}var(--color-success){% else %}var(--color-error){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_edr_report %}✅{% else %}❌{% endif %}
+                            2. EDR Report
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Paste EDR/MDR alert report to extract IOCs automatically
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_edr_report %}badge-pill-success{% else %}badge-pill-error{% endif %}">
+                        {% if has_edr_report %}Set{% else %}Not Set{% endif %}
+                    </span>
+                </div>
+                
+                {% if has_edr_report %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ EDR report configured - IOCs will be extracted automatically
+                </p>
+                <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>📋</span>
+                    <span>View/Edit Report</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-error); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ❌ No EDR report - configure IOCs manually or set triage date
+                </p>
+                <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" class="btn btn-primary btn-sm">
+                    <span>📋</span>
+                    <span>Paste EDR Report</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 3: IOCs Defined (Alternative to EDR)
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_iocs %}var(--color-success){% elif has_edr_report %}var(--color-text-muted){% else %}var(--color-warning){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_iocs %}✅{% elif has_edr_report %}⏭️{% else %}⚠️{% endif %}
+                            3. IOCs Defined
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Alternative: Manually define IOCs if no EDR report available
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_iocs %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
+                        {{ ioc_count }} IOCs
+                    </span>
+                </div>
+                
+                {% if has_iocs %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ {{ ioc_count }} IOCs ready for hunting
+                </p>
+                <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🎯</span>
+                    <span>View IOCs</span>
+                </a>
+                {% elif has_edr_report %}
+                <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⏭️ EDR report will auto-extract IOCs - manual entry optional
+                </p>
+                <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🎯</span>
+                    <span>Add IOCs Manually</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⚠️ No IOCs defined - add manually or paste EDR report
+                </p>
+                <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" class="btn btn-primary btn-sm">
+                    <span>🎯</span>
+                    <span>Add IOCs</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 4: Hunted/Confirmed Events (Optional Enhancement)
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_tagged_events %}var(--color-success){% else %}var(--color-text-muted){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_tagged_events %}✅{% else %}💡{% endif %}
+                            4. Hunted/Confirmed Events
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Optional: Events marked for investigation
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_tagged_events %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
+                        {{ tag_count }} Marked
+                    </span>
+                </div>
+                
+                {% if has_tagged_events %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ {{ tag_count }} events marked as hunted or confirmed
+                </p>
+                <a href="{{ url_for('search_events', case_id=case.id, status_filter='hunted,confirmed') }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🎯</span>
+                    <span>View Hunted/Confirmed</span>
+                </a>
+                {% else %}
+                <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    💡 No hunted events yet - triage will auto-mark based on IOC matches
+                </p>
+                <a href="{{ url_for('search_events', case_id=case.id) }}" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>🔍</span>
+                    <span>Search & Mark Events</span>
+                </a>
+                {% endif %}
+            </div>
+            
+            <!-- ============================================
+                 PREREQ 5: Triage Date (For IOC-only hunting)
+                 ============================================ -->
+            <div class="prereq-card" style="
+                background: var(--color-background-secondary);
+                border-radius: var(--border-radius);
+                padding: var(--spacing-lg);
+                border-left: 4px solid {% if has_triage_date %}var(--color-success){% elif has_edr_report %}var(--color-text-muted){% else %}var(--color-warning){% endif %};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-md);">
+                    <div>
+                        <h4 style="margin: 0 0 var(--spacing-xs) 0;">
+                            {% if has_triage_date %}✅{% elif has_edr_report %}⏭️{% else %}⚠️{% endif %}
+                            5. Triage Date
+                        </h4>
+                        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                            Focus date for IOC hunting (typically incident date)
+                        </p>
+                    </div>
+                    <span class="badge-pill {% if has_triage_date %}badge-pill-success{% else %}badge-pill-muted{% endif %}">
+                        {% if has_triage_date %}{{ triage_date.strftime('%Y-%m-%d') }}{% else %}Not Set{% endif %}
+                    </span>
+                </div>
+                
+                {% if has_triage_date %}
+                <p style="color: var(--color-success); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ✓ Triage will focus on events around {{ triage_date.strftime('%B %d, %Y') }}
+                </p>
+                <button onclick="showSetDateModal()" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>📅</span>
+                    <span>Change Date</span>
+                </button>
+                {% elif has_edr_report %}
+                <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⏭️ EDR report timestamps will be used - manual date optional
+                </p>
+                <button onclick="showSetDateModal()" class="btn btn-secondary btn-sm" style="opacity: 0.7;">
+                    <span>📅</span>
+                    <span>Set Date</span>
+                </button>
+                {% else %}
+                <p style="color: var(--color-warning); font-size: 0.9rem; margin-bottom: var(--spacing-sm);">
+                    ⚠️ No date set - required for IOC-only hunting (no EDR report)
+                </p>
+                <button onclick="showSetDateModal()" class="btn btn-primary btn-sm">
+                    <span>📅</span>
+                    <span>Set Triage Date</span>
+                </button>
+                {% endif %}
+            </div>
+            
+        </div>
+        
+    </div>
+</div>
+
+<!-- ============================================================================
+     TRIAGE ACTIONS Section
+     Individual phase buttons that can be run manually
+     ============================================================================ -->
+
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">🎯 Triage Actions</h2>
+    </div>
+    <div class="card-body">
+        
+        <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+            Run individual triage phases manually. Each phase can be executed independently as prerequisites are met.
+        </p>
+        
+        <!-- Phase 1: Extract IOCs from EDR Report -->
+        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 1: IOC Extraction</h4>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                    {% if has_edr_report %}
+                    Extract IOCs from the configured EDR report. Uses Qwen AI (auto-selected based on VRAM). Supports multiple reports separated by '*** NEW REPORT ***'.
+                    {% else %}
+                    Requires an EDR report to be configured. <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" style="color: var(--color-primary);">Add report →</a>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                {% if has_edr_report %}
+                <button onclick="extractIOCs()" class="btn btn-sm btn-primary" id="extractIocsBtn">
+                    <span>📋</span>
+                    <span>Extract IOCs from EDR Report</span>
+                </button>
+                {% else %}
+                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
+                    <span>📋</span>
+                    <span>Extract IOCs from EDR Report</span>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Phase 2: Find Potential IOCs (Snowball Hunting) -->
+        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 2: Find Potential IOCs</h4>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                    {% if has_iocs %}
+                    Search events containing existing IOCs to discover new related indicators (snowball hunting).
+                    Filters out known systems and IPs.
+                    {% else %}
+                    Requires IOCs to be defined first. Extract from EDR report or <a href="{{ url_for('ioc.ioc_management', case_id=case.id) }}" style="color: var(--color-primary);">add manually →</a>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                {% if has_iocs %}
+                <button onclick="findPotentialIOCs()" class="btn btn-sm btn-primary" id="findIocsBtn">
+                    <span>🔍</span>
+                    <span>Find Potential IOCs</span>
+                </button>
+                {% else %}
+                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
+                    <span>🔍</span>
+                    <span>Find Potential IOCs</span>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Phase 3: Mark High-Confidence Events as 'Hunted' -->
+        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 3: Mark Highly Likely Events</h4>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                    {% if has_iocs %}
+                    Auto-mark events as 'hunted' when they match 3+ IOCs, attack patterns, or high-confidence indicators.
+                    {% else %}
+                    <span style="color: var(--color-warning);">Requires IOCs defined first.</span>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                {% if has_iocs %}
+                <button onclick="tagHighConfidenceEvents()" class="btn btn-sm btn-primary" id="tagEventsBtn">
+                    <span>🎯</span>
+                    <span>Mark Highly Likely Events</span>
+                </button>
+                {% else %}
+                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
+                    <span>🎯</span>
+                    <span>Mark Highly Likely Events</span>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- More phases coming -->
+        <div style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic; text-align: center; padding: var(--spacing-md);">
+            Additional triage phases coming soon...
+        </div>
+        
+    </div>
+</div>
+
+<!-- IOC Extraction Result Modal -->
+<div id="iocExtractionModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2 class="modal-title">📋 IOC Extraction Results</h2>
+            <button type="button" class="modal-close" onclick="closeIocModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="iocExtractionProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted); font-size: 1rem; margin-bottom: var(--spacing-xs);">Extracting IOCs from EDR report...</p>
+                    <p id="iocExtractionMethod" style="font-size: 0.875rem; color: var(--color-primary); font-weight: 600;"></p>
+                </div>
+            </div>
+            <div id="iocExtractionResults" style="display: none;">
+                <div id="iocResultsSummary"></div>
+                <div id="iocResultsDetail" style="margin-top: var(--spacing-lg);"></div>
+            </div>
+            <div id="iocExtractionError" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <p id="iocErrorMessage">An error occurred during extraction.</p>
+                    <div style="margin-top: var(--spacing-lg);">
+                        <button type="button" onclick="retryCurrentReport()" class="btn btn-warning" style="margin-right: var(--spacing-sm);">
+                            <span>🔄</span>
+                            <span>Retry Report</span>
+                        </button>
+                        <button type="button" onclick="skipToNextReport()" class="btn btn-secondary" id="skipToNextBtn" style="display: none;">
+                            <span>⏭️</span>
+                            <span>Skip to Next Report</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="cancelExtraction()" class="btn btn-danger" id="cancelBtn">
+                <span>✕</span>
+                <span>Cancel</span>
+            </button>
+            <button type="button" onclick="saveAndContinue()" class="btn btn-primary" id="saveAndNextBtn" style="display: none;">
+                <span>💾▶️</span>
+                <span>Save & Next Report</span>
+            </button>
+            <button type="button" onclick="saveAndFinish()" class="btn btn-success" id="saveAndFinishBtn" style="display: none;">
+                <span>💾✓</span>
+                <span>Save & Finish</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Base64 Decoder Modal -->
+<div id="base64DecoderModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🔓 Base64 Decoder</h2>
+            <button type="button" class="modal-close" onclick="closeBase64Modal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom: var(--spacing-lg);">
+                <label style="display: block; margin-bottom: var(--spacing-sm); font-weight: 500;">Encoded Text:</label>
+                <textarea id="base64Input" 
+                          placeholder="Paste your Base64 encoded text here..." 
+                          style="width: 100%; min-height: 150px; padding: var(--spacing-md); background: var(--color-background-tertiary); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text); font-family: monospace; font-size: 0.9rem; resize: vertical;"
+                          oninput="clearBase64Result()"></textarea>
+            </div>
+            
+            <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                <button type="button" onclick="decodeBase64()" class="btn btn-primary">
+                    <span>🔓</span>
+                    <span>Decode</span>
+                </button>
+                <button type="button" onclick="clearBase64Fields()" class="btn btn-secondary" style="margin-left: var(--spacing-sm);">
+                    <span>🗑️</span>
+                    <span>Clear</span>
+                </button>
+            </div>
+            
+            <div id="base64Result" style="display: none;">
+                <label style="display: block; margin-bottom: var(--spacing-sm); font-weight: 500;">Decoded Result:</label>
+                <div style="background: var(--color-background-tertiary); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--spacing-md); max-height: 300px; overflow-y: auto;">
+                    <pre id="base64Output" style="margin: 0; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 0.9rem; color: var(--color-text);"></pre>
+                </div>
+                <div style="margin-top: var(--spacing-sm); text-align: right;">
+                    <button type="button" onclick="copyBase64Result()" class="btn btn-sm btn-secondary">
+                        <span>📋</span>
+                        <span>Copy to Clipboard</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div id="base64Error" style="display: none; margin-top: var(--spacing-md); padding: var(--spacing-md); background: rgba(220, 38, 38, 0.1); border: 1px solid var(--color-error); border-radius: var(--radius-md); color: var(--color-error);">
+                <strong>⚠️ Error:</strong> <span id="base64ErrorMessage"></span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeBase64Modal()" class="btn btn-secondary">
+                <span>✕</span>
+                <span>Close</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- IOC Import Progress Modal -->
+<div id="iocImportModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-container-sm">
+        <div class="modal-header">
+            <h2 class="modal-title">📥 Importing IOCs</h2>
+        </div>
+        <div class="modal-body">
+            <!-- Progress Steps -->
+            <div id="iocImportSteps">
+                <!-- Step 1: Checking AI Status -->
+                <div class="import-step" id="step1">
+                    <div class="step-icon">
+                        <span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>
+                    </div>
+                    <div class="step-content">
+                        <div class="step-title">Checking AI Status</div>
+                        <div class="step-description">Verifying AI availability...</div>
+                    </div>
+                </div>
+                
+                <!-- Step 2: Processing IOCs -->
+                <div class="import-step" id="step2" style="opacity: 0.4;">
+                    <div class="step-icon">⏳</div>
+                    <div class="step-content">
+                        <div class="step-title">Processing IOCs</div>
+                        <div class="step-description">Analyzing extracted indicators...</div>
+                    </div>
+                </div>
+                
+                <!-- Step 3: Database Import -->
+                <div class="import-step" id="step3" style="opacity: 0.4;">
+                    <div class="step-icon">💾</div>
+                    <div class="step-content">
+                        <div class="step-title">Importing to Database</div>
+                        <div class="step-description">Creating/updating IOC records...</div>
+                    </div>
+                </div>
+                
+                <!-- Step 4: Summary -->
+                <div class="import-step" id="step4" style="opacity: 0.4;">
+                    <div class="step-icon">📊</div>
+                    <div class="step-content">
+                        <div class="step-title">Summary</div>
+                        <div class="step-description">Preparing results...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="progress-bar-container" style="margin-top: var(--spacing-lg);">
+                <div class="progress-bar">
+                    <div id="iocImportProgressBar" class="progress-bar-fill" style="width: 25%;"></div>
+                </div>
+                <div id="iocImportProgressText" style="text-align: center; margin-top: var(--spacing-sm); font-size: 0.875rem; color: var(--color-text-muted);">
+                    Step 1 of 4
+                </div>
+            </div>
+            
+            <!-- Summary (hidden until complete) -->
+            <div id="iocImportSummary" style="display: none; margin-top: var(--spacing-lg);">
+                <div class="info-tile-row">
+                    <span class="info-tile-label">✅ New IOCs Added:</span>
+                    <span id="summaryAdded" class="info-tile-value success">0</span>
+                </div>
+                <div class="info-tile-row">
+                    <span class="info-tile-label">🔄 Existing IOCs Updated:</span>
+                    <span id="summaryUpdated" class="info-tile-value primary">0</span>
+                </div>
+                <div class="info-tile-row">
+                    <span class="info-tile-label">⏭️ Duplicates Skipped:</span>
+                    <span id="summarySkipped" class="info-tile-value">0</span>
+                </div>
+                <div class="info-tile-row">
+                    <span class="info-tile-label">🤖 Extraction Method:</span>
+                    <span id="summaryMethod" class="info-tile-value">-</span>
+                </div>
+            </div>
+            
+            <!-- Error Message -->
+            <div id="iocImportErrorMsg" style="display: none; margin-top: var(--spacing-lg);" class="alert alert-error">
+                <strong>Error:</strong> <span id="iocImportErrorText"></span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeIocImportModal()" class="btn btn-secondary" id="iocImportCloseBtn" style="display: none;">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Find Potential IOCs Modal (Snowball Hunting) -->
+<div id="findIocsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🔍 Potential IOCs Discovered</h2>
+            <button type="button" class="modal-close" onclick="closeFindIocsModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="findIocsProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted);">Searching events for related IOCs...</p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);">This may take a moment for large datasets.</p>
+                </div>
+            </div>
+            <div id="findIocsResults" style="display: none;">
+                <div id="findIocsSummary"></div>
+                <div id="findIocsDetail" style="margin-top: var(--spacing-lg); max-height: 400px; overflow-y: auto;"></div>
+            </div>
+            <div id="findIocsError" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <p id="findIocsErrorMessage">An error occurred during search.</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeFindIocsModal()" class="btn btn-secondary">Close</button>
+            <button type="button" onclick="addFoundIOCs()" class="btn btn-primary" id="addFoundIocsBtn" style="display: none;">
+                <span>➕</span>
+                <span>Add Selected IOCs to Case</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Mark High-Confidence Events Modal -->
+<div id="tagEventsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🎯 Mark Events as 'Hunted'</h2>
+            <button type="button" class="modal-close" onclick="closeTagEventsModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="tagEventsConfig" style="margin-bottom: var(--spacing-lg);">
+                <label class="form-label" for="tagEventsTimeRange">Time Range to Search</label>
+                <select id="tagEventsTimeRange" class="form-input" style="width: 100%;">
+                    <option value="24h">Last 24 Hours (from newest event)</option>
+                    <option value="3d">Last 3 Days (from newest event)</option>
+                    <option value="7d">Last 7 Days (from newest event)</option>
+                    <option value="all">All Events (entire dataset)</option>
+                </select>
+                <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: var(--spacing-sm);">
+                    Limits search to events within the selected timeframe, using the newest event timestamp as the end date.
+                </p>
+            </div>
+            
+            <div id="tagEventsProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted);">Searching for high-confidence events...</p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);" id="tagEventsTimeRangeDisplay"></p>
+                    <p style="font-size: 0.85rem; color: var(--color-text-muted);">Matching 3+ IOCs, attack patterns, and high-threat indicators.</p>
+                </div>
+            </div>
+            <div id="tagEventsResults" style="display: none;">
+                <div id="tagEventsSummary"></div>
+            </div>
+            <div id="tagEventsError" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-error);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">❌</div>
+                    <p id="tagEventsErrorMessage">An error occurred during marking.</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeTagEventsModal()" class="btn btn-secondary">Close</button>
+            <button type="button" onclick="startTagHighConfidenceEvents()" class="btn btn-primary" id="startTagBtn">
+                <span>🎯</span>
+                <span>Start Marking</span>
+            </button>
+            <a href="{{ url_for('search_events', case_id=case.id) }}?status_filter=hunted" class="btn btn-primary" id="viewTaggedBtn" style="display: none;">
+                <span>👁️</span>
+                <span>View Hunted Events</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Global IOC Hunt Modal (v2.4.0) -->
+<div id="globalHuntModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🎯 Global IOC Hunt</h2>
+            <button type="button" class="modal-close" onclick="closeGlobalHuntModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="globalHuntProgress" style="display: none;">
+                <div style="text-align: center; padding: var(--spacing-xl);">
+                    <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
+                    <p style="color: var(--color-text-muted);">Hunting IOCs across all case events...</p>
+                </div>
+                <div class="progress mb-3" style="height: 25px;">
+                    <div id="globalHuntProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <div class="row text-center">
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold text-primary" id="globalHuntEventsSearched">0</div>
+                        <small class="text-muted">Total Events Checked</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold text-warning" id="globalHuntEventsWithIOCs">0</div>
+                        <small class="text-muted">Events with 1+ IOC</small>
+                    </div>
+                </div>
+                <div class="row text-center" style="margin-top: var(--spacing-md);">
+                    <div class="col-4">
+                        <div class="fs-4 fw-bold" id="globalHuntProcessed">0</div>
+                        <small class="text-muted">IOCs Processed</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="fs-4 fw-bold" id="globalHuntTotal">0</div>
+                        <small class="text-muted">Total IOCs</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="fs-4 fw-bold text-success" id="globalHuntMatches">0</div>
+                        <small class="text-muted">Total Matches</small>
+                    </div>
+                </div>
+                <div id="globalHuntMessage" class="text-center text-muted mt-3"></div>
+            </div>
+            
+            <div id="globalHuntCompleted" style="display: none;">
+                <div class="text-center mb-3">
+                    <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+                </div>
+                <div class="alert alert-success" id="globalHuntCompletedMessage"></div>
+            </div>
+            
+            <div id="globalHuntFailed" style="display: none;">
+                <div class="text-center mb-3">
+                    <i class="bi bi-x-circle-fill text-danger" style="font-size: 3rem;"></i>
+                </div>
+                <div class="alert alert-danger" id="globalHuntFailedMessage"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeGlobalHuntModal()">Close</button>
+            <button type="button" class="btn btn-danger" id="btnCancelGlobalHunt" style="display:none;" onclick="cancelGlobalHunt()">Cancel</button>
+            <a href="#" class="btn btn-success" id="btnViewGlobalHuntMatches" style="display:none;">View Matches</a>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     Previous Triages Section (if any)
+     ============================================================================ -->
+
+{% if previous_triages %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📜 Previous Triage Results</h2>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>IOCs Found</th>
+                        <th>Events Tagged</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for triage in previous_triages %}
+                    <tr>
+                        <td>{{ triage.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            {% if triage.status == 'completed' %}
+                            <span style="color: var(--color-success);">✅ Completed</span>
+                            {% elif triage.status == 'running' %}
+                            <span style="color: var(--color-warning);">🔄 Running</span>
+                            {% elif triage.status == 'failed' %}
+                            <span style="color: var(--color-error);">❌ Failed</span>
+                            {% else %}
+                            <span style="color: var(--color-text-muted);">{{ triage.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ triage.iocs_discovered_count or 0 }}</td>
+                        <td>{{ triage.auto_tagged_count or 0 }}</td>
+                        <td>
+                            <a href="{{ url_for('triage_report.view_ai_triage_search', search_id=triage.id) }}" class="btn btn-sm btn-secondary">
+                                View Results
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ============================================================================
+     Set Date Modal
+     ============================================================================ -->
+
+<div id="setDateModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 class="modal-title">📅 Set Triage Date</h2>
+            <button type="button" class="modal-close" onclick="closeSetDateModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--color-text-muted); margin-bottom: var(--spacing-lg);">
+                Set the focus date for IOC hunting. This is typically the date of the incident or when malicious activity was first detected.
+            </p>
+            <div style="margin-bottom: var(--spacing-md);">
+                <label class="form-label">Triage Focus Date</label>
+                <input type="date" id="triageDateInput" class="form-input" style="width: 100%;">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" onclick="closeSetDateModal()" class="btn btn-secondary">Cancel</button>
+            <button type="button" onclick="saveTriageDate()" class="btn btn-primary">
+                <span>💾</span>
+                <span>Save Date</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* IOC Import Progress Steps */
+.import-step {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    background: var(--color-bg-primary);
+    border-radius: var(--radius-md);
+    transition: opacity 0.3s ease, background 0.3s ease;
+}
+
+.import-step.active {
+    opacity: 1 !important;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.import-step.complete {
+    opacity: 1 !important;
+}
+
+.import-step.complete .step-icon {
+    color: var(--color-success);
+}
+
+.step-icon {
+    font-size: 1.5rem;
+    min-width: 30px;
+    text-align: center;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--color-text-primary);
+    margin-bottom: 4px;
+}
+
+.step-description {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--color-bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    transition: width 0.5s ease;
+}
+</style>
+
+<script>
+const CASE_ID = {{ case.id }};
+let extractedIOCs = null;
+let currentReportIndex = 0;
+let totalReports = 0;
+let accumulatedIOCs = {}; // Store IOCs from all processed reports
+
+// ============================================================================
+// SET DATE MODAL
+// ============================================================================
+
+function showSetDateModal() {
+    document.getElementById('setDateModal').style.display = 'flex';
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('triageDateInput').value = today;
+}
+
+function closeSetDateModal() {
+    document.getElementById('setDateModal').style.display = 'none';
+}
+
+function saveTriageDate() {
+    const dateValue = document.getElementById('triageDateInput').value;
+    if (!dateValue) {
+        alert('Please select a date');
+        return;
+    }
+    localStorage.setItem(`triage_date_${CASE_ID}`, dateValue);
+    closeSetDateModal();
+    location.reload();
+}
+
+// ============================================================================
+// IOC EXTRACTION
+// ============================================================================
+
+function extractIOCs(reportIndex = 0) {
+    currentReportIndex = reportIndex;
+    
+    // Reset state on first report
+    if (reportIndex === 0) {
+        accumulatedIOCs = {};
+        extractedIOCs = null;
+        totalReports = 0;
+    }
+    
+    // Show modal with progress
+    document.getElementById('iocExtractionModal').style.display = 'flex';
+    document.getElementById('iocExtractionProgress').style.display = 'block';
+    document.getElementById('iocExtractionResults').style.display = 'none';
+    document.getElementById('iocExtractionError').style.display = 'none';
+    
+    // Reset button states
+    const saveNextBtn = document.getElementById('saveAndNextBtn');
+    const saveFinishBtn = document.getElementById('saveAndFinishBtn');
+    saveNextBtn.style.display = 'none';
+    saveNextBtn.disabled = false;
+    saveNextBtn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
+    saveFinishBtn.style.display = 'none';
+    saveFinishBtn.disabled = false;
+    saveFinishBtn.innerHTML = '<span>💾✓</span> <span>Save & Finish</span>';
+    
+    // Show extraction method immediately (will be updated with actual method from response)
+    document.getElementById('iocExtractionMethod').textContent = 'Using AI model for extraction...';
+    
+    // Disable button during extraction
+    const btn = document.getElementById('extractIocsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Extracting...</span>';
+    }
+    
+    // Call API with report index
+    fetch(`/case/${CASE_ID}/triage/extract-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            report_index: reportIndex
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('iocExtractionProgress').style.display = 'none';
+        
+        if (data.success) {
+            totalReports = data.total_reports;
+            
+            // Accumulate IOCs from this report
+            accumulateIOCs(data.iocs, data.extraction_method);
+            
+            // Show results for this specific report
+            showIOCResults(data);
+        } else {
+            document.getElementById('iocExtractionError').style.display = 'block';
+            document.getElementById('iocErrorMessage').textContent = data.error || 'Unknown error';
+            
+            // Show skip button if there are more reports
+            const hasMore = data.has_more || (data.report_index < data.total_reports - 1);
+            if (hasMore) {
+                document.getElementById('skipToNextBtn').style.display = 'inline-flex';
+            } else {
+                document.getElementById('skipToNextBtn').style.display = 'none';
+            }
+        }
+    })
+    .catch(error => {
+        document.getElementById('iocExtractionProgress').style.display = 'none';
+        document.getElementById('iocExtractionError').style.display = 'block';
+        document.getElementById('iocErrorMessage').textContent = error.message;
+        
+        // Hide skip button on network errors (we don't know if there are more reports)
+        document.getElementById('skipToNextBtn').style.display = 'none';
+    })
+    .finally(() => {
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>📋</span> <span>Extract IOCs from EDR Report</span>';
+        }
+    });
+}
+
+function accumulateIOCs(newIOCs, extractionMethod) {
+    // Initialize accumulated IOCs on first run
+    if (currentReportIndex === 0) {
+        accumulatedIOCs = {};
+        accumulatedIOCs.extraction_method = extractionMethod;
+    }
+    
+    // Merge IOCs from this report into accumulated
+    for (const [category, items] of Object.entries(newIOCs)) {
+        if (category === 'extraction_method') continue;
+        
+        if (!accumulatedIOCs[category]) {
+            accumulatedIOCs[category] = Array.isArray(items) ? [] : {};
+        }
+        
+        if (Array.isArray(items)) {
+            // Simple array merge with deduplication
+            for (const item of items) {
+                if (!accumulatedIOCs[category].includes(item)) {
+                    accumulatedIOCs[category].push(item);
+                }
+            }
+        } else if (typeof items === 'object') {
+            // Nested object merge (like file_hashes, credentials, processes)
+            for (const [subKey, subItems] of Object.entries(items)) {
+                if (!accumulatedIOCs[category][subKey]) {
+                    accumulatedIOCs[category][subKey] = [];
+                }
+                if (Array.isArray(subItems)) {
+                    for (const item of subItems) {
+                        if (!accumulatedIOCs[category][subKey].includes(item)) {
+                            accumulatedIOCs[category][subKey].push(item);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Update extractedIOCs for the Add button
+    extractedIOCs = { ...accumulatedIOCs };
+}
+
+function saveAndContinue() {
+    if (!extractedIOCs) return;
+    
+    const btn = document.getElementById('saveAndNextBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Saving...</span>';
+    
+    // Save IOCs
+    fetch(`/case/${CASE_ID}/triage/add-extracted-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            iocs: extractedIOCs,
+            extraction_method: extractedIOCs.extraction_method || 'regex'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Close current modal and proceed to next report
+            closeIocModal();
+            
+            // Small delay, then continue
+            setTimeout(() => {
+                extractIOCs(currentReportIndex + 1);
+            }, 300);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to save IOCs'));
+            btn.disabled = false;
+            btn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
+        }
+    })
+    .catch(error => {
+        console.error('Error saving IOCs:', error);
+        alert('Error: Network error while saving IOCs');
+        btn.disabled = false;
+        btn.innerHTML = '<span>💾▶️</span> <span>Save & Next Report</span>';
+    });
+}
+
+function cancelExtraction() {
+    // Reset state
+    currentReportIndex = 0;
+    totalReports = 0;
+    accumulatedIOCs = {};
+    extractedIOCs = null;
+    
+    // Close modal
+    closeIocModal();
+}
+
+function retryCurrentReport() {
+    // Retry the current report by calling extractIOCs with the same index
+    extractIOCs(currentReportIndex);
+}
+
+function skipToNextReport() {
+    // Skip the failed report and move to the next one
+    extractIOCs(currentReportIndex + 1);
+}
+
+function showIOCResults(data) {
+    document.getElementById('iocExtractionResults').style.display = 'block';
+    
+    const summary = data.summary;
+    const iocs = data.iocs;
+    const reportNum = (data.report_index !== undefined ? data.report_index + 1 : 1);
+    const totalRpts = data.total_reports || 1;
+    const hasMore = data.has_more || false;
+    
+    // Count accumulated IOCs for display
+    let accumulatedCount = 0;
+    for (const [key, value] of Object.entries(accumulatedIOCs)) {
+        if (key === 'extraction_method') continue;
+        if (Array.isArray(value)) {
+            accumulatedCount += value.length;
+        } else if (typeof value === 'object') {
+            for (const subValue of Object.values(value)) {
+                if (Array.isArray(subValue)) {
+                    accumulatedCount += subValue.length;
+                }
+            }
+        }
+    }
+    
+    // Build summary HTML with report progress
+    let summaryHtml = `
+        <div style="display: flex; gap: var(--spacing-lg); flex-wrap: wrap; margin-bottom: var(--spacing-md);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary);">${summary.total_count}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">This Report</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-info);">
+                    ${reportNum}/${totalRpts}
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Report Progress</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-success);">
+                    ${accumulatedCount}
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Total Accumulated</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 140px;">
+                <div style="font-size: 1rem; font-weight: bold; color: var(--color-success); line-height: 1.4; padding-top: 0.375rem;" id="extractionMethodDisplay">
+                    ${data.extraction_method || 'AI'}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 6px;">Extraction Method</div>
+            </div>
+        </div>
+    `;
+    
+    // Type breakdown
+    if (summary.by_category && Object.keys(summary.by_category).length > 0) {
+        summaryHtml += '<div style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm);">';
+        for (const [type, count] of Object.entries(summary.by_category)) {
+            summaryHtml += `<span class="badge-pill badge-pill-info">${type}: ${count}</span>`;
+        }
+        summaryHtml += '</div>';
+    }
+    
+    document.getElementById('iocResultsSummary').innerHTML = summaryHtml;
+    
+    // Build detail HTML (collapsible sections)
+    let detailHtml = '';
+    const typeOrder = ['ip_addresses', 'domains', 'urls', 'file_paths', 'file_hashes', 'usernames', 'hostnames', 
+                       'network_shares', 'credentials', 'processes', 'ports', 'protocols', 'timestamps_utc', 
+                       'ssh_keys', 'registry_keys', 'email_addresses'];
+    
+    for (const type of typeOrder) {
+        const items = iocs[type];
+        if (!items) continue;
+        
+        // Handle nested structures (file_hashes, credentials, processes)
+        if (typeof items === 'object' && !Array.isArray(items)) {
+            for (const [subType, subItems] of Object.entries(items)) {
+                if (subItems && subItems.length > 0) {
+                    detailHtml += `
+                        <details style="margin-bottom: var(--spacing-sm);">
+                            <summary style="cursor: pointer; padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                                <strong>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} (${subType.toUpperCase()})</strong> (${subItems.length})
+                            </summary>
+                            <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
+                                ${subItems.map(item => {
+                                    // Handle deobfuscated IOCs (objects with 'value' and 'original' keys)
+                                    if (typeof item === 'object' && item !== null && 'value' in item) {
+                                        const displayValue = escapeHtml(item.value);
+                                        const originalValue = item.original ? ` <span style="color: var(--color-text-muted); font-style: italic;">(was: ${escapeHtml(item.original)})</span>` : '';
+                                        return `<div style="padding: 2px 0; word-break: break-all;">${displayValue}${originalValue}</div>`;
+                                    }
+                                    // Handle regular string IOCs
+                                    return `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`;
+                                }).join('')}
+                            </div>
+                        </details>
+                    `;
+                }
+            }
+        } else if (Array.isArray(items) && items.length > 0) {
+            detailHtml += `
+                <details style="margin-bottom: var(--spacing-sm);">
+                    <summary style="cursor: pointer; padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                        <strong>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong> (${items.length})
+                    </summary>
+                    <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
+                        ${items.map(item => {
+                            // Handle deobfuscated IOCs (objects with 'value' and 'original' keys)
+                            if (typeof item === 'object' && item !== null && 'value' in item) {
+                                const displayValue = escapeHtml(item.value);
+                                const originalValue = item.original ? ` <span style="color: var(--color-text-muted); font-style: italic;">(was: ${escapeHtml(item.original)})</span>` : '';
+                                return `<div style="padding: 2px 0; word-break: break-all;">${displayValue}${originalValue}</div>`;
+                            }
+                            // Handle regular string IOCs
+                            return `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`;
+                        }).join('')}
+                    </div>
+                </details>
+            `;
+        }
+    }
+    
+    document.getElementById('iocResultsDetail').innerHTML = detailHtml;
+    
+    // Show appropriate buttons based on report status
+    if (accumulatedCount > 0) {
+        if (hasMore) {
+            // More reports to process - show both save options
+            document.getElementById('saveAndNextBtn').style.display = 'inline-flex';
+            document.getElementById('saveAndFinishBtn').style.display = 'inline-flex';
+        } else {
+            // Last report - only show "Save & Finish"
+            document.getElementById('saveAndNextBtn').style.display = 'none';
+            document.getElementById('saveAndFinishBtn').style.display = 'inline-flex';
+        }
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function closeIocModal() {
+    document.getElementById('iocExtractionModal').style.display = 'none';
+}
+
+function saveAndFinish() {
+    if (!extractedIOCs) return;
+    
+    const btn = document.getElementById('saveAndFinishBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Saving...</span>';
+    
+    // Close results modal and show progress modal
+    closeIocModal();
+    showIocImportProgress();
+    
+    fetch(`/case/${CASE_ID}/triage/add-extracted-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            iocs: extractedIOCs,
+            extraction_method: extractedIOCs.extraction_method || 'regex'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showIocImportSummary(data);
+            setTimeout(() => {
+                closeIocImportModal();
+                location.reload();
+            }, 3000);
+        } else {
+            showIocImportError(data.error || 'Failed to import IOCs');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving IOCs:', error);
+        showIocImportError('Network error while importing IOCs');
+    });
+}
+
+// ============================================================================
+// FIND POTENTIAL IOCs (Snowball Hunting)
+// ============================================================================
+
+let foundIOCs = null;
+
+function findPotentialIOCs() {
+    // Show modal with progress
+    document.getElementById('findIocsModal').style.display = 'flex';
+    document.getElementById('findIocsProgress').style.display = 'block';
+    document.getElementById('findIocsResults').style.display = 'none';
+    document.getElementById('findIocsError').style.display = 'none';
+    document.getElementById('addFoundIocsBtn').style.display = 'none';
+    
+    // Disable button during search
+    const btn = document.getElementById('findIocsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Searching...</span>';
+    }
+    
+    // Call API
+    fetch(`/case/${CASE_ID}/triage/find-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('findIocsProgress').style.display = 'none';
+        
+        if (data.success) {
+            foundIOCs = data.potential_iocs;
+            showFoundIOCResults(data);
+        } else {
+            document.getElementById('findIocsError').style.display = 'block';
+            document.getElementById('findIocsErrorMessage').textContent = data.error || 'Unknown error';
+        }
+    })
+    .catch(error => {
+        document.getElementById('findIocsProgress').style.display = 'none';
+        document.getElementById('findIocsError').style.display = 'block';
+        document.getElementById('findIocsErrorMessage').textContent = error.message;
+    })
+    .finally(() => {
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>🔍</span> <span>Find Potential IOCs</span>';
+        }
+    });
+}
+
+function showFoundIOCResults(data) {
+    document.getElementById('findIocsResults').style.display = 'block';
+    
+    const summary = data.summary;
+    const iocs = data.potential_iocs;
+    
+    // Build summary HTML
+    let summaryHtml = `
+        <div style="display: flex; gap: var(--spacing-lg); flex-wrap: wrap; margin-bottom: var(--spacing-md);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary);">${summary.total_found}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Potential IOCs</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-info);">${data.events_searched}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Events Searched</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 100px;">
+                <div style="font-size: 2rem; font-weight: bold; color: var(--color-text-muted);">${data.existing_ioc_count}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Existing IOCs</div>
+            </div>
+        </div>
+    `;
+    
+    // Type breakdown
+    if (Object.keys(summary.by_type).length > 0) {
+        summaryHtml += '<div style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm);">';
+        for (const [type, count] of Object.entries(summary.by_type)) {
+            summaryHtml += `<span class="badge-pill badge-pill-info">${type}: ${count}</span>`;
+        }
+        summaryHtml += '</div>';
+    } else {
+        summaryHtml += '<p style="color: var(--color-text-muted);">No new potential IOCs discovered. This could mean existing IOCs have already covered the related events.</p>';
+    }
+    
+    document.getElementById('findIocsSummary').innerHTML = summaryHtml;
+    
+    // Build detail HTML (collapsible sections with checkboxes)
+    let detailHtml = '';
+    const typeOrder = ['usernames', 'hostnames', 'ips', 'processes', 'commands', 'paths'];
+    
+    for (const type of typeOrder) {
+        const items = iocs[type];
+        if (items && items.length > 0) {
+            detailHtml += `
+                <details style="margin-bottom: var(--spacing-sm);" open>
+                    <summary style="cursor: pointer; padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: var(--radius-sm);">
+                        <strong>${type.charAt(0).toUpperCase() + type.slice(1)}</strong> (${items.length})
+                        <label style="float: right; font-weight: normal;" onclick="event.stopPropagation();">
+                            <input type="checkbox" class="select-all-${type}" onchange="toggleSelectAll('${type}', this.checked)"> Select All
+                        </label>
+                    </summary>
+                    <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
+                        ${items.map((item, idx) => `
+                            <div style="padding: 2px 0; word-break: break-all;">
+                                <label>
+                                    <input type="checkbox" class="ioc-checkbox ioc-${type}" data-type="${type}" data-value="${escapeHtml(item)}" checked>
+                                    ${escapeHtml(item)}
+                                </label>
+                            </div>
+                        `).join('')}
+                    </div>
+                </details>
+            `;
+        }
+    }
+    
+    document.getElementById('findIocsDetail').innerHTML = detailHtml;
+    
+    // Show add button if we have IOCs
+    if (summary.total_found > 0) {
+        document.getElementById('addFoundIocsBtn').style.display = 'inline-flex';
+    }
+}
+
+function toggleSelectAll(type, checked) {
+    document.querySelectorAll(`.ioc-${type}`).forEach(cb => {
+        cb.checked = checked;
+    });
+}
+
+function closeFindIocsModal() {
+    document.getElementById('findIocsModal').style.display = 'none';
+}
+
+function addFoundIOCs() {
+    // Gather selected IOCs
+    const selectedIOCs = {
+        usernames: [],
+        hostnames: [],
+        ips: [],
+        processes: [],
+        commands: [],
+        paths: []
+    };
+    
+    document.querySelectorAll('.ioc-checkbox:checked').forEach(cb => {
+        const type = cb.dataset.type;
+        const value = cb.dataset.value;
+        if (selectedIOCs[type]) {
+            selectedIOCs[type].push(value);
+        }
+    });
+    
+    // Count total selected
+    const totalSelected = Object.values(selectedIOCs).reduce((sum, arr) => sum + arr.length, 0);
+    if (totalSelected === 0) {
+        alert('Please select at least one IOC to add.');
+        return;
+    }
+    
+    const btn = document.getElementById('addFoundIocsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Adding...</span>';
+    
+    fetch(`/case/${CASE_ID}/triage/add-found-iocs`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ iocs: selectedIOCs })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Successfully added ${data.added_count} IOCs to the case!`);
+            closeFindIocsModal();
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to add IOCs'));
+            btn.disabled = false;
+            btn.innerHTML = '<span>➕</span> <span>Add Selected IOCs to Case</span>';
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<span>➕</span> <span>Add Selected IOCs to Case</span>';
+    });
+}
+
+// ============================================================================
+// TAG HIGH-CONFIDENCE EVENTS
+// ============================================================================
+
+function tagHighConfidenceEvents() {
+    // Show modal with config (don't hide config section yet)
+    document.getElementById('tagEventsModal').style.display = 'flex';
+    document.getElementById('tagEventsConfig').style.display = 'block';
+    document.getElementById('tagEventsProgress').style.display = 'none';
+    document.getElementById('tagEventsResults').style.display = 'none';
+    document.getElementById('tagEventsError').style.display = 'none';
+    document.getElementById('viewTaggedBtn').style.display = 'none';
+}
+
+function startTagHighConfidenceEvents() {
+    // Get selected time range
+    const timeRange = document.getElementById('tagEventsTimeRange').value;
+    
+    // Hide config, show progress
+    document.getElementById('tagEventsConfig').style.display = 'none';
+    document.getElementById('tagEventsProgress').style.display = 'block';
+    
+    // Update time range display
+    const timeRangeText = {
+        '24h': 'Searching last 24 hours from newest event...',
+        '3d': 'Searching last 3 days from newest event...',
+        '7d': 'Searching last 7 days from newest event...',
+        'all': 'Searching all events in dataset...'
+    };
+    document.getElementById('tagEventsTimeRangeDisplay').textContent = timeRangeText[timeRange] || '';
+    
+    // Disable button during processing
+    const btn = document.getElementById('tagEventsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Marking...</span>';
+    }
+    
+    // Call API with time range
+    fetch(`/case/${CASE_ID}/triage/tag-events`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ time_range: timeRange })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('tagEventsProgress').style.display = 'none';
+        
+        if (data.success) {
+            showTagEventsResults(data);
+        } else {
+            document.getElementById('tagEventsError').style.display = 'block';
+            document.getElementById('tagEventsErrorMessage').textContent = data.error || 'Unknown error';
+        }
+    })
+    .catch(error => {
+        document.getElementById('tagEventsProgress').style.display = 'none';
+        document.getElementById('tagEventsError').style.display = 'block';
+        document.getElementById('tagEventsErrorMessage').textContent = error.message;
+    })
+    .finally(() => {
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>🎯</span> <span>Mark Highly Likely Events</span>';
+        }
+    });
+}
+
+function showTagEventsResults(data) {
+    document.getElementById('tagEventsResults').style.display = 'block';
+    document.getElementById('startTagBtn').style.display = 'none';
+    
+    const hunted_count = data.hunted_count || 0;
+    const already_hunted = data.already_hunted || 0;
+    const noise_filtered = data.noise_filtered || 0;
+    const pattern_matches = data.pattern_matches || 0;
+    const multi_ioc_matches = data.multi_ioc_matches || 0;
+    const events_found = data.events_found || 0;
+    const ioc_count = data.ioc_count || 0;
+    const actor_count = data.actor_count || 0;
+    const time_range_used = data.time_range_used || '';
+    const date_range = data.date_range || {};
+    
+    // Build summary HTML
+    let summaryHtml = `
+        <div style="text-align: center; padding: var(--spacing-lg);">
+            <div style="font-size: 4rem; margin-bottom: var(--spacing-md);">
+                ${hunted_count > 0 ? '✅' : '📋'}
+            </div>
+            <div style="font-size: 2rem; font-weight: bold; color: var(--color-primary); margin-bottom: var(--spacing-sm);">
+                ${hunted_count.toLocaleString()} Events Marked as 'Hunted'
+            </div>
+            ${data.message ? `<p style="color: var(--color-text-muted);">${data.message}</p>` : ''}
+            ${time_range_used && date_range.start && date_range.end ? 
+                `<p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: var(--spacing-sm);">
+                    📅 Time Range: ${date_range.start} to ${date_range.end} (${time_range_used})
+                </p>` : ''}
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-lg);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold;">${events_found.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Events Found</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold;">${already_hunted.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Already Hunted</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold;">${noise_filtered.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Noise Filtered</div>
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-md); margin-top: var(--spacing-md);">
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold; color: var(--color-primary);">${pattern_matches.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Attack Pattern Matches</div>
+            </div>
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+                <div style="font-size: 1.5rem; font-weight: bold; color: var(--color-primary);">${multi_ioc_matches.toLocaleString()}</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Multi-IOC Matches (3+)</div>
+            </div>
+        </div>
+        
+        <div style="margin-top: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md);">
+            <div style="font-size: 0.9rem; color: var(--color-text-muted);">
+                <strong>Sources:</strong> ${ioc_count} high-confidence IOCs, ${actor_count} actor systems
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('tagEventsSummary').innerHTML = summaryHtml;
+    
+    // Show view button if events were marked
+    if (hunted_count > 0) {
+        document.getElementById('viewTaggedBtn').style.display = 'inline-flex';
+    }
+}
+
+function closeTagEventsModal() {
+    document.getElementById('tagEventsModal').style.display = 'none';
+    // Reset to config view
+    document.getElementById('tagEventsConfig').style.display = 'block';
+    document.getElementById('tagEventsProgress').style.display = 'none';
+    document.getElementById('tagEventsResults').style.display = 'none';
+    document.getElementById('tagEventsError').style.display = 'none';
+    document.getElementById('startTagBtn').style.display = 'inline-flex';
+    document.getElementById('viewTaggedBtn').style.display = 'none';
+}
+
+// ============================================================================
+// MODAL BACKGROUND CLICKS
+// ============================================================================
+// QUICK ANALYSIS BUTTONS - Redirect to Search Events
+// ============================================================================
+
+function showLoginsOK() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=logins_ok`;
+}
+
+function showLoginsFailed() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=logins_failed`;
+}
+
+function showRDPConnections() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=rdp_connections`;
+}
+
+function showConsoleLogins() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=console_logins`;
+}
+
+function showVPNAuthentications() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=vpn_auths`;
+}
+
+function showFailedVPNAttempts() {
+    window.location.href = `/case/${CASE_ID}/search?quick_analysis=failed_vpn`;
+}
+
+// ============================================================================
+
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'setDateModal') {
+        closeSetDateModal();
+    }
+    if (e.target.id === 'iocExtractionModal') {
+        closeIocModal();
+    }
+    if (e.target.id === 'findIocsModal') {
+        closeFindIocsModal();
+    }
+    if (e.target.id === 'tagEventsModal') {
+        closeTagEventsModal();
+    }
+});
+
+// ============================================================
+// IOC Import Progress Modal Functions
+// ============================================================
+
+function showIocImportProgress() {
+    // Reset modal state
+    document.getElementById('iocImportModal').style.display = 'flex';
+    document.getElementById('iocImportSummary').style.display = 'none';
+    document.getElementById('iocImportErrorMsg').style.display = 'none';
+    document.getElementById('iocImportCloseBtn').style.display = 'none';
+    
+    // Reset all steps
+    for (let i = 1; i <= 4; i++) {
+        const step = document.getElementById(`step${i}`);
+        step.classList.remove('active', 'complete');
+        step.style.opacity = i === 1 ? '1' : '0.4';
+        
+        // Reset icons
+        const icon = step.querySelector('.step-icon');
+        if (i === 1) {
+            icon.innerHTML = '<span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>';
+        } else if (i === 2) {
+            icon.textContent = '⏳';
+        } else if (i === 3) {
+            icon.textContent = '💾';
+        } else if (i === 4) {
+            icon.textContent = '📊';
+        }
+    }
+    
+    // Start progress simulation
+    updateImportStep(1);
+    setTimeout(() => updateImportStep(2), 500);
+    setTimeout(() => updateImportStep(3), 1000);
+}
+
+function updateImportStep(stepNumber) {
+    const progressBar = document.getElementById('iocImportProgressBar');
+    const progressText = document.getElementById('iocImportProgressText');
+    
+    // Mark previous steps as complete
+    for (let i = 1; i < stepNumber; i++) {
+        const step = document.getElementById(`step${i}`);
+        step.classList.remove('active');
+        step.classList.add('complete');
+        step.style.opacity = '1';
+        step.querySelector('.step-icon').textContent = '✓';
+    }
+    
+    // Activate current step
+    const currentStep = document.getElementById(`step${stepNumber}`);
+    currentStep.classList.add('active');
+    currentStep.style.opacity = '1';
+    
+    // Update progress bar
+    const progress = (stepNumber / 4) * 100;
+    progressBar.style.width = `${progress}%`;
+    progressText.textContent = `Step ${stepNumber} of 4`;
+    
+    // Update spinner for current step
+    if (stepNumber <= 3) {
+        const icon = currentStep.querySelector('.step-icon');
+        icon.innerHTML = '<span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>';
+    }
+}
+
+function showIocImportSummary(data) {
+    // Complete all steps
+    updateImportStep(4);
+    
+    // Mark step 4 as complete
+    setTimeout(() => {
+        const step4 = document.getElementById('step4');
+        step4.classList.remove('active');
+        step4.classList.add('complete');
+        step4.querySelector('.step-icon').textContent = '✓';
+        
+        // Show summary
+        document.getElementById('summaryAdded').textContent = data.added_count || 0;
+        document.getElementById('summaryUpdated').textContent = data.updated_count || 0;
+        document.getElementById('summarySkipped').textContent = data.skipped_count || 0;
+        document.getElementById('summaryMethod').textContent = data.extraction_method === 'mistral_ai' ? 'Mistral AI' : 'Regex';
+        document.getElementById('iocImportSummary').style.display = 'block';
+        
+        // Show close button
+        document.getElementById('iocImportCloseBtn').style.display = 'inline-block';
+        
+        // Update progress bar to 100%
+        document.getElementById('iocImportProgressBar').style.width = '100%';
+        document.getElementById('iocImportProgressText').textContent = 'Complete!';
+    }, 500);
+}
+
+function showIocImportError(errorMsg) {
+    // Hide steps and progress
+    document.getElementById('iocImportSteps').style.display = 'none';
+    document.querySelector('.progress-bar-container').style.display = 'none';
+    
+    // Show error
+    document.getElementById('iocImportErrorText').textContent = errorMsg;
+    document.getElementById('iocImportErrorMsg').style.display = 'block';
+    document.getElementById('iocImportCloseBtn').style.display = 'inline-block';
+}
+
+function closeIocImportModal() {
+    document.getElementById('iocImportModal').style.display = 'none';
+    
+    // Reset visibility
+    document.getElementById('iocImportSteps').style.display = 'block';
+    document.querySelector('.progress-bar-container').style.display = 'block';
+}
+
+// ============================================================================
+// BASE64 DECODER
+// ============================================================================
+
+function showBase64Decoder() {
+    document.getElementById('base64DecoderModal').style.display = 'flex';
+    document.getElementById('base64Input').value = '';
+    document.getElementById('base64Result').style.display = 'none';
+    document.getElementById('base64Error').style.display = 'none';
+    
+    // Focus on input
+    setTimeout(() => {
+        document.getElementById('base64Input').focus();
+    }, 100);
+}
+
+function closeBase64Modal() {
+    document.getElementById('base64DecoderModal').style.display = 'none';
+}
+
+function clearBase64Fields() {
+    document.getElementById('base64Input').value = '';
+    document.getElementById('base64Result').style.display = 'none';
+    document.getElementById('base64Error').style.display = 'none';
+    document.getElementById('base64Input').focus();
+}
+
+function clearBase64Result() {
+    document.getElementById('base64Result').style.display = 'none';
+    document.getElementById('base64Error').style.display = 'none';
+}
+
+function decodeBase64() {
+    const input = document.getElementById('base64Input').value.trim();
+    const resultDiv = document.getElementById('base64Result');
+    const outputPre = document.getElementById('base64Output');
+    const errorDiv = document.getElementById('base64Error');
+    const errorMessage = document.getElementById('base64ErrorMessage');
+    
+    // Hide previous results/errors
+    resultDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+    
+    if (!input) {
+        errorMessage.textContent = 'Please enter Base64 encoded text';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        // Decode Base64
+        const decoded = atob(input);
+        
+        // Try to display as UTF-8 text, but handle binary data gracefully
+        let displayText = '';
+        let isBinary = false;
+        
+        // Check if it's likely binary data (contains non-printable characters)
+        for (let i = 0; i < decoded.length; i++) {
+            const charCode = decoded.charCodeAt(i);
+            if (charCode < 32 && charCode !== 9 && charCode !== 10 && charCode !== 13) {
+                isBinary = true;
+                break;
+            }
+        }
+        
+        if (isBinary) {
+            // Display as hex dump for binary data
+            displayText = 'Binary data detected. Hex representation:\n\n';
+            for (let i = 0; i < decoded.length; i++) {
+                if (i > 0 && i % 16 === 0) displayText += '\n';
+                displayText += decoded.charCodeAt(i).toString(16).padStart(2, '0').toUpperCase() + ' ';
+            }
+        } else {
+            // Display as text
+            displayText = decoded;
+        }
+        
+        outputPre.textContent = displayText;
+        resultDiv.style.display = 'block';
+        
+    } catch (e) {
+        errorMessage.textContent = 'Invalid Base64 string. Please check your input.';
+        errorDiv.style.display = 'block';
+    }
+}
+
+function copyBase64Result() {
+    const outputPre = document.getElementById('base64Output');
+    const text = outputPre.textContent;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        // Change button text temporarily
+        const btn = event.target.closest('button');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span>✓</span> <span>Copied!</span>';
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-secondary');
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-secondary');
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy to clipboard: ' + err);
+    });
+}
+
+// ============================================================================
+// GLOBAL IOC HUNT (v2.4.0)
+// ============================================================================
+
+let globalHuntJobId = null;
+let globalHuntPollInterval = null;
+
+function startGlobalIOCHunt() {
+    if (!confirm('🎯 Global IOC Hunt\n\nThis will search ALL events in this case for active IOCs.\n\nDepending on event count, this may take several minutes.\n\nContinue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('globalHuntBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> <span>Starting...</span>';
+    
+    fetch(`/case/${CASE_ID}/ioc-hunt/start`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            globalHuntJobId = data.job_id;
+            showGlobalHuntModal();
+            startGlobalHuntPolling();
+        } else {
+            alert(`Error: ${data.error || 'Failed to start hunt'}`);
+            btn.disabled = false;
+            btn.innerHTML = '<span>🎯</span> <span>Hunt All IOCs</span>';
+        }
+    })
+    .catch(error => {
+        alert(`Error: ${error.message}`);
+        btn.disabled = false;
+        btn.innerHTML = '<span>🎯</span> <span>Hunt All IOCs</span>';
+    });
+}
+
+function showGlobalHuntModal() {
+    document.getElementById('globalHuntModal').style.display = 'flex';
+    document.getElementById('globalHuntProgress').style.display = 'block';
+    document.getElementById('globalHuntCompleted').style.display = 'none';
+    document.getElementById('globalHuntFailed').style.display = 'none';
+    document.getElementById('btnCancelGlobalHunt').style.display = 'inline-block';
+    document.getElementById('btnViewGlobalHuntMatches').style.display = 'none';
+}
+
+function startGlobalHuntPolling() {
+    globalHuntPollInterval = setInterval(() => pollGlobalHuntStatus(), 1000);
+}
+
+function stopGlobalHuntPolling() {
+    if (globalHuntPollInterval) {
+        clearInterval(globalHuntPollInterval);
+        globalHuntPollInterval = null;
+    }
+}
+
+function pollGlobalHuntStatus() {
+    if (!globalHuntJobId) return;
+    
+    fetch(`/case/${CASE_ID}/ioc-hunt/status/${globalHuntJobId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) return;
+            
+            updateGlobalHuntProgress(data);
+            
+            if (data.status === 'completed') {
+                stopGlobalHuntPolling();
+                showGlobalHuntCompleted(data);
+            } else if (data.status === 'failed') {
+                stopGlobalHuntPolling();
+                showGlobalHuntFailed(data.message);
+            } else if (data.status === 'cancelled') {
+                stopGlobalHuntPolling();
+                closeGlobalHuntModal();
+            }
+        })
+        .catch(error => console.error('Poll error:', error));
+}
+
+function updateGlobalHuntProgress(data) {
+    const bar = document.getElementById('globalHuntProgressBar');
+    bar.style.width = `${data.progress}%`;
+    bar.textContent = `${data.progress}%`;
+    
+    document.getElementById('globalHuntEventsSearched').textContent = formatNumber(data.total_events_searched);
+    document.getElementById('globalHuntEventsWithIOCs').textContent = formatNumber(data.events_with_iocs || 0);
+    document.getElementById('globalHuntProcessed').textContent = formatNumber(data.processed_iocs);
+    document.getElementById('globalHuntTotal').textContent = formatNumber(data.total_iocs);
+    document.getElementById('globalHuntMatches').textContent = formatNumber(data.match_count);
+    document.getElementById('globalHuntMessage').textContent = data.message || '';
+}
+
+function showGlobalHuntCompleted(data) {
+    document.getElementById('globalHuntProgress').style.display = 'none';
+    document.getElementById('globalHuntCompleted').style.display = 'block';
+    document.getElementById('btnCancelGlobalHunt').style.display = 'none';
+    
+    document.getElementById('globalHuntCompletedMessage').textContent = data.message;
+    
+    if (data.match_count > 0) {
+        document.getElementById('btnViewGlobalHuntMatches').style.display = 'inline-block';
+        document.getElementById('btnViewGlobalHuntMatches').href = `/case/${CASE_ID}/ioc-hunt/results/${globalHuntJobId}`;
+    }
+    
+    // Re-enable button
+    const btn = document.getElementById('globalHuntBtn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🎯</span> <span>Hunt All IOCs</span>';
+    }
+}
+
+function showGlobalHuntFailed(message) {
+    document.getElementById('globalHuntProgress').style.display = 'none';
+    document.getElementById('globalHuntFailed').style.display = 'block';
+    document.getElementById('btnCancelGlobalHunt').style.display = 'none';
+    
+    document.getElementById('globalHuntFailedMessage').textContent = message || 'Hunt failed';
+    
+    // Re-enable button
+    const btn = document.getElementById('globalHuntBtn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🎯</span> <span>Hunt All IOCs</span>';
+    }
+}
+
+function cancelGlobalHunt() {
+    if (!globalHuntJobId) return;
+    if (!confirm('Cancel the IOC hunt?')) return;
+    
+    fetch(`/case/${CASE_ID}/ioc-hunt/cancel/${globalHuntJobId}`, {method: 'POST'})
+        .then(() => {
+            stopGlobalHuntPolling();
+            closeGlobalHuntModal();
+        })
+        .catch(error => console.error('Cancel error:', error));
+}
+
+function closeGlobalHuntModal() {
+    stopGlobalHuntPolling();
+    document.getElementById('globalHuntModal').style.display = 'none';
+    
+    // Re-enable button
+    const btn = document.getElementById('globalHuntBtn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🎯</span> <span>Hunt All IOCs</span>';
+    }
+}
+
+function formatNumber(num) {
+    if (!num) return '0';
+    return num.toLocaleString();
+}
+
+</script>
+
+{% endblock %}
+

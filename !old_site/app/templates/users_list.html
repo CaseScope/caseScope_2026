@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - CaseScope{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-lg);">
+        <h1 style="margin: 0;">👥 User Management</h1>
+        {% if current_user.role in ['administrator', 'analyst'] %}
+        <a href="{{ url_for('users.create_user') }}" class="btn btn-primary">
+            ➕ Create New User
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Users Table -->
+    <div class="card">
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Full Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Created By</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr id="user-row-{{ user.id }}">
+                        <td><strong>{{ user.username }}</strong></td>
+                        <td>{{ user.full_name or '-' }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>
+                            {% if user.role == 'administrator' %}
+                            <span class="status-badge status-failed">🛡️ Administrator</span>
+                            {% elif user.role == 'analyst' %}
+                            <span class="status-badge status-sigma">🔍 Analyst</span>
+                            {% elif user.role == 'read-only' %}
+                            <span class="status-badge">👁️ Read-Only</span>
+                            {% else %}
+                            <span class="status-badge">{{ user.role }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.is_active %}
+                            <span class="status-badge status-completed" id="status-badge-{{ user.id }}">✅ Active</span>
+                            {% else %}
+                            <span class="status-badge status-queued" id="status-badge-{{ user.id }}">🔴 Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td style="color: var(--color-text-muted); font-size: 0.875rem;">
+                            {{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}
+                        </td>
+                        <td style="color: var(--color-text-muted); font-size: 0.875rem;">
+                            {% if user.creator %}
+                            {{ user.creator.username }}
+                            {% else %}
+                            System
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: var(--spacing-xs);">
+                                {% set can_edit = current_user.role == 'administrator' or (current_user.role == 'analyst' and (user.created_by == current_user.id or user.role == 'read-only')) %}
+                                
+                                {% if can_edit %}
+                                <!-- Edit Button -->
+                                <a href="{{ url_for('users.edit_user', user_id=user.id) }}" 
+                                   class="btn btn-sm" 
+                                   title="Edit User"
+                                   style="padding: 4px 8px;">
+                                    ✏️
+                                </a>
+                                
+                                <!-- Toggle Status Button -->
+                                {% if user.id != current_user.id %}
+                                <button onclick="toggleUserStatus({{ user.id }})" 
+                                        class="btn btn-sm" 
+                                        id="toggle-btn-{{ user.id }}"
+                                        title="{% if user.is_active %}Deactivate{% else %}Activate{% endif %} User"
+                                        style="padding: 4px 8px;">
+                                    {% if user.is_active %}🔒{% else %}🔓{% endif %}
+                                </button>
+                                {% endif %}
+                                
+                                <!-- Delete Button (Admin Only) -->
+                                {% if current_user.role == 'administrator' and user.id != current_user.id %}
+                                <button onclick="deleteUser({{ user.id }}, '{{ user.username }}')" 
+                                        class="btn btn-sm" 
+                                        title="Delete User"
+                                        style="padding: 4px 8px; background: var(--color-error);">
+                                    🗑️
+                                </button>
+                                {% endif %}
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            {% if not users %}
+            <p style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-muted);">
+                No users found.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Permission Level Info -->
+    <div class="card" style="margin-top: var(--spacing-lg); background: var(--color-background-secondary); border-left: 3px solid var(--color-info);">
+        <div class="card-body">
+            <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                📋 Permission Levels
+            </h3>
+            <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.8;">
+                <li><strong>🛡️ Administrator:</strong> Full system access - can edit all users, cases, files, system settings, and view audit trails</li>
+                <li><strong>🔍 Analyst:</strong> Can create cases, upload files, perform searches; cannot remove data or edit system settings; can create/edit read-only users only</li>
+                <li><strong>👁️ Read-Only:</strong> View-only access to existing data; cannot add, modify, or remove data; cannot edit own profile</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+// Toggle user active/inactive status
+async function toggleUserStatus(userId) {
+    const button = document.getElementById(`toggle-btn-${userId}`);
+    const badge = document.getElementById(`status-badge-${userId}`);
+    
+    button.disabled = true;
+    
+    try {
+        const response = await fetch(`/users/${userId}/toggle_status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update badge
+            if (data.is_active) {
+                badge.className = 'status-badge status-completed';
+                badge.textContent = '✅ Active';
+                button.textContent = '🔒';
+                button.title = 'Deactivate User';
+            } else {
+                badge.className = 'status-badge status-queued';
+                badge.textContent = '🔴 Inactive';
+                button.textContent = '🔓';
+                button.title = 'Activate User';
+            }
+            
+            // Show success message
+            showMessage(data.message, 'success');
+        } else {
+            showMessage(data.message || 'Failed to toggle user status', 'error');
+        }
+    } catch (error) {
+        showMessage('Error toggling user status: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+// Delete user
+async function deleteUser(userId, username) {
+    if (!confirm(`Are you sure you want to delete user "${username}"?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/users/${userId}/delete`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            // Remove row from table
+            const row = document.getElementById(`user-row-${userId}`);
+            if (row) {
+                row.remove();
+            }
+            showMessage(`User ${username} deleted successfully`, 'success');
+        } else {
+            showMessage('Failed to delete user', 'error');
+        }
+    } catch (error) {
+        showMessage('Error deleting user: ' + error.message, 'error');
+    }
+}
+
+// Show message helper
+function showMessage(message, type) {
+    const messageDiv = document.createElement('div');
+    messageDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: var(--spacing-md);
+        background: ${type === 'success' ? 'var(--color-success)' : 'var(--color-error)'};
+        color: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        z-index: 10000;
+        max-width: 400px;
+    `;
+    messageDiv.textContent = message;
+    document.body.appendChild(messageDiv);
+    
+    setTimeout(() => {
+        messageDiv.remove();
+    }, 3000);
+}
+</script>
+{% endblock %}
+

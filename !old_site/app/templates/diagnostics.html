@@ -1,0 +1,568 @@
+{% extends 'base.html' %}
+
+{% block title %}System Diagnostics{% endblock %}
+
+{% block extra_css %}
+<style>
+    .diagnostics-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: var(--spacing-lg);
+    }
+    
+    .status-badge {
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    
+    .status-badge.healthy {
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
+    }
+    
+    .status-badge.warning {
+        background: rgba(251, 191, 36, 0.1);
+        color: #fbbf24;
+    }
+    
+    .status-badge.critical {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+    }
+    
+    .status-badge.unknown {
+        background: rgba(156, 163, 175, 0.1);
+        color: #9ca3af;
+    }
+    
+    .action-buttons {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: var(--spacing-md);
+    }
+    
+    .action-button {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: var(--spacing-md);
+        background: var(--color-bg-secondary);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .action-button:hover {
+        border-color: var(--color-primary);
+        background: rgba(59, 130, 246, 0.05);
+    }
+    
+    .action-button.danger:hover {
+        border-color: #ef4444;
+        background: rgba(239, 68, 68, 0.05);
+    }
+    
+    .action-button-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        margin-bottom: var(--spacing-xs);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+    }
+    
+    .action-button-description {
+        font-size: 0.875rem;
+        color: var(--color-text-muted);
+        line-height: 1.5;
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .action-button-trigger {
+        margin-top: auto;
+        width: 100%;
+    }
+    
+    .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: currentColor;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .info-panel {
+        background: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: var(--radius-md);
+        padding: var(--spacing-md);
+        margin-top: var(--spacing-lg);
+    }
+    
+    .info-panel-title {
+        font-weight: 600;
+        color: var(--color-primary);
+        margin-bottom: var(--spacing-sm);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+    }
+    
+    .info-panel-content {
+        color: var(--color-text-primary);
+        font-size: 0.875rem;
+        line-height: 1.6;
+    }
+    
+    .file-list {
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: var(--spacing-sm);
+        background: var(--color-bg-secondary);
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+        padding: var(--spacing-sm);
+    }
+    
+    .file-item {
+        padding: var(--spacing-xs);
+        border-bottom: 1px solid var(--color-border);
+        font-size: 0.875rem;
+    }
+    
+    .file-item:last-child {
+        border-bottom: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="diagnostics-container">
+    <!-- Header -->
+    <div class="content-header">
+        <div>
+            <h1 class="content-title">System Diagnostics</h1>
+            <p class="text-secondary">Monitor system health, restart services, and manage the processing queue</p>
+        </div>
+    </div>
+    
+    <!-- System Status Tiles Grid -->
+    <div class="info-tiles-grid" id="systemStatus">
+        <!-- Status tiles will be populated by JavaScript -->
+        <div class="info-tile">
+            <div class="info-tile-header">
+                <span class="info-tile-icon">⏳</span>
+                <h2 class="info-tile-title">Loading...</h2>
+            </div>
+            <div class="info-tile-row">
+                <div class="spinner"></div> Fetching system status...
+            </div>
+        </div>
+    </div>
+    
+    <!-- Service Controls & Queue Management -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">🎛️ Service Controls & Queue Management</h2>
+        </div>
+        
+        <div class="card-body">
+        
+        <div class="action-buttons">
+            <!-- Restart Web Service -->
+            <div class="action-button">
+                <div class="action-button-title">
+                    <span>🔄</span>
+                    <span>Restart Web Service</span>
+                </div>
+                <div class="action-button-description">
+                    Restarts the CaseScope web application (casescope.service). Use this after code updates or if the web interface becomes unresponsive.
+                </div>
+                <button onclick="restartWebService()" class="btn btn-primary action-button-trigger" id="restartWebBtn">
+                    <span>🔄</span>
+                    <span>Restart Web Service</span>
+                </button>
+            </div>
+            
+            <!-- Restart Worker Service -->
+            <div class="action-button">
+                <div class="action-button-title">
+                    <span>⚙️</span>
+                    <span>Restart Worker Service</span>
+                </div>
+                <div class="action-button-description">
+                    Restarts the Celery worker service (casescope-worker.service). Use this after code updates or if file processing stalls.
+                </div>
+                <button onclick="restartWorkerService()" class="btn btn-primary action-button-trigger" id="restartWorkerBtn">
+                    <span>⚙️</span>
+                    <span>Restart Worker Service</span>
+                </button>
+            </div>
+            
+            <!-- Clear Queue -->
+            <div class="action-button danger">
+                <div class="action-button-title">
+                    <span>🗑️</span>
+                    <span>Clear Queue</span>
+                </div>
+                <div class="action-button-description">
+                    <strong>⚠️ Warning:</strong> Clears the entire processing queue and resets all queued files to "Pending" status. Files will need to be re-indexed.
+                </div>
+                <button onclick="clearQueue()" class="btn btn-danger action-button-trigger" id="clearQueueBtn">
+                    <span>🗑️</span>
+                    <span>Clear Queue</span>
+                </button>
+            </div>
+            
+            <!-- Clear Stale Tasks -->
+            <div class="action-button">
+                <div class="action-button-title">
+                    <span>🧹</span>
+                    <span>Clear Stale Tasks</span>
+                </div>
+                <div class="action-button-description">
+                    Clears orphaned Celery task metadata from Redis. Use this if workers were forcefully stopped or if task processing appears stuck. Safe to use anytime.
+                </div>
+                <button onclick="clearStaleTasks()" class="btn btn-warning action-button-trigger" id="clearTasksBtn">
+                    <span>🧹</span>
+                    <span>Clear Stale Tasks</span>
+                </button>
+            </div>
+        </div>
+        
+            <!-- Results Panel -->
+            <div id="resultsPanel" style="display: none; margin-top: var(--spacing-lg);"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Fetch and display system status
+async function loadSystemStatus() {
+    try {
+        const response = await fetch('/health/system');
+        const data = await response.json();
+        
+        const statusGrid = document.getElementById('systemStatus');
+        statusGrid.innerHTML = '';
+        
+        // Database Status
+        statusGrid.innerHTML += createStatusCard(
+            'Database',
+            data.database?.status || 'unknown',
+            data.database?.message || 'No data',
+            data.database?.pool || {}
+        );
+        
+        // OpenSearch Status
+        statusGrid.innerHTML += createStatusCard(
+            'OpenSearch',
+            data.opensearch?.status || 'unknown',
+            data.opensearch?.message || 'No data',
+            {
+                'Cluster': data.opensearch?.cluster_name || 'N/A',
+                'Indices': data.opensearch?.indices_count || '0'
+            }
+        );
+        
+        // Celery Status
+        statusGrid.innerHTML += createStatusCard(
+            'Celery Workers',
+            data.celery?.status || 'unknown',
+            data.celery?.message || 'No data',
+            {
+                'Active Workers': data.celery?.active_workers || '0',
+                'Active Tasks': data.celery?.active_tasks || '0'
+            }
+        );
+        
+        // Disk Space Status
+        statusGrid.innerHTML += createStatusCard(
+            'Disk Space',
+            data.disk?.status || 'unknown',
+            data.disk?.message || 'No data',
+            {
+                'Free Space': data.disk?.free_gb ? `${data.disk.free_gb} GB` : 'N/A',
+                'Used': data.disk?.percent_used ? `${data.disk.percent_used}%` : 'N/A'
+            }
+        );
+        
+    } catch (error) {
+        console.error('Error loading system status:', error);
+        document.getElementById('systemStatus').innerHTML = `
+            <div class="info-tile">
+                <div class="info-tile-header">
+                    <span class="info-tile-icon">❌</span>
+                    <h2 class="info-tile-title">Error</h2>
+                    <span class="status-badge critical" style="margin-left: auto;">Failed</span>
+                </div>
+                <div class="info-tile-row">
+                    <div class="info-tile-value error">Failed to load system status: ${error.message}</div>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function createStatusCard(title, status, message, metrics) {
+    const statusClass = status.toLowerCase();
+    const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    
+    // Select icon based on title
+    let icon = '📊';
+    if (title.includes('Database')) icon = '🗄️';
+    else if (title.includes('OpenSearch')) icon = '🔍';
+    else if (title.includes('Celery') || title.includes('Worker')) icon = '⚙️';
+    else if (title.includes('Disk')) icon = '💾';
+    
+    let contentHtml = '';
+    if (Object.keys(metrics).length > 0) {
+        for (const [label, value] of Object.entries(metrics)) {
+            contentHtml += `
+                <div class="info-tile-row">
+                    <div class="info-tile-label">${label}</div>
+                    <div class="info-tile-value">${value}</div>
+                </div>
+            `;
+        }
+    } else {
+        contentHtml = `
+            <div class="info-tile-row">
+                <div class="info-tile-value">${message}</div>
+            </div>
+        `;
+    }
+    
+    return `
+        <div class="info-tile">
+            <div class="info-tile-header">
+                <span class="info-tile-icon">${icon}</span>
+                <h2 class="info-tile-title">${title}</h2>
+                <span class="status-badge ${statusClass}" style="margin-left: auto;">${statusLabel}</span>
+            </div>
+            ${contentHtml}
+        </div>
+    `;
+}
+
+// Restart Web Service
+async function restartWebService() {
+    if (!confirm('⚠️ Restart web service?\n\nThis will temporarily disconnect all users. Continue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('restartWebBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Restarting...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/diagnostics/restart_web', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('success', data.message);
+            setTimeout(() => location.reload(), 3000);
+        } else {
+            showAlert('error', data.error || 'Failed to restart service');
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
+    } catch (error) {
+        showAlert('error', `Error: ${error.message}`);
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Restart Worker Service
+async function restartWorkerService() {
+    if (!confirm('⚠️ Restart worker service?\n\nThis will stop all background tasks. Continue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('restartWorkerBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Restarting...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/diagnostics/restart_worker', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('success', data.message);
+            loadSystemStatus(); // Refresh status
+        } else {
+            showAlert('error', data.error || 'Failed to restart service');
+        }
+        
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    } catch (error) {
+        showAlert('error', `Error: ${error.message}`);
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Clear Queue
+async function clearQueue() {
+    if (!confirm('⚠️ CLEAR ENTIRE QUEUE?\n\nThis will:\n• Stop all queued file processing\n• Reset all files to "Pending" status\n• Require manual re-indexing\n\nThis action cannot be undone. Continue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('clearQueueBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Clearing...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/diagnostics/clear_queue', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('success', data.message);
+            
+            // Show detailed results
+            if (data.files && data.files.length > 0) {
+                showQueueClearResults(data.files);
+            }
+            
+            loadSystemStatus(); // Refresh status
+        } else {
+            showAlert('error', data.error || 'Failed to clear queue');
+        }
+        
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    } catch (error) {
+        showAlert('error', `Error: ${error.message}`);
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Clear Stale Tasks
+async function clearStaleTasks() {
+    if (!confirm('🧹 Clear Stale Tasks?\n\nThis will remove orphaned Celery task metadata from Redis. This is safe and can help resolve stuck task issues.\n\nContinue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('clearTasksBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Clearing...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/diagnostics/clear_stale_tasks', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('success', `${data.message}\n\n• Task metadata: ${data.task_metadata_cleared.toLocaleString()}\n• Unacked tasks: ${data.unacked_cleared}\n• Kombu state: ${data.kombu_cleared}`);
+            loadSystemStatus(); // Refresh status
+        } else {
+            showAlert('error', data.error || 'Failed to clear stale tasks');
+        }
+        
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    } catch (error) {
+        showAlert('error', `Error: ${error.message}`);
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+function showQueueClearResults(files) {
+    const resultsPanel = document.getElementById('resultsPanel');
+    resultsPanel.style.display = 'block';
+    
+    let fileListHtml = '';
+    for (const file of files) {
+        fileListHtml += `
+            <div class="file-item">
+                <strong>Case ${file.case_id}</strong> - ${file.filename} 
+                <span style="color: var(--color-text-muted);">(was: ${file.previous_status})</span>
+            </div>
+        `;
+    }
+    
+    resultsPanel.innerHTML = `
+        <div class="info-panel">
+            <div class="info-panel-title">
+                <span>📋</span>
+                <span>Files Reset to Pending Status</span>
+            </div>
+            <div class="info-panel-content">
+                <p><strong>${files.length} file(s)</strong> have been reset and will need to be re-indexed:</p>
+                <div class="file-list">${fileListHtml}</div>
+                <p style="margin-top: var(--spacing-md);">
+                    <strong>Next Steps:</strong><br>
+                    1. Navigate to each case's file management page<br>
+                    2. Select the reset files<br>
+                    3. Click "Re-Index Selected Files" to reprocess them
+                </p>
+            </div>
+        </div>
+    `;
+}
+
+function showAlert(type, message) {
+    // Use existing flash message system if available
+    const alertClass = type === 'success' ? 'success' : 'error';
+    const alertHtml = `
+        <div class="alert alert-${alertClass}" style="position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 400px;">
+            ${message}
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', alertHtml);
+    
+    setTimeout(() => {
+        const alert = document.querySelector(`.alert-${alertClass}`);
+        if (alert) alert.remove();
+    }, 5000);
+}
+
+// Load status on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadSystemStatus();
+    
+    // Refresh status every 30 seconds
+    setInterval(loadSystemStatus, 30000);
+});
+</script>
+{% endblock %}
+

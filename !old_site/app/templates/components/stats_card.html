@@ -1,0 +1,24 @@
+<!--
+  Reusable Stats Card Component
+  
+  Usage:
+  {% include 'components/stats_card.html' with 
+     stat_value=123, 
+     stat_label="Total Files", 
+     stat_icon="📄" 
+  %}
+-->
+
+<div class="stat-card">
+    {% if stat_icon %}
+    <div style="font-size: 2rem; margin-bottom: var(--spacing-sm);">{{ stat_icon }}</div>
+    {% endif %}
+    
+    <div class="stat-label">{{ stat_label }}</div>
+    <div class="stat-value">{{ stat_value }}</div>
+    
+    {% if stat_subtitle %}
+    <div class="stat-subtitle">{{ stat_subtitle }}</div>
+    {% endif %}
+</div>
+
