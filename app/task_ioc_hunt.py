@@ -70,15 +70,22 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 logger.warning(f"[IOC_HUNT] Error checking index: {e}")
                 # Continue anyway - might be transient error
             
+            # Get total event count in case
+            try:
+                total_events_in_case = opensearch_client.count(index=index_name).get('count', 0)
+            except:
+                total_events_in_case = 0
+            
             job.total_iocs = len(iocs)
             job.status = "running"
             db.session.commit()
             
-            logger.info(f"[IOC_HUNT] Starting global hunt: {len(iocs)} IOCs, case {case_id}")
+            logger.info(f"[IOC_HUNT] Starting global hunt: {len(iocs)} IOCs across {total_events_in_case:,} events, case {case_id}")
             
             processed = 0
             total_matches = 0
-            unique_events_checked = set()  # Track unique event IDs examined
+            unique_events_with_iocs = set()  # Track unique event IDs with at least 1 IOC
+            event_ioc_map = {}  # Map event_id -> list of (ioc_type, ioc_value) for tagging
             batch_size = 10  # Process 10 IOCs at a time
             
             # Process IOCs in batches
@@ -186,8 +193,6 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 matches = []
                 for hit in all_hits:
                     event_id = hit["_id"]
-                    unique_events_checked.add(event_id)  # Track unique events examined
-                    
                     blob = hit["_source"].get("search_blob", "").lower()
                     
                     # Check each IOC in batch against this event
@@ -199,6 +204,15 @@ def hunt_all_iocs_task(self, job_id, case_id):
                         
                         # Check if IOC value appears in event
                         if search_value.lower() in blob:
+                            # Track this event has at least one IOC
+                            unique_events_with_iocs.add(event_id)
+                            
+                            # Track IOC details for this event (for tagging)
+                            if event_id not in event_ioc_map:
+                                event_ioc_map[event_id] = []
+                            event_ioc_map[event_id].append((ioc.ioc_type, ioc.ioc_value))
+                            
+                            # Create match record
                             matches.append(IOCHuntMatch(
                                 job_id=job_id,
                                 case_id=case_id,
@@ -221,7 +235,7 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 # Update progress
                 job.processed_iocs = processed
                 job.match_count = total_matches
-                job.total_events_searched = len(unique_events_checked)
+                job.total_events_searched = total_events_in_case  # Total events in case
                 job.progress = min(99, int((processed / len(iocs)) * 100))
                 db.session.commit()
                 
@@ -237,42 +251,62 @@ def hunt_all_iocs_task(self, job_id, case_id):
                     }
                 )
             
-            # Update OpenSearch events with has_ioc flag
-            logger.info(f"[IOC_HUNT] Updating OpenSearch events with has_ioc flags...")
+            # Update OpenSearch events with has_ioc flag and IOC details
+            logger.info(f"[IOC_HUNT] Tagging {len(unique_events_with_iocs)} events with IOC details...")
             try:
-                # Get unique event IDs from matches
-                event_ids = db.session.query(IOCHuntMatch.event_id).filter_by(
-                    job_id=job_id
-                ).distinct().all()
-                event_ids = [eid[0] for eid in event_ids]
+                from opensearchpy.helpers import bulk as opensearch_bulk
                 
-                if event_ids:
-                    # Update events in batches
-                    batch_size = 500
-                    for i in range(0, len(event_ids), batch_size):
-                        batch = event_ids[i:i+batch_size]
+                if event_ioc_map:
+                    # Build bulk update operations
+                    bulk_updates = []
+                    for event_id, ioc_list in event_ioc_map.items():
+                        # Get unique IOC types for this event
+                        ioc_types = list(set([ioc_type for ioc_type, _ in ioc_list]))
                         
-                        update_query = {
-                            "script": {
-                                "source": "ctx._source.has_ioc = true;",
-                                "lang": "painless"
-                            },
-                            "query": {
-                                "terms": {"_id": batch}
+                        # Build matched_iocs array: ["ip:77.83.205.215", "username:tabadmin"]
+                        matched_iocs = [f"{ioc_type}:{ioc_value[:50]}" for ioc_type, ioc_value in ioc_list]
+                        
+                        bulk_updates.append({
+                            '_op_type': 'update',
+                            '_index': index_name,
+                            '_id': event_id,
+                            'script': {
+                                'source': '''
+                                    ctx._source.has_ioc = true;
+                                    ctx._source.ioc_count = params.ioc_count;
+                                    ctx._source.ioc_details = params.ioc_types;
+                                    ctx._source.matched_iocs = params.matched_iocs;
+                                ''',
+                                'lang': 'painless',
+                                'params': {
+                                    'ioc_count': len(ioc_list),
+                                    'ioc_types': ioc_types,
+                                    'matched_iocs': matched_iocs
+                                }
                             }
-                        }
-                        
-                        opensearch_client.update_by_query(
-                            index=index_name,
-                            body=update_query,
-                            conflicts='proceed',
-                            wait_for_completion=True,
-                            request_timeout=120
-                        )
+                        })
                     
-                    logger.info(f"[IOC_HUNT] Updated {len(event_ids)} events with has_ioc flag")
+                    # Execute bulk update in batches
+                    update_batch_size = 500
+                    for i in range(0, len(bulk_updates), update_batch_size):
+                        batch = bulk_updates[i:i+update_batch_size]
+                        try:
+                            success_count, errors = opensearch_bulk(
+                                opensearch_client, 
+                                batch, 
+                                raise_on_error=False, 
+                                raise_on_exception=False
+                            )
+                            if errors:
+                                logger.warning(f"[IOC_HUNT] Bulk update had {len(errors)} errors")
+                            else:
+                                logger.info(f"[IOC_HUNT] Tagged batch {i//update_batch_size + 1} ({success_count} events)")
+                        except Exception as e:
+                            logger.error(f"[IOC_HUNT] Bulk update error: {e}")
+                    
+                    logger.info(f"[IOC_HUNT] Successfully tagged {len(event_ioc_map)} events with IOC details")
             except Exception as e:
-                logger.warning(f"[IOC_HUNT] Failed to update OpenSearch flags: {e}")
+                logger.warning(f"[IOC_HUNT] Failed to tag events: {e}")
             
             # Update CaseFile IOC counts by querying OpenSearch for file_id
             logger.info(f"[IOC_HUNT] Updating file IOC counts...")
@@ -324,12 +358,15 @@ def hunt_all_iocs_task(self, job_id, case_id):
             # Mark complete
             job.status = "completed"
             job.progress = 100
-            job.total_events_searched = len(unique_events_checked)
             job.completed_at = datetime.utcnow()
-            job.message = f"Hunt complete: {total_matches} matches found across {processed} IOCs ({len(unique_events_checked):,} events examined)"
+            
+            # Build completion message
+            events_with_iocs_count = len(unique_events_with_iocs)
+            job.message = f"Searched {total_events_in_case:,} events • Found IOCs in {events_with_iocs_count} events • {total_matches} total matches"
+            
             db.session.commit()
             
-            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches from {len(unique_events_checked):,} events examined, OpenSearch flags updated")
+            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_events_in_case:,} events searched, {events_with_iocs_count} events with IOCs, {total_matches} matches, events tagged")
             
         except Exception as e:
             logger.exception(f"[IOC_HUNT] Job {job_id} failed: {e}")

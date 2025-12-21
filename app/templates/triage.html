@@ -783,21 +783,27 @@
                          role="progressbar" style="width: 0%">0%</div>
                 </div>
                 <div class="row text-center">
-                    <div class="col-3">
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold text-primary" id="globalHuntEventsSearched">0</div>
+                        <small class="text-muted">Total Events Checked</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold text-warning" id="globalHuntEventsWithIOCs">0</div>
+                        <small class="text-muted">Events with 1+ IOC</small>
+                    </div>
+                </div>
+                <div class="row text-center" style="margin-top: var(--spacing-md);">
+                    <div class="col-4">
                         <div class="fs-4 fw-bold" id="globalHuntProcessed">0</div>
                         <small class="text-muted">IOCs Processed</small>
                     </div>
-                    <div class="col-3">
+                    <div class="col-4">
                         <div class="fs-4 fw-bold" id="globalHuntTotal">0</div>
                         <small class="text-muted">Total IOCs</small>
                     </div>
-                    <div class="col-3">
-                        <div class="fs-4 fw-bold text-primary" id="globalHuntEventsSearched">0</div>
-                        <small class="text-muted">Events Searched</small>
-                    </div>
-                    <div class="col-3">
+                    <div class="col-4">
                         <div class="fs-4 fw-bold text-success" id="globalHuntMatches">0</div>
-                        <small class="text-muted">Matches Found</small>
+                        <small class="text-muted">Total Matches</small>
                     </div>
                 </div>
                 <div id="globalHuntMessage" class="text-center text-muted mt-3"></div>
@@ -2095,9 +2101,10 @@ function updateGlobalHuntProgress(data) {
     bar.style.width = `${data.progress}%`;
     bar.textContent = `${data.progress}%`;
     
+    document.getElementById('globalHuntEventsSearched').textContent = formatNumber(data.total_events_searched);
+    document.getElementById('globalHuntEventsWithIOCs').textContent = formatNumber(data.events_with_iocs || 0);
     document.getElementById('globalHuntProcessed').textContent = formatNumber(data.processed_iocs);
     document.getElementById('globalHuntTotal').textContent = formatNumber(data.total_iocs);
-    document.getElementById('globalHuntEventsSearched').textContent = formatNumber(data.total_events_searched);
     document.getElementById('globalHuntMatches').textContent = formatNumber(data.match_count);
     document.getElementById('globalHuntMessage').textContent = data.message || '';
 }
