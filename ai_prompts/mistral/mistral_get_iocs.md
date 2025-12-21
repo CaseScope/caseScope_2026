@@ -25,6 +25,7 @@ Extract the following IOC types and output ONLY valid JSON:
     "sha256": []
   },
   "usernames": [],
+  "user_sids": [],
   "hostnames": [],
   "network_shares": [],
   "credentials": {
@@ -44,7 +45,10 @@ Extract the following IOC types and output ONLY valid JSON:
 }
 
 EXTRACTION GUIDELINES:
-- IP addresses: Only IPv4/IPv6 addresses explicitly mentioned
+- IP addresses: Only IPv4/IPv6 addresses (numbers and dots/colons). NOT hostnames or computer names.
+- Hostnames: Computer names, workstation names, server names (alphanumeric, no dots). Examples: "WORKSTATION01", "DC01", "8ZCPYW3"
+- Domains: Fully qualified domain names with dots. Examples: "example.com", "vpn.company.local"
+- User SIDs: Windows Security Identifiers in S-1-5-21-... format. Examples: "S-1-5-21-3426037707-906159246-1291406689-4606"
 - File paths: Complete paths as written in report
 - Timestamps: Only dates/times explicitly stated with timezone
 - Credentials: Only if plaintext credentials appear in report

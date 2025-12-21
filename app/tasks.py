@@ -86,23 +86,18 @@ def commit_with_retry(session, max_retries=3, logger_instance=None):
 # ============================================================================
 
 @celery_app.task(bind=True, name='tasks.process_file')
-def process_file(self, file_id, operation='full'):
+def process_file(self, file_id, operation='index_only'):
     """
-    Process a file through the 4-step modular pipeline (v2.2.0 - State Tracking)
-    
-    Steps:
-    1. duplicate_check() - Skip if duplicate
-    2. index_file() - EVTX→JSON→OpenSearch
-    3. chainsaw_file() - SIGMA detection
-    4. hunt_iocs() - IOC hunting
+    Process a file through simplified pipeline (v2.3.0 - No Coordinators)
     
     Operations:
-    - 'full': All 4 steps
-    - 'reindex': Clear + re-index
-    - 'chainsaw_only': SIGMA only
-    - 'ioc_only': IOC only
+    - 'index_only': Duplicate check + index (default for uploads)
+    - 'reindex': Clear + re-index ONLY (no SIGMA/IOC)
+    - 'sigma_only': Run SIGMA detection (manual)
+    - 'ioc_only': Run IOC hunting (manual)
     
-    v2.2.0: Now uses file_state_manager for consistent state tracking
+    v2.3.0: Removed coordinators - SIGMA/IOC are now manual operations
+    Upload only indexes files. User manually triggers SIGMA/IOC/Known Good/Noise.
     """
     from file_processing import duplicate_check, index_file, chainsaw_file, hunt_iocs
     from main import app, db
@@ -126,9 +121,9 @@ def process_file(self, file_id, operation='full'):
                 return {'status': 'error', 'message': 'Case not found'}
             
             # Archive guard (v1.18.0): Prevent processing files in archived cases
-            # Exception: ioc_only and chainsaw_only operations are allowed (work without source files)
+            # Exception: ioc_only, chainsaw_only, sigma_only operations are allowed (work without source files)
             from archive_utils import is_case_archived
-            if operation not in ['ioc_only', 'chainsaw_only'] and is_case_archived(case):
+            if operation not in ['ioc_only', 'chainsaw_only', 'sigma_only'] and is_case_archived(case):
                 logger.warning(f"[TASK] Cannot process file {file_id}: Case {case.id} is archived")
                 case_file.celery_task_id = None  # Clear task ID
                 db.session.commit()
@@ -159,9 +154,9 @@ def process_file(self, file_id, operation='full'):
                     case_file.celery_task_id = None
                     db.session.commit()
             
-            # For 'full' operation: Skip if file is already indexed (prevent duplicate processing)
+            # For 'index_only' operation: Skip if file is already indexed (prevent duplicate processing)
             # For 'reindex' operation: Allow re-indexing even if already indexed (intentional)
-            if operation == 'full' and case_file.is_indexed:
+            if operation == 'index_only' and case_file.is_indexed:
                 logger.info(f"[TASK] File {file_id} already indexed (is_indexed=True), skipping 'full' operation to prevent duplicate processing")
                 case_file.celery_task_id = None  # Clear task ID since we're skipping
                 db.session.commit()
@@ -176,7 +171,7 @@ def process_file(self, file_id, operation='full'):
             
             # CRITICAL: Check OpenSearch shard capacity before processing
             # This prevents the worker from crashing when hitting shard limits
-            if operation in ['full', 'reindex']:
+            if operation in ['index_only', 'reindex']:
                 has_capacity, current_shards, max_shards, shard_message = check_opensearch_shard_capacity(
                     opensearch_client, threshold_percent=95
                 )
@@ -198,8 +193,8 @@ def process_file(self, file_id, operation='full'):
             
             index_name = make_index_name(case.id, case_file.original_filename)
             
-            # FULL OPERATION (v2.2.0 - State Tracking)
-            if operation == 'full':
+            # INDEX_ONLY OPERATION (v2.3.0 - Upload default, no SIGMA/IOC)
+            if operation == 'index_only':
                 # Step 1: Duplicate check
                 dup_result = duplicate_check(
                     db=db,
@@ -245,106 +240,40 @@ def process_file(self, file_id, operation='full'):
                 
                 # Mark indexing complete (will set Hidden if 0 events)
                 fsm.complete_indexing(case_file, index_result['event_count'])
-                db.session.commit()
+                case_file.celery_task_id = None
+                commit_with_retry(db.session, logger_instance=logger)
                 
                 if index_result['event_count'] == 0:
                     # File hidden (0 events)
                     return {'status': 'success', 'message': '0 events (hidden)'}
                 
-                # Step 3: SIGMA Testing (EVTX only)
-                if case_file.original_filename.lower().endswith('.evtx'):
-                    fsm.start_sigma_hunting(case_file)
-                    db.session.commit()
-                    
-                    chainsaw_result = chainsaw_file(
-                        db=db,
-                        opensearch_client=opensearch_client,
-                        CaseFile=CaseFile,
-                        SigmaRule=SigmaRule,
-                        SigmaViolation=SigmaViolation,
-                        file_id=file_id,
-                        index_name=index_name,
-                        celery_task=self
-                    )
-                    
-                    # Mark SIGMA complete
-                    fsm.complete_sigma_hunting(case_file)
-                    db.session.commit()
-                else:
-                    logger.info(f"[TASK] Skipping SIGMA (non-EVTX file): {case_file.original_filename}")
-                    chainsaw_result = {'status': 'success', 'message': 'Skipped (non-EVTX)', 'violations': 0}
-                
-                # Step 4: IOC Hunting
-                fsm.start_ioc_hunting(case_file)
-                db.session.commit()
-                
-                ioc_result = hunt_iocs(
-                    db=db,
-                    opensearch_client=opensearch_client,
-                    CaseFile=CaseFile,
-                    IOC=IOC,
-                    IOCMatch=IOCMatch,
-                    file_id=file_id,
-                    index_name=index_name,
-                    celery_task=self
-                )
-                
-                # Mark IOC complete
-                fsm.complete_ioc_hunting(case_file)
-                db.session.commit()
-                
-                # CRITICAL: Validate index exists before marking "Completed"
-                # Prevents data corruption if worker crashes during indexing
-                if not case_file.is_hidden and case_file.event_count > 0:
-                    try:
-                        if not opensearch_client.indices.exists(index=index_name):
-                            error_msg = f'Index {index_name} does not exist despite file having {case_file.event_count} events. Worker may have crashed during indexing, or index was deleted externally.'
-                            logger.error(f"[TASK] ❌ VALIDATION FAILED: {error_msg}")
-                            logger.error(f"[TASK] ❌ Setting status to 'Failed' to prevent data corruption")
-                            fsm.mark_failed(case_file, 'Index missing after processing')
-                            case_file.celery_task_id = None
-                            db.session.commit()
-                            return {
-                                'status': 'error',
-                                'message': 'Index validation failed - index does not exist',
-                                'file_id': file_id
-                            }
-                    except Exception as e:
-                        logger.error(f"[TASK] ❌ Index validation error: {e}")
-                        # Continue anyway - might be OpenSearch connectivity issue
-                
-                # Step 5: Noise checking (mark as complete for now, actual checking done via bulk operations)
-                # Set both known_good and known_noise to True (will be run separately)
-                case_file.known_good = True
-                case_file.known_noise = True
-                
-                # Finalize processing (checks is_completed and sets state to 'Completed')
-                fsm.finalize_processing(case_file)
-                case_file.celery_task_id = None
-                commit_with_retry(db.session, logger_instance=logger)
-                
-                logger.info(f"[TASK] ✓ File {file_id} completed successfully (events={index_result['event_count']}, violations={chainsaw_result.get('violations', 0)}, ioc_matches={ioc_result.get('matches', 0)})")
+                # v2.3.0: SIGMA, IOC, Known Good/Noise are now MANUAL operations
+                # User triggers them via UI buttons after reviewing indexed files
+                logger.info(f"[TASK] ✓ File {file_id} indexed successfully ({index_result['event_count']} events)")
+                logger.info(f"[TASK] SIGMA/IOC/Known Good/Noise = User manual operations")
                 
                 return {
                     'status': 'success',
-                    'message': 'Processing completed',
-                    'stats': {
-                        'events': index_result['event_count'],
-                        'violations': chainsaw_result.get('violations', 0),
-                        'ioc_matches': ioc_result.get('matches', 0)
-                    }
+                    'message': f'Indexed {index_result["event_count"]} events',
+                    'event_count': index_result['event_count'],
+                    'file_id': file_id
                 }
             
-            # REINDEX OPERATION (v1.16.25 FIX - Re-index All Files button)
+            # REINDEX OPERATION (v2.3.0 - Index only, no SIGMA/IOC)
             elif operation == 'reindex':
                 """
-                Re-index operation: Forces complete re-processing (no duplicate check)
+                Re-index operation: Forces re-indexing ONLY (no SIGMA/IOC)
                 Assumes: OpenSearch data cleared, DB metadata reset by caller
                 Used by: bulk_reindex, bulk_reindex_selected, reindex_single_file
-                """
-                logger.info(f"[TASK] REINDEX - forcing complete re-processing of file {file_id}")
                 
-                # Index file with force_reindex=True (skips is_indexed check in file_processing.py)
+                v2.3.0: SIGMA/IOC are now manual operations triggered by user
+                """
+                logger.info(f"[TASK] REINDEX - re-indexing file {file_id} (no SIGMA/IOC)")
+                
+                # Index file with force_reindex=True
+                fsm.start_indexing(case_file)
+                db.session.commit()
+                
                 index_result = index_file(
                     db=db,
                     opensearch_client=opensearch_client,
@@ -359,70 +288,35 @@ def process_file(self, file_id, operation='full'):
                     upload_type=case_file.upload_type,
                     file_id=file_id,
                     celery_task=self,
-                    force_reindex=True  # CRITICAL: Force re-indexing
+                    force_reindex=True
                 )
                 
                 if index_result['status'] == 'error':
                     error_msg = index_result.get('message', 'Unknown indexing error')
-                    case_file.indexing_status = 'Failed'
-                    case_file.error_message = error_msg[:500]
+                    fsm.mark_failed(case_file, error_msg[:500])
+                    case_file.celery_task_id = None
                     db.session.commit()
                     return index_result
+                
+                # Mark indexing complete
+                fsm.complete_indexing(case_file, index_result['event_count'])
+                case_file.celery_task_id = None
+                commit_with_retry(db.session, logger_instance=logger)
                 
                 if index_result['event_count'] == 0:
                     return {'status': 'success', 'message': '0 events (hidden)'}
                 
-                # SIGMA Testing (EVTX only)
-                if case_file.original_filename.lower().endswith('.evtx'):
-                    case_file.indexing_status = 'SIGMA Testing'
-                    db.session.commit()
-                    
-                    chainsaw_result = chainsaw_file(
-                        db=db,
-                        opensearch_client=opensearch_client,
-                        CaseFile=CaseFile,
-                        SigmaRule=SigmaRule,
-                        SigmaViolation=SigmaViolation,
-                        file_id=file_id,
-                        index_name=index_name,
-                        celery_task=self
-                    )
-                else:
-                    logger.info(f"[TASK] Skipping SIGMA (non-EVTX file): {case_file.original_filename}")
-                    chainsaw_result = {'status': 'success', 'message': 'Skipped (non-EVTX)', 'violations': 0}
-                
-                # IOC Hunting
-                case_file.indexing_status = 'IOC Hunting'
-                db.session.commit()
-                
-                ioc_result = hunt_iocs(
-                    db=db,
-                    opensearch_client=opensearch_client,
-                    CaseFile=CaseFile,
-                    IOC=IOC,
-                    IOCMatch=IOCMatch,
-                    file_id=file_id,
-                    index_name=index_name,
-                    celery_task=self
-                )
-                
-                # Mark completed
-                case_file.indexing_status = 'Completed'
-                case_file.celery_task_id = None
-                commit_with_retry(db.session, logger_instance=logger)
+                logger.info(f"[TASK] ✓ File {file_id} re-indexed ({index_result['event_count']} events)")
                 
                 return {
                     'status': 'success',
-                    'message': 'Re-indexing completed',
-                    'stats': {
-                        'events': index_result['event_count'],
-                        'violations': chainsaw_result.get('violations', 0),
-                        'ioc_matches': ioc_result.get('matches', 0)
-                    }
+                    'message': f'Re-indexed {index_result["event_count"]} events',
+                    'event_count': index_result['event_count'],
+                    'file_id': file_id
                 }
             
-            # CHAINSAW ONLY
-            elif operation == 'chainsaw_only':
+            # SIGMA ONLY (also accept 'chainsaw_only' for backward compatibility)
+            elif operation in ['sigma_only', 'chainsaw_only']:
                 from models import SigmaViolation
                 from bulk_operations import clear_file_sigma_flags_in_opensearch
                 
@@ -974,10 +868,11 @@ def bulk_import_directory(self, case_id):
                     'queued_count': len(case_files)
                 })
                 
-                # Trigger NEW coordinator to process all files
-                from coordinator_index import index_new_files_task
-                coordinator_task = index_new_files_task.delay(case_id)
-                logger.info(f"[BULK IMPORT] Triggered coordinator for {len(case_files)} files (task_id: {coordinator_task.id})")
+                # v2.3.0: Queue files directly (no coordinator)
+                for cf in case_files:
+                    from tasks import process_file
+                    process_file.delay(cf.id, operation='index_only')
+                logger.info(f"[BULK IMPORT] Queued {len(case_files)} files for indexing (direct dispatch)")
             else:
                 logger.info("[BULK IMPORT] No valid files to queue")
             
@@ -1991,15 +1886,17 @@ def generate_case_timeline(self, timeline_id):
 
 
 @celery_app.task(bind=True, name='tasks.train_dfir_model_from_opencti')
-def train_dfir_model_from_opencti(self, model_name='dfir-qwen:latest', limit=50):
+def train_dfir_model_from_opencti(self, model_name='qwen2.5:7b-instruct-q4_k_m', limit=50):
     """
-    Train DFIR model using OpenCTI threat intelligence
+    DEPRECATED: Custom model training removed in v2.x
     
-    Args:
-        model_name: Name of the model to train (default: 'dfir-qwen:latest')
-        limit: Maximum number of reports to fetch from OpenCTI (default: 50)
-    Modular design: delegates to ai_training.py and LoRA training scripts
+    CaseScope now uses standard, out-of-the-box models with no custom training.
+    This function is kept for backwards compatibility but returns an error.
     """
+    return {
+        'status': 'error',
+        'message': 'Model training has been removed. CaseScope now uses standard models only.'
+    }
     from main import app
     
     with app.app_context():

@@ -111,11 +111,19 @@
                         </div>
                         <div class="info-tile-rows-container">
                             {% if ai_system_status.models %}
-                                {% for model_family, version in ai_system_status.models.items() %}
+                                {% for model in ai_system_status.models %}
                                 <div class="info-tile-row">
-                                    <div class="info-tile-label">{{ model_family }}</div>
-                                    <div class="info-tile-value primary">
-                                        {{ version }}
+                                    <div class="info-tile-label">
+                                        {{ model.family }}
+                                        {% if model.vram_tier %}
+                                        <span style="display: inline-block; margin-left: 4px; padding: 2px 6px; background: {% if model.vram_tier == '8gb' %}#228be6{% else %}#fa5252{% endif %}; color: white; border-radius: 3px; font-size: 0.7rem; font-weight: 600;">
+                                            {{ model.vram_tier|upper }}
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="info-tile-value primary" style="font-size: 0.75rem;">
+                                        {{ model.version }}
+                                        <span style="color: var(--color-text-muted); margin-left: 4px;">({{ model.size }})</span>
                                     </div>
                                 </div>
                                 {% endfor %}
@@ -580,7 +588,7 @@
             <div class="card-header">
                 <h2 class="card-title">🤖 AI Report Generation</h2>
                 <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
-                    Generate automated DFIR reports using local AI (DFIR-Optimized models via Ollama)
+                    Generate automated DFIR reports using local AI (Standard Ollama models)
                 </p>
             </div>
             
@@ -603,65 +611,10 @@
                     </ul>
                     {% if not ai_status.running or not ai_status.model_available %}
                     <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
-                        ⚠️ <strong>To enable AI features:</strong> Install Ollama and pull a DFIR-optimized model
+                        ⚠️ <strong>To enable AI features:</strong> Install Ollama and download required models
                         <br>
-                        <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">curl -fsSL https://ollama.com/install.sh | sh && ollama pull llama3.1:8b-instruct-q4_K_M</code>
+                        <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">curl -fsSL https://ollama.com/install.sh | sh</code>
                     </p>
-                    {% endif %}
-                    
-                    <!-- Update Models Button -->
-                    {% if ai_status.running and ai_status.models %}
-                    <div style="margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
-                        <button type="button" 
-                                onclick="updateAllModels()" 
-                                style="padding: var(--spacing-sm) var(--spacing-md); background: var(--color-primary); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs);">
-                            <span>🔄</span>
-                            <span>Update All Installed Models</span>
-                        </button>
-                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.75rem;">
-                            Check for and install updates for all {{ ai_status.models|length }} installed model(s)
-                        </p>
-                    </div>
-                    {% endif %}
-                    
-                    <!-- Train AI Button (requires OpenCTI) -->
-                    {% if opencti_enabled and ai_status.running and ai_status.models %}
-                    <div style="margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
-                        <!-- Warning Banner -->
-                        <div style="background: #ff9800; padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid #f57c00;">
-                            <div style="display: flex; align-items: center; gap: var(--spacing-sm); color: white; font-weight: 600; margin-bottom: var(--spacing-xs);">
-                                <span style="font-size: 1.2rem;">⚠️</span>
-                                <span>Long-Running Process</span>
-                            </div>
-                            <p style="color: white; margin: 0; font-size: 0.875rem; line-height: 1.5;">
-                                Training a custom AI model is <strong>resource-intensive</strong> and will take <strong>30-60 minutes</strong> (or longer on CPU-only systems).
-                                <br>
-                                The system will remain operational, but GPU/CPU usage will be high during training.
-                            </p>
-                        </div>
-                        
-                        <!-- Train Button -->
-                        <button type="button" 
-                                id="trainAIButton"
-                                onclick="startAITraining()" 
-                                style="padding: var(--spacing-sm) var(--spacing-md); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600; width: 100%; justify-content: center; margin-bottom: var(--spacing-sm);">
-                            <span>🎓</span>
-                            <span>Train AI on OpenCTI Threat Intel</span>
-                        </button>
-                        
-                        <button type="button" 
-                                id="clearTrainedButton"
-                                onclick="clearTrainedModels()" 
-                                style="padding: var(--spacing-sm) var(--spacing-md); background: #868e96; color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600; width: 100%; justify-content: center;">
-                            <span>🗑️</span>
-                            <span>Clear Trained Models</span>
-                        </button>
-                        
-                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.75rem; text-align: center;">
-                            Train: Pulls threat reports from OpenCTI and trains LoRA adapter (50-500 reports)<br>
-                            Clear: Resets all models to their default (untrained) state
-                        </p>
-                    </div>
                     {% endif %}
                 </div>
 
@@ -679,201 +632,33 @@
                     </p>
                 </div>
 
-                <!-- Hardware Detection Status -->
-                <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-sm); background: var(--color-background); border-radius: var(--border-radius); border: 1px solid var(--color-border);">
-                    <div style="font-size: 0.875rem; color: var(--color-text-secondary);">
-                        <strong>💻 Hardware Detected:</strong>
-                        {% if hardware_info.gpu.gpu_detected %}
-                        <span style="color: var(--color-success);">✓ GPU: {{ hardware_info.gpu.gpu_name }} ({{ hardware_info.gpu.vram_gb }}GB VRAM)</span>
-                        {% else %}
-                        <span style="color: var(--color-text-muted);">CPU Only (No GPU detected)</span>
-                        {% endif %}
-                        | <strong>CPU:</strong> {{ hardware_info.cpu.cpu_count }} cores
-                    </div>
-                </div>
-
-                <!-- Hardware Mode Selection (CPU vs GPU) -->
-                <div style="margin-bottom: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--border-radius); border-left: 3px solid var(--color-primary);">
-                    <label style="font-weight: 600; margin-bottom: var(--spacing-sm); display: block; color: var(--color-text);">
-                        ⚡ Hardware Acceleration Mode
-                    </label>
-                    
-                    <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-sm);">
-                        <select name="ai_hardware_mode" 
-                                id="ai_hardware_mode"
-                                onchange="checkHardwareRequirements()"
-                                style="flex: 1; max-width: 250px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); font-size: 0.875rem;">
-                            <option value="cpu" {% if ai_hardware_mode == 'cpu' %}selected{% endif %}>
-                                🖥️ CPU Mode (Default)
-                            </option>
-                            <option value="gpu" {% if ai_hardware_mode == 'gpu' %}selected{% endif %}>
-                                🎮 GPU Mode (Nvidia/AMD)
-                            </option>
-                        </select>
-                        
-                        <select name="ai_gpu_vram" 
-                                id="ai_gpu_vram"
-                                style="flex: 1; max-width: 150px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); font-size: 0.875rem;">
-                            <option value="4" {% if ai_gpu_vram == '4' %}selected{% endif %}>4GB VRAM</option>
-                            <option value="6" {% if ai_gpu_vram == '6' %}selected{% endif %}>6GB VRAM</option>
-                            <option value="8" {% if ai_gpu_vram == '8' or not ai_gpu_vram %}selected{% endif %}>8GB VRAM</option>
-                            <option value="12" {% if ai_gpu_vram == '12' %}selected{% endif %}>12GB VRAM</option>
-                            <option value="16" {% if ai_gpu_vram == '16' %}selected{% endif %}>16GB VRAM</option>
-                            <option value="24" {% if ai_gpu_vram == '24' %}selected{% endif %}>24GB VRAM</option>
-                            <option value="32" {% if ai_gpu_vram == '32' %}selected{% endif %}>32GB VRAM</option>
-                            <option value="48" {% if ai_gpu_vram == '48' %}selected{% endif %}>48GB VRAM</option>
-                        </select>
-                    </div>
-                    
-                    <!-- GPU Setup Button (shown when requirements not met) -->
-                    {% if ai_hardware_mode == 'gpu' and not hardware_info.gpu.gpu_detected %}
-                    <div style="margin: var(--spacing-sm) 0; padding: var(--spacing-sm); background: var(--color-warning-bg); border-radius: var(--border-radius); border-left: 3px solid var(--color-warning);">
-                        <p style="font-size: 0.875rem; color: var(--color-warning); margin: 0 0 var(--spacing-sm) 0;">
-                            <strong>⚠️ GPU Not Detected:</strong> NVIDIA drivers or CUDA may not be installed.
-                        </p>
-                        <button type="button" onclick="setupGPU()" 
-                                style="padding: var(--spacing-xs) var(--spacing-md); background: var(--color-warning); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; font-weight: 600;">
-                            🔧 Auto-Setup GPU Requirements
-                        </button>
-                    </div>
-                    {% endif %}
-                    
-                    <div style="margin-top: var(--spacing-sm);">
-                        <div style="padding: var(--spacing-sm); background: {% if ai_hardware_mode == 'gpu' %}var(--color-primary-bg){% else %}var(--color-background){% endif %}; border-radius: var(--border-radius); margin-bottom: var(--spacing-xs);">
-                            <strong style="color: var(--color-primary); font-size: 0.875rem;">
-                                {% if ai_hardware_mode == 'gpu' %}🎮 GPU Mode Enabled{% else %}🖥️ CPU Mode Enabled{% endif %}
-                            </strong>
-                            <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.8rem; line-height: 1.5;">
-                                {% if ai_hardware_mode == 'gpu' %}
-                                <strong>GPU Optimization:</strong> Higher context window (16K-32K), GPU layers enabled, max output 16K tokens. Best for systems with dedicated GPU (8+ GB VRAM).
-                                <br><br>
-                                <span style="color: var(--color-warning); font-weight: 500;">⚠️ Note:</span> AI models larger than available VRAM will automatically offload layers to CPU as needed. For optimal performance without CPU offloading, use models marked "✅ 8GB VRAM OPTIMIZED" (Phi-3 Mini, Gemma 2 9B, Qwen 2.5 7B).
-                                {% else %}
-                                <strong>CPU Optimization:</strong> Balanced context window (8K), high thread count, max output 8K tokens. Optimized for CPU-only systems.
-                                {% endif %}
-                            </p>
-                        </div>
-                        
-                        <p style="color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.5; margin: 0;">
-                            💡 <strong>Tip:</strong> The system automatically optimizes AI parameters based on your selection. Choose GPU mode only if you have a dedicated GPU with 8+ GB VRAM. CPU mode works great on most systems.
-                        </p>
-                    </div>
-                </div>
-
-                <!-- AI Model Selection -->
-                <div class="form-group">
-                    <label style="font-weight: 600; margin-bottom: var(--spacing-sm); display: block;">
-                        AI Model Selection
-                    </label>
-                    
-                    {% if all_models %}
-                    <!-- Available Models -->
-                    <div style="display: grid; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
-                        {% for model in all_models %}
-                        <label style="cursor: pointer;">
-                            <input type="radio" 
-                                   name="ai_model_name" 
-                                   value="{{ model.name }}"
-                                   {% if ai_model_name == model.name %}checked{% endif %}
-                                   {% if not model.installed %}title="This model needs to be downloaded first"{% endif %}
-                                   style="display: none;">
-                            <div class="model-card" 
-                                 data-trainable="{{ model.trainable|lower }}"
-                                 data-trained="{{ model.trained|lower }}"
-                                 style="border: 2px solid {% if ai_model_name == model.name %}var(--color-primary){% elif not model.installed %}#666{% else %}var(--color-border){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); background: {% if ai_model_name == model.name %}var(--color-primary-bg){% elif not model.installed %}#1a1a1a{% else %}var(--color-background){% endif %}; transition: all 0.2s ease; {% if not model.installed %}opacity: 0.7;{% endif %}">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-xs);">
-                                    <div style="flex: 1;">
-                                        <h4 style="margin: 0; font-size: 1rem; color: var(--color-text);">
-                                            {% if model.recommended %}⭐ {% endif %}{{ model.display_name }}
-                                            {% if ai_model_name == model.name %}
-                                            <span style="background: var(--color-primary); color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">SELECTED</span>
-                                            {% endif %}
-                                            {% if not model.installed %}
-                                            <span style="background: #ff6b6b; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">NOT INSTALLED</span>
-                                            {% else %}
-                                            <span style="background: #51cf66; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">✓ INSTALLED</span>
-                                            {% endif %}
-                                            {% if model.trainable %}
-                                            <span style="background: #339af0; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">🎓 TRAINABLE</span>
-                                            {% endif %}
-                                            {% if model.trained %}
-                                            <span style="background: #f59f00; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">⚡ TRAINED</span>
-                                            {% endif %}
-                                        </h4>
-                                        <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
-                                            {{ model.description }}
-                                        </p>
-                                        {% if model.trained %}
-                                        <p style="margin: var(--spacing-xs) 0 0 0; color: #f59f00; font-size: 0.8rem;">
-                                            ⚡ <strong>Trained:</strong> {{ model.trained_date.strftime('%Y-%m-%d %H:%M') if model.trained_date else 'Unknown' }} 
-                                            ({{ model.training_examples }} reports)
-                                        </p>
-                                        {% endif %}
-                                        {% if not model.installed %}
-                                        <p style="margin: var(--spacing-xs) 0 0 0; color: #ffa94d; font-size: 0.8rem; font-family: monospace;">
-                                            📥 Download: <code style="background: #2a2a2a; padding: 2px 6px; border-radius: 3px;">ollama pull {{ model.name }}</code>
-                                        </p>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--spacing-sm); margin-top: var(--spacing-sm); font-size: 0.8rem;">
-                                    <div>
-                                        <span style="color: var(--color-text-muted);">Speed:</span>
-                                        <strong style="color: {% if model.speed == 'Fast' or model.speed == 'Very Fast' %}var(--color-success){% elif model.speed == 'Moderate' %}var(--color-warning){% else %}var(--color-error){% endif %};">{{ model.speed }}</strong>
-                                    </div>
-                                    <div>
-                                        <span style="color: var(--color-text-muted);">Quality:</span>
-                                        <strong style="color: {% if model.quality == 'Excellent' or model.quality == 'Outstanding' or model.quality == 'Best Available' %}var(--color-success){% elif model.quality == 'Good' %}var(--color-info){% else %}var(--color-text-muted){% endif %};">{{ model.quality }}</strong>
-                                    </div>
-                                    <div>
-                                        <span style="color: var(--color-text-muted);">Size:</span>
-                                        <strong>{{ model.size }}</strong>
-                                    </div>
-                                    <div>
-                                        <span style="color: var(--color-text-muted);">CPU Offload:</span>
-                                        <strong style="color: {% if model.cpu_offload == 0 %}var(--color-success){% elif model.cpu_offload < 25 %}#82c91e{% elif model.cpu_offload < 50 %}var(--color-warning){% else %}var(--color-error){% endif %};">{{ model.cpu_offload }}%</strong>
-                                    </div>
-                                </div>
-                                
-                                <div style="margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 1px solid var(--color-border); font-size: 0.75rem; color: var(--color-text-muted);">
-                                    <div>⚡ Performance: {{ model.speed_estimate }}</div>
-                                    <div style="margin-top: 2px;">⏱️ Report Time: {{ model.time_estimate }}</div>
-                                </div>
-                            </div>
-                        </label>
-                        {% endfor %}
-                    </div>
-                    
-                    <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
-                        💡 <strong>Tip:</strong> q4_K_M models offer the best speed/quality balance for CPU. Higher quantization (q5_K_M, q8) improves quality but requires more time or GPU acceleration.
+                <!-- Hard-Coded Model Info -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        📋 Hard-Coded Model Assignments
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.8;">
+                        <li><strong>IOC Extraction:</strong> <code style="background: #2a2a2a; padding: 2px 6px; border-radius: 3px;">mistral:7b-instruct-v0.3-q4_K_M</code></li>
+                        <li><strong>Timeline Generation:</strong> <code style="background: #2a2a2a; padding: 2px 6px; border-radius: 3px;">qwen2.5:7b-instruct-q4_k_m</code></li>
+                        <li><strong>Report Generation:</strong> <code style="background: #2a2a2a; padding: 2px 6px; border-radius: 3px;">llama3.1:8b-instruct-q4_k_m</code></li>
+                    </ul>
+                    <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.75rem;">
+                        💡 These are standard, out-of-the-box models with no custom training. No UI selection available.
                     </p>
-                    {% else %}
-                    <!-- No models available - fallback to text input -->
-                    <input type="text" 
-                           id="ai_model_name"
-                           name="ai_model_name" 
-                           value="{{ ai_model_name }}"
-                           placeholder="llama3.1:8b-instruct-q4_K_M"
-                           style="width: 100%; max-width: 600px;">
-                    <p style="color: var(--color-warning); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
-                        ⚠️ No models detected. Please download a model using: <code>ollama pull llama3.1:8b-instruct-q4_K_M</code>
-                    </p>
-                    {% endif %}
                 </div>
 
                 <!-- AI Performance Info -->
                 <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md);">
                     <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
-                        ⚡ DFIR-Optimized AI Models
+                        ⚡ Standard AI Models
                     </h3>
                     <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
                         <li><strong>Generation Time:</strong> 3-5 minutes average for 8GB models (GPU), 10-15 minutes (CPU)</li>
                         <li><strong>Processing:</strong> GPU-optimized (8GB VRAM) or CPU fallback mode</li>
                         <li><strong>Privacy:</strong> 100% local - no data sent to external services</li>
                         <li><strong>Cost:</strong> $0 - completely free and self-hosted</li>
-                        <li><strong>Quality:</strong> Specialized DFIR models for timeline reconstruction, IOC analysis, and MITRE ATT&CK mapping</li>
-                        <li><strong>Models:</strong> 4 DFIR-specialized models (Llama 3.1 8B, Mistral 7B, DeepSeek-Coder V2 16B Lite, Qwen 2.5 7B) — ~24GB total disk space</li>
+                        <li><strong>Quality:</strong> Standard Llama 3.1, Mistral 7B, and Qwen 2.5 models</li>
+                        <li><strong>Models:</strong> 3 standard models (14.0 GB total disk space)</li>
                     </ul>
                 </div>
             </div>

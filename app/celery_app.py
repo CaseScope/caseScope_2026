@@ -39,20 +39,14 @@ celery_app.conf.update(
 # Import tasks directly (instead of autodiscover)
 import tasks
 
-# Import new modular processing tasks (v2.0.0)
+# Import metadata clearing tasks (v2.0.0)
 import processing_clear_metadata
-import processing_index
-import processing_sigma
-import processing_ioc
 
 # Import event filtering tasks (v2.1.0)
 import events_known_good
 import events_known_noise
 
-# Import new modular coordinator tasks (v2.0.0)
-import coordinator_index
-import coordinator_reindex
-import coordinator_resigma
-import coordinator_ioc
+# v2.3.0: Removed coordinators and processing_* wrappers
+# All processing now happens in tasks.py using file_processing.py functions directly
 
-logger.info("Celery app initialized")
+logger.info("Celery app initialized (v2.3.0 - No Coordinators)")

@@ -46,8 +46,9 @@ def generate_timeline(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     try:
-        # Get timeline model from settings (default: dfir-qwen for timelines)
-        timeline_model = get_setting('ai_timeline_model', 'dfir-qwen:latest')
+        # Get timeline model from AI selector (Qwen 7B on 8GB, Qwen 14B on 16GB)
+        from ai_model_selector import get_ai_model
+        timeline_model = get_ai_model('timeline')
         
         # Check if model exists in Ollama
         import subprocess

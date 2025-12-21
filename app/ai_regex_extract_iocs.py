@@ -31,6 +31,7 @@ def extract_iocs_with_regex(report_content: str) -> Dict[str, any]:
             'file_paths': [],
             'file_hashes': {'md5': [], 'sha1': [], 'sha256': []},
             'usernames': [],
+            'user_sids': [],
             'hostnames': [],
             'network_shares': [],
             'credentials': {'usernames': [], 'passwords': []},
@@ -52,6 +53,7 @@ def extract_iocs_with_regex(report_content: str) -> Dict[str, any]:
         'file_paths': [],
         'file_hashes': {'md5': [], 'sha1': [], 'sha256': []},
         'usernames': [],
+        'user_sids': [],
         'hostnames': [],
         'network_shares': [],
         'credentials': {'usernames': [], 'passwords': []},
@@ -116,6 +118,14 @@ def extract_iocs_with_regex(report_content: str) -> Dict[str, any]:
                 username not in iocs['usernames']):
                 iocs['usernames'].append(username)
                 iocs['credentials']['usernames'].append(username)
+    
+    # === USER SIDS (Windows Security Identifiers) ===
+    # Pattern: S-1-5-21-XXXXXXXXXX-XXXXXXXXXX-XXXXXXXXXX-XXXX
+    sid_pattern = r'(S-1-5-21-\d+-\d+-\d+-\d+)'
+    for match in re.finditer(sid_pattern, report_content):
+        sid = match.group(1)
+        if sid not in iocs['user_sids']:
+            iocs['user_sids'].append(sid)
     
     # === HOSTNAMES / COMPUTER NAMES ===
     # Pattern: "Host:" or "Computer:" or "endpoint:" followed by name

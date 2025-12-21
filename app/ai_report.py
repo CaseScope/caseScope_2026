@@ -13,67 +13,53 @@ logger = get_logger('app')
 
 
 # Model descriptions and metadata
-# UPDATED 2025-11-07: Complete DFIR-optimized overhaul - 4 specialized models
-# All models fit in 7.5GB VRAM (Tesla P4). Total: ~24 GB disk space (was ~317 GB)
-# Model names verified against actual Ollama registry (2025-11-07)
+# UPDATED 2025-12-19: Simplified to 3 standard out-of-the-box models
+# No custom DFIR profiles - standard models only
+# Total: ~14 GB disk space
 MODEL_INFO = {
-    # ===== DFIR-OPTIMIZED MODELS WITH FORENSIC ANALYST PROFILES =====
+    # ===== STANDARD MODELS (NO CUSTOM TRAINING) =====
     
-    # DFIR-Llama: General reasoning + summarization (DEFAULT/RECOMMENDED)
-    'dfir-llama:latest': {
-        'name': 'DFIR-Llama 3.1 8B (Forensic Profile)',
-        'speed': 'Fast',
-        'quality': 'Excellent',
-        'size': '4.9 GB',
-        'description': 'DFIR-trained forensic analyst profile. Strong evidence discipline, timeline construction, MITRE mapping. No hallucinations. Excellent for general incident response. Runs fully on 7.5GB VRAM.',
-        'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
-        'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
-        'recommended': True,
-        'trainable': False,  # Llama 3.1 not supported in current Unsloth version
-        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
-    },
-    
-    # DFIR-Mistral: Short-to-mid context formatting
-    'dfir-mistral:latest': {
-        'name': 'DFIR-Mistral 7B (Forensic Profile)',
+    # Mistral: IOC Extraction
+    'mistral:7b-instruct-v0.3-q4_K_M': {
+        'name': 'Mistral 7B Instruct v0.3 (Q4_K_M)',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.4 GB',
-        'description': 'DFIR-trained forensic analyst profile. Efficient chronological reconstruction. Reliable formatting (tables, timelines). Sharp on short-to-mid contexts. Runs fully on 7.5GB VRAM.',
-        'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
+        'description': 'Standard Mistral model for IOC extraction. Reliable formatting, efficient chronological reconstruction.',
+        'speed_estimate': '~25-35 tok/s GPU, ~10-15 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
         'recommended': True,
-        'trainable': True,  # Mistral 7B fully supported by Unsloth
+        'trainable': False,
         'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # DFIR-DeepSeek: Code/log/PowerShell expert
-    'dfir-deepseek:latest': {
-        'name': 'DFIR-DeepSeek-Coder 16B (Forensic Profile)',
-        'speed': 'Moderate',
-        'quality': 'Excellent',
-        'size': '10 GB',
-        'description': 'DFIR-trained forensic analyst profile specialized in script analysis. PowerShell decoding, obfuscation detection, command-line parsing. Excellent for script-heavy attacks. May use minor CPU offloading (~15%) on 7.5GB VRAM.',
-        'speed_estimate': '~15-25 tok/s GPU (85% on-device, 15% CPU offload), ~8-12 tok/s CPU',
-        'time_estimate': '5-8 minutes (GPU), 12-18 minutes (CPU)',
-        'recommended': True,
-        'trainable': False,  # DeepSeek models not yet supported by Unsloth
-        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # 16 threads for CPU offloading
-    },
-    
-    # DFIR-Qwen: Long lists and low hallucination
-    'dfir-qwen:latest': {
-        'name': 'DFIR-Qwen 2.5 7B (Forensic Profile)',
+    # Qwen: Timeline Generation
+    'qwen2.5:7b-instruct-q4_k_m': {
+        'name': 'Qwen 2.5 7B Instruct (Q4_K_M)',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.7 GB',
-        'description': 'DFIR-trained forensic analyst profile. Strong structured reasoning. Excellent with long IOC lists (100+) and large event datasets (300+). Constrained reasoning = LOW HALLUCINATION. Runs fully on 7.5GB VRAM.',
-        'speed_estimate': '~22-32 tok/s GPU (100% on-device), ~9-14 tok/s CPU',
+        'description': 'Standard Qwen model for timeline generation. Strong structured reasoning, excellent with long lists and large datasets.',
+        'speed_estimate': '~22-32 tok/s GPU, ~9-14 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 9-13 minutes (CPU)',
         'recommended': True,
+        'trainable': False,
+        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+    },
+    
+    # Llama: Report Generation
+    'llama3.1:8b-instruct-q4_k_m': {
+        'name': 'Llama 3.1 8B Instruct (Q4_K_M)',
+        'speed': 'Fast',
+        'quality': 'Excellent',
+        'size': '4.9 GB',
+        'description': 'Standard Llama model for report generation. Strong evidence discipline, timeline construction, general incident response.',
+        'speed_estimate': '~25-35 tok/s GPU, ~10-15 tok/s CPU',
+        'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
+        'recommended': True,
+        'trainable': False,
         'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     }

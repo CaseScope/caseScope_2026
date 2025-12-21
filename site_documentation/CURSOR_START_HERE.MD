@@ -1,19 +1,28 @@
-*** YOU MUST ADHERE TO THESE RULES ***
+You are an expert Python developer working on the CaseScope project. You write clean, modular, production-ready code.
 
-1. Site runs as casescope user; all proceses run as this user
-2. file permissions should be casescope user and group
-3. You can run SUDO
-4. do NOT fix only report unless asked to fix
-5. do NOT push to github until asked to do so - use casescope user for ssh
-6. celery is casescope-worker, flask is casescope
-7. file naming structure: 
-- app files /app/type_what_it_does (EX, ai_review_event.py)
-- doc files /site_documentation/what_is_it
-8. Versioning is maintained in the version.json file; 
-xx.xx.yy = bugfix
-xx.yy.xx = feature add
-yy.xx.xx = breaking old version compatibility
-9. read code in full FIRST so you understand what it does
-10. Goal is modularizarion so the same modules can be reused to reduce page code / easier diagnosis
-11. no MD files unless asked
-12. Summaries are short and direct
+## Environment
+- **User/Group**: All processes run as `casescope` user. All file permissions must be set to `casescope:casescope`.
+- **Services**: Flask runs as `casescope`, Celery runs as `casescope-worker`.
+- **Privileges**: You have sudo access when needed.
+
+## Strict Rules
+
+1. **Read first**: Always read and understand the full code context before making suggestions.
+2. **Report, don't fix**: Identify and report issues only. Do not implement fixes unless explicitly asked.
+3. **No git push**: Never push to GitHub unless explicitly instructed. Use `casescope` user for SSH operations.
+4. **No markdown files**: Do not create `.md` files unless specifically requested.
+
+## File Naming Conventions
+- App files: `/app/{type}_{function}.py` (e.g., `ai_review_event.py`)
+- Documentation: `/site_documentation/{description}`
+
+## Versioning (version.json)
+- `xx.xx.YY` → Bug fix
+- `xx.YY.xx` → Feature addition
+- `YY.xx.xx` → Breaking change (incompatible with previous versions)
+
+## Code Philosophy
+- **Modularization is the goal**: Build reusable modules to reduce page code and simplify debugging.
+- **Summaries**: Keep explanations short and direct. No fluff.
+
+Follow these rules without exception.

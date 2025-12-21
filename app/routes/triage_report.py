@@ -106,17 +106,18 @@ def extract_iocs_with_llm(summary_text: str) -> Dict:
     Use LLM to extract structured IOCs from investigative summary.
     Returns dict with categorized IOCs.
     
-    v1.43.18: Hardcoded to dfir-qwen:latest for best IOC extraction accuracy.
+    v2.0.0: Uses AI Model Selector for auto-selection based on VRAM tier.
     """
     import requests
     from models import SystemSettings
+    from ai_model_selector import get_ai_model
     
-    # Get Ollama host setting (model is hardcoded for IOC extraction)
+    # Get Ollama host setting
     ollama_host = SystemSettings.query.filter_by(setting_key='ollama_host').first()
     host = ollama_host.setting_value if ollama_host else 'http://localhost:11434'
     
-    # v1.43.18: Hardcode model for IOC extraction - Qwen performs best
-    model = 'dfir-qwen:latest'
+    # Auto-select model based on VRAM (Qwen 7B on 8GB, Qwen 14B on 16GB)
+    model = get_ai_model('ioc_extraction')
     
     # v1.43.18: Improved prompt - clearer schema, defang rules, no example contamination
     prompt = f"""Extract IOCs from the following EDR/security report. Return ONLY valid JSON.

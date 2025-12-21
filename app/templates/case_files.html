@@ -202,11 +202,11 @@
             </button>
             <button onclick="confirmReSigma()" class="btn btn-success">
                 <span>🛡️</span>
-                <span>Re-SIGMA All Files</span>
+                <span>SIGMA All Files</span>
             </button>
             <button onclick="confirmReHunt()" class="btn btn-success">
                 <span>🎯</span>
-                <span>Re-Hunt IOCs</span>
+                <span>Hunt IOCs</span>
             </button>
             <button onclick="confirmRefreshDescriptions()" class="btn btn-warning">
                 <span>🔁</span>
@@ -1734,7 +1734,7 @@ function doFullReindex(caseId) {
 }
 
 function confirmReSigma() {
-    if (confirm('🛡️ Re-SIGMA All Files\n\nThis will:\n• Clear all existing SIGMA violations for this case\n• Re-run SIGMA detection on all indexed files\n• Update violation counts\n\nOld violations will be removed before re-processing.\n\nContinue?')) {
+    if (confirm('🛡️ SIGMA Detection - All Files\n\nThis will:\n• Clear all existing SIGMA violations for this case\n• Run SIGMA detection on all indexed files\n• Update violation counts\n\nExisting violations will be cleared first.\n\nContinue?')) {
         // Show preparation modal
         showPreparationModal('rechainsaw', 'Re-Running SIGMA Detection', 'Clearing old violations and preparing files...<br>This may take 5-15 seconds.');
         
@@ -1753,7 +1753,7 @@ function confirmReSigma() {
 }
 
 function confirmReHunt() {
-    if (confirm('🎯 Re-Hunt IOCs on All Files\n\nThis will:\n• Clear all existing IOC matches for this case\n• Re-scan all indexed files for IOC matches\n• Update IOC event counts\n\nOld matches will be removed before re-scanning.\n\nContinue?')) {
+    if (confirm('🎯 Hunt IOCs - All Files\n\nThis will:\n• Clear all existing IOC matches for this case\n• Scan all indexed files for IOC matches\n• Update IOC event counts\n\nExisting matches will be cleared first.\n\nContinue?')) {
         // Show preparation modal
         showPreparationModal('rehunt', 'Re-Hunting IOCs', 'Clearing old matches and preparing files...<br>This may take 5-15 seconds.');
         

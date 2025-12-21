@@ -85,66 +85,19 @@ def index():
     
     # Get AI settings
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
-    ai_model_name = get_setting('ai_model_name', 'dfir-llama:latest')
+    ai_model_name = get_setting('ai_model_name', 'mistral:7b-instruct-v0.3-q4_K_M')
     ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
     ai_gpu_vram = get_setting('ai_gpu_vram', '8')  # VRAM in GB
     
     # Get Archive settings (v1.18.0)
     archive_root_path = get_setting('archive_root_path', '')
     
-    # Check AI system status and load models from database
+    # Check AI system status (no model selection, hard-coded models)
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
-    all_models = []
+    all_models = []  # Empty - no model selection UI
     try:
-        from ai_report import check_ollama_status, calculate_cpu_offload_percent, parse_model_size
-        from models import AIModel
-        
+        from ai_report import check_ollama_status
         ai_status = check_ollama_status()
-        
-        # Get list of installed model names from Ollama
-        installed_model_names = [m['name'] for m in ai_status.get('models', [])]
-        
-        # Get user's VRAM for CPU offload calculation
-        user_vram_gb = float(ai_gpu_vram)
-        
-        # Query all models from database
-        db_models = AIModel.query.all()
-        
-        for model in db_models:
-            is_installed = model.model_name in installed_model_names
-            
-            # Update installed status in database if changed
-            if model.installed != is_installed:
-                model.installed = is_installed
-            
-            # Calculate CPU offload percentage
-            model_size_gb = parse_model_size(model.size)
-            cpu_offload = calculate_cpu_offload_percent(model_size_gb, user_vram_gb)
-            
-            all_models.append({
-                'name': model.model_name,
-                'display_name': model.display_name,
-                'speed': model.speed,
-                'quality': model.quality,
-                'size': model.size,
-                'description': model.description,
-                'speed_estimate': model.speed_estimate,
-                'time_estimate': model.time_estimate,
-                'recommended': model.recommended,
-                'trainable': model.trainable,
-                'trained': model.trained,
-                'trained_date': model.trained_date,
-                'training_examples': model.training_examples,
-                'installed': is_installed,
-                'cpu_offload': cpu_offload
-            })
-        
-        # Commit any installed status updates
-        db.session.commit()
-        
-        # Sort: by CPU offload (0% first), then installed status, then recommended
-        all_models.sort(key=lambda x: (x['cpu_offload'], not x['installed'], not x['recommended']))
-        
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Error loading AI models: {e}")
@@ -247,7 +200,7 @@ def save():
     
     # AI settings
     ai_enabled = request.form.get('ai_enabled') == 'on'
-    ai_model_name = request.form.get('ai_model_name', 'dfir-llama:latest').strip()
+    ai_model_name = request.form.get('ai_model_name', 'mistral:7b-instruct-v0.3-q4_K_M').strip()
     ai_hardware_mode = request.form.get('ai_hardware_mode', 'cpu').strip().lower()
     ai_gpu_vram = request.form.get('ai_gpu_vram', '8').strip()
     

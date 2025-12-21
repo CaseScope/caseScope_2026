@@ -34,7 +34,7 @@ def ai_search_status(case_id):
         "ollama_running": true/false,
         "embedding_model": "nomic-embed-text",
         "embedding_available": true/false,
-        "llm_models": ["dfir-llama:latest", ...],
+        "llm_models": ["llama3.1:8b-instruct-q4_k_m", "mistral:7b-instruct-v0.3-q4_K_M", "qwen2.5:7b-instruct-q4_k_m"],
         "error": null or "error message"
     }
     """
@@ -70,7 +70,7 @@ def ai_search_ask(case_id):
     Request JSON:
     {
         "question": "What lateral movement occurred?",
-        "model": "dfir-llama:latest",  // optional
+        "model": "llama3.1:8b-instruct-q4_k_m",  // optional
         "max_events": 20  // optional
     }
     

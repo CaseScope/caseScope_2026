@@ -847,7 +847,6 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
             # Use Rust evtx library (v2.2.0 - 2-5x faster than subprocess evtx_dump)
             try:
                 from evtx import PyEvtxParser
-                import json
                 
                 parser = PyEvtxParser(file_path)
                 records_written = 0

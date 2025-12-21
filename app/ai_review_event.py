@@ -1,7 +1,7 @@
 """
 AI Event Review Module
 
-Provides AI-powered event analysis using Ollama (DFIR-Mistral).
+Provides AI-powered event analysis using Ollama (Standard Mistral).
 Called when users click the AI review button on search results.
 
 Author: CaseScope 2026
@@ -16,13 +16,13 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
-def review_event_with_ai(event_data: dict, model: str = 'dfir-mistral:latest') -> dict:
+def review_event_with_ai(event_data: dict, model: str = 'mistral:7b-instruct-v0.3-q4_K_M') -> dict:
     """
     Send event data to Ollama for AI analysis.
     
     Args:
         event_data: The event source data from OpenSearch
-        model: The Ollama model to use (default: dfir-mistral:latest)
+        model: The Ollama model to use (default: mistral:7b-instruct-v0.3-q4_K_M)
         
     Returns:
         dict: {

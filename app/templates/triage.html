@@ -337,7 +337,7 @@
                 <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 1: IOC Extraction</h4>
                 <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
                     {% if has_edr_report %}
-                    Extract IOCs from the configured EDR report. Uses Mistral AI if enabled in settings, otherwise uses regex-based extraction. Supports multiple reports separated by '*** NEW REPORT ***'.
+                    Extract IOCs from the configured EDR report. Uses Qwen AI (auto-selected based on VRAM). Supports multiple reports separated by '*** NEW REPORT ***'.
                     {% else %}
                     Requires an EDR report to be configured. <a href="{{ url_for('cases.edit_case', case_id=case.id) }}#edr-report" style="color: var(--color-primary);">Add report →</a>
                     {% endif %}
@@ -432,8 +432,8 @@
             <div id="iocExtractionProgress" style="display: none;">
                 <div style="text-align: center; padding: var(--spacing-xl);">
                     <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin: 0 auto var(--spacing-md);"></div>
-                    <p style="color: var(--color-text-muted);">Extracting IOCs from EDR report...</p>
-                    <p id="iocExtractionMethod" style="font-size: 0.85rem; color: var(--color-text-muted);"></p>
+                    <p style="color: var(--color-text-muted); font-size: 1rem; margin-bottom: var(--spacing-xs);">Extracting IOCs from EDR report...</p>
+                    <p id="iocExtractionMethod" style="font-size: 0.875rem; color: var(--color-primary); font-weight: 600;"></p>
                 </div>
             </div>
             <div id="iocExtractionResults" style="display: none;">
@@ -916,11 +916,8 @@ function extractIOCs(reportIndex = 0) {
     saveFinishBtn.disabled = false;
     saveFinishBtn.innerHTML = '<span>💾✓</span> <span>Save & Finish</span>';
     
-    // Update method text
-    const methodText = reportIndex === 0 
-        ? 'Detecting reports and extracting IOCs (Mistral AI if enabled, regex fallback otherwise)...'
-        : `Processing report ${reportIndex + 1}...`;
-    document.getElementById('iocExtractionMethod').textContent = methodText;
+    // Show extraction method immediately (will be updated with actual method from response)
+    document.getElementById('iocExtractionMethod').textContent = 'Using AI model for extraction...';
     
     // Disable button during extraction
     const btn = document.getElementById('extractIocsBtn');
@@ -1130,11 +1127,11 @@ function showIOCResults(data) {
                 </div>
                 <div style="font-size: 0.8rem; color: var(--color-text-muted);">Total Accumulated</div>
             </div>
-            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 120px;">
-                <div style="font-size: 1.25rem; font-weight: bold; color: var(--color-success); line-height: 2rem; padding-top: 0.375rem;" id="extractionMethodDisplay">
-                    ${data.extraction_method === 'mistral_ai' ? 'Mistral AI' : data.extraction_method === 'regex' ? 'Regex' : 'Unknown'}
+            <div style="text-align: center; padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); min-width: 140px;">
+                <div style="font-size: 1rem; font-weight: bold; color: var(--color-success); line-height: 1.4; padding-top: 0.375rem;" id="extractionMethodDisplay">
+                    ${data.extraction_method || 'AI'}
                 </div>
-                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 4px;">Extraction Method</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 6px;">Extraction Method</div>
             </div>
         </div>
     `;
@@ -1170,7 +1167,16 @@ function showIOCResults(data) {
                                 <strong>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} (${subType.toUpperCase()})</strong> (${subItems.length})
                             </summary>
                             <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
-                                ${subItems.map(item => `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`).join('')}
+                                ${subItems.map(item => {
+                                    // Handle deobfuscated IOCs (objects with 'value' and 'original' keys)
+                                    if (typeof item === 'object' && item !== null && 'value' in item) {
+                                        const displayValue = escapeHtml(item.value);
+                                        const originalValue = item.original ? ` <span style="color: var(--color-text-muted); font-style: italic;">(was: ${escapeHtml(item.original)})</span>` : '';
+                                        return `<div style="padding: 2px 0; word-break: break-all;">${displayValue}${originalValue}</div>`;
+                                    }
+                                    // Handle regular string IOCs
+                                    return `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`;
+                                }).join('')}
                             </div>
                         </details>
                     `;
@@ -1183,7 +1189,16 @@ function showIOCResults(data) {
                         <strong>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong> (${items.length})
                     </summary>
                     <div style="padding: var(--spacing-sm); font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto;">
-                        ${items.map(item => `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`).join('')}
+                        ${items.map(item => {
+                            // Handle deobfuscated IOCs (objects with 'value' and 'original' keys)
+                            if (typeof item === 'object' && item !== null && 'value' in item) {
+                                const displayValue = escapeHtml(item.value);
+                                const originalValue = item.original ? ` <span style="color: var(--color-text-muted); font-style: italic;">(was: ${escapeHtml(item.original)})</span>` : '';
+                                return `<div style="padding: 2px 0; word-break: break-all;">${displayValue}${originalValue}</div>`;
+                            }
+                            // Handle regular string IOCs
+                            return `<div style="padding: 2px 0; word-break: break-all;">${escapeHtml(item)}</div>`;
+                        }).join('')}
                     </div>
                 </details>
             `;

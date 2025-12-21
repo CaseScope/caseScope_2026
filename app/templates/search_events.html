@@ -365,10 +365,9 @@
                 <div style="flex: 1;">
                     <label class="form-label">AI Model</label>
                     <select id="aiModelSelect" class="form-input">
-                        <option value="dfir-llama:latest">DFIR-Llama (Recommended)</option>
-                        <option value="dfir-mistral:latest">DFIR-Mistral</option>
-                        <option value="dfir-qwen:latest">DFIR-Qwen</option>
-                        <option value="dfir-deepseek:latest">DFIR-DeepSeek (Code Analysis)</option>
+                        <option value="llama3.1:8b-instruct-q4_k_m">Llama 3.1 8B (Recommended)</option>
+                        <option value="mistral:7b-instruct-v0.3-q4_K_M">Mistral 7B</option>
+                        <option value="qwen2.5:7b-instruct-q4_k_m">Qwen 2.5 7B</option>
                     </select>
                 </div>
                 <div style="width: 120px;">
@@ -1402,7 +1401,7 @@ function quickAIReview(eventId, indexName) {
     modalBody.innerHTML = `
         <div style="text-align: center; padding: var(--spacing-xl);">
             <div class="spinner"></div>
-            <p class="text-muted">Analyzing event with DFIR-Mistral AI...</p>
+            <p class="text-muted">Analyzing event with Mistral AI...</p>
             <p class="text-muted" style="font-size: 0.875rem;">This may take 10-30 seconds</p>
         </div>
     `;

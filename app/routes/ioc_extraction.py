@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from models import db, Case, IOC
 from logging_config import get_logger
+from ioc_deobfuscator import deobfuscate_ioc_dict, get_ioc_value, get_ioc_original
 import os
 import re
 
@@ -63,12 +64,27 @@ def is_command_line(value):
 
 
 def find_existing_ioc_across_types(case_id, value, primary_type, alt_types=None):
-    """Find existing IOC by value, checking primary type and alternative types."""
-    # Check primary type first
+    """
+    Find existing IOC by value, checking primary type and alternative types.
+    Also checks if the IOC appears in the description field (for deduplication of re-extracted IOCs).
+    """
+    # Check primary type first - exact value match
     existing = IOC.query.filter_by(case_id=case_id, ioc_type=primary_type).filter(
         db.func.lower(IOC.ioc_value) == db.func.lower(value)
     ).first()
     if existing:
+        return existing
+    
+    # Check if this IOC appears in description (for obfuscated versions)
+    # This prevents duplicates when the same IOC is extracted multiple times
+    existing = IOC.query.filter_by(case_id=case_id, ioc_type=primary_type).filter(
+        db.or_(
+            IOC.description.ilike(f'%{value}%'),
+            IOC.description.ilike(f'%Original IOC: {value}%')
+        )
+    ).first()
+    if existing:
+        logger.debug(f"[IOC_DEDUP] Found IOC '{value}' in description of existing IOC {existing.id}")
         return existing
     
     # Check alternative types (for username cross-type matching)
@@ -79,6 +95,18 @@ def find_existing_ioc_across_types(case_id, value, primary_type, alt_types=None)
             ).first()
             if existing:
                 return existing
+            
+            # Also check descriptions in alt types
+            existing = IOC.query.filter_by(case_id=case_id, ioc_type=alt_type).filter(
+                db.or_(
+                    IOC.description.ilike(f'%{value}%'),
+                    IOC.description.ilike(f'%Original IOC: {value}%')
+                )
+            ).first()
+            if existing:
+                logger.debug(f"[IOC_DEDUP] Found IOC '{value}' in description of existing IOC {existing.id} (alt type {alt_type})")
+                return existing
+    
     return None
 
 
@@ -115,10 +143,25 @@ def update_or_create_ioc(case_id, ioc_type, ioc_value, description, extraction_s
 @login_required
 def extract_iocs(case_id):
     """
-    Extract IOCs from a specific EDR report using Mistral AI.
+    Extract IOCs from a specific EDR report using AI or regex fallback.
     Supports iterative processing of multiple reports.
     """
     from ai_mistral_extract_iocs import extract_iocs_from_single_report, get_ioc_summary, split_reports
+    from ai_model_selector import get_ai_model
+    from routes.settings import get_setting
+    
+    # Check if AI is enabled
+    ai_enabled = get_setting('ai_enabled', 'false') == 'true'
+    
+    if ai_enabled:
+        # Get the actual model being used for IOC extraction
+        model_name = get_ai_model('ioc_extraction')
+        # Format for display: "Qwen2.5 7B Instruct Q4 K M" → "Qwen2.5 7B"
+        model_display = model_name.split(':')[0].title() if ':' in model_name else model_name.title()
+        extraction_method = f'{model_display} AI'
+    else:
+        model_name = None
+        extraction_method = 'Regex Patterns'
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -143,7 +186,7 @@ def extract_iocs(case_id):
             }), 400
         
         # Extract from this specific report
-        logger.info(f"[MISTRAL_IOC] Extracting from report {report_index + 1}/{total_reports} for case {case_id}")
+        logger.info(f"[IOC_EXTRACT] Using {extraction_method} for report {report_index + 1}/{total_reports} (case {case_id})")
         result = extract_iocs_from_single_report(reports[report_index])
         
         if not result['success']:
@@ -152,24 +195,30 @@ def extract_iocs(case_id):
                 'error': result.get('error', 'Extraction failed'),
                 'report_index': report_index,
                 'total_reports': total_reports,
-                'extraction_method': 'mistral_ai'
+                'extraction_method': extraction_method,
+                'model_name': model_name
             }), 500
         
-        summary = get_ioc_summary(result['iocs'])
+        # Deobfuscate IOCs (remove hxxp://, [.], etc.)
+        logger.info(f"[IOC_EXTRACT] Deobfuscating IOCs from report {report_index + 1}/{total_reports}")
+        deobfuscated_iocs = deobfuscate_ioc_dict(result['iocs'])
         
-        logger.info(f"[MISTRAL_IOC] Extracted {summary['total_count']} IOCs from report {report_index + 1}/{total_reports} (case {case_id})")
+        summary = get_ioc_summary(deobfuscated_iocs)
+        
+        logger.info(f"[IOC_EXTRACT] Extracted {summary['total_count']} IOCs from report {report_index + 1}/{total_reports} (case {case_id})")
         
         return jsonify({
             'success': True,
-            'iocs': result['iocs'],
+            'iocs': deobfuscated_iocs,
             'summary': summary,
             'report_index': report_index,
             'total_reports': total_reports,
             'has_more': (report_index + 1) < total_reports,
-            'extraction_method': 'mistral_ai'
+            'extraction_method': extraction_method,
+            'model_name': model_name
         })
     except Exception as e:
-        logger.error(f"[MISTRAL_IOC] IOC extraction failed for case {case_id}, report {report_index}: {e}")
+        logger.error(f"[IOC_EXTRACT] IOC extraction failed for case {case_id}, report {report_index}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -205,6 +254,7 @@ def add_extracted_iocs(case_id):
             'ip_addresses': 'ip',
             'hostnames': 'hostname',
             'usernames': 'username',
+            'user_sids': 'user_sid',
             'file_paths': 'other',  # Mix of paths - categorize as other
             'domains': 'fqdn',
             'urls': 'url',
@@ -228,7 +278,21 @@ def add_extracted_iocs(case_id):
                         skipped_count += 1
                         continue
                     
-                    value_str = str(value).strip()
+                    # Handle both string values and dict values (from deobfuscation)
+                    ioc_value = get_ioc_value(value)
+                    ioc_original = get_ioc_original(value)
+                    
+                    if not ioc_value or not ioc_value.strip():
+                        skipped_count += 1
+                        continue
+                    
+                    value_str = ioc_value.strip()
+                    
+                    # Build description
+                    desc_parts = [extraction_source]
+                    if ioc_original:
+                        desc_parts.append(f"Original IOC: {ioc_original}")
+                    description = '\n'.join(desc_parts)
                     
                     # Special handling for usernames
                     if ioc_type == 'usernames':
@@ -238,6 +302,8 @@ def add_extracted_iocs(case_id):
                             desc_parts.append(f"Domain: {domain}")
                         if value_str != clean_username:
                             desc_parts.append(f"Full: {value_str}")
+                        if ioc_original:
+                            desc_parts.append(f"Original IOC: {ioc_original}")
                         description = '\n'.join(desc_parts)
                         
                         action, ioc = update_or_create_ioc(
@@ -247,7 +313,7 @@ def add_extracted_iocs(case_id):
                     else:
                         # Standard processing for other types
                         action, ioc = update_or_create_ioc(
-                            case_id, ioc_type_db, value_str[:500], extraction_source,
+                            case_id, ioc_type_db, value_str[:500], description,
                             extraction_source
                         )
                     
@@ -264,12 +330,23 @@ def add_extracted_iocs(case_id):
             for hash_type, hash_values in file_hashes.items():
                 if isinstance(hash_values, list):
                     for hash_value in hash_values:
-                        if not hash_value or not hash_value.strip():
+                        if not hash_value:
                             skipped_count += 1
                             continue
                         
-                        hash_str = hash_value.strip()[:500].lower()  # Normalize to lowercase
-                        hash_desc = f"{extraction_source} ({hash_type.upper()} hash)"
+                        # Handle both string and dict (from deobfuscation)
+                        hash_val = get_ioc_value(hash_value)
+                        hash_original = get_ioc_original(hash_value)
+                        
+                        if not hash_val or not hash_val.strip():
+                            skipped_count += 1
+                            continue
+                        
+                        hash_str = hash_val.strip()[:500].lower()  # Normalize to lowercase
+                        hash_desc_parts = [f"{extraction_source} ({hash_type.upper()} hash)"]
+                        if hash_original:
+                            hash_desc_parts.append(f"Original IOC: {hash_original}")
+                        hash_desc = '\n'.join(hash_desc_parts)
                         
                         action, ioc = update_or_create_ioc(
                             case_id, 'hash', hash_str, hash_desc, extraction_source
@@ -288,19 +365,29 @@ def add_extracted_iocs(case_id):
             cred_usernames = credentials.get('usernames', [])
             if isinstance(cred_usernames, list):
                 for username in cred_usernames:
-                    if not username or not username.strip():
+                    if not username:
+                        skipped_count += 1
+                        continue
+                    
+                    # Handle both string and dict (from deobfuscation)
+                    username_val = get_ioc_value(username)
+                    username_original = get_ioc_original(username)
+                    
+                    if not username_val or not username_val.strip():
                         skipped_count += 1
                         continue
                     
                     # Extract username from domain\username format
-                    clean_username, domain = extract_username(username.strip())
+                    clean_username, domain = extract_username(username_val.strip())
                     
                     # Build description with domain info if present
                     desc_parts = [f"{extraction_source} (Credential - Username)"]
                     if domain:
                         desc_parts.append(f"Domain: {domain}")
-                    if username != clean_username:
-                        desc_parts.append(f"Full: {username}")
+                    if username_val != clean_username:
+                        desc_parts.append(f"Full: {username_val}")
+                    if username_original:
+                        desc_parts.append(f"Original IOC: {username_original}")
                     cred_desc = '\n'.join(desc_parts)
                     
                     # Check for duplicates across username and user_sid types
@@ -320,14 +407,25 @@ def add_extracted_iocs(case_id):
             cred_passwords = credentials.get('passwords', [])
             if isinstance(cred_passwords, list):
                 for password in cred_passwords:
-                    if not password or not password.strip():
+                    if not password:
                         skipped_count += 1
                         continue
                     
-                    pwd_desc = f"{extraction_source} (Credential - Password)"
+                    # Handle both string and dict (from deobfuscation)
+                    password_val = get_ioc_value(password)
+                    password_original = get_ioc_original(password)
+                    
+                    if not password_val or not password_val.strip():
+                        skipped_count += 1
+                        continue
+                    
+                    pwd_desc_parts = [f"{extraction_source} (Credential - Password)"]
+                    if password_original:
+                        pwd_desc_parts.append(f"Original IOC: {password_original}")
+                    pwd_desc = '\n'.join(pwd_desc_parts)
                     
                     action, ioc = update_or_create_ioc(
-                        case_id, 'other', password.strip()[:500], pwd_desc, extraction_source
+                        case_id, 'other', password_val.strip()[:500], pwd_desc, extraction_source
                     )
                     
                     if action == 'added':
@@ -343,18 +441,29 @@ def add_extracted_iocs(case_id):
             executables = processes.get('executables', [])
             if isinstance(executables, list):
                 for executable in executables:
-                    if not executable or not executable.strip():
+                    if not executable:
                         skipped_count += 1
                         continue
                     
-                    exe_str = executable.strip()
+                    # Handle both string and dict (from deobfuscation)
+                    exe_val = get_ioc_value(executable)
+                    exe_original = get_ioc_original(executable)
+                    
+                    if not exe_val or not exe_val.strip():
+                        skipped_count += 1
+                        continue
+                    
+                    exe_str = exe_val.strip()
                     
                     # Determine if it's a command line or just a filename/path
                     if is_command_line(exe_str):
                         # It's a full command line
                         ioc_type = 'command_complex' if len(exe_str) > 100 else 'command'
                         ioc_value = exe_str[:500]
-                        description = f"{extraction_source} (Command Line)"
+                        desc_parts = [f"{extraction_source} (Command Line)"]
+                        if exe_original:
+                            desc_parts.append(f"Original IOC: {exe_original}")
+                        description = '\n'.join(desc_parts)
                     else:
                         # It's just a filename or path
                         filename_clean = extract_filename(exe_str)
@@ -363,6 +472,8 @@ def add_extracted_iocs(case_id):
                         desc_parts = [f"{extraction_source} (Executable/File)"]
                         if exe_str != filename_clean:
                             desc_parts.append(f"Full path: {exe_str}")
+                        if exe_original:
+                            desc_parts.append(f"Original IOC: {exe_original}")
                         description = '\n'.join(desc_parts)
                     
                     action, ioc = update_or_create_ioc(
@@ -379,18 +490,29 @@ def add_extracted_iocs(case_id):
             commands = processes.get('commands', [])
             if isinstance(commands, list):
                 for command in commands:
-                    if not command or not command.strip():
+                    if not command:
                         skipped_count += 1
                         continue
                     
-                    cmd_str = command.strip()
+                    # Handle both string and dict (from deobfuscation)
+                    cmd_val = get_ioc_value(command)
+                    cmd_original = get_ioc_original(command)
+                    
+                    if not cmd_val or not cmd_val.strip():
+                        skipped_count += 1
+                        continue
+                    
+                    cmd_str = cmd_val.strip()
                     
                     # Determine if it's a command line or just a filename/path
                     if is_command_line(cmd_str):
                         # It's a full command line
                         ioc_type = 'command_complex' if len(cmd_str) > 100 else 'command'
                         ioc_value = cmd_str[:500]
-                        description = f"{extraction_source} (Command Line)"
+                        desc_parts = [f"{extraction_source} (Command Line)"]
+                        if cmd_original:
+                            desc_parts.append(f"Original IOC: {cmd_original}")
+                        description = '\n'.join(desc_parts)
                     else:
                         # It's just a filename or path
                         filename_clean = extract_filename(cmd_str)
@@ -399,6 +521,8 @@ def add_extracted_iocs(case_id):
                         desc_parts = [f"{extraction_source} (Filename from command)"]
                         if cmd_str != filename_clean:
                             desc_parts.append(f"Original: {cmd_str}")
+                        if cmd_original:
+                            desc_parts.append(f"Original IOC: {cmd_original}")
                         description = '\n'.join(desc_parts)
                     
                     action, ioc = update_or_create_ioc(

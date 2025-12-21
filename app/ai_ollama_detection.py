@@ -83,20 +83,24 @@ def get_ollama_status() -> Dict[str, any]:
     return result
 
 
-def get_installed_models() -> Dict[str, str]:
+def get_installed_models() -> List[Dict[str, str]]:
     """
-    Get installed AI models (Mistral, Llama, Qwen, etc.).
+    Get installed AI models with full details for display.
     
     Returns:
-        Dictionary mapping model family to version:
-        {
-            'Mistral': '7b-instruct',
-            'Llama': '3.2:3b',
-            'Qwen': '2.5:7b',
+        List of dicts with model information:
+        [
+            {
+                'name': 'llama3.1:8b-instruct-q4_k_m',
+                'family': 'Llama',
+                'version': '3.1:8b-instruct-q4_k_m',
+                'size': '4.9 GB',
+                'vram_tier': '8gb'  # Which VRAM tier this model is for
+            },
             ...
-        }
+        ]
     """
-    models = {}
+    models = []
     
     try:
         result = subprocess.run(
@@ -111,53 +115,65 @@ def get_installed_models() -> Dict[str, str]:
             return models
         
         # Parse output (skip header line)
+        # Format: NAME                               ID              SIZE      MODIFIED
         lines = result.stdout.strip().split('\n')[1:]
         
         for line in lines:
             parts = line.split()
-            if len(parts) >= 1:
-                model_name_full = parts[0].lower()
+            if len(parts) >= 3:
+                model_name_full = parts[0]
+                model_size = parts[2] if len(parts) >= 3 else 'Unknown'
                 
-                # Extract model family and version
-                if 'mistral' in model_name_full:
-                    match = re.search(r'mistral:?(\S*)', model_name_full)
-                    if match:
-                        version = match.group(1) or 'latest'
-                        # Clean up common suffixes
-                        version = version.replace('-q4_K_M', '').replace('-latest', '').replace(':', '')
-                        models['Mistral'] = version if version else 'latest'
+                # Determine model family and VRAM tier
+                model_name_lower = model_name_full.lower()
+                family = 'Unknown'
+                vram_tier = None
                 
-                elif 'llama' in model_name_full:
-                    match = re.search(r'llama(\S*)', model_name_full)
-                    if match:
-                        version = match.group(1).lstrip(':').replace('-q4_K_M', '').replace('-latest', '')
-                        models['Llama'] = version if version else 'latest'
+                if 'mistral' in model_name_lower:
+                    family = 'Mistral'
+                    # mistral:7b-instruct-v0.3-q4_K_M = 8gb
+                    vram_tier = '8gb'
                 
-                elif 'qwen' in model_name_full:
-                    match = re.search(r'qwen(\S*)', model_name_full)
-                    if match:
-                        version = match.group(1).lstrip(':').replace('-q4_K_M', '').replace('-latest', '')
-                        models['Qwen'] = version if version else 'latest'
+                elif 'llama' in model_name_lower:
+                    family = 'Llama'
+                    # llama3.1:8b-instruct-q4_k_m = 8gb
+                    # llama3.1:8b-instruct-q8_0 = 16gb (higher precision)
+                    if 'q8' in model_name_lower or 'q8_0' in model_name_lower:
+                        vram_tier = '16gb'
+                    else:
+                        vram_tier = '8gb'
                 
-                elif 'phi3' in model_name_full:
-                    match = re.search(r'phi3:?(\S*)', model_name_full)
-                    if match:
-                        version = match.group(1).replace('-q4_K_M', '').replace('-latest', '')
-                        models['Phi3'] = version if version else 'latest'
+                elif 'qwen' in model_name_lower:
+                    family = 'Qwen'
+                    # qwen2.5:7b-instruct-q4_k_m = 8gb
+                    # qwen2.5:14b-instruct-q4_k_m = 16gb (2x parameters)
+                    if '14b' in model_name_lower:
+                        vram_tier = '16gb'
+                    else:
+                        vram_tier = '8gb'
                 
-                elif 'gemma' in model_name_full:
-                    match = re.search(r'gemma:?(\S*)', model_name_full)
-                    if match:
-                        version = match.group(1).replace('-q4_K_M', '').replace('-latest', '')
-                        models['Gemma'] = version if version else 'latest'
+                elif 'phi3' in model_name_lower:
+                    family = 'Phi3'
+                    vram_tier = '8gb'
                 
-                elif 'deepseek' in model_name_full:
-                    match = re.search(r'deepseek:?(\S*)', model_name_full)
-                    if match:
-                        version = match.group(1).replace('-q4_K_M', '').replace('-latest', '')
-                        models['Deepseek'] = version if version else 'latest'
+                elif 'gemma' in model_name_lower:
+                    family = 'Gemma'
+                    vram_tier = '8gb'
+                
+                elif 'deepseek' in model_name_lower:
+                    family = 'Deepseek'
+                    # Most deepseek models are large
+                    vram_tier = '16gb'
+                
+                models.append({
+                    'name': model_name_full,
+                    'family': family,
+                    'version': model_name_full.split(':')[1] if ':' in model_name_full else 'latest',
+                    'size': model_size,
+                    'vram_tier': vram_tier
+                })
         
-        logger.info(f"[OLLAMA_STATUS] Found {len(models)} model families: {list(models.keys())}")
+        logger.info(f"[OLLAMA_STATUS] Found {len(models)} models")
     
     except FileNotFoundError:
         logger.warning("[OLLAMA_STATUS] Ollama not found")
@@ -174,15 +190,14 @@ def get_model_status_summary() -> str:
     Get a human-readable summary of installed models.
     
     Returns:
-        String like "Mistral (7b), Llama (3.2:3b), Qwen (2.5:7b)" or "No models installed"
+        String like "5 models installed" or "No models installed"
     """
     models = get_installed_models()
     
     if not models:
         return "No models installed"
     
-    model_strings = [f"{family} ({version})" for family, version in models.items()]
-    return ", ".join(model_strings)
+    return f"{len(models)} models installed"
 
 
 def get_ai_system_status() -> Dict[str, any]:
@@ -192,12 +207,12 @@ def get_ai_system_status() -> Dict[str, any]:
     Returns:
         Dictionary containing:
         - ollama: Dict (status, version)
-        - models: Dict (model family -> version)
+        - models: List of model dicts with full details
         - model_summary: str (human-readable)
         - ready: bool (Ollama installed + running + models available)
     """
     ollama_status = get_ollama_status()
-    models = get_installed_models() if ollama_status['running'] else {}
+    models = get_installed_models() if ollama_status['running'] else []
     
     result = {
         'ollama': ollama_status,

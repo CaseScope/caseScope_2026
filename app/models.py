@@ -587,7 +587,7 @@ class CaseTimeline(db.Model):
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
     generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     status = db.Column(db.String(20), default='pending', index=True)  # pending, generating, completed, failed, cancelled
-    model_name = db.Column(db.String(50), default='dfir-qwen:latest')  # AI model used (Qwen for timelines)
+    model_name = db.Column(db.String(50), default='qwen2.5:7b-instruct-q4_k_m')  # AI model used (Qwen for timelines)
     celery_task_id = db.Column(db.String(255), index=True)  # Celery task ID for cancellation
     timeline_title = db.Column(db.String(500))
     timeline_content = db.Column(db.Text)  # Full timeline in markdown format
@@ -640,6 +640,25 @@ class AIModel(db.Model):
     gpu_optimal = db.Column(db.JSON)  # GPU-optimized parameters (JSON)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AIModelRole(db.Model):
+    """AI model role mappings for auto-selection based on VRAM tier"""
+    __tablename__ = 'ai_model_role'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    role = db.Column(db.String(50), nullable=False, index=True)  # 'ioc_extraction', 'timeline', 'report', 'search'
+    vram_tier = db.Column(db.String(20), nullable=False, index=True)  # '8gb', '16gb', '32gb'
+    model_name = db.Column(db.String(100), nullable=False)  # 'qwen2.5:7b-instruct-q4_k_m'
+    active = db.Column(db.Boolean, default=True, index=True)
+    priority = db.Column(db.Integer, default=0)  # Higher priority = preferred (for A/B testing)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('role', 'vram_tier', 'model_name', name='uq_role_tier_model'),
+        db.Index('ix_role_tier_active', 'role', 'vram_tier', 'active'),
+    )
 
 
 class AITrainingSession(db.Model):

@@ -677,9 +677,9 @@ def reindex_single_file(case_id, file_id):
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/rechainsaw', methods=['POST'])
 @login_required
 def rechainsaw_single_file(case_id, file_id):
-    """Re-run SIGMA on a single file (v2.1.6: Using coordinator_resigma)"""
+    """Run SIGMA on a single file (v2.3.0: Direct dispatch, no coordinator)"""
     from main import db, CaseFile
-    from coordinator_resigma import resigma_files_task
+    from tasks import process_file
     
     case_file = db.session.get(CaseFile, file_id)
     
@@ -691,17 +691,17 @@ def rechainsaw_single_file(case_id, file_id):
         flash('File must be indexed before SIGMA testing', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Queue re-SIGMA coordinator task for this single file
-    resigma_files_task.delay(case_id, file_ids=[file_id])
+    # Queue SIGMA task (clears violations automatically)
+    process_file.delay(file_id, operation='sigma_only')
     
     # Audit log
     from audit_logger import log_file_action
-    log_file_action('rechainsaw_file', file_id, case_file.original_filename, details={
+    log_file_action('sigma_file', file_id, case_file.original_filename, details={
         'case_id': case_id,
         'case_name': case_file.case.name
     })
     
-    flash(f'✅ Re-SIGMA queued for "{case_file.original_filename}". This will clear old violations, re-run SIGMA detection, and mark file as completed.', 'success')
+    flash(f'✅ SIGMA detection queued for "{case_file.original_filename}". Existing violations will be cleared first.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 
@@ -1007,9 +1007,10 @@ def bulk_reindex_selected(case_id):
 @files_bp.route('/case/<int:case_id>/bulk_rechainsaw_selected', methods=['POST'])
 @login_required
 def bulk_rechainsaw_selected(case_id):
-    """Re-run SIGMA on selected files (v2.1.6: Using coordinator_resigma)"""
+    """Run SIGMA on selected files (v2.3.0: No coordinator, direct dispatch)"""
     from main import db, CaseFile
-    from coordinator_resigma import resigma_files_task
+    from bulk_operations import queue_file_processing
+    from tasks import process_file
     from celery_health import check_workers_available
     
     # Safety check: Ensure Celery workers are available
@@ -1036,23 +1037,24 @@ def bulk_rechainsaw_selected(case_id):
         flash('No valid indexed files found', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Queue re-SIGMA coordinator task with specific file IDs
-    resigma_files_task.delay(case_id, file_ids=file_ids)
+    # v2.3.0: Clear SIGMA data for each file, then queue sigma_only tasks
+    # The sigma_only operation in tasks.py handles clearing violations and OpenSearch flags
+    queue_file_processing(process_file, files, operation='sigma_only')
     
     # Audit log
     from audit_logger import log_action
     from main import Case
     case = db.session.get(Case, case_id)
-    log_action('bulk_rechainsaw_files', resource_type='file', resource_id=None,
+    log_action('bulk_sigma_files', resource_type='file', resource_id=None,
               resource_name=f'{len(files)} files',
               details={
                   'case_id': case_id,
                   'case_name': case.name if case else None,
                   'file_count': len(files),
-                  'file_ids': file_ids[:10]  # Log first 10 IDs
+                  'file_ids': file_ids[:10]
               })
     
-    flash(f'✅ Re-SIGMA queued for {len(files)} selected file(s). This will clear old violations, re-run SIGMA detection, and mark files as completed.', 'success')
+    flash(f'✅ SIGMA detection queued for {len(files)} file(s). Existing violations will be cleared first.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 

@@ -41,7 +41,7 @@ OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 # LLM model for generating answers (uses your existing DFIR models on GPU)
-DEFAULT_LLM_MODEL = "dfir-llama:latest"
+DEFAULT_LLM_MODEL = "llama3.1:8b-instruct-q4_k_m"
 
 # Lazy-loaded embedding model (loaded on first use, not at import)
 _embedding_model = None

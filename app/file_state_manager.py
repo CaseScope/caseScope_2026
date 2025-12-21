@@ -93,9 +93,11 @@ def start_indexing(case_file) -> None:
     
     Sets:
     - file_state = 'Indexing'
+    - indexing_status = 'Indexing' (legacy field, for backward compatibility)
     - is_new = False
     """
     transition_state(case_file, 'Indexing')
+    case_file.indexing_status = 'Indexing'  # v2.2.1: Also update legacy field
     case_file.is_new = False
     logger.info(f"[STATE] File {case_file.id} started indexing")
 
@@ -110,15 +112,18 @@ def complete_indexing(case_file, event_count: int) -> None:
         
     Sets:
     - file_state = 'Indexed' or 'Hidden' (if 0 events)
+    - indexing_status = 'Completed' (legacy field, for backward compatibility)
     - is_indexed = True
     - is_hidden = True (if 0 events)
     """
     if event_count == 0:
         transition_state(case_file, 'Hidden')
+        case_file.indexing_status = 'Completed'  # v2.2.1: Also update legacy field
         case_file.is_hidden = True
         logger.info(f"[STATE] File {case_file.id} hidden (0 events)")
     else:
         transition_state(case_file, 'Indexed')
+        case_file.indexing_status = 'Completed'  # v2.2.1: Also update legacy field
         case_file.is_indexed = True
         logger.info(f"[STATE] File {case_file.id} indexed ({event_count:,} events)")
 
@@ -201,6 +206,7 @@ def mark_failed(case_file, error_message: str = None) -> None:
         error_message: Optional error message
     """
     transition_state(case_file, 'Failed', validate=False)  # Can fail from any state
+    case_file.indexing_status = 'Failed'  # v2.2.1: Also update legacy field
     case_file.failed = True
     if error_message:
         case_file.error_message = error_message[:500]  # Truncate to 500 chars

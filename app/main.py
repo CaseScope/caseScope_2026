@@ -1252,7 +1252,7 @@ def generate_ai_report(case_id):
         case_id=case_id,
         generated_by=current_user.id,
         status='pending',
-        model_name=get_setting('ai_model_name', 'dfir-llama:latest'),
+        model_name=get_setting('ai_model_name', 'llama3.1:8b-instruct-q4_k_m'),
         estimated_duration_seconds=estimated_seconds
     )
     
@@ -3178,7 +3178,7 @@ def ai_review_event_route(case_id, event_id):
     source = event_data.get('source', {})
     
     # Call AI review
-    model = get_setting('ai_model', 'dfir-mistral:latest')
+    model = get_setting('ai_model', 'mistral:7b-instruct-v0.3-q4_K_M')
     result = review_event_with_ai(source, model=model)
     
     return jsonify(result)
@@ -4727,7 +4727,7 @@ def bulk_reindex_route(case_id):
     v2.0.0: Switched to modular coordinator system
     """
     from celery_health import check_workers_available
-    from coordinator_reindex import reindex_files_task
+    from tasks import bulk_reindex
     
     # Check if request wants JSON (for modal updates) or redirect (for backward compat)
     wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
@@ -4758,7 +4758,7 @@ def bulk_reindex_route(case_id):
     # Start the reindex operation in background thread
     # Note: coordinator runs synchronously but in background to not block the HTTP response
     from threading import Thread
-    from coordinator_reindex import reindex_files
+    # v2.3.0: No coordinator needed
     import sys
     
     def run_reindex():
@@ -4859,7 +4859,7 @@ def reindex_status_route(case_id):
 @login_required
 def bulk_rechainsaw_route(case_id):
     """Re-run SIGMA on all EVTX files in a case (v2.1.6: Using coordinator_resigma)"""
-    from coordinator_resigma import resigma_files_task
+    # v2.3.0: No coordinator needed
     from celery_health import check_workers_available
     
     case = db.session.get(Case, case_id)
@@ -4873,23 +4873,25 @@ def bulk_rechainsaw_route(case_id):
         flash(f'⚠️ Cannot start bulk operation: {error_msg}. Please check Celery workers.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Count EVTX files only (SIGMA only works on EVTX)
-    file_count = db.session.query(CaseFile).filter(
+    # Get EVTX files only (SIGMA only works on EVTX)
+    files = db.session.query(CaseFile).filter(
         CaseFile.case_id == case_id,
         CaseFile.is_deleted == False,
         CaseFile.is_indexed == True,
         CaseFile.is_hidden == False,
         CaseFile.original_filename.ilike('%.evtx')
-    ).count()
+    ).all()
     
-    if file_count == 0:
-        flash('No indexed EVTX files found to re-SIGMA', 'warning')
+    if not files:
+        flash('No indexed EVTX files found for SIGMA', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Queue re-SIGMA coordinator task (file_ids=None means all EVTX files)
-    resigma_files_task.delay(case_id, file_ids=None)
+    # v2.3.0: Queue sigma_only tasks directly (each clears its own violations)
+    from tasks import process_file
+    for file in files:
+        process_file.delay(file.id, operation='sigma_only')
     
-    flash(f'✅ Re-SIGMA queued for {file_count} EVTX file(s) ({worker_count} worker(s) available). This will clear old violations, re-run SIGMA detection, and mark files as completed.', 'success')
+    flash(f'✅ SIGMA detection queued for {len(files)} EVTX file(s). Existing violations will be cleared first.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 

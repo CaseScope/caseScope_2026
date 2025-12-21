@@ -543,7 +543,41 @@ def scan_systems(case_id):
                 logger.warning(f"[Systems] Error scanning field '{field}': {e}")
                 continue
         
-        logger.info(f"[Systems] Discovered {len(discovered_systems)} unique systems")
+        logger.info(f"[Systems] Discovered {len(discovered_systems)} unique systems from OpenSearch fields")
+        
+        # v2.2.3: Also extract hostnames from uploaded filenames
+        # Many operational logs (USB, Storage, Bluetooth, etc.) don't have hostname fields
+        # but the filename prefix contains the computer name (e.g., "WALTD_System.evtx")
+        logger.info(f"[Systems] Extracting hostnames from {len(files)} filenames...")
+        
+        for file in files:
+            try:
+                # Extract hostname prefix from filename (before first underscore)
+                # Examples: "WALTD_Security.evtx" -> "WALTD", "DC01_Application.evtx" -> "DC01"
+                filename = file.original_filename
+                if '_' in filename:
+                    hostname_prefix = filename.split('_')[0].strip()
+                    
+                    # Validate it looks like a hostname (not empty, reasonable length)
+                    if hostname_prefix and 2 <= len(hostname_prefix) <= 50:
+                        # Skip if it looks like a GUID or hash
+                        if not re.match(r'^[0-9A-Fa-f]{8,}$', hostname_prefix):
+                            # Normalize to uppercase
+                            hostname_prefix = hostname_prefix.upper()
+                            
+                            # Add to discovered systems (use file count as proxy for event count)
+                            if hostname_prefix not in discovered_systems:
+                                discovered_systems[hostname_prefix] = {
+                                    'name': hostname_prefix,
+                                    'count': 1,  # At least 1 file
+                                    'field': 'filename_prefix'
+                                }
+                                logger.debug(f"[Systems] Found system from filename: {hostname_prefix} (file: {filename})")
+            except Exception as e:
+                logger.warning(f"[Systems] Error extracting hostname from filename '{file.original_filename}': {e}")
+                continue
+        
+        logger.info(f"[Systems] Total unique systems after filename extraction: {len(discovered_systems)}")
         
         # Get IP addresses for discovered systems
         logger.info(f"[Systems] Resolving IP addresses for systems...")

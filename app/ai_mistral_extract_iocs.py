@@ -138,14 +138,29 @@ def parse_and_clean_json(json_string: str) -> dict:
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         json_string = json_string[first_brace : last_brace + 1]
     
-    # Fix common JSON issues:
-    # 1. Unescaped backslashes in Windows paths
-    json_string = json_string.replace('\\', '\\\\')
+    # Try to parse as-is first (LLM may have returned valid JSON)
+    try:
+        return json.loads(json_string)
+    except json.JSONDecodeError as e:
+        logger.debug(f"[MISTRAL_IOC] First parse attempt failed: {e}. Attempting cleanup...")
     
-    # 2. Remove trailing commas before closing brackets/braces
+    # If that fails, try cleanup strategies
+    # 1. Remove trailing commas before closing brackets/braces
     json_string = re.sub(r',\s*([\]}])', r'\1', json_string)
     
-    return json.loads(json_string)
+    # 2. Try parsing again
+    try:
+        return json.loads(json_string)
+    except json.JSONDecodeError as e:
+        # Log the problematic JSON for debugging
+        logger.error(f"[MISTRAL_IOC] JSON parse failed at position {e.pos}")
+        logger.error(f"[MISTRAL_IOC] Error: {e.msg}")
+        if e.pos and len(json_string) > e.pos:
+            # Show context around the error
+            start = max(0, e.pos - 100)
+            end = min(len(json_string), e.pos + 100)
+            logger.error(f"[MISTRAL_IOC] Context: ...{json_string[start:end]}...")
+        raise
 
 
 def aggregate_iocs(all_iocs: List[dict]) -> dict:
@@ -206,14 +221,16 @@ def split_reports(report_content: str) -> List[str]:
 
 def extract_iocs_from_single_report(
     report_content: str,
-    max_retries: int = 2
+    max_retries: int = 2,
+    model: str = None
 ) -> Dict[str, Any]:
     """
-    Extract IOCs from a single EDR report using Mistral AI.
+    Extract IOCs from a single EDR report using AI.
     
     Args:
         report_content: The report text to analyze
         max_retries: Maximum number of retry attempts on parse failure
+        model: Ollama model to use (if None, uses get_ai_model)
     
     Returns:
         Dictionary containing:
@@ -221,13 +238,23 @@ def extract_iocs_from_single_report(
         - iocs: dict (if successful)
         - error: str (if failed)
     """
+    # Auto-select model if not specified
+    if not model:
+        try:
+            from ai_model_selector import get_ai_model
+            model = get_ai_model('ioc_extraction')
+            logger.info(f"[MISTRAL_IOC] Using auto-selected model: {model}")
+        except Exception as e:
+            logger.warning(f"[MISTRAL_IOC] Could not auto-select model: {e}. Using default.")
+            model = OLLAMA_MODEL
+    
     prompt_template = get_prompt_template()
     full_prompt = prompt_template.replace('[PASTE REPORT HERE]', report_content)
     
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info(f"[MISTRAL_IOC] Calling Ollama (attempt {attempt}/{max_retries})...")
-            ollama_response = call_ollama(full_prompt)
+            logger.info(f"[MISTRAL_IOC] Calling Ollama with model '{model}' (attempt {attempt}/{max_retries})...")
+            ollama_response = call_ollama(full_prompt, model=model)
             
             logger.debug(f"[MISTRAL_IOC] Response length: {len(ollama_response)} chars")
             
@@ -242,10 +269,13 @@ def extract_iocs_from_single_report(
             
         except json.JSONDecodeError as e:
             logger.warning(f"[MISTRAL_IOC] JSON parse failed (attempt {attempt}): {e}")
+            logger.warning(f"[MISTRAL_IOC] Error at line {e.lineno}, column {e.colno} (char {e.pos})")
             if attempt == max_retries:
+                # Save the problematic response for debugging
+                error_detail = f"line {e.lineno} column {e.colno} (char {e.pos})"
                 return {
                     'success': False,
-                    'error': f"Failed to parse JSON after {max_retries} attempts: {str(e)}"
+                    'error': f"Failed to parse JSON after {max_retries} attempts: Expecting ',' delimiter: {error_detail}"
                 }
         except Exception as e:
             logger.error(f"[MISTRAL_IOC] Extraction failed (attempt {attempt}): {e}")
