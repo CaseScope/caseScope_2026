@@ -848,18 +848,21 @@ def file_details(case_id, file_id):
 @files_bp.route('/case/<int:case_id>/bulk_reindex', methods=['POST'])
 @login_required
 def bulk_reindex(case_id):
-    """Re-index ALL visible files in the case"""
-    from main import db, CaseFile
-    from bulk_operations import clear_case_metadata, queue_file_processing
+    """Re-index ALL visible files in the case (full rebuild)"""
+    from main import db, CaseFile, Case, opensearch_client
+    from bulk_operations import (clear_file_sigma_violations, clear_file_ioc_matches, 
+                                 reset_file_metadata, queue_file_processing, clear_event_statuses,
+                                 clear_case_opensearch_indices)
     from tasks import process_file
     from celery_health import check_workers_available
+    import time
     
     # Safety check: Ensure Celery workers are available
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
     if not workers_ok:
-        return jsonify({'success': False, 'error': f'Cannot start bulk operation: {error_msg}'}), 500
+        return jsonify({'success': False, 'error': f'No Celery workers available: {error_msg}'}), 503
     
-    # Get all visible, indexed files
+    # Get all visible files
     files = db.session.query(CaseFile).filter_by(
         case_id=case_id,
         is_deleted=False,
@@ -869,25 +872,46 @@ def bulk_reindex(case_id):
     if not files:
         return jsonify({'success': False, 'error': 'No files to reindex'}), 400
     
-    # Clear metadata for all files
-    clear_case_metadata(db, case_id)
-    
-    # Queue files for reindexing
-    queue_file_processing(process_file, files, operation='reindex')
-    
-    # Audit log
-    from audit_logger import log_action
-    from main import Case
-    case = db.session.get(Case, case_id)
-    log_action('bulk_reindex_files', resource_type='file', resource_id=None,
-              resource_name=f'{len(files)} files',
-              details={
-                  'case_id': case_id,
-                  'case_name': case.name if case else None,
-                  'file_count': len(files)
-              })
-    
-    return jsonify({'success': True, 'queued': len(files)})
+    try:
+        logger.info(f"[BULK REINDEX] Starting for case {case_id}, {len(files)} files")
+        
+        # Clear OpenSearch indices
+        clear_case_opensearch_indices(opensearch_client, case_id, files)
+        
+        # Clear database metadata for all files
+        for file in files:
+            reset_file_metadata(file, reset_opensearch_key=True)
+            file.error_message = None
+            file.celery_task_id = None
+            clear_file_sigma_violations(db, file.id)
+            clear_file_ioc_matches(db, file.id)
+        
+        # Clear EventStatus records
+        clear_event_statuses(db, scope='case', case_id=case_id)
+        
+        db.session.commit()
+        
+        # Queue files for reindexing
+        queued = queue_file_processing(process_file, files, operation='reindex', db_session=db.session)
+        
+        # Audit log
+        from audit_logger import log_action
+        case = db.session.get(Case, case_id)
+        log_action('bulk_reindex_all', resource_type='file', resource_id=None,
+                  resource_name=f'{len(files)} files',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'file_count': len(files),
+                      'queued': queued
+                  })
+        
+        logger.info(f"[BULK REINDEX] Queued {queued} files for case {case_id}")
+        return jsonify({'success': True, 'queued': queued})
+        
+    except Exception as e:
+        logger.error(f"[BULK REINDEX] Error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @files_bp.route('/case/<int:case_id>/bulk_reindex_selected', methods=['POST'])
