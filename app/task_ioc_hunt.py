@@ -232,6 +232,70 @@ def hunt_all_iocs_task(self, job_id, case_id):
                     }
                 )
             
+            # Update OpenSearch events with has_ioc flag
+            logger.info(f"[IOC_HUNT] Updating OpenSearch events with has_ioc flags...")
+            try:
+                # Get unique event IDs from matches
+                event_ids = db.session.query(IOCHuntMatch.event_id).filter_by(
+                    job_id=job_id
+                ).distinct().all()
+                event_ids = [eid[0] for eid in event_ids]
+                
+                if event_ids:
+                    # Update events in batches
+                    batch_size = 500
+                    for i in range(0, len(event_ids), batch_size):
+                        batch = event_ids[i:i+batch_size]
+                        
+                        update_query = {
+                            "script": {
+                                "source": "ctx._source.has_ioc = true;",
+                                "lang": "painless"
+                            },
+                            "query": {
+                                "terms": {"_id": batch}
+                            }
+                        }
+                        
+                        opensearch_client.update_by_query(
+                            index=index_name,
+                            body=update_query,
+                            conflicts='proceed',
+                            wait_for_completion=True,
+                            request_timeout=120
+                        )
+                    
+                    logger.info(f"[IOC_HUNT] Updated {len(event_ids)} events with has_ioc flag")
+            except Exception as e:
+                logger.warning(f"[IOC_HUNT] Failed to update OpenSearch flags: {e}")
+            
+            # Update CaseFile IOC counts
+            logger.info(f"[IOC_HUNT] Updating file IOC counts...")
+            try:
+                # Count matches per file by parsing event_index (format: case_27_file_123)
+                from sqlalchemy import func
+                file_match_counts = db.session.query(
+                    IOCHuntMatch.event_index,
+                    func.count(IOCHuntMatch.id).label('count')
+                ).filter_by(job_id=job_id).group_by(IOCHuntMatch.event_index).all()
+                
+                # Extract file_id from index name and update counts
+                from models import CaseFile
+                for index_name_str, count in file_match_counts:
+                    # Parse "case_27_file_123" -> file_id = 123
+                    try:
+                        file_id = int(index_name_str.split('_file_')[-1])
+                        case_file = CaseFile.query.get(file_id)
+                        if case_file and case_file.case_id == case_id:
+                            case_file.ioc_event_count = count
+                    except (ValueError, IndexError):
+                        continue
+                
+                db.session.commit()
+                logger.info(f"[IOC_HUNT] Updated IOC counts for {len(file_match_counts)} files")
+            except Exception as e:
+                logger.warning(f"[IOC_HUNT] Failed to update file counts: {e}")
+            
             # Mark complete
             job.status = "completed"
             job.progress = 100
@@ -239,7 +303,7 @@ def hunt_all_iocs_task(self, job_id, case_id):
             job.message = f"Hunt complete: {total_matches} matches found across {processed} IOCs"
             db.session.commit()
             
-            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches")
+            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches, OpenSearch flags updated")
             
         except Exception as e:
             logger.exception(f"[IOC_HUNT] Job {job_id} failed: {e}")

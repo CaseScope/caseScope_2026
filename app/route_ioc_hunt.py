@@ -42,6 +42,57 @@ def start_hunt(case_id):
             'job_id': existing.id
         }), 409
     
+    # CLEANUP: Clear old IOC hunt data to ensure fresh, accurate results
+    logger.info(f"[IOC_HUNT] Clearing old IOC hunt data for case {case_id}")
+    
+    # 1. Delete old completed hunt jobs and their matches (keep last 5 for history)
+    old_jobs = IOCHuntJob.query.filter_by(case_id=case_id)\
+        .order_by(IOCHuntJob.created_at.desc())\
+        .offset(5).all()
+    for old_job in old_jobs:
+        db.session.delete(old_job)  # Cascade will delete matches too
+    
+    # 2. Clear per-file IOC data (to be repopulated by hunt)
+    from main import CaseFile, IOCMatch
+    
+    # Clear IOC matches from database
+    IOCMatch.query.filter_by(case_id=case_id).delete()
+    
+    # Reset IOC event counts on files
+    CaseFile.query.filter_by(case_id=case_id).update({'ioc_event_count': 0})
+    
+    db.session.commit()
+    
+    # 3. Clear has_ioc flags in OpenSearch
+    from main import opensearch_client
+    index_name = f"case_{case_id}"
+    
+    try:
+        if opensearch_client.indices.exists(index=index_name):
+            # Update all events to clear has_ioc flag
+            update_query = {
+                "script": {
+                    "source": "ctx._source.has_ioc = false; ctx._source.remove('ioc_matches');",
+                    "lang": "painless"
+                },
+                "query": {
+                    "term": {"has_ioc": True}
+                }
+            }
+            opensearch_client.update_by_query(
+                index=index_name,
+                body=update_query,
+                conflicts='proceed',
+                wait_for_completion=True,
+                request_timeout=120
+            )
+            logger.info(f"[IOC_HUNT] Cleared has_ioc flags in OpenSearch for case {case_id}")
+    except Exception as e:
+        logger.warning(f"[IOC_HUNT] Failed to clear OpenSearch flags: {e}")
+        # Continue anyway - not critical
+    
+    logger.info(f"[IOC_HUNT] Cleanup complete for case {case_id}")
+    
     # Create job record
     job = IOCHuntJob(
         case_id=case_id,
