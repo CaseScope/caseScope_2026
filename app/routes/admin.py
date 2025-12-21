@@ -49,9 +49,9 @@ def settings():
 def users():
     """
     User management page
-    - Administrators see all users
-    - Analysts see only analysts and viewers (not administrators)
-    - Viewers cannot access (handled by decorator)
+    - Administrators: Can see and edit all users
+    - Analysts: Can see themselves and all viewers (can edit themselves + viewers only)
+    - Viewers: Cannot access (handled by decorator)
     """
     from main import db
     from models import User, Case
@@ -61,15 +61,18 @@ def users():
         # Administrators see everyone
         users_list = User.query.order_by(User.created_at.desc()).all()
     else:
-        # Analysts see only analysts and viewers (not administrators)
+        # Analysts see themselves and all viewers (not other analysts or administrators)
         users_list = User.query.filter(
-            User.role.in_(['analyst', 'read-only'])
+            db.or_(
+                User.id == current_user.id,  # Themselves
+                User.role == 'read-only'      # All viewers
+            )
         ).order_by(User.created_at.desc()).all()
     
     # Get all cases for the dropdown
     cases = Case.query.order_by(Case.name).all()
     
-    return render_template('admin/users.html', users=users_list, cases=cases)
+    return render_template('admin/users.html', users=users_list, cases=cases, current_user=current_user)
 
 
 @admin_bp.route('/audit-log')
@@ -110,9 +113,12 @@ def audit_log():
 
 
 @admin_bp.route('/users/add', methods=['POST'])
-@admin_or_analyst_required
+@admin_required
 def add_user():
-    """Create new user"""
+    """
+    Create new user
+    Only administrators can create users
+    """
     from main import db
     from models import User
     from audit_logger import log_action
@@ -129,10 +135,6 @@ def add_user():
         # Validation
         if not username or not email or not password:
             return jsonify({'success': False, 'error': 'Username, email, and password are required'}), 400
-        
-        # Analysts cannot create administrators
-        if current_user.role == 'analyst' and role == 'administrator':
-            return jsonify({'success': False, 'error': 'Analysts cannot create administrator accounts'}), 403
         
         # Check for existing username
         if User.query.filter_by(username=username).first():
@@ -172,16 +174,22 @@ def add_user():
 @admin_bp.route('/users/<int:user_id>/edit', methods=['POST'])
 @admin_or_analyst_required
 def edit_user(user_id):
-    """Edit existing user"""
+    """
+    Edit existing user
+    - Administrators: Can edit any user
+    - Analysts: Can edit themselves OR any viewer user
+    """
     from main import db
     from models import User
     from audit_logger import log_action
     
     user = User.query.get_or_404(user_id)
     
-    # Analysts cannot edit administrators
-    if current_user.role == 'analyst' and user.role == 'administrator':
-        return jsonify({'success': False, 'error': 'Analysts cannot edit administrator accounts'}), 403
+    # Analysts can only edit themselves or viewers
+    if current_user.role == 'analyst':
+        # Check if editing themselves OR a viewer
+        if user.id != current_user.id and user.role != 'read-only':
+            return jsonify({'success': False, 'error': 'Analysts can only edit themselves or viewer accounts'}), 403
     
     try:
         changes = {}
@@ -203,9 +211,10 @@ def edit_user(user_id):
         
         role = request.form.get('role')
         if role and role != user.role:
-            # Analysts cannot change role to administrator
-            if current_user.role == 'analyst' and role == 'administrator':
-                return jsonify({'success': False, 'error': 'Analysts cannot create administrator accounts'}), 403
+            # Analysts can only change role if editing a viewer
+            if current_user.role == 'analyst':
+                # Analysts cannot change roles at all (to prevent escalation)
+                return jsonify({'success': False, 'error': 'Analysts cannot change user roles'}), 403
             changes['role'] = {'old': user.role, 'new': role}
             user.role = role
         
@@ -252,9 +261,10 @@ def get_user(user_id):
     
     user = User.query.get_or_404(user_id)
     
-    # Analysts cannot view administrators
-    if current_user.role == 'analyst' and user.role == 'administrator':
-        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    # Analysts can only view themselves or viewers
+    if current_user.role == 'analyst':
+        if user.id != current_user.id and user.role != 'read-only':
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
     
     return jsonify({
         'success': True,

@@ -7,10 +7,12 @@
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">👥 User Management</h2>
+        {% if current_user.role == 'administrator' %}
         <button onclick="showAddUserModal()" class="btn btn-primary">
             <span>➕</span>
             <span>Add User</span>
         </button>
+        {% endif %}
     </div>
     <div class="card-body">
         <div class="table-container">
@@ -54,7 +56,11 @@
                         </td>
                         <td>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</td>
                         <td>
+                            {% if current_user.role == 'administrator' or user.id == current_user.id or user.role == 'read-only' %}
                             <button onclick="editUser({{ user.id }})" class="btn btn-sm btn-secondary">Edit</button>
+                            {% else %}
+                            <button class="btn btn-sm btn-secondary" disabled style="opacity: 0.5; cursor: not-allowed;">Edit</button>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
