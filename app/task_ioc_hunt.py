@@ -274,30 +274,50 @@ def hunt_all_iocs_task(self, job_id, case_id):
             except Exception as e:
                 logger.warning(f"[IOC_HUNT] Failed to update OpenSearch flags: {e}")
             
-            # Update CaseFile IOC counts
+            # Update CaseFile IOC counts by querying OpenSearch for file_id
             logger.info(f"[IOC_HUNT] Updating file IOC counts...")
             try:
-                # Count matches per file by parsing event_index (format: case_27_file_123)
+                # Get unique event IDs with matches
                 from sqlalchemy import func
-                file_match_counts = db.session.query(
-                    IOCHuntMatch.event_index,
-                    func.count(IOCHuntMatch.id).label('count')
-                ).filter_by(job_id=job_id).group_by(IOCHuntMatch.event_index).all()
+                matched_event_ids = [m[0] for m in db.session.query(IOCHuntMatch.event_id).filter_by(
+                    job_id=job_id
+                ).distinct().all()]
                 
-                # Extract file_id from index name and update counts
-                from models import CaseFile
-                for index_name_str, count in file_match_counts:
-                    # Parse "case_27_file_123" -> file_id = 123
-                    try:
-                        file_id = int(index_name_str.split('_file_')[-1])
+                if matched_event_ids:
+                    # Query OpenSearch to get file_id for each matched event
+                    file_id_counts = {}
+                    
+                    # Fetch events in batches to get file_id
+                    batch_size = 100
+                    for i in range(0, len(matched_event_ids), batch_size):
+                        batch = matched_event_ids[i:i+batch_size]
+                        
+                        try:
+                            # Use mget to fetch multiple documents efficiently
+                            mget_response = opensearch_client.mget(
+                                index=index_name,
+                                body={"ids": batch},
+                                _source=["file_id"]
+                            )
+                            
+                            for doc in mget_response.get('docs', []):
+                                if doc.get('found'):
+                                    file_id = doc['_source'].get('file_id')
+                                    if file_id:
+                                        file_id_counts[file_id] = file_id_counts.get(file_id, 0) + 1
+                        except Exception as e:
+                            logger.warning(f"[IOC_HUNT] Error fetching event batch: {e}")
+                            continue
+                    
+                    # Update CaseFile records with counts
+                    from models import CaseFile
+                    for file_id, count in file_id_counts.items():
                         case_file = CaseFile.query.get(file_id)
                         if case_file and case_file.case_id == case_id:
                             case_file.ioc_event_count = count
-                    except (ValueError, IndexError):
-                        continue
-                
-                db.session.commit()
-                logger.info(f"[IOC_HUNT] Updated IOC counts for {len(file_match_counts)} files")
+                    
+                    db.session.commit()
+                    logger.info(f"[IOC_HUNT] Updated IOC counts for {len(file_id_counts)} files")
             except Exception as e:
                 logger.warning(f"[IOC_HUNT] Failed to update file counts: {e}")
             
