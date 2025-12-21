@@ -54,6 +54,17 @@
                 <span>🔓</span>
                 <span>Base64 Decode</span>
             </button>
+            {% if has_iocs %}
+            <button type="button" onclick="startGlobalIOCHunt()" class="btn btn-warning" style="justify-content: center;" id="globalHuntBtn">
+                <span>🎯</span>
+                <span>Hunt All IOCs</span>
+            </button>
+            {% else %}
+            <button type="button" disabled class="btn btn-secondary" style="justify-content: center; opacity: 0.5; cursor: not-allowed;" title="Add IOCs first">
+                <span>🎯</span>
+                <span>Hunt All IOCs</span>
+            </button>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -457,34 +468,6 @@
                 <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
                     <span>🎯</span>
                     <span>Mark Highly Likely Events</span>
-                </button>
-                {% endif %}
-            </div>
-        </div>
-        
-        <!-- Phase 4: Global IOC Hunt (v2.4.0) -->
-        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--radius-md); margin-bottom: var(--spacing-md);">
-            <div style="flex: 1;">
-                <h4 style="margin: 0 0 var(--spacing-xs) 0;">Phase 4: Global IOC Hunt</h4>
-                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">
-                    {% if has_iocs %}
-                    Search ALL case events for active IOCs. Comprehensive hunt across {{ '{:,}'.format(case.total_event_count or 0) }} events.
-                    {{ ioc_count }} active IOCs will be searched.
-                    {% else %}
-                    <span style="color: var(--color-warning);">Requires IOCs defined first.</span>
-                    {% endif %}
-                </p>
-            </div>
-            <div>
-                {% if has_iocs %}
-                <button onclick="startGlobalIOCHunt()" class="btn btn-sm btn-warning" id="globalHuntBtn">
-                    <span>🎯</span>
-                    <span>Hunt All IOCs</span>
-                </button>
-                {% else %}
-                <button disabled class="btn btn-sm" style="opacity: 0.5; cursor: not-allowed;">
-                    <span>🎯</span>
-                    <span>Hunt All IOCs</span>
                 </button>
                 {% endif %}
             </div>
