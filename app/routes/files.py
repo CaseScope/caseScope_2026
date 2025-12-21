@@ -846,15 +846,14 @@ def file_details(case_id, file_id):
 
 
 @files_bp.route('/case/<int:case_id>/bulk_reindex', methods=['POST'])
-@login_required
+@login_required  
 def bulk_reindex(case_id):
     """Re-index ALL visible files in the case (full rebuild)"""
     from main import db, CaseFile, Case, opensearch_client
-    from bulk_operations import (clear_file_sigma_violations, clear_file_ioc_matches, 
-                                 reset_file_metadata, queue_file_processing, clear_event_statuses,
-                                 clear_case_opensearch_indices)
+    from bulk_operations import clear_case_data_for_reindex, queue_file_processing
     from tasks import process_file
     from celery_health import check_workers_available
+    from utils import make_index_name
     import time
     
     # Safety check: Ensure Celery workers are available
@@ -874,20 +873,27 @@ def bulk_reindex(case_id):
     
     try:
         logger.info(f"[BULK REINDEX] Starting for case {case_id}, {len(files)} files")
+        file_ids = [f.id for f in files]
         
-        # Clear OpenSearch indices
-        clear_case_opensearch_indices(opensearch_client, case_id, files)
+        # Use the proper clearing function
+        clear_result = clear_case_data_for_reindex(db, case_id, file_ids)
         
-        # Clear database metadata for all files
+        # Delete OpenSearch index entirely (will be recreated)
+        index_name = make_index_name(case_id)
+        try:
+            if opensearch_client.indices.exists(index=index_name):
+                opensearch_client.indices.delete(index=index_name)
+                logger.info(f"[BULK REINDEX] Deleted index {index_name}")
+        except Exception as e:
+            logger.warning(f"[BULK REINDEX] Could not delete index: {e}")
+        
+        # Reset file metadata
         for file in files:
-            reset_file_metadata(file, reset_opensearch_key=True)
             file.error_message = None
             file.celery_task_id = None
-            clear_file_sigma_violations(db, file.id)
-            clear_file_ioc_matches(db, file.id)
-        
-        # Clear EventStatus records
-        clear_event_statuses(db, scope='case', case_id=case_id)
+            file.event_count = 0
+            file.violation_count = 0
+            file.ioc_event_count = 0
         
         db.session.commit()
         
@@ -903,7 +909,8 @@ def bulk_reindex(case_id):
                       'case_id': case_id,
                       'case_name': case.name if case else None,
                       'file_count': len(files),
-                      'queued': queued
+                      'queued': queued,
+                      'cleared': clear_result
                   })
         
         logger.info(f"[BULK REINDEX] Queued {queued} files for case {case_id}")
