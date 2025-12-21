@@ -562,7 +562,7 @@ function refreshQueueStatus() {
     const queueList = document.getElementById('queueList');
     
     if (!icon || !queueList) {
-        console.error('Queue UI elements not found');
+        // Queue UI not on this page (might be on a different page)
         return;
     }
     
@@ -1437,11 +1437,11 @@ function confirmReindex() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Close modal after a short delay and start phase monitoring
-            setTimeout(() => {
-                closePreparationModal();
-                startPhaseMonitoring();
-            }, 3000); // Give coordinator 3 seconds to start
+            // Close modal and start monitoring immediately
+            closePreparationModal();
+            alert(`✅ Reindex started: ${data.file_count} files queued for processing`);
+            // Reload page to show updated stats and processing
+            location.reload();
         } else {
             closePreparationModal();
             alert('Failed to start reindex: ' + (data.error || 'Unknown error'));
