@@ -5,9 +5,6 @@ Hunts IOCs across ALL case events (not per-file like normal processing)
 
 from celery import current_task
 from celery_app import celery_app
-from main import db, opensearch_client
-from models import IOC, Case
-from model_ioc_hunt import IOCHuntJob, IOCHuntMatch
 from datetime import datetime
 import logging
 import json
@@ -27,6 +24,11 @@ def hunt_all_iocs_task(self, job_id, case_id):
         job_id: IOCHuntJob ID
         case_id: Case ID to hunt
     """
+    
+    # Import here to avoid circular import (main imports celery_app which imports this)
+    from main import db, opensearch_client
+    from models import IOC, Case
+    from model_ioc_hunt import IOCHuntJob, IOCHuntMatch
     
     job = IOCHuntJob.query.get(job_id)
     if not job:
