@@ -868,3 +868,9 @@ class AITriageSearch(db.Model):
     def __repr__(self):
         return f'<AITriageSearch {self.id} case={self.case_id} status={self.status}>'
 
+
+# ============================================================================
+# Import IOC Hunt Models (separate module for modularization)
+# ============================================================================
+from model_ioc_hunt import IOCHuntJob, IOCHuntMatch
+

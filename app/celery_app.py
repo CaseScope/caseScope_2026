@@ -46,7 +46,10 @@ import processing_clear_metadata
 import events_known_good
 import events_known_noise
 
+# Import IOC hunt task (v2.4.0)
+import task_ioc_hunt
+
 # v2.3.0: Removed coordinators and processing_* wrappers
 # All processing now happens in tasks.py using file_processing.py functions directly
 
-logger.info("Celery app initialized (v2.3.0 - No Coordinators)")
+logger.info("Celery app initialized (v2.4.0 - With Global IOC Hunt)")
