@@ -59,6 +59,64 @@
 </div>
 
 <!-- ============================================================================
+     EVENT STATISTICS TILE (Full Width)
+     ============================================================================ -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">📊 Event Statistics</h2>
+    </div>
+    <div class="card-body">
+        <div class="stat-grid-case" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="stat-item">
+                <div class="stat-item-label">Total Events</div>
+                <div id="stat-total-events" class="stat-item-value-large" style="color: var(--color-primary);">
+                    {{ '{:,}'.format(case.total_event_count or 0) }}
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">SIGMA Violations</div>
+                <div id="stat-sigma-events" class="stat-item-value-large" style="color: var(--color-success);">
+                    {{ '{:,}'.format(case.total_events_with_sigma or 0) }}
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">IOC Events</div>
+                <div id="stat-ioc-events" class="stat-item-value-large" style="color: var(--color-error);">
+                    {{ '{:,}'.format(case.total_events_with_iocs or 0) }}
+                </div>
+            </div>
+        </div>
+        <!-- Event Status Counts -->
+        <div class="stat-grid-case" style="grid-template-columns: repeat(4, 1fr); margin-top: var(--spacing-sm);">
+            <div class="stat-item">
+                <div class="stat-item-label">New</div>
+                <div class="stat-item-value-large" style="color: var(--color-text-secondary);">
+                    {{ '{:,}'.format((case.total_event_count or 0) - ((case.total_events_hunted or 0) + (case.total_events_confirmed or 0) + (case.total_events_noise or 0))) }}
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">🎯 Hunted</div>
+                <div class="stat-item-value-large" style="color: #9b59b6;">
+                    {{ '{:,}'.format(case.total_events_hunted or 0) }}
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">✓ Confirmed</div>
+                <div class="stat-item-value-large" style="color: #c0392b;">
+                    {{ '{:,}'.format(case.total_events_confirmed or 0) }}
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">🔇 Noise</div>
+                <div class="stat-item-value-large" style="color: var(--color-muted);">
+                    {{ '{:,}'.format(case.total_events_noise or 0) }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
      PREREQUISITES TILE (Full Width)
      Shows what needs to be configured before running triage
      ============================================================================ -->
