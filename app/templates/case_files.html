@@ -1426,8 +1426,8 @@ function confirmReindex() {
     // Show preparation modal during clearing phase
     showPreparationModal('reindex', 'Preparing Re-Index', 'Clearing metadata and preparing files...<br>This may take 30-60 seconds.');
     
-    // Start the reindex operation
-    fetch(`/case/${CASE_ID}/bulk_reindex`, {
+    // Start the reindex operation (uses new modular route)
+    fetch(`/case/${CASE_ID}/reindex/all`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

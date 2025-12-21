@@ -139,6 +139,8 @@ from routes.evidence import evidence_bp
 app.register_blueprint(evidence_bp)
 from route_ioc_hunt import ioc_hunt_bp
 app.register_blueprint(ioc_hunt_bp)
+from route_reindex import reindex_bp
+app.register_blueprint(reindex_bp)
 from routes.files import files_bp
 from routes.cases import cases_bp
 from routes.api_stats import api_stats_bp
