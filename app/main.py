@@ -2236,10 +2236,25 @@ def triage_page(case_id):
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
     
     # === EVENT STATISTICS ===
-    # Get event counts from case model
-    total_events = case.total_event_count or 0
-    total_sigma_events = case.total_events_with_sigma or 0
-    total_ioc_events = case.total_events_with_iocs or 0
+    # Get event counts by summing CaseFile records (same as case_files page)
+    from sqlalchemy import func
+    total_events = int(db.session.query(func.sum(CaseFile.event_count)).filter_by(
+        case_id=case_id,
+        is_deleted=False,
+        is_hidden=False
+    ).scalar() or 0)
+    
+    total_sigma_events = int(db.session.query(func.sum(CaseFile.violation_count)).filter_by(
+        case_id=case_id,
+        is_deleted=False,
+        is_hidden=False
+    ).scalar() or 0)
+    
+    total_ioc_events = int(db.session.query(func.sum(CaseFile.ioc_event_count)).filter_by(
+        case_id=case_id,
+        is_deleted=False,
+        is_hidden=False
+    ).scalar() or 0)
     
     # Get event status counts
     from event_status import get_status_counts
