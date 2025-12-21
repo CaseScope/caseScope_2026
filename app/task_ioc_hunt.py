@@ -70,23 +70,15 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 logger.warning(f"[IOC_HUNT] Error checking index: {e}")
                 # Continue anyway - might be transient error
             
-            # Get total event count in the index
-            try:
-                count_result = opensearch_client.count(index=index_name)
-                total_events_in_index = count_result.get('count', 0)
-            except Exception as e:
-                logger.warning(f"[IOC_HUNT] Could not get event count: {e}")
-                total_events_in_index = 0
-            
             job.total_iocs = len(iocs)
-            job.total_events_searched = total_events_in_index
             job.status = "running"
             db.session.commit()
             
-            logger.info(f"[IOC_HUNT] Starting global hunt: {len(iocs)} IOCs across {total_events_in_index:,} events, case {case_id}")
+            logger.info(f"[IOC_HUNT] Starting global hunt: {len(iocs)} IOCs, case {case_id}")
             
             processed = 0
             total_matches = 0
+            unique_events_checked = set()  # Track unique event IDs examined
             batch_size = 10  # Process 10 IOCs at a time
             
             # Process IOCs in batches
@@ -193,6 +185,9 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 # REQUIRED: Python check to determine which specific IOC(s) matched
                 matches = []
                 for hit in all_hits:
+                    event_id = hit["_id"]
+                    unique_events_checked.add(event_id)  # Track unique events examined
+                    
                     blob = hit["_source"].get("search_blob", "").lower()
                     
                     # Check each IOC in batch against this event
@@ -208,7 +203,7 @@ def hunt_all_iocs_task(self, job_id, case_id):
                                 job_id=job_id,
                                 case_id=case_id,
                                 ioc_id=ioc.id,
-                                event_id=hit["_id"],
+                                event_id=event_id,
                                 event_index=hit["_index"],
                                 matched_value=ioc.ioc_value,
                                 event_data=None  # Optional: could store JSON snapshot
@@ -226,6 +221,7 @@ def hunt_all_iocs_task(self, job_id, case_id):
                 # Update progress
                 job.processed_iocs = processed
                 job.match_count = total_matches
+                job.total_events_searched = len(unique_events_checked)
                 job.progress = min(99, int((processed / len(iocs)) * 100))
                 db.session.commit()
                 
@@ -308,11 +304,12 @@ def hunt_all_iocs_task(self, job_id, case_id):
             # Mark complete
             job.status = "completed"
             job.progress = 100
+            job.total_events_searched = len(unique_events_checked)
             job.completed_at = datetime.utcnow()
-            job.message = f"Hunt complete: {total_matches} matches found across {processed} IOCs"
+            job.message = f"Hunt complete: {total_matches} matches found across {processed} IOCs ({len(unique_events_checked):,} events examined)"
             db.session.commit()
             
-            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches, OpenSearch flags updated")
+            logger.info(f"[IOC_HUNT] Job {job_id} completed: {total_matches} matches from {len(unique_events_checked):,} events examined, OpenSearch flags updated")
             
         except Exception as e:
             logger.exception(f"[IOC_HUNT] Job {job_id} failed: {e}")

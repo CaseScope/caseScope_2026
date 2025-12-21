@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS ioc_hunt_job (
     total_iocs INTEGER NOT NULL DEFAULT 0,
     processed_iocs INTEGER NOT NULL DEFAULT 0,
     match_count INTEGER NOT NULL DEFAULT 0,
+    total_events_searched BIGINT DEFAULT 0,
     
     message TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
