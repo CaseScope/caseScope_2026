@@ -56,11 +56,17 @@
                         </td>
                         <td>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</td>
                         <td>
-                            {% if current_user.role == 'administrator' or user.id == current_user.id or user.role == 'read-only' %}
-                            <button onclick="editUser({{ user.id }})" class="btn btn-sm btn-secondary">Edit</button>
-                            {% else %}
-                            <button class="btn btn-sm btn-secondary" disabled style="opacity: 0.5; cursor: not-allowed;">Edit</button>
-                            {% endif %}
+                            <div style="display: flex; gap: var(--spacing-sm);">
+                                {% if current_user.role == 'administrator' or user.id == current_user.id or user.role == 'read-only' %}
+                                <button onclick="editUser({{ user.id }})" class="btn btn-sm btn-secondary">Edit</button>
+                                {% else %}
+                                <button class="btn btn-sm btn-secondary" disabled style="opacity: 0.5; cursor: not-allowed;">Edit</button>
+                                {% endif %}
+                                
+                                {% if current_user.role == 'administrator' and user.id != current_user.id %}
+                                <button onclick="deleteUser({{ user.id }}, '{{ user.username }}')" class="btn btn-sm btn-error">Delete</button>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -239,11 +245,35 @@ function closeUserModal() {
     editingUserId = null;
 }
 
+function deleteUser(userId, username) {
+    if (!confirm(`⚠️ Delete User: ${username}\n\nThis action cannot be undone.\n\nContinue?`)) {
+        return;
+    }
+    
+    fetch(`/admin/users/${userId}/delete`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to delete user'));
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+    });
+}
+
 // Close modal on background click
 document.addEventListener('click', function(e) {
     if (e.target.id === 'userModal') {
         closeUserModal();
     }
 });
+
+// Debug: Log when script loads
+console.log('✓ Users page JavaScript loaded');
 </script>
 {% endblock %}

@@ -278,3 +278,41 @@ def get_user(user_id):
             'case_assigned': user.case_assigned
         }
     })
+
+
+@admin_bp.route('/users/<int:user_id>/delete', methods=['POST'])
+@admin_required
+def delete_user(user_id):
+    """
+    Delete a user
+    Only administrators can delete users
+    Cannot delete yourself
+    """
+    from main import db
+    from models import User
+    from audit_logger import log_action
+    
+    # Cannot delete yourself
+    if user_id == current_user.id:
+        return jsonify({'success': False, 'error': 'Cannot delete your own account'}), 400
+    
+    user = User.query.get_or_404(user_id)
+    
+    try:
+        username = user.username
+        user_role = user.role
+        
+        db.session.delete(user)
+        db.session.commit()
+        
+        # Audit log
+        log_action('delete_user', resource_type='user', resource_id=user_id,
+                   resource_name=username,
+                   details={'role': user_role, 'deleted_by': current_user.username})
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting user {user_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
