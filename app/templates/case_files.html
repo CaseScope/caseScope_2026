@@ -1437,11 +1437,14 @@ function confirmReindex() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Close modal and start monitoring immediately
+            // Close prep modal and show progress monitoring
             closePreparationModal();
-            alert(`✅ Reindex started: ${data.file_count} files queued for processing`);
-            // Reload page to show updated stats and processing
-            location.reload();
+            
+            // Show progress modal
+            showReindexProgressModal(data.file_count);
+            
+            // Start polling for progress
+            startReindexProgressPolling();
         } else {
             closePreparationModal();
             alert('Failed to start reindex: ' + (data.error || 'Unknown error'));
