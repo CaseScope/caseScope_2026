@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+
+{% block title %}Case Dashboard - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📁 {{ case.name }}</h1>
+        <p class="content-subtitle">Case Dashboard</p>
+    </div>
+    <div>
+        {% if current_user.role != 'read-only' %}
+        <button class="btn btn-primary" onclick="openEditCaseModal()">
+            Edit Case
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Row 1: Case Details (2 columns) -->
+<div class="grid grid-2 mb-4">
+    <!-- Left Column: Core Information -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">📋 Case Information</h2>
+        </div>
+        <div class="card-body">
+            <div class="grid grid-2">
+                <div>
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Case ID</div>
+                        <div class="fw-bold">#{{ case.id }}</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Case Name</div>
+                        <div class="fw-bold">{{ case.name }}</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Company</div>
+                        <div class="fw-bold">{{ case.company or 'Not specified' }}</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Status</div>
+                        <div>
+                            <span class="badge {% if case.status == 'Completed' %}badge-success{% elif case.status == 'In Progress' %}badge-primary{% elif case.status == 'Archived' %}badge-error{% else %}badge-warning{% endif %}">
+                                {{ case.status or 'New' }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Created By</div>
+                        <div class="fw-bold">{{ creator.username if creator else 'Unknown' }}</div>
+                        <div class="text-muted text-small">{{ case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else 'N/A' }}</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Assigned To</div>
+                        <div class="fw-bold">{{ assignee.username if assignee else 'Unassigned' }}</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Last Updated</div>
+                        <div class="fw-bold">{{ case.updated_at.strftime('%Y-%m-%d %H:%M') if case.updated_at else 'N/A' }}</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">OpenSearch Index</div>
+                        <div class="fw-bold">{{ case.opensearch_index or 'Not configured' }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Right Column: Network Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">🌐 Network Configuration</h2>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <div class="text-muted text-small mb-1">Router IP Addresses</div>
+                <div class="fw-bold">
+                    {% if case.router_ips %}
+                        {{ case.router_ips }}
+                    {% else %}
+                        <span class="text-muted">Not configured</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <div class="text-muted text-small mb-1">VPN IP Ranges</div>
+                <div class="fw-bold">
+                    {% if case.vpn_ips %}
+                        {{ case.vpn_ips }}
+                    {% else %}
+                        <span class="text-muted">Not configured</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <div class="text-muted text-small mb-1">EDR Reports</div>
+                <div>
+                    {% if case.edr_reports %}
+                        <span class="badge badge-success">
+                            {{ case.edr_reports.split('*** NEW REPORT ***')|length }} report(s) available
+                        </span>
+                    {% else %}
+                        <span class="text-muted">No EDR reports</span>
+                    {% endif %}
+                </div>
+                <button class="btn btn-primary btn-sm mt-2" onclick="viewEDRReports()">
+                    {% if case.edr_reports %}View/Edit EDR Reports{% else %}Add EDR Reports{% endif %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Row 2: Description (Full Width) -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📝 Case Description</h2>
+    </div>
+    <div class="card-body">
+        {% if case.description %}
+            <div style="white-space: pre-wrap;">{{ case.description }}</div>
+        {% else %}
+            <div class="text-muted">No description provided</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- EDR Reports Modal -->
+<div id="edrModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 900px;">
+        <div class="modal-header">
+            <h3 class="modal-title">EDR Reports - {{ case.name }}</h3>
+            <button class="modal-close" onclick="closeEDRModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="mb-3">
+                <label class="form-label">EDR Reports</label>
+                <textarea id="edrReportsText" class="form-textarea" rows="20" 
+                          {% if current_user.role == 'read-only' %}readonly{% endif %}
+                          placeholder="Paste EDR reports here. Separate multiple reports with *** NEW REPORT ***"></textarea>
+                <small class="text-muted">
+                    If entering multiple reports, separate each with <code>*** NEW REPORT ***</code>
+                </small>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeEDRModal()">Close</button>
+            {% if current_user.role != 'read-only' %}
+            <button class="btn btn-primary" onclick="saveEDRReports()">Save Changes</button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Edit Case Modal -->
+<div id="editCaseModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Edit Case</h3>
+            <button class="modal-close" onclick="closeEditCaseModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="editCaseForm">
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Case Name <span style="color: var(--color-error)">*</span></label>
+                        <input type="text" class="form-input" id="caseName" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Company</label>
+                        <input type="text" class="form-input" id="caseCompany" name="company">
+                    </div>
+                </div>
+                
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="caseStatus" name="status">
+                            <option value="New">New</option>
+                            <option value="Assigned">Assigned</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Archived">Archived</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Assigned To</label>
+                        <select class="form-select" id="caseAssignedTo" name="assigned_to">
+                            <option value="">Unassigned</option>
+                            {% for user in all_users %}
+                            <option value="{{ user.id }}">{{ user.username }} ({{ user.role }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-textarea" id="caseDescription" name="description" rows="4"></textarea>
+                </div>
+                
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Router IP Addresses</label>
+                        <input type="text" class="form-input" id="caseRouterIPs" name="router_ips" 
+                               placeholder="192.168.1.1, 10.0.0.1">
+                        <small class="text-muted">Comma-separated if multiple</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">VPN IP Ranges</label>
+                        <input type="text" class="form-input" id="caseVPNIPs" name="vpn_ips" 
+                               placeholder="192.168.1.0/24, 10.0.0.50-10.0.0.60">
+                        <small class="text-muted">Supports: IPs, Subnets (CIDR), Ranges</small>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeEditCaseModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveCaseChanges()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseId = {{ case.id }};
+const caseData = {
+    id: {{ case.id }},
+    name: "{{ case.name }}",
+    company: "{{ case.company or '' }}",
+    description: `{{ case.description or '' }}`,
+    status: "{{ case.status or 'New' }}",
+    assigned_to: {{ case.assigned_to or 'null' }},
+    router_ips: "{{ case.router_ips or '' }}",
+    vpn_ips: "{{ case.vpn_ips or '' }}"
+};
+
+// Open Edit Case Modal
+function openEditCaseModal() {
+    // Populate form with current values
+    document.getElementById('caseName').value = caseData.name;
+    document.getElementById('caseCompany').value = caseData.company;
+    document.getElementById('caseDescription').value = caseData.description;
+    document.getElementById('caseStatus').value = caseData.status;
+    document.getElementById('caseAssignedTo').value = caseData.assigned_to || '';
+    document.getElementById('caseRouterIPs').value = caseData.router_ips;
+    document.getElementById('caseVPNIPs').value = caseData.vpn_ips;
+    
+    document.getElementById('editCaseModal').style.display = 'flex';
+}
+
+// Close Edit Case Modal
+function closeEditCaseModal() {
+    document.getElementById('editCaseModal').style.display = 'none';
+}
+
+// Save Case Changes
+async function saveCaseChanges() {
+    const form = document.getElementById('editCaseForm');
+    const formData = new FormData(form);
+    
+    // Convert to JSON
+    const data = {};
+    formData.forEach((value, key) => {
+        data[key] = value;
+    });
+    
+    try {
+        const response = await fetch(`/case/${caseId}/edit`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('Case updated successfully');
+            closeEditCaseModal();
+            location.reload(); // Refresh to show updated data
+        } else {
+            alert('Failed to update case: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error saving case:', error);
+        alert('Failed to save case changes');
+    }
+}
+
+// View/Edit EDR Reports
+async function viewEDRReports() {
+    try {
+        const response = await fetch(`/case/${caseId}/edr-report`);
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('edrReportsText').value = data.edr_reports;
+            document.getElementById('edrModal').style.display = 'flex';
+        } else {
+            alert('Failed to load EDR reports');
+        }
+    } catch (error) {
+        console.error('Error loading EDR reports:', error);
+        alert('Failed to load EDR reports');
+    }
+}
+
+// Close EDR Modal
+function closeEDRModal() {
+    document.getElementById('edrModal').style.display = 'none';
+}
+
+// Save EDR Reports
+async function saveEDRReports() {
+    const edrReports = document.getElementById('edrReportsText').value;
+    
+    try {
+        const response = await fetch(`/case/${caseId}/edr-report`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ edr_reports: edrReports })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('EDR reports updated successfully');
+            closeEDRModal();
+            location.reload(); // Refresh to show updated badge
+        } else {
+            alert('Failed to update EDR reports: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error saving EDR reports:', error);
+        alert('Failed to save EDR reports');
+    }
+}
+
+// Close modals on overlay click
+document.getElementById('edrModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEDRModal();
+    }
+});
+
+document.getElementById('editCaseModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEditCaseModal();
+    }
+});
+</script>
+{% endblock %}

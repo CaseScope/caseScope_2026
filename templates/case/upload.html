@@ -1,0 +1,754 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Files - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📤 Upload Files</h1>
+        <p class="content-subtitle">{{ case.name }}</p>
+    </div>
+    <div>
+        <a href="{{ url_for('case.case_files') }}" class="btn btn-secondary">
+            Back to Case Files
+        </a>
+    </div>
+</div>
+
+<!-- Method 1 & 2: Web Upload -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Method 1 & 2: Web Upload (Select or Drag & Drop)</h2>
+    </div>
+    <div class="card-body">
+        <div class="mb-4">
+            <div class="alert alert-info">
+                <strong>Supported File Types:</strong>
+                <ul class="mt-2 mb-0">
+                    <li><strong>.zip</strong> - Archives (will be extracted automatically)</li>
+                    <li><strong>.evtx</strong> - Windows Event Logs</li>
+                    <li><strong>.ndjson</strong> - Newline Delimited JSON</li>
+                    <li><strong>.json</strong> - JSON Files</li>
+                    <li><strong>.jsonl</strong> - JSON Lines</li>
+                    <li><strong>.log</strong> - Log Files</li>
+                    <li><strong>.csv</strong> - CSV Files</li>
+                </ul>
+                <p class="mt-2 mb-0 text-small"><strong>Note:</strong> ZIP files will be automatically extracted and searched for valid file types (including in subfolders).</p>
+            </div>
+        </div>
+        
+        <!-- Upload Area -->
+        <div id="uploadArea" class="upload-area" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+            <div class="upload-icon">📁</div>
+            <h3 class="mb-2">Drag and drop files here</h3>
+            <p class="text-muted mb-3">or</p>
+            <label for="fileInput" class="btn btn-primary">
+                Browse Files (Select)
+            </label>
+            <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFileSelect(event)">
+        </div>
+        
+        <!-- Selected Files List -->
+        <div id="selectedFiles" class="mt-4" style="display: none;">
+            <h3 class="mb-3">Selected Files</h3>
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Size</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th style="width: 100px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filesList">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="mt-4">
+                <button id="uploadBtn" class="btn btn-primary" onclick="startUpload()" disabled>
+                    Start Upload
+                </button>
+                <button class="btn btn-secondary" onclick="clearFiles()">
+                    Clear All
+                </button>
+            </div>
+        </div>
+        
+        <!-- Upload Progress -->
+        <div id="uploadProgress" class="mt-4" style="display: none;">
+            <h3 class="mb-3">Upload Progress</h3>
+            <div class="progress" style="height: 30px;">
+                <div id="progressBar" class="progress-bar progress-bar-animated" style="width: 0%">0%</div>
+            </div>
+            <p class="text-center mt-2" id="progressText">Uploading...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Method 3: Bulk Upload Folder -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Method 3: Bulk Upload Folder</h2>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info mb-4">
+            <strong>📋 For Large Files & Bulk Operations</strong>
+            <p class="mt-2 mb-0">Upload large files or multiple files at once by copying them to the monitored folder on the server. The system will automatically detect and import them.</p>
+        </div>
+        
+        <div class="grid grid-2 mb-4">
+            <div class="info-card">
+                <h4 class="mb-3">📁 Upload Folder Location</h4>
+                <div class="mb-3">
+                    <div class="text-muted text-small mb-1">Root Folder (create subfolder here)</div>
+                    <div class="fw-bold code-block">/opt/casescope/bulk_upload/</div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="text-muted text-small mb-1">Your Case ID</div>
+                    <div class="case-id-display">{{ case.id }}</div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="text-muted text-small mb-1">Create This Subfolder</div>
+                    <div class="fw-bold code-block highlight">/opt/casescope/bulk_upload/{{ case.id }}/</div>
+                </div>
+            </div>
+            
+            <div class="info-card">
+                <h4 class="mb-3">📝 Instructions</h4>
+                <ol class="text-small">
+                    <li class="mb-2">Access the server via SFTP, SCP, or direct filesystem access</li>
+                    <li class="mb-2">Navigate to: <code>/opt/casescope/bulk_upload/</code></li>
+                    <li class="mb-2">Create a subfolder named: <strong>{{ case.id }}</strong></li>
+                    <li class="mb-2">Copy your evidence files into this subfolder</li>
+                    <li class="mb-2">Click "Scan for New Files" below to import them</li>
+                    <li class="mb-2">Files will be moved to the case and indexed</li>
+                </ol>
+            </div>
+        </div>
+        
+        <div class="alert alert-warning mb-4">
+            <strong>⚠️ Important:</strong>
+            <ul class="mt-2 mb-0 text-small">
+                <li>Always create a subfolder with your case ID ({{ case.id }}) - don't upload directly to the root</li>
+                <li>This prevents files from different cases mixing together</li>
+                <li>Files will be moved (not copied) during import</li>
+                <li>Large files may take time to process</li>
+            </ul>
+        </div>
+        
+        <div class="scan-section">
+            <h4 class="mb-3">🔍 Scan for New Files</h4>
+            <p class="text-muted text-small mb-3">
+                Click the button below to check the folder <code>/opt/casescope/bulk_upload/{{ case.id }}/</code> for new files.
+                Any files found will be imported into this case.
+            </p>
+            
+            <button id="scanBtn" class="btn btn-primary btn-lg" onclick="scanForFiles()">
+                <span id="scanBtnText">Scan for New Files</span>
+            </button>
+            
+            <div id="scanResults" class="mt-4" style="display: none;">
+                <div class="card" style="background: var(--color-bg-tertiary);">
+                    <div class="card-body">
+                        <h5 class="mb-3">Scan Results</h5>
+                        <div id="scanResultsContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-4">
+            <h4 class="mb-3">Example Commands</h4>
+            <div class="code-block p-3">
+                <div class="mb-2"># Connect via SFTP</div>
+                <div class="fw-bold mb-3">sftp {{ current_user.username }}@{{ request.host.split(':')[0] }}</div>
+                
+                <div class="mb-2"># Create your case subfolder</div>
+                <div class="fw-bold mb-3">mkdir /opt/casescope/bulk_upload/{{ case.id }}</div>
+                
+                <div class="mb-2"># Navigate to your case folder</div>
+                <div class="fw-bold mb-3">cd /opt/casescope/bulk_upload/{{ case.id }}/</div>
+                
+                <div class="mb-2"># Upload files</div>
+                <div class="fw-bold">put /path/to/your/file.evtx</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseId = {{ case.id }};
+let selectedFiles = [];
+
+// Drag and drop handlers
+function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('uploadArea').classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('uploadArea').classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('uploadArea').classList.remove('drag-over');
+    
+    const files = e.dataTransfer.files;
+    addFiles(files);
+}
+
+// File selection handler
+function handleFileSelect(e) {
+    const files = e.target.files;
+    addFiles(files);
+}
+
+// Add files to list
+function addFiles(files) {
+    for (let file of files) {
+        selectedFiles.push(file);
+    }
+    updateFilesList();
+}
+
+// Update files list display
+function updateFilesList() {
+    if (selectedFiles.length === 0) {
+        document.getElementById('selectedFiles').style.display = 'none';
+        return;
+    }
+    
+    document.getElementById('selectedFiles').style.display = 'block';
+    document.getElementById('uploadBtn').disabled = false;
+    
+    const tbody = document.getElementById('filesList');
+    tbody.innerHTML = '';
+    
+    selectedFiles.forEach((file, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="fw-bold">${file.name}</td>
+            <td>${formatFileSize(file.size)}</td>
+            <td>${getFileType(file.name)}</td>
+            <td><span class="badge badge-secondary">Pending</span></td>
+            <td>
+                <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">
+                    Remove
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// Remove file from list
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    updateFilesList();
+}
+
+// Clear all files
+function clearFiles() {
+    selectedFiles = [];
+    updateFilesList();
+}
+
+// Get file type from extension
+function getFileType(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const types = {
+        'evtx': 'Event Log',
+        'ndjson': 'NDJSON',
+        'json': 'JSON',
+        'jsonl': 'JSON Lines',
+        'log': 'Log File',
+        'csv': 'CSV',
+        'zip': 'Archive'
+    };
+    return types[ext] || 'Unknown';
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Chunk upload configuration
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+const MAX_CONCURRENT_CHUNKS = 3; // Upload 3 chunks at a time
+let activeUploads = new Map();
+
+// Generate unique upload ID
+function generateUploadId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// Upload a single file with chunking
+async function uploadFileChunked(file, onProgress) {
+    const uploadId = generateUploadId();
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    
+    activeUploads.set(uploadId, { file: file, cancelled: false });
+    
+    try {
+        // Upload chunks in batches
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += MAX_CONCURRENT_CHUNKS) {
+            // Check if cancelled
+            if (activeUploads.get(uploadId)?.cancelled) {
+                throw new Error('Upload cancelled');
+            }
+            
+            // Upload batch of chunks concurrently
+            const chunkPromises = [];
+            const batchEnd = Math.min(chunkIndex + MAX_CONCURRENT_CHUNKS, totalChunks);
+            
+            for (let i = chunkIndex; i < batchEnd; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+                
+                const formData = new FormData();
+                formData.append('chunk', chunk);
+                formData.append('chunkIndex', i);
+                formData.append('totalChunks', totalChunks);
+                formData.append('uploadId', uploadId);
+                formData.append('fileName', file.name);
+                formData.append('fileSize', file.size);
+                
+                chunkPromises.push(
+                    fetch(`/upload/chunk/${caseId}`, {
+                        method: 'POST',
+                        body: formData
+                    }).then(async response => {
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Chunk upload failed');
+                        }
+                        return response.json();
+                    })
+                );
+            }
+            
+            // Wait for batch to complete
+            await Promise.all(chunkPromises);
+            
+            // Update progress
+            const progress = Math.round((batchEnd / totalChunks) * 100);
+            if (onProgress) onProgress(progress);
+        }
+        
+        // Complete upload (assemble chunks)
+        const completeResponse = await fetch(`/upload/complete/${caseId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                uploadId: uploadId,
+                fileName: file.name,
+                totalChunks: totalChunks,
+                fileSize: file.size
+            })
+        });
+        
+        if (!completeResponse.ok) {
+            const error = await completeResponse.json();
+            throw new Error(error.error || 'Failed to complete upload');
+        }
+        
+        const result = await completeResponse.json();
+        activeUploads.delete(uploadId);
+        
+        return result;
+        
+    } catch (error) {
+        // Cancel upload on error
+        try {
+            await fetch(`/upload/cancel/${caseId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uploadId: uploadId })
+            });
+        } catch (e) {
+            console.error('Failed to cancel upload:', e);
+        }
+        
+        activeUploads.delete(uploadId);
+        throw error;
+    }
+}
+
+// Start upload with chunking
+async function startUpload() {
+    if (selectedFiles.length === 0) {
+        alert('No files selected');
+        return;
+    }
+    
+    // Show progress area
+    document.getElementById('uploadProgress').style.display = 'block';
+    document.getElementById('uploadBtn').disabled = true;
+    
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const filesList = document.getElementById('filesList');
+    
+    try {
+        let successCount = 0;
+        let failCount = 0;
+        const results = [];
+        
+        // Upload files one at a time
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            const row = filesList.children[i];
+            const statusCell = row.cells[3];
+            
+            // Update status
+            statusCell.innerHTML = '<span class="badge badge-info">Uploading...</span>';
+            progressText.textContent = `Uploading ${i + 1}/${selectedFiles.length}: ${file.name}`;
+            
+            try {
+                // Upload with progress callback
+                const result = await uploadFileChunked(file, (progress) => {
+                    progressBar.style.width = progress + '%';
+                    progressBar.textContent = progress + '%';
+                    progressText.textContent = `Uploading ${i + 1}/${selectedFiles.length}: ${file.name} (${progress}%)`;
+                });
+                
+                // Success
+                statusCell.innerHTML = '<span class="badge badge-success">✓ Uploaded</span>';
+                results.push({ file: file.name, success: true, result: result });
+                successCount++;
+                
+            } catch (error) {
+                console.error(`Failed to upload ${file.name}:`, error);
+                statusCell.innerHTML = `<span class="badge badge-error">✗ Failed</span>`;
+                results.push({ file: file.name, success: false, error: error.message });
+                failCount++;
+            }
+        }
+        
+        // Show completion
+        progressBar.style.width = '100%';
+        progressBar.textContent = '100%';
+        progressBar.classList.remove('progress-bar-animated');
+        progressBar.classList.add('bg-success');
+        progressText.textContent = `Upload Complete! Success: ${successCount}, Failed: ${failCount}`;
+        
+        // Show results alert
+        if (failCount === 0) {
+            alert(`✓ All ${successCount} file(s) uploaded successfully!\n\nFiles are now being processed and indexed.`);
+        } else {
+            let message = `Upload Complete:\n\n`;
+            message += `✓ Success: ${successCount}\n`;
+            message += `✗ Failed: ${failCount}\n\n`;
+            if (failCount > 0) {
+                message += 'Failed files:\n';
+                results.filter(r => !r.success).forEach(r => {
+                    message += `  - ${r.file}: ${r.error}\n`;
+                });
+            }
+            alert(message);
+            
+            // Redirect to case files page after successful upload
+            if (successCount > 0) {
+                window.location.href = `/case/${caseId}/files`;
+                return; // Don't reset, we're redirecting
+            }
+        }
+        
+        // Reset after a delay
+        setTimeout(() => {
+            clearFiles();
+            document.getElementById('uploadProgress').style.display = 'none';
+            document.getElementById('uploadBtn').disabled = false;
+            progressBar.style.width = '0%';
+            progressBar.classList.add('progress-bar-animated');
+            progressBar.classList.remove('bg-success');
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Upload error:', error);
+        progressText.textContent = 'Upload failed: ' + error.message;
+        progressBar.classList.remove('progress-bar-animated');
+        progressBar.classList.add('bg-danger');
+        alert('Upload failed: ' + error.message);
+    }
+}
+
+// Scan for new files in bulk upload folder
+async function scanForFiles() {
+    const btn = document.getElementById('scanBtn');
+    const btnText = document.getElementById('scanBtnText');
+    const resultsDiv = document.getElementById('scanResults');
+    const resultsContent = document.getElementById('scanResultsContent');
+    
+    // Disable button and show loading
+    btn.disabled = true;
+    btnText.textContent = 'Scanning...';
+    
+    try {
+        const response = await fetch(`/case/${caseId}/scan-bulk-upload`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            resultsDiv.style.display = 'block';
+            
+            if (data.files_found === 0) {
+                resultsContent.innerHTML = `
+                    <div class="text-muted text-center p-3">
+                        <p>No files found in <code>/opt/casescope/bulk_upload/${caseId}/</code></p>
+                        <p class="text-small">Make sure you've created the folder and uploaded files to it.</p>
+                    </div>
+                `;
+            } else {
+                resultsContent.innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>✓ Found ${data.files_found} file(s)</strong>
+                        <p class="mt-2 mb-0">Processing started in background. Files will be extracted, validated, and staged for ingestion.</p>
+                        <p class="text-small mt-2 mb-0">Task ID: <code>${data.task_id}</code></p>
+                    </div>
+                    <div class="mt-3 text-small">
+                        <p><strong>Processing Steps:</strong></p>
+                        <ol>
+                            <li>ZIP files will be extracted recursively</li>
+                            <li>Valid files (.evtx, .json, .ndjson, .jsonl, .log, .csv) will be moved to staging</li>
+                            <li>Invalid files will be removed</li>
+                            <li>Upload folder will be cleaned up</li>
+                            <li>Files will be queued for ingestion</li>
+                        </ol>
+                        <p class="mt-2">Check the Case Files page to view staged files and ingestion progress.</p>
+                    </div>
+                `;
+            }
+        } else {
+            resultsDiv.style.display = 'block';
+            resultsContent.innerHTML = `
+                <div class="alert alert-error">
+                    <strong>Error:</strong> ${data.error || 'Failed to scan folder'}
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error scanning for files:', error);
+        resultsDiv.style.display = 'block';
+        resultsContent.innerHTML = `
+            <div class="alert alert-error">
+                <strong>Error:</strong> Failed to scan for files. Please try again.
+            </div>
+        `;
+    } finally {
+        // Re-enable button
+        btn.disabled = false;
+        btnText.textContent = 'Scan for New Files';
+    }
+}
+</script>
+
+<style>
+.upload-area {
+    border: 3px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 4rem 2rem;
+    text-align: center;
+    background: var(--color-bg-tertiary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.upload-area:hover,
+.upload-area.drag-over {
+    border-color: var(--color-primary);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.upload-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+}
+
+.info-card {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+}
+
+.case-id-display {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    text-align: center;
+    padding: var(--spacing-lg);
+    background: rgba(59, 130, 246, 0.1);
+    border: 2px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    margin: var(--spacing-md) 0;
+}
+
+.scan-section {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    text-align: center;
+}
+
+.btn-lg {
+    padding: var(--spacing-md) var(--spacing-xl);
+    font-size: 1.125rem;
+}
+
+.alert-info {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    color: var(--color-text-primary);
+}
+
+.alert-warning {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid var(--color-warning);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    color: var(--color-text-primary);
+}
+
+.alert-success {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid var(--color-success);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    color: var(--color-text-primary);
+}
+
+.alert-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--color-error);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    color: var(--color-text-primary);
+}
+
+.alert-info ul,
+.alert-warning ul {
+    margin-left: var(--spacing-lg);
+}
+
+.code-block {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+
+.code-block.highlight {
+    border-color: var(--color-primary);
+    border-width: 2px;
+    background: rgba(59, 130, 246, 0.05);
+}
+
+code {
+    background: var(--color-bg-tertiary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+
+.progress {
+    background-color: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: var(--color-primary);
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+}
+
+.progress-bar-animated {
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    0% { background-position: 0 0; }
+    100% { background-position: 40px 0; }
+}
+
+.bg-success {
+    background-color: var(--color-success) !important;
+}
+
+.bg-danger {
+    background-color: var(--color-error) !important;
+}
+
+.fw-bold {
+    font-weight: 600;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-secondary {
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+}
+
+.badge-info {
+    background-color: rgba(59, 130, 246, 0.1);
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+}
+
+.badge-success {
+    background-color: rgba(34, 197, 94, 0.1);
+    color: var(--color-success);
+    border: 1px solid var(--color-success);
+}
+
+.badge-error {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--color-error);
+    border: 1px solid var(--color-error);
+}
+</style>
+{% endblock %}

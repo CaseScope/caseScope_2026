@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+{% block title %}Select Case - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📁 Select Case</h1>
+        <p class="content-subtitle">Choose a case to work on</p>
+    </div>
+    <div>
+        {% if current_user.role != 'read-only' %}
+        <button class="btn btn-primary" onclick="openNewCaseModal()">
+            New Case
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Available Cases</h2>
+    </div>
+    <div class="card-body">
+        {% if cases_data %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Case ID</th>
+                        <th>Case Name</th>
+                        <th>Company</th>
+                        <th>Created By</th>
+                        <th>Created On</th>
+                        <th>Modified On</th>
+                        <th>Status</th>
+                        <th>Assigned To</th>
+                        {% if current_user.role == 'administrator' %}
+                        <th style="width: 100px;">Actions</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in cases_data %}
+                    <tr data-case-id="{{ item.case.id }}">
+                        <td class="fw-bold case-cell">#{{ item.case.id }}</td>
+                        <td class="fw-bold case-cell">{{ item.case.name }}</td>
+                        <td class="case-cell">{{ item.case.company or '-' }}</td>
+                        <td class="case-cell">{{ item.creator.username if item.creator else 'Unknown' }}</td>
+                        <td class="case-cell">{{ item.case.created_at.strftime('%Y-%m-%d') if item.case.created_at else '-' }}</td>
+                        <td class="case-cell">{{ item.case.updated_at.strftime('%Y-%m-%d') if item.case.updated_at else '-' }}</td>
+                        <td class="case-cell">
+                            <span class="badge {% if item.case.status == 'Completed' %}badge-success{% elif item.case.status == 'In Progress' %}badge-primary{% elif item.case.status == 'Archived' %}badge-error{% else %}badge-warning{% endif %}">
+                                {{ item.case.status or 'New' }}
+                            </span>
+                        </td>
+                        <td class="case-cell">{{ item.assignee.username if item.assignee else 'Unassigned' }}</td>
+                        {% if current_user.role == 'administrator' %}
+                        <td>
+                            <button class="btn btn-danger btn-sm" onclick="deleteCase(event, {{ item.case.id }}, '{{ item.case.name }}')">
+                                Delete
+                            </button>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center p-5">
+            <p class="text-muted">No cases available</p>
+            <p class="text-muted text-small">Contact an administrator to create a case</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+<!-- New/Edit Case Modal -->
+<div id="caseModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="caseModalTitle">New Case</h3>
+            <button class="modal-close" onclick="closeCaseModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="caseForm">
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Case Name <span style="color: var(--color-error)">*</span></label>
+                        <input type="text" class="form-input" id="caseName" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Company</label>
+                        <input type="text" class="form-input" id="caseCompany" name="company">
+                    </div>
+                </div>
+                
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="caseStatus" name="status">
+                            <option value="New">New</option>
+                            <option value="Assigned">Assigned</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Archived">Archived</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Assigned To</label>
+                        <select class="form-select" id="caseAssignedTo" name="assigned_to">
+                            <option value="">Unassigned</option>
+                            {% for user in all_users %}
+                            <option value="{{ user.id }}">{{ user.username }} ({{ user.role }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-textarea" id="caseDescription" name="description" rows="4"></textarea>
+                </div>
+                
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Router IP Addresses</label>
+                        <input type="text" class="form-input" id="caseRouterIPs" name="router_ips" 
+                               placeholder="192.168.1.1, 10.0.0.1">
+                        <small class="text-muted">Comma-separated if multiple</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">VPN IP Ranges</label>
+                        <input type="text" class="form-input" id="caseVPNIPs" name="vpn_ips" 
+                               placeholder="192.168.1.0/24, 10.0.0.50-10.0.0.60">
+                        <small class="text-muted">Supports: IPs, Subnets (CIDR), Ranges</small>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCaseModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveCase()">Save Case</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let isEditMode = false;
+let editingCaseId = null;
+
+// Open New Case Modal
+function openNewCaseModal() {
+    isEditMode = false;
+    editingCaseId = null;
+    
+    // Clear form
+    document.getElementById('caseForm').reset();
+    document.getElementById('caseModalTitle').textContent = 'New Case';
+    document.getElementById('caseStatus').value = 'New';
+    
+    document.getElementById('caseModal').style.display = 'flex';
+}
+
+// Close Case Modal
+function closeCaseModal() {
+    document.getElementById('caseModal').style.display = 'none';
+}
+
+// Save Case (Create or Update)
+async function saveCase() {
+    const form = document.getElementById('caseForm');
+    const formData = new FormData(form);
+    
+    // Validate
+    if (!formData.get('name')) {
+        alert('Case name is required');
+        return;
+    }
+    
+    // Convert to JSON
+    const data = {};
+    formData.forEach((value, key) => {
+        data[key] = value;
+    });
+    
+    try {
+        const url = isEditMode ? `/case/${editingCaseId}/edit` : '/case/create';
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(isEditMode ? 'Case updated successfully' : 'Case created successfully');
+            closeCaseModal();
+            location.reload(); // Refresh to show new/updated case
+        } else {
+            alert('Failed to save case: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error saving case:', error);
+        alert('Failed to save case');
+    }
+}
+
+// Delete Case
+async function deleteCase(event, caseId, caseName) {
+    // Stop event propagation to prevent row click
+    event.stopPropagation();
+    
+    // Prompt for reason
+    const reason = prompt(`Why are you deleting case "${caseName}"?\n\nThis action cannot be undone. Please provide a reason (minimum 10 characters):`);
+    
+    if (!reason) {
+        return; // User cancelled
+    }
+    
+    if (reason.trim().length < 10) {
+        alert('Deletion reason must be at least 10 characters');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to permanently delete case "${caseName}"?\n\nThis will remove all case data and cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/case/${caseId}/delete`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ reason: reason.trim() })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('Case deleted successfully');
+            location.reload(); // Refresh to update list
+        } else {
+            alert('Failed to delete case: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error deleting case:', error);
+        alert('Failed to delete case');
+    }
+}
+
+// Make table row cells clickable (except delete button)
+document.querySelectorAll('.case-cell').forEach(cell => {
+    cell.style.cursor = 'pointer';
+    
+    cell.addEventListener('click', async function() {
+        const row = this.closest('tr');
+        const caseId = row.dataset.caseId;
+        
+        try {
+            const response = await fetch(`/case/select/${caseId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.redirect) {
+                window.location.href = data.redirect;
+            } else {
+                alert('Failed to select case: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error selecting case:', error);
+            alert('Failed to select case');
+        }
+    });
+});
+
+// Add hover effect to rows
+document.querySelectorAll('tbody tr').forEach(row => {
+    row.addEventListener('mouseenter', function() {
+        this.style.backgroundColor = 'var(--color-bg-tertiary)';
+    });
+    
+    row.addEventListener('mouseleave', function() {
+        this.style.backgroundColor = '';
+    });
+});
+
+// Close modal on overlay click
+document.getElementById('caseModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeCaseModal();
+    }
+});
+</script>
+{% endblock %}

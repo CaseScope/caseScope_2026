@@ -7,8 +7,6 @@
     
     <!-- Main CSS -->
     <link rel="stylesheet" href="/static/css/main.css">
-    <link rel="stylesheet" href="/static/css/components.css">
-    <link rel="stylesheet" href="/static/css/layout.css">
     
     {% block head %}{% endblock %}
 </head>
@@ -37,23 +35,60 @@
                     <span>Dashboard</span>
                 </a>
                 
-                <!-- Cases -->
-                <a href="/cases" class="sidebar-nav-item">
-                    <span class="sidebar-nav-icon">📁</span>
-                    <span>Cases</span>
+                <!-- Case Management -->
+                <a href="/case/dashboard" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">📈</span>
+                    <span>Case Dashboard</span>
                 </a>
                 
-                <!-- Search -->
+                <a href="/case/files" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">📄</span>
+                    <span>Case Files</span>
+                </a>
+                
+                <a href="/case/select" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">📁</span>
+                    <span>Select Case</span>
+                </a>
+                
+                <a href="/case/evidence" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">🗂️</span>
+                    <span>Case Evidence</span>
+                </a>
+                
+                <!-- Search Section -->
+                <div class="sidebar-section-header">Search</div>
+                
                 <a href="/search" class="sidebar-nav-item">
                     <span class="sidebar-nav-icon">🔍</span>
                     <span>Search</span>
+                </a>
+                
+                <a href="/search/events" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">🎯</span>
+                    <span>Hunt Events</span>
+                </a>
+                
+                <a href="/search/systems" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">💻</span>
+                    <span>Known Systems</span>
+                </a>
+                
+                <a href="/search/users" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">👤</span>
+                    <span>Known Users</span>
+                </a>
+                
+                <a href="/ioc" class="sidebar-nav-item">
+                    <span class="sidebar-nav-icon">🎯</span>
+                    <span>IOC Management</span>
                 </a>
                 
                 <!-- Administrator Section -->
                 {% if current_user and current_user.is_authenticated and current_user.role == 'administrator' %}
                 <div class="sidebar-section-header">Administrator</div>
                 
-                <a href="/admin/settings" class="sidebar-nav-item">
+                <a href="/settings" class="sidebar-nav-item">
                     <span class="sidebar-nav-icon">⚙️</span>
                     <span>Settings</span>
                 </a>

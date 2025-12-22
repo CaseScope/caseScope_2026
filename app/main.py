@@ -52,13 +52,32 @@ if routes_path.exists():
     for (_, module_name, _) in pkgutil.iter_modules([str(routes_path)]):
         try:
             module = importlib.import_module(f'routes.{module_name}')
-            # Look for blueprint in module
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if hasattr(attr, 'name') and hasattr(attr, 'register'):
-                    # This is a Blueprint
-                    app.register_blueprint(attr)
-                    print(f"✓ Registered blueprint: {attr.name}")
+            # Look for blueprint in module by checking known blueprint naming pattern
+            blueprint_registered = False
+            for attr_name in ['auth_bp', 'admin_bp', 'case_bp', 'dashboard_bp', 'settings_bp', f'{module_name}_bp']:
+                if hasattr(module, attr_name):
+                    attr = getattr(module, attr_name)
+                    if hasattr(attr, 'name') and hasattr(attr, 'register'):
+                        # This is a Blueprint
+                        app.register_blueprint(attr)
+                        print(f"✓ Registered blueprint: {attr.name}")
+                        blueprint_registered = True
+                        break
+            
+            if not blueprint_registered:
+                # Fallback: try to find any blueprint
+                for attr_name in dir(module):
+                    try:
+                        attr = getattr(module, attr_name)
+                        if hasattr(attr, 'name') and hasattr(attr, 'register'):
+                            # This is a Blueprint
+                            app.register_blueprint(attr)
+                            print(f"✓ Registered blueprint: {attr.name}")
+                            blueprint_registered = True
+                            break
+                    except:
+                        pass  # Skip attributes that fail to access
+                        
         except Exception as e:
             print(f"✗ Failed to load routes.{module_name}: {e}")
 

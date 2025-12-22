@@ -37,13 +37,6 @@ def admin_or_analyst_required(f):
     return decorated_function
 
 
-@admin_bp.route('/settings')
-@admin_required
-def settings():
-    """System settings page"""
-    return render_template('admin/settings.html')
-
-
 @admin_bp.route('/users')
 @admin_or_analyst_required
 def users():

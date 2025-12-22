@@ -1,0 +1,449 @@
+{% extends "base.html" %}
+
+{% block title %}Case Files - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📄 Case Files</h1>
+        <p class="content-subtitle">{{ case.name }}</p>
+    </div>
+    <div>
+        {% if current_user.role != 'read-only' %}
+        <a href="{{ url_for('case.files_upload', case_id=case.id) }}" class="btn btn-primary">
+            Upload Files
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Statistics Row -->
+<div class="grid grid-5 mb-4" id="statsGrid">
+    <div class="stat-card">
+        <div class="stat-label">Total Files</div>
+        <div class="stat-value stat-value-primary" id="stat-total-files">{{ stats.total_files }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Total Events</div>
+        <div class="stat-value stat-value-success" id="stat-total-events">{{ "{:,}".format(stats.total_events) if stats.total_events else '0' }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Indexed Files</div>
+        <div class="stat-value stat-value-info" id="stat-indexed-files">{{ stats.indexed_files }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Pending Files</div>
+        <div class="stat-value stat-value-warning" id="stat-pending-files">{{ stats.pending_files }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">
+            Hidden Files
+            <span class="text-small" style="font-weight: normal;">(empty)</span>
+        </div>
+        <div class="stat-value stat-value-secondary" id="stat-hidden-files">{{ stats.hidden_files }}</div>
+    </div>
+</div>
+
+<!-- Show/Hide Empty Files Toggle -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <input type="text" class="form-control" id="fileSearch" placeholder="🔍 Search filenames..." style="width: 300px;">
+    </div>
+    <div>
+        <select class="form-select" id="fileFilterDropdown" onchange="applyFileFilter(this.value)" style="width: 200px;">
+            <option value="hide_hidden" {% if not show_hidden %}selected{% endif %}>Hide Hidden</option>
+            <option value="only_hidden">Only Hidden</option>
+            <option value="show_all" {% if show_hidden %}selected{% endif %}>Show All</option>
+        </select>
+    </div>
+</div>
+
+<!-- Processing Progress Indicator -->
+<div id="processingIndicator" class="card mb-4" style="display: none; border-left: 4px solid #3b82f6;">
+    <div class="card-body p-3">
+        <div class="d-flex align-items-center mb-2">
+            <div class="spinner-border spinner-border-sm text-primary me-3" role="status">
+                <span class="visually-hidden">Processing...</span>
+            </div>
+            <div class="flex-grow-1">
+                <strong>Processing files...</strong>
+                <div class="text-small text-muted">
+                    <span id="processing-status">File <span id="current-file">0</span> of <span id="total-files-processing">0</span></span>
+                </div>
+            </div>
+            <div class="text-muted text-small" id="last-update">
+                Updated: just now
+            </div>
+        </div>
+        <!-- Progress Bar -->
+        <div class="progress" style="height: 8px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                 role="progressbar" 
+                 id="processing-progress-bar"
+                 style="width: 0%"
+                 aria-valuenow="0" 
+                 aria-valuemin="0" 
+                 aria-valuemax="100">
+            </div>
+        </div>
+        <div class="text-small text-muted mt-1" id="progress-percentage">0% complete</div>
+    </div>
+</div>
+
+<!-- Files Table -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Uploaded Files</h2>
+    </div>
+    <div class="card-body">
+        {% if files %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>System</th>
+                        <th>Uploaded</th>
+                        <th>Uploaded By</th>
+                        <th>Events</th>
+                        <th>SIGMA</th>
+                        <th>IOCs</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="filesTableBody">
+                    {% for file in files %}
+                    <tr class="file-row" data-filename="{{ file.filename.lower() }}" data-hidden="{{ 'true' if file.is_hidden else 'false' }}">
+                        <td>
+                            <span class="fw-bold">{{ file.filename }}</span>
+                            <div class="text-small text-muted">
+                                {{ "%.2f"|format(file.file_size / 1024 / 1024) }} MB
+                            </div>
+                        </td>
+                        <td>
+                            {% if file.source_system %}
+                                <span class="badge badge-secondary">{{ file.source_system }}</span>
+                            {% elif file.event_count == 0 %}
+                                <span class="text-muted" title="Empty file - no events">Empty</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div>{{ file.uploaded_at.strftime('%Y-%m-%d') }}</div>
+                            <div class="text-small text-muted">{{ file.uploaded_at.strftime('%H:%M:%S') }}</div>
+                        </td>
+                        <td>
+                            {% if file.uploader %}
+                                {{ file.uploader.username }}
+                            {% else %}
+                                <span class="text-muted">Unknown</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="stat-value-success">{{ "{:,}".format(file.event_count) if file.event_count else '0' }}</span>
+                        </td>
+                        <td>
+                            {% if file.sigma_violations > 0 %}
+                                <span class="badge badge-error">{{ file.sigma_violations }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.ioc_count > 0 %}
+                                <span class="badge badge-warning">{{ file.ioc_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.status == 'indexed' %}
+                                <span class="badge badge-success">✓ Indexed</span>
+                            {% elif file.status == 'processing' %}
+                                <span class="badge badge-info">Processing...</span>
+                            {% elif file.status == 'pending' %}
+                                <span class="badge badge-secondary">Pending</span>
+                            {% elif file.status == 'failed' %}
+                                <span class="badge badge-error">Failed</span>
+                            {% else %}
+                                <span class="badge badge-secondary">{{ file.status }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center p-5">
+            <p class="text-muted">No files uploaded yet</p>
+            {% if current_user.role != 'read-only' %}
+            <p class="text-muted text-small">Click "Upload Files" to add evidence files to this case</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseId = {{ case.id }};
+let updateInterval = null;
+let lastUpdate = new Date();
+
+// Format number with commas
+function formatNumber(num) {
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// Update statistics from server
+async function updateStats() {
+    try {
+        const response = await fetch(`/case/${caseId}/files/stats`);
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        const stats = data.stats;
+        
+        // Update stat cards with animation
+        updateStatCard('stat-total-files', stats.total_files);
+        updateStatCard('stat-total-events', formatNumber(stats.total_events));
+        updateStatCard('stat-indexed-files', stats.indexed_files);
+        updateStatCard('stat-pending-files', stats.pending_files);
+        updateStatCard('stat-total-size', stats.total_size_gb.toFixed(2) + ' GB');
+        
+        // Show/hide processing indicator
+        if (stats.processing_files > 0 || stats.pending_files > 0) {
+            document.getElementById('processingIndicator').style.display = 'block';
+            
+            // Update progress
+            const total = stats.indexed_files + stats.processing_files + stats.pending_files;
+            const current = stats.indexed_files;
+            const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+            
+            document.getElementById('current-file').textContent = current;
+            document.getElementById('total-files-processing').textContent = total;
+            document.getElementById('progress-percentage').textContent = `${percentage}% complete`;
+            
+            const progressBar = document.getElementById('processing-progress-bar');
+            progressBar.style.width = percentage + '%';
+            progressBar.setAttribute('aria-valuenow', percentage);
+        } else {
+            document.getElementById('processingIndicator').style.display = 'none';
+        }
+        
+        // Update timestamp
+        lastUpdate = new Date();
+        updateTimestamp();
+        
+        // If files are being processed, refresh page every 30 seconds to update table
+        if (stats.processing_files > 0 && !updateInterval) {
+            startAutoRefresh();
+        } else if (stats.processing_files === 0 && updateInterval) {
+            stopAutoRefresh();
+        }
+        
+    } catch (error) {
+        console.error('Failed to update stats:', error);
+    }
+}
+
+// Update a stat card with fade animation
+function updateStatCard(id, value) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    
+    const oldValue = element.textContent;
+    if (oldValue !== value.toString()) {
+        element.style.opacity = '0.5';
+        setTimeout(() => {
+            element.textContent = value;
+            element.style.opacity = '1';
+        }, 150);
+    }
+}
+
+// Update "last updated" timestamp
+function updateTimestamp() {
+    const element = document.getElementById('last-update');
+    if (!element) return;
+    
+    const now = new Date();
+    const seconds = Math.floor((now - lastUpdate) / 1000);
+    
+    let text;
+    if (seconds < 10) {
+        text = 'Updated: just now';
+    } else if (seconds < 60) {
+        text = `Updated: ${seconds}s ago`;
+    } else {
+        const minutes = Math.floor(seconds / 60);
+        text = `Updated: ${minutes}m ago`;
+    }
+    
+    element.textContent = text;
+}
+
+// Start auto-refresh during processing
+function startAutoRefresh() {
+    if (updateInterval) return;
+    
+    console.log('🔄 Auto-refresh started - files are processing');
+    updateInterval = setInterval(() => {
+        console.log('♻️ Refreshing page to show updated files...');
+        window.location.reload();
+    }, 30000); // Reload every 30 seconds
+}
+
+// Stop auto-refresh
+function stopAutoRefresh() {
+    if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+        console.log('⏹️ Auto-refresh stopped - processing complete');
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    // Initial stats update
+    updateStats();
+    
+    // Poll stats every 5 seconds
+    setInterval(updateStats, 5000);
+    
+    // Update timestamp every second
+    setInterval(updateTimestamp, 1000);
+    
+    console.log('📊 Real-time stats monitoring active');
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    stopAutoRefresh();
+});
+
+// Toggle hidden files
+function toggleHiddenFiles(show) {
+    const url = new URL(window.location);
+    url.searchParams.set('show_hidden', show ? 'true' : 'false');
+    window.location.href = url.toString();
+}
+
+// Apply file filter
+function applyFileFilter(filterType) {
+    const url = new URL(window.location);
+    if (filterType === 'show_all') {
+        url.searchParams.set('show_hidden', 'true');
+        url.searchParams.delete('only_hidden');
+    } else if (filterType === 'only_hidden') {
+        url.searchParams.set('only_hidden', 'true');
+        url.searchParams.delete('show_hidden');
+    } else {
+        url.searchParams.delete('show_hidden');
+        url.searchParams.delete('only_hidden');
+    }
+    window.location.href = url.toString();
+}
+
+// Search functionality
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('fileSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('.file-row');
+            
+            let visibleCount = 0;
+            rows.forEach(row => {
+                const filename = row.getAttribute('data-filename');
+                if (filename.includes(searchTerm)) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            // Show "no results" message if needed
+            const tbody = document.getElementById('filesTableBody');
+            let noResultsRow = document.getElementById('noResultsRow');
+            
+            if (visibleCount === 0 && searchTerm !== '') {
+                if (!noResultsRow) {
+                    noResultsRow = document.createElement('tr');
+                    noResultsRow.id = 'noResultsRow';
+                    noResultsRow.innerHTML = '<td colspan="8" class="text-center text-muted p-4">No files match your search</td>';
+                    tbody.appendChild(noResultsRow);
+                }
+            } else {
+                if (noResultsRow) {
+                    noResultsRow.remove();
+                }
+            }
+        });
+    }
+});
+</script>
+
+<style>
+/* Dark theme form controls */
+#fileSearch::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+#fileSearch:focus,
+#fileFilterDropdown:focus {
+    background: rgba(255,255,255,0.08);
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+    outline: none;
+}
+
+#fileFilterDropdown option {
+    background: #1a1f2e;
+    color: #fff;
+}
+
+.card-header {
+    padding: 1rem 1.5rem;
+}
+
+.gap-3 {
+    gap: 1rem;
+}
+</style>
+
+<style>
+.spinner-border {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-width: 0.2em;
+}
+
+.stat-value {
+    transition: opacity 0.3s ease;
+}
+
+#processingIndicator {
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+</style>
+{% endblock %}

@@ -40,5 +40,8 @@ data/
 # Evidence storage directories
 evidence/
 evidence_uploads/
+storage/
+upload_temp/
+bulk_upload/
 ssl/
 *.pem

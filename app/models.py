@@ -49,6 +49,18 @@ class Case(db.Model):
     status = db.Column(db.String(20), default='New')  # New, Assigned, In Progress, Completed, Archived
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     assigned_to = db.Column(db.Integer, db.ForeignKey('user.id'))
+    
+    # OpenSearch configuration
+    opensearch_index = db.Column(db.String(100))  # OpenSearch index name (case-level, e.g., 'case_123')
+    
+    # Network infrastructure
+    router_ips = db.Column(db.Text)  # Comma-separated router IPs
+    vpn_ips = db.Column(db.Text)  # Comma-separated VPN IPs/subnets/ranges (e.g., 192.168.1.0/24, 10.0.0.50-10.0.0.60)
+    
+    # EDR reports
+    edr_reports = db.Column(db.Text)  # EDR reports (separate multiple with *** NEW REPORT ***)
+    
+    # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -58,6 +70,46 @@ class Case(db.Model):
     
     def __repr__(self):
         return f'<Case {self.name}>'
+
+
+class CaseFile(db.Model):
+    """
+    Track uploaded files and their metadata
+    """
+    __tablename__ = 'case_file'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    filename = db.Column(db.String(500), nullable=False)
+    original_filename = db.Column(db.String(500))
+    file_type = db.Column(db.String(50))  # evtx, json, csv, etc.
+    file_size = db.Column(db.BigInteger)  # bytes
+    file_path = db.Column(db.String(1000))  # storage path
+    
+    # Parsed metadata
+    source_system = db.Column(db.String(200))  # Computer name from events
+    event_count = db.Column(db.Integer, default=0)
+    sigma_violations = db.Column(db.Integer, default=0)
+    ioc_count = db.Column(db.Integer, default=0)
+    
+    # Upload tracking
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Processing status
+    status = db.Column(db.String(50), default='pending')  # pending, processing, indexed, failed
+    error_message = db.Column(db.Text)
+    indexed_at = db.Column(db.DateTime)
+    
+    # Visibility flag - hide empty files by default
+    is_hidden = db.Column(db.Boolean, default=False)  # True for files with 0 events
+    
+    # Relationships
+    case = db.relationship('Case', backref='files')
+    uploader = db.relationship('User', backref='uploaded_files')
+    
+    def __repr__(self):
+        return f'<CaseFile {self.filename}>'
 
 
 class AuditLog(db.Model):
