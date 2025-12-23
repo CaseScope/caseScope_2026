@@ -182,7 +182,12 @@ OPENSEARCH_MAX_RETRIES = 3             # Retry attempts
   "level": "keyword",
   "event_data": "object",
   "event_data_fields": "object",
+  "normalized_timestamp": "date",
+  "normalized_computer": "keyword",
+  "normalized_event_id": "keyword",
+  "search_blob": "text",
   "source_file": "keyword",
+  "file_type": "keyword",
   "case_id": "keyword",
   "indexed_at": "date"
 }
@@ -212,7 +217,7 @@ OPENSEARCH_MAX_RETRIES = 3             # Retry attempts
 
 2. **`ingest_staged_file`** (queue: `ingestion`)
    - Parses file based on type
-   - Indexes to OpenSearch
+   - Indexes to OpenSearch with file_type metadata
    - Moves to storage
    - Creates CaseFile record
 
@@ -270,13 +275,19 @@ for event in parse_evtx_file(file_path):
 ### **Processing (Celery Worker)**
 
 1. Parse file:
-   - EVTX → `parse_evtx_file()` (Rust!)
-   - JSON/NDJSON → (coming soon)
+   - EVTX → `parse_evtx_file()` (Rust-based, 10-100x faster)
+   - JSON/NDJSON/JSONL → `parse_ndjson_file()` (Python JSON parser)
    - CSV → (coming soon)
-2. Index to OpenSearch (bulk, chunked)
-3. Create CaseFile database record
-4. Move to storage
-5. Clean up staging
+2. Normalize events (add search_blob, normalized fields)
+3. Extract source system (computer/hostname)
+4. Index to OpenSearch (bulk, chunked) with file_type metadata:
+   - EVTX files: `file_type='EVTX'`
+   - NDJSON files: `file_type='NDJSON'`
+   - CSV files: `file_type='CSV'`
+   - IIS files: `file_type='IIS'`
+5. Create CaseFile database record
+6. Move to storage
+7. Clean up staging
 
 ---
 
@@ -624,12 +635,15 @@ for event in parse_evtx_file(file_path):
 - ✅ **EVTX** - Windows Event Logs (Rust parser)
 - ✅ **ZIP** - Recursive extraction
 
+### Currently Supported:
+- ✅ **JSON** - JSON event files
+- ✅ **NDJSON** - Newline-delimited JSON
+- ✅ **JSONL** - JSON Lines
+
 ### Coming Soon:
-- ⏳ **JSON** - JSON event files
-- ⏳ **NDJSON** - Newline-delimited JSON
-- ⏳ **JSONL** - JSON Lines
 - ⏳ **LOG** - Plain text logs
 - ⏳ **CSV** - CSV files
+- ⏳ **PCAP** - Network packet captures
 
 ---
 
@@ -645,21 +659,52 @@ for event in parse_evtx_file(file_path):
 
 **Completed:**
 1. ✅ EVTX parsing (Rust) - 10-100x faster
-2. ✅ OpenSearch indexing - Bulk with retry
-3. ✅ Chunk-based uploads - 2.5x faster
-4. ✅ Frontend UI with progress - Real-time updates
-5. ✅ Celery background processing - Async
-6. ✅ Memory-safe design - 16GB+ systems
-7. ✅ ZIP extraction - Recursive
-8. ✅ File tracking - Database records
-9. ✅ System name extraction - 100% success rate
+2. ✅ NDJSON/JSON/JSONL parsing - Full support
+3. ✅ OpenSearch indexing - Bulk with retry, file_type metadata
+4. ✅ Chunk-based uploads - 2.5x faster
+5. ✅ Frontend UI with progress - Real-time updates
+6. ✅ Celery background processing - Async
+7. ✅ Memory-safe design - 16GB+ systems
+8. ✅ ZIP extraction - Recursive
+9. ✅ File tracking - Database records
+10. ✅ System name extraction - 100% success rate
+11. ✅ Search blob generation - Full-text search
+12. ✅ Process tree support - NDJSON hierarchy
+13. ✅ Event search system - Boolean operators, deep pagination, file type filtering
 
 **Coming Soon:**
-1. ⏳ JSON/NDJSON parser
-2. ⏳ CSV parser
-3. ⏳ LOG file parser
+1. ⏳ CSV parser
+2. ⏳ LOG file parser
+3. ⏳ PCAP parser
 4. ⏳ Upload history/logs
 5. ⏳ Resume capability for interrupted uploads
 6. ⏳ Parallel multi-file uploads
 
-**Chunk uploads + Rust parsing + Memory-safe design = Fast, reliable evidence processing!** 🎉
+**Chunk uploads + Rust parsing + Memory-safe design + Full-text search = Fast, reliable evidence processing!** 🎉
+
+---
+
+## 📝 Recent Updates
+
+### Version 1.1.0 (2025-12-23)
+- ✅ Added `file_type` field to OpenSearch index mapping
+- ✅ File type metadata now added during indexing (EVTX, NDJSON, CSV, IIS)
+- ✅ Enhanced `bulk_index()` method to accept `file_type` parameter
+- ✅ All indexed events now include file type for filtering support
+
+**Changes:**
+```python
+# Before
+indexer.bulk_index(index_name, events, case_id=case_id, source_file=filename)
+
+# After
+indexer.bulk_index(index_name, events, case_id=case_id, source_file=filename, file_type='EVTX')
+```
+
+---
+
+## 📖 Related Documentation
+
+- **Search System**: See [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) for event search and querying
+- **Parsing Details**: See [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) for parser internals
+- **Case Cleanup**: See [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) for data cleanup procedures

@@ -1,6 +1,6 @@
 """
 EVTX File Parser
-Fast EVTX parsing using Rust-based evtx library
+Fast EVTX parsing using Rust-based evtx library with search blob generation
 """
 
 import logging
@@ -17,6 +17,61 @@ try:
 except ImportError:
     EVTX_AVAILABLE = False
     logger.warning("evtx library not available - EVTX parsing will not work")
+
+
+def create_search_blob(event: Dict[str, Any]) -> str:
+    """
+    Create flattened search blob from event data for comprehensive searching
+    
+    Args:
+        event: Event dictionary
+    
+    Returns:
+        Flattened searchable text
+    """
+    # Fields to exclude from search blob
+    EXCLUDE_FIELDS = {
+        'has_sigma', 'has_ioc', 'ioc_count', 'ioc_details',
+        'file_id', 'source_file', 'case_id', 'indexed_at',
+        'search_blob', 'raw_xml'  # Don't include these
+    }
+    
+    def extract_text(obj: Any, depth: int = 0) -> str:
+        """Recursively extract text from nested structures"""
+        if depth > 20:
+            return ""
+        
+        if isinstance(obj, dict):
+            texts = []
+            for key, value in obj.items():
+                if key in EXCLUDE_FIELDS:
+                    continue
+                text = extract_text(value, depth + 1)
+                if text:
+                    texts.append(text)
+            return ' '.join(texts)
+        elif isinstance(obj, (list, tuple)):
+            texts = []
+            for item in obj:
+                text = extract_text(item, depth + 1)
+                if text:
+                    texts.append(text)
+            return ' '.join(texts)
+        elif isinstance(obj, bool):
+            return ""
+        elif obj is not None:
+            text = str(obj).replace('\\r\\n', ' ').replace('\\n', ' ').replace('\\r', ' ')
+            return text
+        return ""
+    
+    search_blob = extract_text(event, 0)
+    search_blob = ' '.join(search_blob.split())
+    
+    # Limit size
+    if len(search_blob) > 100000:
+        search_blob = search_blob[:100000]
+    
+    return search_blob
 
 
 class EVTXParser:
@@ -142,6 +197,11 @@ class EVTXParser:
                 
                 # Store raw XML for reference
                 event['raw_xml'] = xml_data
+                
+                # Create search blob for comprehensive searching
+                search_blob = create_search_blob(event)
+                if search_blob:
+                    event['search_blob'] = search_blob
                 
                 event_count += 1
                 yield event

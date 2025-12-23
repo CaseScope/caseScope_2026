@@ -131,6 +131,91 @@ Details: Unusual RDP session from compromised account...
 
 **Helper Text**: "If entering multiple EDR reports, separate each with *** NEW REPORT ***"
 
+## File Management
+
+### CaseFile Table (`case_file`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `case_id` | Integer | Foreign key to `case.id`, indexed |
+| `filename` | String(500) | Filename in storage |
+| `original_filename` | String(500) | Original uploaded filename |
+| `file_type` | String(50) | File type (evtx, json, csv, ndjson, etc.) |
+| `file_size` | BigInteger | File size in bytes |
+| `file_path` | String(1000) | Full storage path |
+| `source_system` | String(200) | Computer name extracted from events |
+| `event_count` | Integer | Number of events parsed (default: 0) |
+| `sigma_violations` | Integer | Number of Sigma rule matches (default: 0) |
+| `ioc_count` | Integer | Number of IOC matches (default: 0) |
+| `uploaded_by` | Integer | Foreign key to `user.id` |
+| `uploaded_at` | DateTime | Upload timestamp, indexed |
+| `status` | String(50) | Processing status (default: 'pending') |
+| `error_message` | Text | Error details if processing failed |
+| `indexed_at` | DateTime | When file was successfully indexed |
+| `is_hidden` | Boolean | Hide from file list (default: False) |
+
+**Status Values**:
+- `pending` - Awaiting processing
+- `processing` - Currently being parsed/indexed
+- `indexed` - Successfully indexed to OpenSearch
+- `failed` - Processing failed (see error_message)
+
+**Relationships**:
+- `case` - Relationship to `Case` this file belongs to
+- `uploader` - Relationship to `User` who uploaded the file
+
+**Purpose**: Track all uploaded files with metadata, processing status, and extracted statistics for display in file management UI.
+
+---
+
+## EVTX Event Descriptions
+
+### EventDescription Table (`event_description`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `event_id` | String(20) | Event ID (e.g., "4624"), indexed |
+| `log_source` | String(100) | Log source (e.g., "Security", "System", "Microsoft-Windows-Sysmon/Operational"), indexed |
+| `description` | Text | Event description |
+| `category` | String(100) | Category (e.g., "Account Logon", "Object Access") |
+| `subcategory` | String(100) | Subcategory if available |
+| `source_website` | String(200) | Website scraped from (e.g., "ultimatewindowssecurity.com", "microsoft.com") |
+| `source_url` | String(500) | Direct URL to event documentation |
+| `scraped_at` | DateTime | When description was scraped, indexed |
+| `updated_at` | DateTime | Last update timestamp |
+| `description_length` | Integer | Length of description (for deduplication) |
+
+**Indexes**:
+- Unique constraint on (`event_id`, `log_source`) - one entry per event/source combo
+- Composite index on (`event_id`, `log_source`) for fast lookups
+
+**Purpose**: 
+- Store comprehensive Windows Event Log descriptions
+- Support for multiple sources: Sysmon, Security, System, Application
+- Deduplication: keeps most descriptive version for each event_id + log_source
+- Scraped from ultimatewindowssecurity.com, microsoft.com, and embedded data
+
+**Example Usage**:
+```python
+# Lookup event description
+event_desc = EventDescription.query.filter_by(
+    event_id='4624',
+    log_source='Security'
+).first()
+
+# Get all Security log events
+security_events = EventDescription.query.filter_by(
+    log_source='Security'
+).all()
+
+# Search by category
+logon_events = EventDescription.query.filter_by(
+    category='Logon/Logoff'
+).all()
+```
+
+---
+
 ## Audit Logging
 
 ### AuditLog Table (`audit_log`)

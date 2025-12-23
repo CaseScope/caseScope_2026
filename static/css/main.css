@@ -597,12 +597,16 @@ a:hover {
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    max-width: 600px;
+    max-width: 900px;
     width: 90%;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: var(--shadow-xl);
     animation: slideUp 0.3s ease;
+}
+
+.modal-container-large {
+    max-width: 1200px;
 }
 
 @keyframes slideUp {
@@ -875,6 +879,80 @@ a:hover {
 .stat-value-info { color: var(--color-info); }
 
 /* ============================================================================
+   SETTING TILES
+   ============================================================================ */
+
+.setting-tile {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.setting-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--color-primary);
+}
+
+.setting-tile-placeholder {
+    opacity: 0.6;
+}
+
+.setting-tile-placeholder:hover {
+    transform: none;
+    border-color: var(--color-border);
+}
+
+.setting-tile h4 {
+    color: var(--color-text-primary);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.setting-tile-placeholder h4 {
+    color: var(--color-text-secondary);
+}
+
+/* ============================================================================
+   PLACEHOLDER CONTENT
+   ============================================================================ */
+
+.placeholder-content {
+    text-align: center;
+    padding: var(--spacing-2xl);
+    color: var(--color-text-secondary);
+}
+
+.placeholder-icon {
+    font-size: 4rem;
+    margin-bottom: var(--spacing-lg);
+    opacity: 0.5;
+}
+
+.placeholder-content h3 {
+    color: var(--color-text-primary);
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.placeholder-content ul {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--spacing-md);
+}
+
+.placeholder-content ul li {
+    padding: var(--spacing-xs) 0;
+}
+
+.placeholder-content ul li::before {
+    content: "→ ";
+    color: var(--color-primary);
+    margin-right: var(--spacing-sm);
+}
+
+/* ============================================================================
    FILE LIST CONTROLS - Removed (now in form controls section)
    ============================================================================ */
 
@@ -907,6 +985,11 @@ a:hover {
 .align-items-center { align-items: center; }
 .justify-content-between { justify-content: space-between; }
 .flex-grow-1 { flex-grow: 1; }
+
+/* Display */
+.hidden {
+    display: none !important;
+}
 
 /* Gap */
 .gap-1 { gap: var(--spacing-xs); }
@@ -957,6 +1040,32 @@ tbody tr {
     transition: background-color 0.2s ease;
 }
 
+/* Pagination */
+.pagination-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-md) 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.pagination-info {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+}
+
+.pagination-controls {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+
+.pagination-numbers {
+    display: flex;
+    gap: 4px;
+}
+
 /* ============================================================================
    RESPONSIVE
    ============================================================================ */
@@ -985,4 +1094,337 @@ tbody tr {
         flex-direction: column;
         gap: var(--spacing-md);
     }
+}
+
+/* ============================================================================
+   JSON TREE VIEWER
+   ============================================================================ */
+
+.json-tree {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.json-tree-item {
+    margin-left: 20px;
+}
+
+.json-tree-key {
+    color: var(--color-primary);
+    font-weight: 500;
+}
+
+.json-tree-value {
+    color: var(--color-text-primary);
+}
+
+.json-tree-value-string {
+    color: #4ade80;
+}
+
+.json-tree-value-number {
+    color: #fbbf24;
+}
+
+.json-tree-value-boolean {
+    color: #f472b6;
+}
+
+.json-tree-value-null {
+    color: var(--color-text-muted);
+    font-style: italic;
+}
+
+.json-tree-toggle {
+    cursor: pointer;
+    user-select: none;
+    color: var(--color-text-secondary);
+    margin-right: 4px;
+    display: inline-block;
+    width: 16px;
+    transition: transform var(--transition-fast);
+}
+
+.json-tree-toggle:hover {
+    color: var(--color-primary);
+}
+
+.json-tree-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+
+.json-tree-children {
+    margin-left: 16px;
+    border-left: 1px solid var(--color-border);
+    padding-left: 8px;
+}
+
+.json-tree-children.hidden {
+    display: none;
+}
+
+.json-tree-count {
+    color: var(--color-text-muted);
+    font-size: 0.9em;
+}
+
+.event-detail-grid {
+    display: grid;
+    gap: var(--spacing-lg);
+}
+
+.event-detail-section {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
+
+.event-detail-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.event-detail-field {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.event-detail-field:last-child {
+    border-bottom: none;
+}
+
+.event-detail-label {
+    min-width: 180px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+
+.event-detail-value {
+    flex: 1;
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.event-detail-copy-btn {
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 11px;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.event-detail-copy-btn:hover {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.event-raw-json {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.modal-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--color-border);
+    padding: 0 var(--spacing-lg);
+}
+
+.modal-tab {
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition-fast);
+}
+
+.modal-tab:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary);
+}
+
+.modal-tab.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.modal-tab-content {
+    display: none;
+    padding: var(--spacing-lg);
+}
+
+.modal-tab-content.active {
+    display: block;
+}
+
+/* Event row styling */
+.event-row {
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+}
+
+.event-row:hover {
+    background-color: var(--color-bg-tertiary);
+}
+
+.loading-indicator {
+    text-align: center;
+    padding: var(--spacing-xl);
+}
+
+.loading-indicator .spinner-border {
+    margin-bottom: var(--spacing-md);
+}
+
+.loading-indicator p {
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+
+/* Field action icons */
+.json-tree-field-actions {
+    display: inline-flex;
+    gap: 4px;
+    margin-right: 8px;
+}
+
+.field-action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 12px;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    transition: all var(--transition-fast);
+}
+
+.field-action-icon:hover {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+    transform: scale(1.1);
+}
+
+.field-action-icon:active {
+    transform: scale(0.95);
+}
+
+.field-action-icon.copied {
+    background: var(--color-success);
+    color: white;
+}
+
+.json-tree-path {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    margin-left: 8px;
+}
+
+/* Process Tree View */
+.process-tree-view {
+    padding: var(--spacing-lg);
+}
+
+.process-level {
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    position: relative;
+}
+
+.process-level:not(:last-child)::after {
+    content: '↓';
+    position: absolute;
+    bottom: -24px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    color: var(--color-primary);
+}
+
+.process-level-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.process-field {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.process-field:last-child {
+    border-bottom: none;
+}
+
+.process-field-label {
+    min-width: 140px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+
+.process-field-value {
+    flex: 1;
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.process-field-value-highlight {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.process-not-available {
+    color: var(--color-text-muted);
+    font-style: italic;
+    text-align: center;
+    padding: var(--spacing-xl);
 }

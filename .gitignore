@@ -45,3 +45,6 @@ upload_temp/
 bulk_upload/
 ssl/
 *.pem
+.git-credentials
+ATN64025_4055690.ndjson
+*.ndjson

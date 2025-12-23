@@ -44,7 +44,7 @@ class OpenSearchIndexer:
             index_name: Name of index to create
         """
         if not self.client.indices.exists(index=index_name):
-            # Index mapping for Windows events
+            # Index mapping for Windows events and NDJSON data
             mapping = {
                 'settings': {
                     'number_of_shards': 1,
@@ -53,6 +53,7 @@ class OpenSearchIndexer:
                 },
                 'mappings': {
                     'properties': {
+                        # EVTX fields
                         'event_record_id': {'type': 'long'},
                         'event_id': {'type': 'keyword'},
                         'timestamp': {'type': 'date'},
@@ -66,7 +67,21 @@ class OpenSearchIndexer:
                         'keywords': {'type': 'keyword'},
                         'event_data': {'type': 'object', 'enabled': True},
                         'event_data_fields': {'type': 'object', 'enabled': True},
+                        
+                        # Normalized fields (works for all event types)
+                        'normalized_timestamp': {'type': 'date'},
+                        'normalized_computer': {'type': 'keyword'},
+                        'normalized_event_id': {'type': 'keyword'},
+                        
+                        # Search blob - flattened searchable text from all fields
+                        'search_blob': {
+                            'type': 'text',
+                            'analyzer': 'standard'
+                        },
+                        
+                        # Metadata fields
                         'source_file': {'type': 'keyword'},
+                        'file_type': {'type': 'keyword'},
                         'case_id': {'type': 'keyword'},
                         'indexed_at': {'type': 'date'}
                     }
@@ -80,7 +95,7 @@ class OpenSearchIndexer:
     
     def bulk_index(self, index_name: str, events: Iterator[Dict[str, Any]], 
                    chunk_size: int = 500, case_id: int = None, 
-                   source_file: str = None) -> Dict[str, Any]:
+                   source_file: str = None, file_type: str = None) -> Dict[str, Any]:
         """
         Bulk index events into OpenSearch
         
@@ -90,6 +105,7 @@ class OpenSearchIndexer:
             chunk_size: Number of events per bulk request
             case_id: Case ID to associate with events
             source_file: Source file name
+            file_type: File type (EVTX, NDJSON, CSV, IIS)
         
         Returns:
             dict: Indexing statistics
@@ -112,6 +128,8 @@ class OpenSearchIndexer:
                     event['case_id'] = str(case_id)
                 if source_file:
                     event['source_file'] = source_file
+                if file_type:
+                    event['file_type'] = file_type
                 
                 # Generate action
                 yield {

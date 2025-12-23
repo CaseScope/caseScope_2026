@@ -72,6 +72,35 @@
         </div>
     </div>
 </div>
+
+<!-- Rules & Description Updates -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Rules & Description Updates</h2>
+    </div>
+    <div class="card-body">
+        <p class="text-secondary mb-4">Manage event descriptions and custom rules for analysis</p>
+        
+        <div class="grid grid-2">
+            <div class="setting-tile">
+                <h4 class="mb-2">EVTX Descriptions</h4>
+                <p class="text-small text-secondary mb-3">Configure custom descriptions for Windows Event Log IDs</p>
+                <a href="{{ url_for('settings.evtx_descriptions') }}" class="btn btn-primary">
+                    Manage EVTX Descriptions
+                </a>
+            </div>
+            
+            <!-- Placeholder for future tiles -->
+            <div class="setting-tile setting-tile-placeholder">
+                <h4 class="mb-2 text-muted">Coming Soon</h4>
+                <p class="text-small text-secondary mb-3">Additional rules and configurations will be available here</p>
+                <button class="btn btn-secondary" disabled>
+                    Not Available
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

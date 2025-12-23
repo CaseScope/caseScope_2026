@@ -219,14 +219,15 @@ async function updateStats() {
         if (stats.processing_files > 0 || stats.pending_files > 0) {
             indicator.classList.add('active');
             
-            // Update progress
-            const total = stats.indexed_files + stats.processing_files + stats.pending_files;
-            const current = stats.indexed_files;
-            const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+            // Update progress - ONLY count files still being processed/pending
+            const totalInProgress = stats.processing_files + stats.pending_files;
+            const completed = stats.processing_files;  // Currently processing counts as in-progress
+            const remaining = stats.pending_files;
+            const percentage = totalInProgress > 0 ? Math.round((completed / totalInProgress) * 100) : 0;
             
-            document.getElementById('current-file').textContent = current;
-            document.getElementById('total-files-processing').textContent = total;
-            document.getElementById('progress-percentage').innerHTML = `File <span id="current-file">${current}</span> of <span id="total-files-processing">${total}</span> - ${percentage}% complete`;
+            document.getElementById('current-file').textContent = completed;
+            document.getElementById('total-files-processing').textContent = totalInProgress;
+            document.getElementById('progress-percentage').innerHTML = `File <span id="current-file">${completed}</span> of <span id="total-files-processing">${totalInProgress}</span> - ${percentage}% complete`;
             
             const progressBar = document.getElementById('processing-progress-bar');
             progressBar.style.width = percentage + '%';

@@ -26,6 +26,9 @@ All route blueprints are automatically discovered and registered by `main.py`.
 - `admin.py` - Administrator and analyst user management, audit log viewer
 - `case.py` - Case management (create, edit, delete, select, dashboard)
 - `dashboard.py` - Main dashboard with system stats and metrics API
+- `search.py` - Event search system with boolean operators and file type filtering
+- `upload.py` - File upload system (chunk-based upload, drag & drop)
+- `settings.py` - System settings (Celery worker configuration, EVTX descriptions management)
 
 **Adding New Routes**: Simply create a new file in `/app/routes` that exports a blueprint, and it will be auto-loaded on next server restart.
 
@@ -68,11 +71,16 @@ All HTML templates using Jinja2 templating engine.
 - `error.html` - Generic error page
 - `/templates/admin/` - Admin section pages:
   - `users.html` - User management (create, edit, delete users)
-  - `settings.html` - System settings (placeholder)
+  - `settings.html` - System settings (Celery workers configuration)
+  - `evtx_descriptions.html` - EVTX event descriptions management (scraping, viewing, searching)
   - `audit_log.html` - Audit trail viewer with detail modal
 - `/templates/case/` - Case management pages:
   - `select.html` - Case selection page with table
   - `dashboard.html` - Case dashboard with details and edit modal
+- `/templates/search/` - Event search pages:
+  - `events.html` - Event search interface with file type filtering
+- `/templates/upload/` - File upload pages:
+  - `files.html` - File management UI with upload progress
 
 ### `/ai_prompts` - AI Model Prompts (User-Editable)
 Template prompts for AI/LLM operations that end users can customize.

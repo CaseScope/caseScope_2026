@@ -137,3 +137,36 @@ class AuditLog(db.Model):
     
     def __repr__(self):
         return f'<AuditLog {self.action} by {self.username}>'
+
+
+class EventDescription(db.Model):
+    """
+    EVTX Event descriptions scraped from multiple sources
+    Tracks Windows Event Log IDs with descriptions for better analysis
+    """
+    __tablename__ = 'event_description'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.String(20), nullable=False, index=True)  # Event ID (e.g., "4624")
+    log_source = db.Column(db.String(100), nullable=False, index=True)  # e.g., "Security", "System", "Application"
+    description = db.Column(db.Text, nullable=False)  # Event description
+    category = db.Column(db.String(100))  # Category (e.g., "Account Logon", "Object Access")
+    subcategory = db.Column(db.String(100))  # Subcategory if available
+    source_website = db.Column(db.String(200))  # Which website this was scraped from
+    source_url = db.Column(db.String(500))  # Direct URL to the event description
+    
+    # Timestamps
+    scraped_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Metadata
+    description_length = db.Column(db.Integer)  # For selecting most descriptive version
+    
+    # Unique constraint: one entry per event_id + log_source combination
+    __table_args__ = (
+        db.UniqueConstraint('event_id', 'log_source', name='uix_event_log'),
+        db.Index('idx_event_search', 'event_id', 'log_source'),
+    )
+    
+    def __repr__(self):
+        return f'<EventDescription {self.event_id} - {self.log_source}>'

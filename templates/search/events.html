@@ -1,0 +1,1125 @@
+{% extends "base.html" %}
+
+{% block title %}Event Search - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🔍 Event Search</h1>
+        {% if case %}
+        <p class="content-subtitle">{{ case.name }}</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error mb-4">
+    {{ error }}
+</div>
+{% else %}
+
+<!-- Search Box -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="search-container">
+            <div class="search-input-wrapper">
+                <input type="text" 
+                       id="searchInput" 
+                       class="search-input" 
+                       placeholder="Search events... (e.g., ATN64025, ATN64025 AND 4625, (ATN64025 AND 4625) OR ATN123456)"
+                       value="">
+                <button class="btn btn-primary search-button" onclick="performSearch()">
+                    Search
+                </button>
+                <button class="btn btn-secondary" onclick="clearSearch()">
+                    Clear
+                </button>
+            </div>
+            
+            <!-- Search Help -->
+            <div class="search-help">
+                <strong>Search Tips:</strong>
+                <ul class="search-help-list">
+                    <li><code>ATN64025</code> - Find all events containing this text</li>
+                    <li><code>ATN64025 AND 4625</code> - Must contain both terms</li>
+                    <li><code>ATN64025 OR ATN123456</code> - Contains either term</li>
+                    <li><code>ATN64025 NOT failed</code> - Contains first term but not second</li>
+                    <li><code>(ATN64025 AND 4625) OR ATN123456</code> - Use parentheses for complex queries</li>
+                    <li><code>"exact phrase"</code> - Search for exact phrase</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results Info -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="results-info">
+            <div class="results-count">
+                <span id="resultsCount">Loading...</span>
+            </div>
+            <div class="results-controls">
+                <label class="results-label">
+                    Sort by:
+                    <select id="sortField" class="form-select form-select-sm" onchange="applySorting()">
+                        <option value="normalized_timestamp">Timestamp</option>
+                        <option value="normalized_computer">System Name</option>
+                        <option value="normalized_event_id">Event ID</option>
+                    </select>
+                </label>
+                <label class="results-label">
+                    <select id="sortOrder" class="form-select form-select-sm" onchange="applySorting()">
+                        <option value="desc">Newest First</option>
+                        <option value="asc">Oldest First</option>
+                    </select>
+                </label>
+                <label class="results-label">
+                    Per page:
+                    <select id="perPage" class="form-select form-select-sm" onchange="changePerPage()">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+        
+        <!-- File Type Filters -->
+        <div class="filters-section">
+            <div class="filters-header">
+                <strong>File Types:</strong>
+            </div>
+            <div class="filters-checkboxes">
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filterEVTX" value="EVTX" checked onchange="applyFilters()">
+                    <span class="filter-label">EVTX Files</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filterNDJSON" value="NDJSON" checked onchange="applyFilters()">
+                    <span class="filter-label">NDJSON Files</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filterIIS" value="IIS" checked onchange="applyFilters()">
+                    <span class="filter-label">IIS Files</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filterCSV" value="CSV" checked onchange="applyFilters()">
+                    <span class="filter-label">CSV Files</span>
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Events Table -->
+<div class="card">
+    <div class="card-body">
+        <div id="loadingIndicator" class="loading-indicator">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Loading events...</p>
+        </div>
+        
+        <div id="eventsTable" class="table-container" style="display: none;">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">⭐</th>
+                        <th style="width: 180px;">Timestamp</th>
+                        <th style="width: 80px;">Type</th>
+                        <th style="width: 150px;">System Name</th>
+                        <th style="width: 100px;">Event ID</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsTableBody">
+                    <!-- Events populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="noResults" class="no-results" style="display: none;">
+            <div class="no-results-icon">🔍</div>
+            <h3>No events found</h3>
+            <p>Try adjusting your search query or clearing filters</p>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination -->
+<div class="pagination-container" id="paginationContainer" style="display: none;">
+    <div class="pagination-info">
+        Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+        (<span id="showingCount">0</span> of <span id="totalCount">0</span> events)
+    </div>
+    <div class="pagination-controls">
+        <button class="btn btn-secondary btn-sm" id="firstPageBtn" onclick="goToPage(1)">First</button>
+        <button class="btn btn-secondary btn-sm" id="prevPageBtn" onclick="previousPage()">Previous</button>
+        <div class="pagination-numbers" id="paginationNumbers"></div>
+        <button class="btn btn-secondary btn-sm" id="nextPageBtn" onclick="nextPage()">Next</button>
+        <button class="btn btn-secondary btn-sm" id="lastPageBtn" onclick="goToPage(totalPages)">Last</button>
+    </div>
+</div>
+
+{% endif %}
+
+<!-- Event Detail Modal -->
+<div id="eventDetailModal" class="modal-overlay" style="display: none;" onclick="closeEventModal(event)">
+    <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🔍 Event Details</h2>
+            <button class="modal-close" onclick="closeEventModal(event)">×</button>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="modal-tabs" id="modalTabs">
+            <button class="modal-tab" id="tabProcessTree" style="display: none;" onclick="switchTab('process')">Process Tree</button>
+            <button class="modal-tab active" id="tabFullData" onclick="switchTab('tree')">Full Data (Tree)</button>
+            <button class="modal-tab" onclick="switchTab('raw')">Raw JSON</button>
+        </div>
+        
+        <!-- Tab Content -->
+        <div id="tab-process" class="modal-tab-content">
+            <div id="eventProcessTree" class="process-tree-view"></div>
+        </div>
+        
+        <div id="tab-tree" class="modal-tab-content active">
+            <div id="eventTree" class="json-tree">
+                <div class="loading-indicator">
+                    <div class="spinner-border text-primary"></div>
+                    <p>Loading event...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div id="tab-raw" class="modal-tab-content">
+            <div style="margin-bottom: 12px;">
+                <button class="btn btn-sm btn-secondary" onclick="copyRawJson()">
+                    📋 Copy JSON
+                </button>
+            </div>
+            <pre id="eventRaw" class="event-raw-json"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global state
+let currentPage = 1;
+let totalPages = 1;
+let totalCount = 0;
+let perPage = 50;
+let sortField = 'normalized_timestamp';
+let sortOrder = 'desc';
+let currentQuery = '';
+let fileTypeFilters = ['EVTX', 'NDJSON', 'IIS', 'CSV']; // All enabled by default
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Load initial results (all events)
+    loadEvents();
+    
+    // Enable Enter key to search
+    document.getElementById('searchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+});
+
+function performSearch() {
+    currentQuery = document.getElementById('searchInput').value.trim();
+    currentPage = 1; // Reset to first page
+    loadEvents();
+}
+
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    currentQuery = '';
+    currentPage = 1;
+    loadEvents();
+}
+
+function applySorting() {
+    sortField = document.getElementById('sortField').value;
+    sortOrder = document.getElementById('sortOrder').value;
+    currentPage = 1; // Reset to first page when sorting changes
+    loadEvents();
+}
+
+function changePerPage() {
+    perPage = parseInt(document.getElementById('perPage').value);
+    currentPage = 1; // Reset to first page
+    loadEvents();
+}
+
+function applyFilters() {
+    // Get checked file types
+    fileTypeFilters = [];
+    if (document.getElementById('filterEVTX').checked) fileTypeFilters.push('EVTX');
+    if (document.getElementById('filterNDJSON').checked) fileTypeFilters.push('NDJSON');
+    if (document.getElementById('filterIIS').checked) fileTypeFilters.push('IIS');
+    if (document.getElementById('filterCSV').checked) fileTypeFilters.push('CSV');
+    
+    currentPage = 1; // Reset to first page when filters change
+    loadEvents();
+}
+
+function loadEvents() {
+    // Show loading indicator
+    document.getElementById('loadingIndicator').style.display = 'flex';
+    document.getElementById('eventsTable').style.display = 'none';
+    document.getElementById('noResults').style.display = 'none';
+    document.getElementById('paginationContainer').style.display = 'none';
+    
+    // Build API URL
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: perPage,
+        sort: sortField,
+        order: sortOrder
+    });
+    
+    if (currentQuery) {
+        params.append('q', currentQuery);
+    }
+    
+    // Add file type filters
+    if (fileTypeFilters.length > 0) {
+        params.append('file_types', fileTypeFilters.join(','));
+    }
+    
+    // Fetch events
+    fetch(`/search/api/events?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                return;
+            }
+            
+            // Update global state
+            totalPages = data.total_pages;
+            totalCount = data.total;
+            
+            // Update results count
+            const startIdx = ((currentPage - 1) * perPage) + 1;
+            const endIdx = Math.min(currentPage * perPage, totalCount);
+            
+            if (totalCount === 0) {
+                document.getElementById('resultsCount').textContent = 'No events found';
+                document.getElementById('noResults').style.display = 'block';
+            } else {
+                document.getElementById('resultsCount').textContent = 
+                    `Showing ${startIdx.toLocaleString()} - ${endIdx.toLocaleString()} of ${totalCount.toLocaleString()} events`;
+                
+                // Populate table
+                populateTable(data.events);
+                document.getElementById('eventsTable').style.display = 'block';
+                
+                // Update pagination
+                updatePagination();
+                document.getElementById('paginationContainer').style.display = 'flex';
+            }
+            
+            // Hide loading indicator
+            document.getElementById('loadingIndicator').style.display = 'none';
+        })
+        .catch(error => {
+            console.error('Error loading events:', error);
+            alert('Failed to load events: ' + error);
+            document.getElementById('loadingIndicator').style.display = 'none';
+        });
+}
+
+function populateTable(events) {
+    const tbody = document.getElementById('eventsTableBody');
+    tbody.innerHTML = '';
+    
+    events.forEach(event => {
+        const row = document.createElement('tr');
+        row.className = 'event-row';
+        row.onclick = () => showEventDetail(event.id);
+        
+        // Format timestamp
+        const timestamp = event.timestamp ? new Date(event.timestamp) : null;
+        const timestampStr = timestamp ? 
+            `<div>${timestamp.toLocaleDateString('en-US', {year: 'numeric', month: '2-digit', day: '2-digit'})}</div>
+             <div class="text-small text-muted">${timestamp.toLocaleTimeString('en-US', {hour12: false})}</div>` :
+            '<span class="text-muted">N/A</span>';
+        
+        // Tagged column (star icon placeholder)
+        const taggedHtml = event.tagged ? 
+            '<span class="tag-star tag-star-active" onclick="event.stopPropagation(); toggleTag(this, \'' + event.id + '\')">⭐</span>' :
+            '<span class="tag-star" onclick="event.stopPropagation(); toggleTag(this, \'' + event.id + '\')">☆</span>';
+        
+        row.innerHTML = `
+            <td class="text-center">${taggedHtml}</td>
+            <td>${timestampStr}</td>
+            <td><span class="badge badge-type badge-${event.type.toLowerCase()}">${event.type}</span></td>
+            <td><span class="badge badge-secondary">${event.computer}</span></td>
+            <td><span class="badge badge-info">${event.event_id}</span></td>
+            <td class="event-description">${escapeHtml(event.description)}</td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+function updatePagination() {
+    document.getElementById('currentPage').textContent = currentPage;
+    document.getElementById('totalPages').textContent = totalPages;
+    document.getElementById('showingCount').textContent = document.getElementById('resultsCount').textContent.match(/\d+ - (\d+)/)?.[1] || '0';
+    document.getElementById('totalCount').textContent = totalCount.toLocaleString();
+    
+    // Update button states
+    document.getElementById('firstPageBtn').disabled = currentPage === 1;
+    document.getElementById('prevPageBtn').disabled = currentPage === 1;
+    document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+    document.getElementById('lastPageBtn').disabled = currentPage === totalPages;
+    
+    // Generate page numbers
+    const numbersContainer = document.getElementById('paginationNumbers');
+    numbersContainer.innerHTML = '';
+    
+    // Show up to 5 page numbers around current page
+    const maxButtons = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+    
+    // Adjust if we're near the end
+    if (endPage - startPage < maxButtons - 1) {
+        startPage = Math.max(1, endPage - maxButtons + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-sm ' + (i === currentPage ? 'btn-primary' : 'btn-secondary');
+        btn.textContent = i;
+        btn.onclick = () => goToPage(i);
+        numbersContainer.appendChild(btn);
+    }
+}
+
+function goToPage(page) {
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    loadEvents();
+}
+
+function nextPage() {
+    if (currentPage < totalPages) {
+        currentPage++;
+        loadEvents();
+    }
+}
+
+function previousPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        loadEvents();
+    }
+}
+
+function toggleTag(element, eventId) {
+    // Placeholder for future tagging feature
+    element.classList.toggle('tag-star-active');
+    element.textContent = element.classList.contains('tag-star-active') ? '⭐' : '☆';
+    
+    // TODO: Make API call to persist tag state
+    console.log('Toggle tag for event:', eventId);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Modal functions
+let currentEventData = null;
+let currentActiveTab = 'overview';
+
+function showEventDetail(eventId) {
+    const modal = document.getElementById('eventDetailModal');
+    modal.style.display = 'flex';
+    
+    // Show loading state
+    document.getElementById('eventTree').innerHTML = `
+        <div class="loading-indicator">
+            <div class="spinner-border text-primary"></div>
+            <p>Loading event...</p>
+        </div>
+    `;
+    document.getElementById('eventRaw').textContent = '';
+    
+    // Fetch event details
+    fetch(`/search/api/event/${eventId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to load event');
+            }
+            return response.json();
+        })
+        .then(data => {
+            currentEventData = data;
+            
+            // Check if this is an NDJSON event (has process hierarchy)
+            const isNDJSON = detectNDJSON(data.event);
+            
+            if (isNDJSON) {
+                // Show Process Tree tab and make it default
+                document.getElementById('tabProcessTree').style.display = 'block';
+                renderProcessTree(data.event);
+                switchTab('process');
+            } else {
+                // Hide Process Tree tab and default to Full Data
+                document.getElementById('tabProcessTree').style.display = 'none';
+                switchTab('tree');
+            }
+            
+            renderEventTree(data.event);
+            renderEventRaw(data.event);
+        })
+        .catch(error => {
+            console.error('Error loading event:', error);
+            document.getElementById('eventTree').innerHTML = `
+                <div class="alert alert-danger">
+                    Failed to load event details: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function detectNDJSON(event) {
+    // Check if event has NDJSON-specific structure (process hierarchy)
+    return event.process && typeof event.process === 'object' && 
+           (event.process.parent || event.process.command_line || event.event);
+}
+
+function renderProcessTree(event) {
+    const container = document.getElementById('eventProcessTree');
+    
+    if (!event.process) {
+        container.innerHTML = '<div class="process-not-available">No process information available</div>';
+        return;
+    }
+    
+    let html = '';
+    
+    // Grandparent Process (if exists)
+    if (event.process.parent && event.process.parent.parent) {
+        const gp = event.process.parent.parent;
+        html += `
+            <div class="process-level">
+                <div class="process-level-label">👴 Grandparent Process</div>
+                ${renderProcessFields(gp)}
+            </div>
+        `;
+    }
+    
+    // Parent Process
+    if (event.process.parent) {
+        const parent = event.process.parent;
+        html += `
+            <div class="process-level">
+                <div class="process-level-label">👨 Parent Process</div>
+                ${renderProcessFields(parent)}
+            </div>
+        `;
+    }
+    
+    // Current Process
+    html += `
+        <div class="process-level">
+            <div class="process-level-label">🎯 Current Process</div>
+            ${renderProcessFields(event.process, true)}
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function renderProcessFields(proc, isCurrent = false) {
+    const valueClass = isCurrent ? 'process-field-value process-field-value-highlight' : 'process-field-value';
+    
+    let html = '';
+    
+    // Process Name
+    const name = proc.name || proc.executable || 'N/A';
+    if (name !== 'N/A') {
+        html += `
+            <div class="process-field">
+                <div class="process-field-label">Process Name:</div>
+                <div class="${valueClass}">${escapeHtml(name)}</div>
+            </div>
+        `;
+    }
+    
+    // PID
+    const pid = proc.pid || 'N/A';
+    if (pid !== 'N/A') {
+        html += `
+            <div class="process-field">
+                <div class="process-field-label">PID:</div>
+                <div class="${valueClass}">${escapeHtml(String(pid))}</div>
+            </div>
+        `;
+    }
+    
+    // Command Line
+    const cmdLine = proc.command_line || 'N/A';
+    if (cmdLine !== 'N/A') {
+        html += `
+            <div class="process-field">
+                <div class="process-field-label">Command Line:</div>
+                <div class="${valueClass}">${escapeHtml(cmdLine)}</div>
+            </div>
+        `;
+    }
+    
+    // Executable (if different from name)
+    if (proc.executable && proc.executable !== name) {
+        html += `
+            <div class="process-field">
+                <div class="process-field-label">Executable:</div>
+                <div class="${valueClass}">${escapeHtml(proc.executable)}</div>
+            </div>
+        `;
+    }
+    
+    // Entity ID (useful for correlation)
+    if (proc.entity_id) {
+        html += `
+            <div class="process-field">
+                <div class="process-field-label">Entity ID:</div>
+                <div class="${valueClass}" style="font-size: 11px;">${escapeHtml(proc.entity_id)}</div>
+            </div>
+        `;
+    }
+    
+    if (!html) {
+        html = '<div class="process-not-available">No process details available</div>';
+    }
+    
+    return html;
+}
+
+function closeEventModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('eventDetailModal').style.display = 'none';
+    currentEventData = null;
+}
+
+function switchTab(tabName) {
+    // Update tabs
+    document.querySelectorAll('.modal-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Find and activate the clicked tab
+    const tabMap = {
+        'process': 'tabProcessTree',
+        'tree': 'tabFullData',
+        'raw': null  // Raw tab doesn't have an ID
+    };
+    
+    if (tabMap[tabName]) {
+        const tabElement = document.getElementById(tabMap[tabName]);
+        if (tabElement) {
+            tabElement.classList.add('active');
+        }
+    } else {
+        // For raw tab, find it by text
+        document.querySelectorAll('.modal-tab').forEach(tab => {
+            if (tab.textContent.includes('Raw JSON')) {
+                tab.classList.add('active');
+            }
+        });
+    }
+    
+    // Update content
+    document.querySelectorAll('.modal-tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    currentActiveTab = tabName;
+}
+
+function renderEventTree(evt) {
+    const container = document.getElementById('eventTree');
+    container.innerHTML = '';
+    
+    function createTreeNode(key, value, level = 0, path = '') {
+        const item = document.createElement('div');
+        item.className = 'json-tree-item';
+        item.style.marginLeft = `${level * 20}px`;
+        
+        const currentPath = path ? `${path}.${key}` : key;
+        
+        if (value === null) {
+            item.innerHTML = `
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value-null">null</span>
+            `;
+        } else if (typeof value === 'object' && !Array.isArray(value)) {
+            const count = Object.keys(value).length;
+            const toggleId = `toggle-${Math.random().toString(36).substr(2, 9)}`;
+            
+            item.innerHTML = `
+                <span class="json-tree-toggle" id="${toggleId}" onclick="toggleTreeNode('${toggleId}', '${toggleId}-children')">▼</span>
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-count">{${count} ${count === 1 ? 'field' : 'fields'}}</span>
+            `;
+            
+            const children = document.createElement('div');
+            children.className = 'json-tree-children';
+            children.id = `${toggleId}-children`;
+            
+            for (const [k, v] of Object.entries(value)) {
+                children.appendChild(createTreeNode(k, v, level + 1, currentPath));
+            }
+            
+            item.appendChild(children);
+        } else if (Array.isArray(value)) {
+            const toggleId = `toggle-${Math.random().toString(36).substr(2, 9)}`;
+            
+            item.innerHTML = `
+                <span class="json-tree-toggle" id="${toggleId}" onclick="toggleTreeNode('${toggleId}', '${toggleId}-children')">▼</span>
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-count">[${value.length} ${value.length === 1 ? 'item' : 'items'}]</span>
+            `;
+            
+            const children = document.createElement('div');
+            children.className = 'json-tree-children';
+            children.id = `${toggleId}-children`;
+            
+            value.forEach((v, i) => {
+                children.appendChild(createTreeNode(`[${i}]`, v, level + 1, `${currentPath}[${i}]`));
+            });
+            
+            item.appendChild(children);
+        } else if (typeof value === 'string') {
+            const valueStr = escapeHtml(value);
+            const actionId = `action-${Math.random().toString(36).substr(2, 9)}`;
+            item.innerHTML = `
+                <span class="json-tree-field-actions">
+                    <span class="field-action-icon" data-action="copy" data-value-id="${actionId}" title="Copy value">📋</span>
+                    <span class="field-action-icon" data-action="search" data-value-id="${actionId}" title="Search for this value">🔍</span>
+                </span>
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value-string">"${valueStr}"</span>
+            `;
+            // Store the actual value in a data map
+            item.dataset.fieldValue = value;
+        } else if (typeof value === 'number') {
+            const actionId = `action-${Math.random().toString(36).substr(2, 9)}`;
+            item.innerHTML = `
+                <span class="json-tree-field-actions">
+                    <span class="field-action-icon" data-action="copy" data-value-id="${actionId}" title="Copy value">📋</span>
+                    <span class="field-action-icon" data-action="search" data-value-id="${actionId}" title="Search for this value">🔍</span>
+                </span>
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value-number">${value}</span>
+            `;
+            item.dataset.fieldValue = String(value);
+        } else if (typeof value === 'boolean') {
+            item.innerHTML = `
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value-boolean">${value}</span>
+            `;
+        } else {
+            const valueStr = escapeHtml(String(value));
+            const actionId = `action-${Math.random().toString(36).substr(2, 9)}`;
+            item.innerHTML = `
+                <span class="json-tree-field-actions">
+                    <span class="field-action-icon" data-action="copy" data-value-id="${actionId}" title="Copy value">📋</span>
+                    <span class="field-action-icon" data-action="search" data-value-id="${actionId}" title="Search for this value">🔍</span>
+                </span>
+                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value">${valueStr}</span>
+            `;
+            item.dataset.fieldValue = String(value);
+        }
+        
+        return item;
+    }
+    
+    // Create root node
+    for (const [key, value] of Object.entries(evt)) {
+        container.appendChild(createTreeNode(key, value));
+    }
+}
+
+function toggleTreeNode(toggleId, childrenId) {
+    event.stopPropagation();
+    const toggle = document.getElementById(toggleId);
+    const children = document.getElementById(childrenId);
+    
+    if (children.classList.contains('hidden')) {
+        children.classList.remove('hidden');
+        toggle.classList.remove('collapsed');
+    } else {
+        children.classList.add('hidden');
+        toggle.classList.add('collapsed');
+    }
+}
+
+function renderEventRaw(evt) {
+    const container = document.getElementById('eventRaw');
+    container.textContent = JSON.stringify(evt, null, 2);
+}
+
+function copyRawJson() {
+    const text = document.getElementById('eventRaw').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        btn.style.background = 'var(--color-success)';
+        btn.style.color = 'white';
+        
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = '';
+            btn.style.color = '';
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+// Close modal on ESC key
+document.addEventListener('keydown', function(evt) {
+    if (evt.key === 'Escape') {
+        closeEventModal(evt);
+    }
+});
+
+// Event delegation for field action icons
+document.addEventListener('click', function(evt) {
+    const target = evt.target;
+    
+    // Check if clicked element is a field action icon
+    if (target.classList.contains('field-action-icon')) {
+        const action = target.dataset.action;
+        
+        if (!action) return;
+        
+        // Find the parent tree item that has the field value
+        let treeItem = target.closest('.json-tree-item');
+        if (!treeItem || !treeItem.dataset.fieldValue) return;
+        
+        const value = treeItem.dataset.fieldValue;
+        
+        if (action === 'copy') {
+            copyFieldValue(evt, value, target);
+        } else if (action === 'search') {
+            searchFieldValue(evt, value, target);
+        }
+    }
+});
+
+// Field action handlers
+function copyFieldValue(evt, value, element) {
+    evt.stopPropagation();
+    
+    navigator.clipboard.writeText(value).then(() => {
+        element.classList.add('copied');
+        element.textContent = '✓';
+        
+        setTimeout(() => {
+            element.classList.remove('copied');
+            element.textContent = '📋';
+        }, 1500);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function searchFieldValue(evt, value, element) {
+    evt.stopPropagation();
+    
+    // Close the modal
+    closeEventModal(evt);
+    
+    // Set search input and trigger search
+    document.getElementById('searchInput').value = value;
+    currentPage = 1;
+    loadEvents();
+}
+
+</script>
+
+<style>
+/* Search-specific styles */
+.search-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.search-input-wrapper {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.search-input {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    font-size: 15px;
+    transition: border-color var(--transition-fast);
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.search-button {
+    min-width: 100px;
+}
+
+.search-help {
+    padding: 16px;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+}
+
+.search-help strong {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--color-text-primary);
+}
+
+.search-help-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 8px;
+}
+
+.search-help-list li {
+    color: var(--color-text-secondary);
+    font-size: 14px;
+}
+
+.search-help-list code {
+    color: var(--color-primary);
+    background: var(--color-bg-secondary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+}
+
+.results-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.results-count {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.results-controls {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.results-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    margin: 0;
+}
+
+.filters-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border);
+}
+
+.filters-header {
+    color: var(--color-text-primary);
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.filters-checkboxes {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.filter-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    margin: 0;
+}
+
+.filter-checkbox input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+}
+
+.filter-label {
+    cursor: pointer;
+}
+
+.loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+    color: var(--color-text-secondary);
+}
+
+.loading-indicator p {
+    margin-top: 16px;
+}
+
+.no-results {
+    text-align: center;
+    padding: 48px;
+    color: var(--color-text-secondary);
+}
+
+.no-results-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.no-results h3 {
+    color: var(--color-text-primary);
+    margin-bottom: 8px;
+}
+
+.event-row {
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+}
+
+.event-row:hover {
+    background: var(--color-bg-secondary);
+}
+
+.event-description {
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tag-star {
+    cursor: pointer;
+    font-size: 20px;
+    user-select: none;
+    opacity: 0.3;
+    transition: opacity var(--transition-fast);
+}
+
+.tag-star:hover {
+    opacity: 0.7;
+}
+
+.tag-star-active {
+    opacity: 1;
+}
+
+.badge-type {
+    font-weight: 600;
+}
+
+.badge-evtx {
+    background: var(--color-primary);
+}
+
+.badge-ndjson {
+    background: var(--color-success);
+}
+
+.badge-csv {
+    background: var(--color-warning);
+}
+
+.pagination-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    padding: 16px 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.pagination-info {
+    color: var(--color-text-secondary);
+    font-size: 14px;
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.pagination-numbers {
+    display: flex;
+    gap: 4px;
+}
+
+.spinner-border {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spinner-border 0.75s linear infinite;
+}
+
+@keyframes spinner-border {
+    to { transform: rotate(360deg); }
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border-width: 0;
+}
+</style>
+
+{% endblock %}
+

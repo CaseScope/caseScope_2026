@@ -1,6 +1,6 @@
 # CaseScope 2026 - Documentation Index
 
-**Last Updated**: December 22, 2025
+**Last Updated**: December 24, 2025
 
 This directory contains comprehensive technical documentation for the CaseScope 2026 Digital Forensics & Incident Response platform.
 
@@ -15,8 +15,10 @@ This directory contains comprehensive technical documentation for the CaseScope 
 3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
 4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
 5. **Cases**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) - Case management
-6. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload & display
+5. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload, parse, and display
+6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Query and analyze events
 7. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
+8. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
 
 ### For System Administrators
 
@@ -91,19 +93,39 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 #### [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md)
 **Purpose**: Complete file upload and EVTX parsing system
+**Purpose**: Complete file upload and processing system
 
 **Contents**:
 - Chunk-based upload (5MB chunks, 3 concurrent)
 - EVTX parsing (Rust-based, 10-100x faster)
+- NDJSON/JSON/JSONL parsing (EDR logs, Elastic Agent)
 - OpenSearch bulk indexing
 - Memory-safe streaming design (16GB+ systems)
 - ZIP extraction (recursive)
 - API reference
 - Performance benchmarks
 
-**Critical For**: File upload features, EVTX processing
+**Critical For**: File upload features, EVTX/NDJSON processing
 
 **Consolidated From**: CHUNK_UPLOAD_SYSTEM.md, EVTX_PARSING_INDEXING.md, IMPLEMENTATION_COMPLETE.md, UPLOAD_REDIRECT_COMPLETE.md, UPLOAD_TEST_RESULTS.md, EVTX_DIAGNOSIS_SUMMARY.md, MEMORY_MANAGEMENT.md, MEMORY_SAFE_DESIGN.md
+
+---
+
+#### [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md)
+**Purpose**: Deep dive into file parsers and event normalization
+
+**Contents**:
+- EVTX parser internals (Rust library integration)
+- NDJSON parser with ECS support
+- Search blob creation algorithm
+- Source system detection logic
+- Normalization process
+- Process tree extraction
+- Memory-safe chunked processing
+- Error handling strategies
+- Performance benchmarks
+
+**Critical For**: Understanding parsing pipeline, troubleshooting parser issues
 
 ---
 
@@ -245,13 +267,17 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 ## 🚀 Quick Start Guide
 
-### For New Developers
+### For Developers
 
 1. **Start Here**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Understand project structure
 2. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema
 3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
 4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
 5. **Case Management**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD)
+6. **File Upload**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) - Chunked upload system
+7. **File Parsing**: [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) - EVTX/NDJSON parsers
+8. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event querying
+9. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
 
 ### For System Administrators
 
@@ -294,11 +320,16 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | Audit Logging | ✅ Complete | [AUDIT.MD](AUDIT.MD) |
 | Case Management | ✅ Complete | [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) |
 | Case Dashboard | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
-| Case Creation/Editing | ✅ Complete | [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) |
-| Case Deletion | ✅ Complete | [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) |
-| System Dashboard | ✅ Complete | [SITE_LAYOUT.MD](SITE_LAYOUT.MD) |
+| File Upload & Processing | ✅ Complete | [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) |
+| EVTX Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
+| NDJSON/JSON Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
+| Event Search System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
+| File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
+| Case Cleanup | ✅ Complete | [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) |
 | EDR Report Management | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
 | Network Config (Router/VPN IPs) | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
+| Celery Worker Configuration | ✅ Complete | [SETTINGS_WORKER_CONFIGURATION.md](SETTINGS_WORKER_CONFIGURATION.md) |
+| EVTX Event Descriptions | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
 
 ---
 
@@ -327,7 +358,8 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - `/case/dashboard/<id>` - Specific case dashboard
 
 ### Admin Routes (Administrator Only)
-- `/admin/settings` - System settings
+- `/admin/settings` - System settings (Celery workers, EVTX descriptions)
+- `/admin/settings/evtx-descriptions` - EVTX event descriptions management
 - `/admin/users` - User management (create, edit, delete)
 - `/admin/audit-log` - Audit trail viewer
 
@@ -419,6 +451,27 @@ For questions or issues:
 ---
 
 ## 📅 Changelog
+
+### 2025-12-24
+- ✅ EVTX event descriptions system (1,100+ events)
+- ✅ Web scraping from multiple sources (ultimatewindowssecurity.com, microsoft.com)
+- ✅ Embedded event database for reliability
+- ✅ Event description search and pagination
+- ✅ Automatic deduplication (keeps most descriptive version)
+
+### 2025-12-23
+- ✅ Event search system with boolean operators
+- ✅ File type filtering (EVTX, NDJSON, IIS, CSV)
+- ✅ Event ID display fix for EVTX files
+- ✅ NDJSON/JSON/JSONL parsing
+- ✅ Search blob for full-text search
+- ✅ Process tree visualization
+- ✅ Deep pagination optimization
+- ✅ Source system detection fix
+- ✅ File parsing documentation
+- ✅ Search system documentation
+- ✅ Case cleanup procedure documentation
+- ✅ Celery worker configuration UI
 
 ### 2025-12-21
 - ✅ Complete user authentication system

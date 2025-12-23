@@ -1,0 +1,432 @@
+{% extends "base.html" %}
+
+{% block title %}EVTX Descriptions - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📋 EVTX Descriptions</h1>
+        <p class="content-subtitle">Manage custom descriptions for Windows Event Log IDs</p>
+    </div>
+    <div>
+        <a href="{{ url_for('settings.settings_page') }}" class="btn btn-secondary">
+            ← Back to Settings
+        </a>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="grid grid-4 mb-4">
+    <div class="stat-card">
+        <div class="stat-label">Total Events</div>
+        <div class="stat-value stat-value-primary" id="totalEvents">{{ total_events|default(0) }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Security Log</div>
+        <div class="stat-value stat-value-success" id="securityEvents">{{ source_stats.get('Security', 0) }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">System Log</div>
+        <div class="stat-value stat-value-info" id="systemEvents">{{ source_stats.get('System', 0) }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Application Log</div>
+        <div class="stat-value stat-value-warning" id="applicationEvents">{{ source_stats.get('Application', 0) }}</div>
+    </div>
+</div>
+
+<!-- Actions Card -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Actions</h2>
+    </div>
+    <div class="card-body">
+        <div class="grid grid-2">
+            <div>
+                <h4 class="mb-2">Update Event Descriptions</h4>
+                <p class="text-small text-secondary mb-3">
+                    Scrape event descriptions from multiple authoritative sources including
+                    ultimatewindowssecurity.com, myeventlog.com, and manageengine.com
+                </p>
+                <button class="btn btn-primary" onclick="startScraping()" id="scrapeBtn">
+                    🔄 Update Descriptions
+                </button>
+                
+                <div id="scrapeStatus" class="mt-3 hidden">
+                    <div class="alert alert-info" id="scrapeAlert">
+                        <strong>Status:</strong> <span id="scrapeMessage">Starting...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div>
+                <h4 class="mb-2">Sources</h4>
+                <ul class="text-small text-secondary">
+                    <li>✓ ultimatewindowssecurity.com</li>
+                    <li>✓ myeventlog.com</li>
+                    <li>✓ manageengine.com</li>
+                </ul>
+                <p class="text-small text-muted mt-2">
+                    <strong>Note:</strong> Scraping may take 2-5 minutes depending on network speed.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Search and Filter -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="grid grid-2">
+            <div class="form-group">
+                <label for="searchInput" class="form-label">Search Events</label>
+                <input type="text" 
+                       id="searchInput" 
+                       class="form-input" 
+                       placeholder="Search by Event ID or description..."
+                       onkeyup="handleSearchKeypress(event)">
+            </div>
+            
+            <div class="form-group">
+                <label for="sourceFilter" class="form-label">Filter by Log Source</label>
+                <select id="sourceFilter" class="form-select" onchange="applyFilters()">
+                    <option value="">All Sources</option>
+                    <option value="Security">Security</option>
+                    <option value="System">System</option>
+                    <option value="Application">Application</option>
+                </select>
+            </div>
+        </div>
+        
+        <button class="btn btn-primary" onclick="applyFilters()">
+            Search
+        </button>
+        <button class="btn btn-secondary" onclick="clearFilters()">
+            Clear
+        </button>
+    </div>
+</div>
+
+<!-- Events List -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Event Descriptions</h2>
+    </div>
+    <div class="card-body">
+        <div id="loadingIndicator" class="loading-indicator">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Loading events...</p>
+        </div>
+        
+        <div id="eventsTable" class="table-container hidden">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Event ID</th>
+                        <th>Log Source</th>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsTableBody">
+                    <!-- Populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="noResults" class="placeholder-content hidden">
+            <div class="placeholder-icon">🔍</div>
+            <h3 class="mb-2">No events found</h3>
+            <p class="text-secondary">
+                Try adjusting your search or click "Update Descriptions" to scrape events.
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination -->
+<div class="pagination-container hidden" id="paginationContainer">
+    <div class="pagination-info">
+        Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+        (<span id="totalCount">0</span> events)
+    </div>
+    <div class="pagination-controls">
+        <button class="btn btn-secondary btn-sm" id="firstPageBtn" onclick="goToPage(1)">First</button>
+        <button class="btn btn-secondary btn-sm" id="prevPageBtn" onclick="previousPage()">Previous</button>
+        <div class="pagination-numbers" id="paginationNumbers"></div>
+        <button class="btn btn-secondary btn-sm" id="nextPageBtn" onclick="nextPage()">Next</button>
+        <button class="btn btn-secondary btn-sm" id="lastPageBtn" onclick="goToPage(totalPages)">Last</button>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global state
+let currentPage = 1;
+let totalPages = 1;
+let totalCount = 0;
+let perPage = 50;
+let currentQuery = '';
+let currentSource = '';
+let scrapeTaskId = null;
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadEvents();
+});
+
+function handleSearchKeypress(event) {
+    if (event.key === 'Enter') {
+        applyFilters();
+    }
+}
+
+function applyFilters() {
+    currentQuery = document.getElementById('searchInput').value.trim();
+    currentSource = document.getElementById('sourceFilter').value;
+    currentPage = 1;
+    loadEvents();
+}
+
+function clearFilters() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('sourceFilter').value = '';
+    currentQuery = '';
+    currentSource = '';
+    currentPage = 1;
+    loadEvents();
+}
+
+function loadEvents() {
+    // Show loading
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const eventsTable = document.getElementById('eventsTable');
+    const noResults = document.getElementById('noResults');
+    const paginationContainer = document.getElementById('paginationContainer');
+    
+    loadingIndicator.classList.remove('hidden');
+    eventsTable.classList.add('hidden');
+    noResults.classList.add('hidden');
+    paginationContainer.classList.add('hidden');
+    
+    // Build URL
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: perPage
+    });
+    
+    if (currentQuery) params.append('q', currentQuery);
+    if (currentSource) params.append('source', currentSource);
+    
+    // Fetch events
+    fetch(`/settings/evtx-descriptions/api/list?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                return;
+            }
+            
+            totalPages = data.total_pages;
+            totalCount = data.total;
+            
+            if (totalCount === 0) {
+                noResults.classList.remove('hidden');
+            } else {
+                populateTable(data.events);
+                eventsTable.classList.remove('hidden');
+                updatePagination();
+                paginationContainer.classList.remove('hidden');
+            }
+            
+            loadingIndicator.classList.add('hidden');
+        })
+        .catch(error => {
+            console.error('Error loading events:', error);
+            alert('Failed to load events: ' + error);
+            loadingIndicator.classList.add('hidden');
+        });
+}
+
+function populateTable(events) {
+    const tbody = document.getElementById('eventsTableBody');
+    tbody.innerHTML = '';
+    
+    events.forEach(event => {
+        const row = document.createElement('tr');
+        
+        const badge_class = event.log_source === 'Security' ? 'badge-success' :
+                          event.log_source === 'System' ? 'badge-info' :
+                          event.log_source === 'Application' ? 'badge-warning' : 'badge-secondary';
+        
+        row.innerHTML = `
+            <td><strong>${escapeHtml(event.event_id)}</strong></td>
+            <td><span class="badge ${badge_class}">${escapeHtml(event.log_source)}</span></td>
+            <td><span class="text-small text-secondary">${escapeHtml(event.category || 'N/A')}</span></td>
+            <td>${escapeHtml(event.description)}</td>
+            <td>
+                <a href="${escapeHtml(event.source_url)}" target="_blank" class="text-small text-primary">
+                    ${escapeHtml(event.source_website)}
+                </a>
+            </td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+function updatePagination() {
+    document.getElementById('currentPage').textContent = currentPage;
+    document.getElementById('totalPages').textContent = totalPages;
+    document.getElementById('totalCount').textContent = totalCount;
+    
+    document.getElementById('firstPageBtn').disabled = currentPage === 1;
+    document.getElementById('prevPageBtn').disabled = currentPage === 1;
+    document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+    document.getElementById('lastPageBtn').disabled = currentPage === totalPages;
+    
+    // Generate page numbers
+    const numbersContainer = document.getElementById('paginationNumbers');
+    numbersContainer.innerHTML = '';
+    
+    const maxButtons = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+    
+    if (endPage - startPage < maxButtons - 1) {
+        startPage = Math.max(1, endPage - maxButtons + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-sm ' + (i === currentPage ? 'btn-primary' : 'btn-secondary');
+        btn.textContent = i;
+        btn.onclick = () => goToPage(i);
+        numbersContainer.appendChild(btn);
+    }
+}
+
+function goToPage(page) {
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    loadEvents();
+}
+
+function nextPage() {
+    if (currentPage < totalPages) {
+        currentPage++;
+        loadEvents();
+    }
+}
+
+function previousPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        loadEvents();
+    }
+}
+
+function startScraping() {
+    const btn = document.getElementById('scrapeBtn');
+    const statusDiv = document.getElementById('scrapeStatus');
+    const alertDiv = document.getElementById('scrapeAlert');
+    const messageSpan = document.getElementById('scrapeMessage');
+    
+    // Disable button
+    btn.disabled = true;
+    btn.textContent = '⏳ Scraping...';
+    
+    // Show status
+    statusDiv.classList.remove('hidden');
+    alertDiv.className = 'alert alert-info';
+    messageSpan.textContent = 'Starting scraping task...';
+    
+    // Start scraping
+    fetch('/settings/evtx-descriptions/api/scrape', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            scrapeTaskId = data.task_id;
+            messageSpan.textContent = 'Scraping in progress... This may take 2-5 minutes.';
+            
+            // Poll for status
+            checkScrapeStatus();
+        } else {
+            alertDiv.className = 'alert alert-error';
+            messageSpan.textContent = 'Error: ' + data.error;
+            btn.disabled = false;
+            btn.textContent = '🔄 Update Descriptions';
+        }
+    })
+    .catch(error => {
+        console.error('Error starting scrape:', error);
+        alertDiv.className = 'alert alert-error';
+        messageSpan.textContent = 'Failed to start scraping: ' + error;
+        btn.disabled = false;
+        btn.textContent = '🔄 Update Descriptions';
+    });
+}
+
+function checkScrapeStatus() {
+    if (!scrapeTaskId) return;
+    
+    fetch(`/settings/evtx-descriptions/api/scrape/status/${scrapeTaskId}`)
+        .then(response => response.json())
+        .then(data => {
+            const alertDiv = document.getElementById('scrapeAlert');
+            const messageSpan = document.getElementById('scrapeMessage');
+            const btn = document.getElementById('scrapeBtn');
+            
+            if (data.state === 'PROGRESS') {
+                messageSpan.textContent = data.status || 'Processing...';
+                setTimeout(checkScrapeStatus, 2000);  // Check again in 2 seconds
+            } else if (data.state === 'SUCCESS') {
+                alertDiv.className = 'alert alert-success';
+                const result = data.result;
+                messageSpan.innerHTML = `
+                    <strong>✓ Scraping Complete!</strong><br>
+                    Added: ${result.added} | Updated: ${result.updated} | Skipped: ${result.skipped}
+                `;
+                btn.disabled = false;
+                btn.textContent = '🔄 Update Descriptions';
+                
+                // Reload page to show new stats
+                setTimeout(() => {
+                    location.reload();
+                }, 3000);
+            } else if (data.state === 'FAILURE') {
+                alertDiv.className = 'alert alert-error';
+                messageSpan.textContent = 'Scraping failed: ' + (data.error || 'Unknown error');
+                btn.disabled = false;
+                btn.textContent = '🔄 Update Descriptions';
+            } else {
+                // Still pending
+                setTimeout(checkScrapeStatus, 2000);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking status:', error);
+        });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

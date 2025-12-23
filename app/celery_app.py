@@ -37,12 +37,18 @@ def create_celery_app():
 # Create global Celery instance
 celery = create_celery_app()
 
-# Auto-discover tasks in tasks/ directory
-celery.autodiscover_tasks(['tasks'], force=True)
-
-# Import tasks to register them
+# Import tasks directly (like old_site does)
+# This ensures all tasks are registered with Celery
 try:
     from tasks import task_file_upload
     logger.info("✓ Registered file upload tasks")
 except Exception as e:
     logger.warning(f"⚠ Could not load task_file_upload: {e}")
+
+try:
+    from tasks import task_scrape_events
+    logger.info("✓ Registered event scraping tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_scrape_events: {e}")
+
+logger.info("✓ Celery tasks registered")

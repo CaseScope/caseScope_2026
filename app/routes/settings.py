@@ -5,6 +5,7 @@ Handles system configuration and settings management
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
+from main import db
 import logging
 import os
 import psutil
@@ -172,3 +173,166 @@ def update_workers():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@settings_bp.route('/evtx-descriptions')
+@login_required
+@admin_required
+def evtx_descriptions():
+    """
+    EVTX Descriptions management page
+    """
+    from models import EventDescription
+    
+    # Get statistics
+    total_events = EventDescription.query.count()
+    
+    # Count by source
+    from sqlalchemy import func
+    stats_by_source = db.session.query(
+        EventDescription.log_source,
+        func.count(EventDescription.id)
+    ).group_by(EventDescription.log_source).all()
+    
+    source_stats = {source: count for source, count in stats_by_source}
+    
+    return render_template('admin/evtx_descriptions.html',
+                         total_events=total_events,
+                         source_stats=source_stats)
+
+
+@settings_bp.route('/evtx-descriptions/api/list')
+@login_required
+@admin_required
+def api_list_descriptions():
+    """
+    API endpoint to list event descriptions with pagination
+    """
+    from models import EventDescription
+    
+    try:
+        # Get query parameters
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(100, max(10, int(request.args.get('per_page', 50))))
+        search_query = request.args.get('q', '').strip()
+        log_source_filter = request.args.get('source', '')
+        
+        # Build query
+        query = EventDescription.query
+        
+        # Apply search filter
+        if search_query:
+            query = query.filter(
+                db.or_(
+                    EventDescription.event_id.like(f'%{search_query}%'),
+                    EventDescription.description.like(f'%{search_query}%')
+                )
+            )
+        
+        # Apply log source filter
+        if log_source_filter:
+            query = query.filter(EventDescription.log_source == log_source_filter)
+        
+        # Order by event_id
+        query = query.order_by(EventDescription.event_id.asc())
+        
+        # Paginate
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        
+        # Format results
+        events = []
+        for event in pagination.items:
+            events.append({
+                'id': event.id,
+                'event_id': event.event_id,
+                'log_source': event.log_source,
+                'description': event.description,
+                'category': event.category,
+                'source_website': event.source_website,
+                'source_url': event.source_url,
+                'scraped_at': event.scraped_at.isoformat() if event.scraped_at else None
+            })
+        
+        return jsonify({
+            'events': events,
+            'total': pagination.total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': pagination.pages
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing event descriptions: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@settings_bp.route('/evtx-descriptions/api/scrape', methods=['POST'])
+@login_required
+@admin_required
+def api_scrape_descriptions():
+    """
+    API endpoint to trigger scraping task
+    """
+    from audit_logger import log_action
+    from celery_app import celery
+    
+    try:
+        # Queue the scraping task using send_task (avoids circular import)
+        task = celery.send_task('tasks.scrape_event_descriptions')
+        
+        # Audit log
+        log_action('scrape_event_descriptions',
+                   resource_type='system_settings',
+                   resource_id=1,
+                   resource_name='event_descriptions',
+                   details={
+                       'task_id': task.id,
+                       'triggered_by': current_user.username
+                   })
+        
+        logger.info(f"Event description scraping task queued: {task.id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Scraping task started',
+            'task_id': task.id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting scrape task: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@settings_bp.route('/evtx-descriptions/api/scrape/status/<task_id>')
+@login_required
+@admin_required
+def api_scrape_status(task_id):
+    """
+    Check status of scraping task
+    """
+    from celery.result import AsyncResult
+    
+    try:
+        task = AsyncResult(task_id)
+        
+        response = {
+            'task_id': task_id,
+            'state': task.state,
+            'ready': task.ready()
+        }
+        
+        if task.state == 'PROGRESS':
+            response['status'] = task.info.get('status', '')
+        elif task.state == 'SUCCESS':
+            response['result'] = task.result
+        elif task.state == 'FAILURE':
+            response['error'] = str(task.info)
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking task status: {e}")
+        return jsonify({'error': str(e)}), 500

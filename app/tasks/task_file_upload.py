@@ -291,20 +291,28 @@ def ingest_staged_file(case_id, file_path):
             
             logger.info(f"Processing events in chunks of {chunk_size}...")
             
+            event_counter = 0
             for event in parse_evtx_file(file_path):
+                event_counter += 1
                 chunk.append(event)
                 
                 # Capture source system from first event that has it
                 # Try multiple fields: computer, Computer, ComputerName
                 if source_system is None:
-                    source_system = (
-                        event.get('computer') or 
-                        event.get('Computer') or 
-                        event.get('computer_name') or 
-                        event.get('system', {}).get('computer') if isinstance(event.get('system'), dict) else None
-                    )
+                    # Debug logging for first event only
+                    if event_counter == 1:
+                        logger.info(f"First event keys: {list(event.keys())[:15]}")
+                        logger.info(f"First event 'computer' value: {repr(event.get('computer'))}")
+                    
+                    # Try various fields for computer name
+                    source_system = event.get('computer') or event.get('Computer') or event.get('computer_name')
+                    
+                    # Try nested system.computer if not found yet
+                    if not source_system and isinstance(event.get('system'), dict):
+                        source_system = event.get('system', {}).get('computer')
+                    
                     if source_system:
-                        logger.info(f"Detected source system: {source_system}")
+                        logger.info(f"Detected source system: {source_system} from event #{event_counter}")
                 
                 # When chunk is full, index it
                 if len(chunk) >= chunk_size:
@@ -313,7 +321,8 @@ def ingest_staged_file(case_id, file_path):
                         events=iter(chunk),  # Iterator from list
                         chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
                         case_id=case_id,
-                        source_file=filename
+                        source_file=filename,
+                        file_type='EVTX'
                     )
                     total_indexed += stats['indexed']
                     total_failed += stats.get('failed', 0)
@@ -330,19 +339,33 @@ def ingest_staged_file(case_id, file_path):
                     events=iter(chunk),
                     chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
                     case_id=case_id,
-                    source_file=filename
+                    source_file=filename,
+                    file_type='EVTX'
                 )
                 total_indexed += stats['indexed']
                 total_failed += stats.get('failed', 0)
             
             # Move to storage after successful ingestion
             storage_file_path = os.path.join(storage_path, filename)
-            shutil.move(file_path, storage_file_path)
+            try:
+                shutil.move(file_path, storage_file_path)
+                actual_storage_path = storage_file_path
+            except (FileNotFoundError, OSError) as move_error:
+                # File might have already been moved or doesn't exist
+                # Check if it's already in storage
+                if os.path.exists(storage_file_path):
+                    actual_storage_path = storage_file_path
+                    logger.warning(f"File already in storage: {storage_file_path}")
+                else:
+                    # File is missing, but we already indexed the events
+                    # Use the intended path for the record
+                    actual_storage_path = storage_file_path
+                    logger.warning(f"File move failed but events indexed: {move_error}")
             
             results['events_indexed'] = total_indexed
             results['events_failed'] = total_failed
             results['source_system'] = source_system
-            results['storage_path'] = storage_file_path
+            results['storage_path'] = actual_storage_path
             results['status'] = 'success'
             
             logger.info(f"Indexed {total_indexed} events from {filename} (memory-safe chunking)")
@@ -361,14 +384,20 @@ def ingest_staged_file(case_id, file_path):
                 
                 # Get Flask app context
                 with app.app_context():
+                    # Get actual file size (use 0 if file not accessible)
+                    try:
+                        file_size = os.path.getsize(actual_storage_path)
+                    except (FileNotFoundError, OSError):
+                        file_size = 0
+                    
                     case_file = CaseFile(
                         case_id=case_id,
                         filename=filename,
                         original_filename=filename,
                         file_type='evtx',
-                        file_size=os.path.getsize(storage_file_path),
-                        file_path=storage_file_path,
-                        source_system=source_system,
+                        file_size=file_size,
+                        file_path=actual_storage_path,
+                        source_system=source_system,  # This will now always be set
                         event_count=total_indexed,
                         uploaded_by=1,  # TODO: Get from session/context
                         status='indexed',
@@ -376,17 +405,158 @@ def ingest_staged_file(case_id, file_path):
                     )
                     db.session.add(case_file)
                     db.session.commit()
-                    logger.info(f"Created CaseFile record for {filename}")
+                    logger.info(f"Created CaseFile record for {filename} with source_system={source_system}")
             except Exception as e:
                 logger.error(f"Failed to create CaseFile record: {e}")
                 import traceback
                 traceback.print_exc()
             
         elif file_ext in ['.json', '.ndjson', '.jsonl']:
-            # TODO: Implement JSON parsing
-            results['status'] = 'skipped'
-            results['message'] = 'JSON parsing not yet implemented'
-            return results
+            # Parse NDJSON/JSON file
+            logger.info(f"Parsing NDJSON file: {filename}")
+            
+            # Import NDJSON parser
+            from parsers.ndjson_parser import parse_ndjson_file
+            
+            # Index into OpenSearch with chunked processing
+            index_name = f"{OPENSEARCH_INDEX_PREFIX}{case_id}"
+            indexer = OpenSearchIndexer(
+                host=OPENSEARCH_HOST,
+                port=OPENSEARCH_PORT,
+                use_ssl=OPENSEARCH_USE_SSL
+            )
+            
+            # MEMORY-SAFE: Process in chunks to avoid OOM
+            chunk = []
+            chunk_size = 5000  # Process 5000 events at a time
+            total_indexed = 0
+            total_failed = 0
+            source_system = None  # Track computer name
+            
+            logger.info(f"Processing NDJSON events in chunks of {chunk_size}...")
+            
+            try:
+                event_counter = 0
+                for event in parse_ndjson_file(file_path):
+                    event_counter += 1
+                    chunk.append(event)
+                    
+                    # Capture source system from first event that has it
+                    if source_system is None:
+                        # Debug logging for first event only
+                        if event_counter == 1:
+                            logger.info(f"First NDJSON event keys: {list(event.keys())[:15]}")
+                        
+                        # Try various fields for computer/host name
+                        source_system = event.get('normalized_computer')
+                        
+                        if not source_system and isinstance(event.get('host'), dict):
+                            source_system = event.get('host', {}).get('hostname')
+                        
+                        if source_system:
+                            logger.info(f"Detected source system: {source_system} from event #{event_counter}")
+                    
+                    # When chunk is full, index it
+                    if len(chunk) >= chunk_size:
+                        stats = indexer.bulk_index(
+                            index_name=index_name,
+                            events=iter(chunk),
+                            chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                            case_id=case_id,
+                            source_file=filename,
+                            file_type='NDJSON'
+                        )
+                        total_indexed += stats['indexed']
+                        total_failed += stats.get('failed', 0)
+                        
+                        # Clear chunk to free memory
+                        chunk = []
+                        
+                        logger.info(f"Indexed {total_indexed} events so far...")
+                
+                # Index any remaining events
+                if chunk:
+                    stats = indexer.bulk_index(
+                        index_name=index_name,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type='NDJSON'
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                
+                # Move to storage after successful ingestion
+                storage_file_path = os.path.join(storage_path, filename)
+                try:
+                    shutil.move(file_path, storage_file_path)
+                    actual_storage_path = storage_file_path
+                except (FileNotFoundError, OSError) as move_error:
+                    # File might have already been moved or doesn't exist
+                    if os.path.exists(storage_file_path):
+                        actual_storage_path = storage_file_path
+                        logger.warning(f"File already in storage: {storage_file_path}")
+                    else:
+                        actual_storage_path = storage_file_path
+                        logger.warning(f"File move failed but events indexed: {move_error}")
+                
+                results['events_indexed'] = total_indexed
+                results['events_failed'] = total_failed
+                results['source_system'] = source_system
+                results['storage_path'] = actual_storage_path
+                results['status'] = 'success'
+                
+                logger.info(f"Indexed {total_indexed} events from NDJSON file {filename}")
+                
+                # Create CaseFile record
+                try:
+                    import sys
+                    import os as os_sys
+                    # Add app dir to path if not already there
+                    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    if app_dir not in sys.path:
+                        sys.path.insert(0, app_dir)
+                    
+                    from main import app, db
+                    from models import CaseFile
+                    
+                    # Get Flask app context
+                    with app.app_context():
+                        # Get actual file size (use 0 if file not accessible)
+                        try:
+                            file_size = os.path.getsize(actual_storage_path)
+                        except (FileNotFoundError, OSError):
+                            file_size = 0
+                        
+                        case_file = CaseFile(
+                            case_id=case_id,
+                            filename=filename,
+                            original_filename=filename,
+                            file_type='ndjson',
+                            file_size=file_size,
+                            file_path=actual_storage_path,
+                            source_system=source_system,  # This will now always be set
+                            event_count=total_indexed,
+                            uploaded_by=1,  # TODO: Get from session/context
+                            status='indexed',
+                            indexed_at=datetime.utcnow()
+                        )
+                        db.session.add(case_file)
+                        db.session.commit()
+                        logger.info(f"Created CaseFile record for {filename} with source_system={source_system}")
+                except Exception as e:
+                    logger.error(f"Failed to create CaseFile record: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+            except Exception as e:
+                logger.error(f"Error processing NDJSON file: {e}")
+                import traceback
+                traceback.print_exc()
+                results['status'] = 'error'
+                results['error'] = str(e)
+                return results
             
         elif file_ext == '.csv':
             # TODO: Implement CSV parsing

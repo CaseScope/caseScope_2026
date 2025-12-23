@@ -69,8 +69,8 @@ def get_system_info():
             continue
     
     # Case files storage
-    case_files_live = get_directory_size('/opt/casescope/case_files') if os.path.exists('/opt/casescope/case_files') else 0
-    case_files_archive = get_directory_size('/opt/casescope/archives') if os.path.exists('/opt/casescope/archives') else 0
+    case_files_live = get_directory_size('/opt/casescope/storage') if os.path.exists('/opt/casescope/storage') else 0
+    case_files_archive = 0  # Archive location TBD
     
     return {
         'hostname': hostname,
@@ -139,8 +139,9 @@ def get_software_versions():
     # OpenSearch version (check via HTTP API)
     try:
         import requests
-        from config import Config
-        response = requests.get(f"{Config.OPENSEARCH_HOST}", timeout=2)
+        from app.config import Config
+        opensearch_url = f"http://{Config.OPENSEARCH_HOST}:{Config.OPENSEARCH_PORT}"
+        response = requests.get(opensearch_url, timeout=2)
         if response.status_code == 200:
             data = response.json()
             versions['opensearch'] = data.get('version', {}).get('number', 'Unknown')
@@ -165,11 +166,8 @@ def get_software_versions():
     
     # Gunicorn version
     try:
-        result = subprocess.run(['gunicorn', '--version'], capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            versions['gunicorn'] = result.stdout.strip().split()[-1]
-        else:
-            versions['gunicorn'] = 'Not detected'
+        import gunicorn
+        versions['gunicorn'] = gunicorn.__version__
     except Exception:
         versions['gunicorn'] = 'Not detected'
     
@@ -182,8 +180,9 @@ def get_software_versions():
     
     # Werkzeug version
     try:
-        import werkzeug
-        versions['werkzeug'] = werkzeug.__version__
+        # Werkzeug 3.x removed __version__ attribute, get version from package metadata
+        import importlib.metadata
+        versions['werkzeug'] = importlib.metadata.version('werkzeug')
     except Exception:
         versions['werkzeug'] = 'Unknown'
     
