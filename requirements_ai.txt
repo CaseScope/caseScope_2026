@@ -1,0 +1,5 @@
+ollama
+fastembed
+pyyaml
+psycopg2-binary
+pgvector

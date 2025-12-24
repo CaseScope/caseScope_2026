@@ -77,7 +77,9 @@ def audit_log():
     
     # Pagination
     page = request.args.get('page', 1, type=int)
-    per_page = 50
+    per_page = request.args.get('per_page', 50, type=int)
+    # Limit per_page to reasonable values
+    per_page = min(200, max(25, per_page))
     
     # Filters
     action_filter = request.args.get('action', '')

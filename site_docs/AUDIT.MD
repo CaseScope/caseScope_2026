@@ -186,26 +186,39 @@ Planned audit events for evidence handling:
 
 ---
 
-### IOC & Threat Intelligence (Future Implementation)
+### IOC & Threat Intelligence
 
-Planned audit events for IOC operations:
+Audit events for IOC operations:
 
-- `add_ioc` - New IOC added to threat intelligence
-- `modify_ioc` - IOC details updated
-- `delete_ioc` - IOC removed
-- `ioc_hunt` - IOC hunting job initiated
-- `ioc_match` - IOC matched in events (batch or individual)
+**Manual IOC Operations:**
+- `ioc_created_manual` - New IOC manually added
+  - Details: type, value, category, threat_level, confidence, source, description, analyst_notes
+- `ioc_updated` - IOC details updated
+  - Details: Field-by-field changes (old_value → new_value for each modified field)
+- `ioc_deleted` - IOC removed
+  - Details: Complete IOC snapshot before deletion (type, value, category, threat_level, confidence, description, times_seen, etc.)
+
+**Bulk IOC Operations:**
+- `iocs_bulk_updated` - Multiple IOCs updated at once
+  - Details: Count of IOCs updated, changes per IOC (old_value → new_value)
+- `iocs_bulk_deleted` - Multiple IOCs deleted at once
+  - Details: Count of IOCs deleted, complete snapshot of each deleted IOC
+
+**Automated IOC Operations:**
+- `iocs_extracted_from_edr` - IOCs extracted from EDR report
+  - Details: Report index, extraction method (AI or regex fallback), count of new IOCs created, count of existing IOCs updated, list of all IOCs with their details
+- `iocs_manually_deduplicated` - Manual deduplication performed
+  - Details: For each root IOC (original state, adjusted state, specific changes), for each merged duplicate (complete state before deletion), total merge count
 
 ---
 
-### Analysis Operations (Future Implementation)
+### Analysis Operations
 
-Planned audit events for analysis activities:
+Audit events for analysis activities:
 
-- `run_sigma_detection` - Sigma rule detection executed
-- `extract_iocs` - IOC extraction from events
-- `ai_analysis` - AI-powered analysis performed
-- `generate_report` - Triage report generated
+- `run_sigma_detection` - Sigma rule detection executed (Future)
+- `ai_analysis` - AI-powered analysis performed (Future)
+- `generate_report` - Triage report generated (Future)
 
 ---
 

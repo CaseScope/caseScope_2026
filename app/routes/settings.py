@@ -50,7 +50,8 @@ def settings_page():
     return render_template('admin/settings.html',
                          current_workers=current_workers,
                          cpu_count=cpu_count,
-                         max_workers=max_workers)
+                         max_workers=max_workers,
+                         config=config_module)
 
 
 @settings_bp.route('/workers/update', methods=['POST'])

@@ -273,6 +273,20 @@ button.disabled = !canEdit;
 | View events | ✅ | ✅ | ✅ |
 | View reports | ✅ | ✅ | ✅ |
 
+### IOC Management Access Matrix
+
+| Action | Administrator | Analyst | Read-Only |
+|--------|--------------|---------|-----------|
+| View IOCs | ✅ | ✅ | ✅ |
+| Add IOC | ✅ | ✅ | ❌ |
+| Edit IOC | ✅ | ✅ | ❌ |
+| Delete IOC | ✅ | ✅ | ❌ |
+| Bulk Edit | ✅ | ✅ | ❌ |
+| Bulk Delete | ✅ | ✅ | ❌ |
+| Extract IOCs from EDR | ✅ | ✅ | ❌ |
+| Deduplicate IOCs | ✅ | ✅ | ❌ |
+| Export IOCs (CSV) | ✅ | ✅ | ✅ |
+
 ---
 
 ## Security Best Practices

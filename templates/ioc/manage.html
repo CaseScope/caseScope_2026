@@ -1,0 +1,1694 @@
+{% extends "base.html" %}
+
+{% block title %}IOC Management - CaseScope 2026{% endblock %}
+
+{% block header_title %}IOC Management{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🎯 IOC Management</h1>
+        {% if case %}
+        <p class="content-subtitle">{{ case.name }}</p>
+        {% else %}
+        <p class="content-subtitle">No case selected</p>
+        {% endif %}
+    </div>
+    <div class="content-actions">
+        <button class="btn btn-secondary" onclick="exportIOCs()" title="Export IOCs as CSV">
+            📥 Export CSV
+        </button>
+        <button class="btn btn-secondary" onclick="startDeduplication()" title="Find and merge duplicate IOCs">
+            🔄 Deduplicate
+        </button>
+        <button class="btn btn-primary" onclick="showAddIOCModal()">
+            ➕ Add IOC
+        </button>
+    </div>
+</div>
+
+{% if not case %}
+<div class="card">
+    <div class="card-body">
+        <div class="placeholder-content">
+            <div class="placeholder-icon">📁</div>
+            <h3>No Case Selected</h3>
+            <p>Please select a case to manage IOCs</p>
+            <a href="/case/select" class="btn btn-primary mt-2">Select Case</a>
+        </div>
+    </div>
+</div>
+{% else %}
+
+<!-- Statistics Cards -->
+<div class="grid grid-4 mb-4">
+    <div class="stat-card">
+        <div class="stat-label">Total IOCs</div>
+        <div class="stat-value stat-value-primary" id="statTotal">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Critical</div>
+        <div class="stat-value stat-value-error" id="statCritical">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">High</div>
+        <div class="stat-value stat-value-warning" id="statHigh">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Network IOCs</div>
+        <div class="stat-value stat-value-info" id="statNetwork">-</div>
+    </div>
+</div>
+
+<!-- Search and Filters -->
+<div class="card mb-4">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <h3 class="card-title mb-0">Search & Filter</h3>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-3 mb-3">
+            <input type="text" 
+                   id="searchInput" 
+                   class="form-input" 
+                   placeholder="Search IOCs (value, description, notes)..."
+                   style="flex: 1;">
+            <button class="btn btn-primary" onclick="performSearch()">
+                🔍 Search
+            </button>
+            <button class="btn btn-secondary" onclick="clearSearch()">
+                Clear
+            </button>
+        </div>
+        
+        <div class="d-flex gap-3 align-items-center">
+            <label class="form-label mb-0">
+                Visibility:
+                <select id="visibilityFilter" class="form-select-sm" onchange="applyFilters()">
+                    <option value="hide_hidden">Hide Hidden</option>
+                    <option value="all">All</option>
+                    <option value="hidden_only">Hidden Only</option>
+                </select>
+            </label>
+            
+            <label class="form-label mb-0">
+                Category:
+                <select id="categoryFilter" class="form-select-sm" onchange="applyFilters()">
+                    <option value="">All Categories</option>
+                    <option value="network">Network</option>
+                    <option value="file">File</option>
+                    <option value="host">Host</option>
+                    <option value="identity">Identity</option>
+                    <option value="vulnerability">Vulnerability</option>
+                    <option value="cloud">Cloud</option>
+                    <option value="mobile">Mobile</option>
+                </select>
+            </label>
+            
+            <label class="form-label mb-0">
+                Threat Level:
+                <select id="threatLevelFilter" class="form-select-sm" onchange="applyFilters()">
+                    <option value="">All Levels</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                    <option value="info">Info</option>
+                </select>
+            </label>
+            
+            <label class="form-label mb-0">
+                Per page:
+                <select id="perPage" class="form-select-sm" onchange="changePerPage()">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                </select>
+            </label>
+        </div>
+    </div>
+</div>
+
+<!-- IOC Table -->
+<div class="card">
+    <div class="card-body">
+        <div id="loadingIndicator" class="loading-indicator">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Loading IOCs...</p>
+        </div>
+        
+        <div id="iocTable" class="table-container" style="display: none;">
+            <!-- Bulk Actions Bar -->
+            <div id="bulkActionsBar" class="card mb-3" style="display: none; border-left: 4px solid var(--color-primary);">
+                <div class="card-body" style="padding: 12px;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong><span id="selectedCount">0</span> IOCs selected</strong>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-secondary" onclick="editSelected()" title="Edit selected IOCs">
+                                ✏️ Edit Selected
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteSelected()" title="Delete selected IOCs">
+                                🗑️ Delete Selected
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="clearSelection()" title="Clear selection">
+                                ✖️ Clear
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()" title="Select all on this page">
+                        </th>
+                        <th style="width: 100px;">Category</th>
+                        <th style="width: 80px;">Type</th>
+                        <th style="width: 100px;">Threat Level</th>
+                        <th style="width: 80px;">Confidence</th>
+                        <th style="width: 250px;">Value</th>
+                        <th>Description</th>
+                        <th style="width: 150px;">Last Seen</th>
+                        <th style="width: 150px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="iocTableBody">
+                    <!-- IOCs populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="noResults" class="placeholder-content" style="display: none;">
+            <div class="placeholder-icon">🔍</div>
+            <h3>No IOCs found</h3>
+            <p>Try adjusting your search query or filters</p>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination -->
+<div class="pagination-container" id="paginationContainer" style="display: none;">
+    <div class="pagination-info">
+        Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+        (<span id="totalCount">0</span> IOCs)
+    </div>
+    <div class="pagination-controls">
+        <button class="btn btn-secondary btn-sm" id="firstPageBtn" onclick="goToPage(1)">First</button>
+        <button class="btn btn-secondary btn-sm" id="prevPageBtn" onclick="previousPage()">Previous</button>
+        <div class="pagination-numbers" id="paginationNumbers"></div>
+        <button class="btn btn-secondary btn-sm" id="nextPageBtn" onclick="nextPage()">Next</button>
+        <button class="btn btn-secondary btn-sm" id="lastPageBtn" onclick="goToPage(totalPages)">Last</button>
+    </div>
+</div>
+
+{% endif %}
+
+<!-- IOC Detail Modal -->
+<div id="iocDetailModal" class="modal-overlay" style="display: none;" onclick="closeModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">📋 IOC Details</h2>
+            <button class="modal-close" onclick="closeModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="iocDetailContent">
+                <div class="loading-indicator">
+                    <div class="spinner-border text-primary"></div>
+                    <p>Loading IOC details...</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal(event)">Close</button>
+            <button class="btn btn-primary" onclick="editIOC()">Edit</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit IOC Modal -->
+<div id="addIOCModal" class="modal-overlay" style="display: none;" onclick="closeAddModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title" id="iocModalTitle">➕ Add IOC</h2>
+            <button class="modal-close" onclick="closeAddModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="addIOCForm" onsubmit="submitIOC(event)">
+                <input type="hidden" id="editingIOCId" value="">
+                <div class="form-group">
+                    <label class="form-label">IOC Type <span style="color: var(--color-error);">*</span></label>
+                    <select id="iocType" name="type" class="form-select" required>
+                        <option value="">-- Select Type --</option>
+                        <optgroup label="Network">
+                            <option value="ipv4">IPv4 Address</option>
+                            <option value="ipv6">IPv6 Address</option>
+                            <option value="domain">Domain</option>
+                            <option value="fqdn">FQDN</option>
+                            <option value="url">URL</option>
+                            <option value="email_address">Email Address</option>
+                            <option value="user_agent">User Agent</option>
+                        </optgroup>
+                        <optgroup label="File">
+                            <option value="md5">MD5 Hash</option>
+                            <option value="sha1">SHA1 Hash</option>
+                            <option value="sha256">SHA256 Hash</option>
+                            <option value="filename">Filename</option>
+                            <option value="filepath">File Path</option>
+                        </optgroup>
+                        <optgroup label="Host">
+                            <option value="registry_key">Registry Key</option>
+                            <option value="process_name">Process Name</option>
+                            <option value="command_line">Command Line</option>
+                            <option value="service_name">Service Name</option>
+                        </optgroup>
+                        <optgroup label="Identity">
+                            <option value="username">Username</option>
+                            <option value="sid">SID</option>
+                            <option value="email_sender">Email Sender</option>
+                        </optgroup>
+                        <optgroup label="Vulnerability">
+                            <option value="cve_id">CVE ID</option>
+                            <option value="malware_family">Malware Family</option>
+                            <option value="mitre_attack_id">MITRE ATT&CK ID</option>
+                        </optgroup>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Value <span style="color: var(--color-error);">*</span></label>
+                    <input type="text" id="iocValue" name="value" class="form-input" required placeholder="Enter IOC value">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Category <span style="color: var(--color-error);">*</span></label>
+                    <select id="iocCategory" name="category" class="form-select" required>
+                        <option value="">-- Select Category --</option>
+                        <option value="network">Network</option>
+                        <option value="file">File</option>
+                        <option value="host">Host</option>
+                        <option value="identity">Identity</option>
+                        <option value="vulnerability">Vulnerability</option>
+                        <option value="cloud">Cloud</option>
+                        <option value="mobile">Mobile</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Threat Level <span style="color: var(--color-error);">*</span></label>
+                    <select id="iocThreatLevel" name="threat_level" class="form-select" required>
+                        <option value="info">Info</option>
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Confidence (0-100)</label>
+                    <input type="number" id="iocConfidence" name="confidence" class="form-input" min="0" max="100" placeholder="Optional">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Source</label>
+                    <select id="iocSource" name="source" class="form-select">
+                        <option value="manual" selected>Manual Entry</option>
+                        <option value="ai_extraction">AI Extraction</option>
+                        <option value="event_extraction">Event Extraction</option>
+                        <option value="file_analysis">File Analysis</option>
+                        <option value="threat_feed">Threat Feed</option>
+                        <option value="osint">OSINT</option>
+                        <option value="import">Import</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Source Reference</label>
+                    <input type="text" id="iocSourceRef" name="source_reference" class="form-input" placeholder="URL, ticket number, feed name, etc.">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="iocDescription" name="description" class="form-textarea" rows="3" placeholder="Brief description of this IOC"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Analyst Notes</label>
+                    <textarea id="iocNotes" name="analyst_notes" class="form-textarea" rows="3" placeholder="Internal notes and observations"></textarea>
+                </div>
+                
+                <div class="form-group" id="statusControlsGroup" style="display: none;">
+                    <label class="form-label">Status</label>
+                    <div class="d-flex gap-3">
+                        <label class="form-label mb-0">
+                            <input type="checkbox" id="iocActive" name="is_active">
+                            Active
+                        </label>
+                        <label class="form-label mb-0">
+                            <input type="checkbox" id="iocWhitelisted" name="is_whitelisted">
+                            Whitelisted
+                        </label>
+                        <label class="form-label mb-0">
+                            <input type="checkbox" id="iocHidden" name="is_hidden">
+                            Hidden
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeAddModal(event)">Cancel</button>
+            <button class="btn btn-primary" type="button" id="submitIOCBtn" onclick="checkAndSubmitIOC(event)">
+                <span id="submitBtnText">Create IOC</span>
+                <span id="submitBtnSpinner" class="spinner-border-sm" style="display: none;"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Duplicate Warning Modal -->
+<div id="duplicateWarningModal" class="modal-overlay" style="display: none;" onclick="closeDuplicateWarning(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">⚠️ Duplicate / Overlap Detected</h2>
+            <button class="modal-close" onclick="closeDuplicateWarning(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="duplicateWarningContent">
+                <!-- Content populated by JavaScript -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeDuplicateWarning(event)">Cancel</button>
+            <button class="btn btn-warning" type="button" onclick="forceCreateIOC()">Create Anyway</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Edit Modal -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;" onclick="closeBulkEditModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">✏️ Bulk Edit IOCs</h2>
+            <button class="modal-close" onclick="closeBulkEditModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 16px;">Editing <strong id="bulkEditCount">0</strong> IOCs. Only changed fields will be updated.</p>
+            <form id="bulkEditForm">
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="bulkCategory" name="category" class="form-select">
+                        <option value="">-- No Change --</option>
+                        <option value="network">Network</option>
+                        <option value="file">File</option>
+                        <option value="host">Host</option>
+                        <option value="identity">Identity</option>
+                        <option value="vulnerability">Vulnerability</option>
+                        <option value="cloud">Cloud</option>
+                        <option value="mobile">Mobile</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Threat Level</label>
+                    <select id="bulkThreatLevel" name="threat_level" class="form-select">
+                        <option value="">-- No Change --</option>
+                        <option value="info">Info</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <div class="d-flex gap-3">
+                        <label class="form-label mb-0">
+                            <input type="checkbox" id="bulkActive" name="is_active">
+                            Set Active
+                        </label>
+                        <label class="form-label mb-0">
+                            <input type="checkbox" id="bulkWhitelisted" name="is_whitelisted">
+                            Set Whitelisted
+                        </label>
+                        <label class="form-label mb-0">
+                            <input type="checkbox" id="bulkHidden" name="is_hidden">
+                            Set Hidden
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeBulkEditModal(event)">Cancel</button>
+            <button class="btn btn-primary" type="button" onclick="submitBulkEdit()">
+                Update IOCs
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Deduplication Modal -->
+<div id="deduplicationModal" class="modal-overlay" style="display: none;" onclick="closeDeduplicationModal(event)">
+    <div class="modal-container" style="max-width: 900px;" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🔄 Deduplicate IOCs</h2>
+            <button class="modal-close" onclick="closeDeduplicationModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="deduplicationLoading" style="display: none; text-align: center; padding: 48px;">
+                <div class="spinner-border text-primary" style="margin-bottom: 16px;"></div>
+                <p>Analyzing IOCs for duplicates...</p>
+            </div>
+            
+            <div id="deduplicationContent" style="display: none;">
+                <p style="margin-bottom: 16px; color: var(--color-text-secondary);">
+                    Review the duplicate IOCs found below. Check the boxes to select which duplicates should be merged into the root IOC.
+                    The root IOC will be kept, and selected duplicates will be merged into it.
+                </p>
+                
+                <div id="deduplicationTree" style="max-height: 500px; overflow-y: auto;">
+                    <!-- Tree will be populated by JavaScript -->
+                </div>
+            </div>
+            
+            <div id="noDuplicates" style="display: none; text-align: center; padding: 48px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+                <h3>No Duplicates Found</h3>
+                <p style="color: var(--color-text-secondary);">All IOCs in this case are unique.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeDeduplicationModal(event)">Cancel</button>
+            <button class="btn btn-primary" id="btnApplyDedup" type="button" onclick="applyDeduplication()" style="display: none;">
+                Apply Deduplication
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global state
+let currentPage = 1;
+let totalPages = 1;
+let totalCount = 0;
+let perPage = 50;
+let currentSearch = '';
+let visibilityFilter = 'hide_hidden';
+let categoryFilter = '';
+let threatLevelFilter = '';
+let currentIOCId = null;
+let selectedIOCs = new Set();
+let editingIOC = null;
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    {% if case %}
+    loadStats();
+    loadIOCs();
+    
+    // Enable Enter key to search
+    document.getElementById('searchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+    {% endif %}
+});
+
+function loadStats() {
+    fetch('/ioc/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const stats = data.stats;
+                document.getElementById('statTotal').textContent = stats.total || 0;
+                document.getElementById('statCritical').textContent = stats.by_threat_level.critical || 0;
+                document.getElementById('statHigh').textContent = stats.by_threat_level.high || 0;
+                document.getElementById('statNetwork').textContent = stats.by_category.network || 0;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading stats:', error);
+        });
+}
+
+function performSearch() {
+    currentSearch = document.getElementById('searchInput').value.trim();
+    currentPage = 1;
+    loadIOCs();
+}
+
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    currentSearch = '';
+    currentPage = 1;
+    loadIOCs();
+}
+
+function applyFilters() {
+    visibilityFilter = document.getElementById('visibilityFilter').value;
+    categoryFilter = document.getElementById('categoryFilter').value;
+    threatLevelFilter = document.getElementById('threatLevelFilter').value;
+    currentPage = 1;
+    loadIOCs();
+}
+
+function changePerPage() {
+    perPage = parseInt(document.getElementById('perPage').value);
+    currentPage = 1;
+    loadIOCs();
+}
+
+function loadIOCs() {
+    // Show loading indicator
+    document.getElementById('loadingIndicator').style.display = 'flex';
+    document.getElementById('iocTable').style.display = 'none';
+    document.getElementById('noResults').style.display = 'none';
+    document.getElementById('paginationContainer').style.display = 'none';
+    
+    // Build API URL
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: perPage,
+        visibility: visibilityFilter
+    });
+    
+    if (currentSearch) {
+        params.append('search', currentSearch);
+    }
+    
+    if (categoryFilter) {
+        params.append('category', categoryFilter);
+    }
+    
+    if (threatLevelFilter) {
+        params.append('threat_level', threatLevelFilter);
+    }
+    
+    // Fetch IOCs
+    fetch(`/ioc/api/list?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                return;
+            }
+            
+            // Update global state
+            totalPages = data.total_pages;
+            totalCount = data.total;
+            
+            if (totalCount === 0) {
+                document.getElementById('noResults').style.display = 'block';
+            } else {
+                // Populate table
+                populateTable(data.iocs);
+                document.getElementById('iocTable').style.display = 'block';
+                
+                // Update pagination
+                updatePagination();
+                document.getElementById('paginationContainer').style.display = 'flex';
+            }
+            
+            // Hide loading indicator
+            document.getElementById('loadingIndicator').style.display = 'none';
+        })
+        .catch(error => {
+            console.error('Error loading IOCs:', error);
+            alert('Failed to load IOCs: ' + error);
+            document.getElementById('loadingIndicator').style.display = 'none';
+        });
+}
+
+function populateTable(iocs) {
+    const tbody = document.getElementById('iocTableBody');
+    tbody.innerHTML = '';
+    
+    iocs.forEach(ioc => {
+        const row = document.createElement('tr');
+        row.className = 'ioc-row';
+        
+        // Threat level badge
+        const threatLevelClass = {
+            'critical': 'badge-error',
+            'high': 'badge-warning',
+            'medium': 'badge-info',
+            'low': 'badge-secondary',
+            'info': 'badge-secondary'
+        }[ioc.threat_level] || 'badge-secondary';
+        
+        // Category badge
+        const categoryClass = {
+            'network': 'badge-primary',
+            'file': 'badge-success',
+            'host': 'badge-info',
+            'identity': 'badge-warning',
+            'vulnerability': 'badge-error'
+        }[ioc.category] || 'badge-secondary';
+        
+        // Format last seen
+        const lastSeen = ioc.last_seen ? new Date(ioc.last_seen).toLocaleDateString() : 'N/A';
+        
+        // Truncate value if too long
+        const displayValue = ioc.value.length > 40 ? ioc.value.substring(0, 40) + '...' : ioc.value;
+        
+        // Truncate description
+        const displayDesc = ioc.description ? 
+            (ioc.description.length > 60 ? ioc.description.substring(0, 60) + '...' : ioc.description) :
+            '<span class="text-muted">No description</span>';
+        
+        // Check if selected
+        const isSelected = selectedIOCs.has(ioc.id);
+        
+        row.innerHTML = `
+            <td>
+                <input type="checkbox" class="ioc-checkbox" data-ioc-id="${ioc.id}" ${isSelected ? 'checked' : ''} onchange="toggleIOCSelection(${ioc.id})">
+            </td>
+            <td><span class="badge ${categoryClass}">${escapeHtml(ioc.category)}</span></td>
+            <td><span class="badge badge-secondary">${escapeHtml(ioc.type)}</span></td>
+            <td><span class="badge ${threatLevelClass}">${escapeHtml(ioc.threat_level)}</span></td>
+            <td class="text-center">${ioc.confidence || '-'}%</td>
+            <td><code>${escapeHtml(displayValue)}</code></td>
+            <td>${displayDesc}</td>
+            <td>${lastSeen}</td>
+            <td>
+                <button class="btn btn-sm btn-primary" onclick="viewIOC(${ioc.id})" title="View Details">
+                    👁️
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="editIOCModal(${ioc.id})" title="Edit IOC">
+                    ✏️
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="toggleHidden(${ioc.id}, ${ioc.is_hidden})" title="${ioc.is_hidden ? 'Unhide' : 'Hide'}">
+                    ${ioc.is_hidden ? '👁️' : '🙈'}
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteIOC(${ioc.id})" title="Delete IOC">
+                    🗑️
+                </button>
+            </td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+    
+    // Update select all checkbox
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
+}
+
+function updatePagination() {
+    document.getElementById('currentPage').textContent = currentPage;
+    document.getElementById('totalPages').textContent = totalPages;
+    document.getElementById('totalCount').textContent = totalCount.toLocaleString();
+    
+    // Update button states
+    document.getElementById('firstPageBtn').disabled = currentPage === 1;
+    document.getElementById('prevPageBtn').disabled = currentPage === 1;
+    document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+    document.getElementById('lastPageBtn').disabled = currentPage === totalPages;
+    
+    // Generate page numbers
+    const numbersContainer = document.getElementById('paginationNumbers');
+    numbersContainer.innerHTML = '';
+    
+    const maxButtons = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+    
+    if (endPage - startPage < maxButtons - 1) {
+        startPage = Math.max(1, endPage - maxButtons + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-sm ' + (i === currentPage ? 'btn-primary' : 'btn-secondary');
+        btn.textContent = i;
+        btn.onclick = () => goToPage(i);
+        numbersContainer.appendChild(btn);
+    }
+}
+
+function goToPage(page) {
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    loadIOCs();
+}
+
+function nextPage() {
+    if (currentPage < totalPages) {
+        currentPage++;
+        loadIOCs();
+    }
+}
+
+function previousPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        loadIOCs();
+    }
+}
+
+function viewIOC(iocId) {
+    currentIOCId = iocId;
+    const modal = document.getElementById('iocDetailModal');
+    modal.style.display = 'flex';
+    
+    // Show loading
+    document.getElementById('iocDetailContent').innerHTML = `
+        <div class="loading-indicator">
+            <div class="spinner-border text-primary"></div>
+            <p>Loading IOC details...</p>
+        </div>
+    `;
+    
+    // Fetch IOC details
+    fetch(`/ioc/api/get/${iocId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load IOC');
+            }
+            
+            const ioc = data.ioc;
+            
+            // Format dates
+            const firstSeen = ioc.first_seen ? new Date(ioc.first_seen).toLocaleString() : 'N/A';
+            const lastSeen = ioc.last_seen ? new Date(ioc.last_seen).toLocaleString() : 'N/A';
+            const expiresAt = ioc.expires_at ? new Date(ioc.expires_at).toLocaleString() : 'Never';
+            
+            document.getElementById('iocDetailContent').innerHTML = `
+                <div class="form-group">
+                    <label class="form-label">Type:</label>
+                    <div><span class="badge badge-secondary">${escapeHtml(ioc.type)}</span></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Value:</label>
+                    <div><code>${escapeHtml(ioc.value)}</code></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category:</label>
+                    <div><span class="badge badge-primary">${escapeHtml(ioc.category)}</span></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Threat Level:</label>
+                    <div><span class="badge badge-error">${escapeHtml(ioc.threat_level)}</span></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Confidence:</label>
+                    <div>${ioc.confidence || 'N/A'}%</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">First Seen:</label>
+                    <div>${firstSeen}</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Last Seen:</label>
+                    <div>${lastSeen}</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Times Seen:</label>
+                    <div>${ioc.times_seen || 0}</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Expires:</label>
+                    <div>${expiresAt}</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Source:</label>
+                    <div>${escapeHtml(ioc.source)}</div>
+                </div>
+                ${ioc.description ? `
+                <div class="form-group">
+                    <label class="form-label">Description:</label>
+                    <div>${escapeHtml(ioc.description)}</div>
+                </div>
+                ` : ''}
+                ${ioc.analyst_notes ? `
+                <div class="form-group">
+                    <label class="form-label">Analyst Notes:</label>
+                    <div>${escapeHtml(ioc.analyst_notes)}</div>
+                </div>
+                ` : ''}
+            `;
+        })
+        .catch(error => {
+            console.error('Error loading IOC:', error);
+            document.getElementById('iocDetailContent').innerHTML = `
+                <div class="alert alert-danger">
+                    Failed to load IOC details: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function toggleHidden(iocId, currentlyHidden) {
+    const newState = !currentlyHidden;
+    
+    // Update via API
+    fetch(`/ioc/api/update/${iocId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            is_hidden: newState
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            // Reload IOCs
+            loadIOCs();
+            loadStats();
+        } else {
+            alert('Error updating IOC: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling hidden:', error);
+        alert('Failed to update IOC: ' + error);
+    });
+}
+
+function deleteIOC(iocId) {
+    // Confirm deletion
+    if (!confirm('Are you sure you want to delete this IOC? This action cannot be undone.')) {
+        return;
+    }
+    
+    // Delete via API
+    fetch(`/ioc/api/delete/${iocId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('IOC deleted successfully');
+            loadIOCs();
+            loadStats();
+        } else {
+            alert('Error deleting IOC: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting IOC:', error);
+        alert('Failed to delete IOC: ' + error);
+    });
+}
+
+function closeModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('iocDetailModal').style.display = 'none';
+    currentIOCId = null;
+}
+
+function showAddIOCModal() {
+    // Reset form
+    document.getElementById('addIOCForm').reset();
+    document.getElementById('editingIOCId').value = '';
+    document.getElementById('iocModalTitle').textContent = '➕ Add IOC';
+    document.getElementById('submitBtnText').textContent = 'Create IOC';
+    document.getElementById('submitBtnText').style.display = 'inline';
+    document.getElementById('submitBtnSpinner').style.display = 'none';
+    document.getElementById('statusControlsGroup').style.display = 'none';
+    editingIOC = null;
+    
+    // Show modal
+    document.getElementById('addIOCModal').style.display = 'flex';
+}
+
+function editIOCModal(iocId) {
+    // Fetch IOC details
+    fetch(`/ioc/api/get/${iocId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load IOC');
+            }
+            
+            const ioc = data.ioc;
+            editingIOC = ioc;
+            
+            // Populate form
+            document.getElementById('editingIOCId').value = ioc.id;
+            document.getElementById('iocType').value = ioc.type;
+            document.getElementById('iocValue').value = ioc.value;
+            document.getElementById('iocCategory').value = ioc.category;
+            document.getElementById('iocThreatLevel').value = ioc.threat_level;
+            document.getElementById('iocConfidence').value = ioc.confidence || '';
+            document.getElementById('iocSource').value = ioc.source || 'manual';
+            document.getElementById('iocSourceRef').value = ioc.source_reference || '';
+            document.getElementById('iocDescription').value = ioc.description || '';
+            document.getElementById('iocNotes').value = ioc.analyst_notes || '';
+            document.getElementById('iocActive').checked = ioc.is_active;
+            document.getElementById('iocWhitelisted').checked = ioc.is_whitelisted;
+            document.getElementById('iocHidden').checked = ioc.is_hidden;
+            
+            // Update modal title and button
+            document.getElementById('iocModalTitle').textContent = '✏️ Edit IOC';
+            document.getElementById('submitBtnText').textContent = 'Update IOC';
+            document.getElementById('statusControlsGroup').style.display = 'block';
+            
+            // Show modal
+            document.getElementById('addIOCModal').style.display = 'flex';
+        })
+        .catch(error => {
+            console.error('Error loading IOC:', error);
+            alert('Failed to load IOC: ' + error);
+        });
+}
+
+function closeAddModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('addIOCModal').style.display = 'none';
+}
+
+function closeDuplicateWarning(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('duplicateWarningModal').style.display = 'none';
+}
+
+function checkAndSubmitIOC(evt) {
+    evt.preventDefault();
+    
+    // Check if we're editing or creating
+    const editingId = document.getElementById('editingIOCId').value;
+    
+    if (editingId) {
+        // Editing - skip duplicate check
+        submitIOCDirect(null, editingId);
+        return;
+    }
+    
+    // Get form data
+    const form = document.getElementById('addIOCForm');
+    const formData = new FormData(form);
+    
+    // Convert to JSON
+    const data = {};
+    formData.forEach((value, key) => {
+        if (value.trim()) {
+            data[key] = value;
+        }
+    });
+    
+    // Validate required fields
+    if (!data.type || !data.value || !data.category) {
+        alert('Please fill in all required fields (Type, Value, Category)');
+        return;
+    }
+    
+    // Show loading state
+    const submitBtn = document.getElementById('submitIOCBtn');
+    document.getElementById('submitBtnText').textContent = 'Checking...';
+    document.getElementById('submitBtnSpinner').style.display = 'inline';
+    submitBtn.disabled = true;
+    
+    // Check for duplicates
+    fetch('/ioc/api/check_duplicate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            value: data.value,
+            type: data.type
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        // Reset button state
+        document.getElementById('submitBtnText').textContent = 'Create IOC';
+        document.getElementById('submitBtnSpinner').style.display = 'none';
+        submitBtn.disabled = false;
+        
+        if (result.success && result.has_issues) {
+            // Show warning modal
+            showDuplicateWarning(result, data);
+        } else if (result.success) {
+            // No duplicates, proceed with creation
+            submitIOCDirect(data, null);
+        } else {
+            alert('Error checking duplicates: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        // Reset button state
+        document.getElementById('submitBtnText').textContent = 'Create IOC';
+        document.getElementById('submitBtnSpinner').style.display = 'none';
+        submitBtn.disabled = false;
+        
+        console.error('Error checking duplicates:', error);
+        alert('Failed to check duplicates: ' + error);
+    });
+}
+
+function showDuplicateWarning(checkResult, formData) {
+    let warningHtml = '';
+    
+    // Show exact match warning
+    if (checkResult.exact_match && checkResult.exact_match_ioc) {
+        const ioc = checkResult.exact_match_ioc;
+        const createdDate = ioc.created_at ? new Date(ioc.created_at).toLocaleString() : 'Unknown';
+        
+        warningHtml += `
+            <div class="card" style="border-left: 4px solid var(--color-error); margin-bottom: 16px;">
+                <div class="card-body">
+                    <h4 style="color: var(--color-error); margin-bottom: 8px;">🚫 Exact Duplicate Found</h4>
+                    <p style="margin-bottom: 8px;">This IOC value already exists:</p>
+                    <div style="background: var(--color-bg-primary); padding: 12px; border-radius: var(--radius-md); margin-bottom: 8px;">
+                        <div><strong>Value:</strong> <code>${escapeHtml(ioc.value)}</code></div>
+                        <div><strong>Type:</strong> <span class="badge badge-secondary">${escapeHtml(ioc.type)}</span></div>
+                        <div><strong>Threat Level:</strong> <span class="badge badge-error">${escapeHtml(ioc.threat_level)}</span></div>
+                        <div><strong>Created:</strong> ${createdDate}</div>
+                    </div>
+                    <p style="color: var(--color-warning); font-size: 0.9rem;">
+                        <strong>⚠️ Warning:</strong> Creating this IOC will result in a duplicate entry.
+                    </p>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Show overlap warnings
+    if (checkResult.overlaps && checkResult.overlaps.length > 0) {
+        warningHtml += `
+            <div class="card" style="border-left: 4px solid var(--color-warning); margin-bottom: 16px;">
+                <div class="card-body">
+                    <h4 style="color: var(--color-warning); margin-bottom: 8px;">⚠️ Potential Overlaps (${checkResult.overlaps.length})</h4>
+                    <p style="margin-bottom: 12px;">The following IOCs may overlap with your value:</p>
+        `;
+        
+        checkResult.overlaps.forEach((overlap, index) => {
+            const relationshipIcon = overlap.relationship === 'contains' ? '⊃' : '⊂';
+            const relationshipColor = overlap.relationship === 'contains' ? 'var(--color-info)' : 'var(--color-warning)';
+            
+            warningHtml += `
+                <div style="background: var(--color-bg-primary); padding: 10px; border-radius: var(--radius-md); margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                        <span style="font-size: 1.2rem; color: ${relationshipColor};">${relationshipIcon}</span>
+                        <strong>${escapeHtml(overlap.message)}</strong>
+                    </div>
+                    <div style="margin-left: 28px;">
+                        <div><strong>Type:</strong> <span class="badge badge-secondary">${escapeHtml(overlap.type)}</span></div>
+                        <div><strong>Threat Level:</strong> <span class="badge badge-${overlap.threat_level === 'critical' ? 'error' : 'warning'}">${escapeHtml(overlap.threat_level)}</span></div>
+                        <div style="margin-top: 4px; font-size: 0.85rem; color: var(--color-text-secondary);">
+                            ${overlap.relationship === 'contains' ? 
+                                'Your new IOC contains this existing one. Consider if the broader IOC is necessary.' : 
+                                'This existing IOC already covers your value. Consider if a new entry is needed.'
+                            }
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        warningHtml += `
+                </div>
+            </div>
+        `;
+    }
+    
+    // Add explanation
+    warningHtml += `
+        <div style="padding: 12px; background: rgba(76, 154, 255, 0.1); border-radius: var(--radius-md); margin-top: 16px;">
+            <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-secondary);">
+                <strong>Note:</strong> You can still create this IOC if you believe it's necessary, 
+                but consider whether it provides unique value or if the existing IOCs are sufficient.
+            </p>
+        </div>
+    `;
+    
+    // Store form data for later use
+    window.pendingIOCData = formData;
+    
+    // Show the warning modal
+    document.getElementById('duplicateWarningContent').innerHTML = warningHtml;
+    document.getElementById('duplicateWarningModal').style.display = 'flex';
+}
+
+function forceCreateIOC() {
+    // Close warning modal
+    closeDuplicateWarning();
+    
+    // Submit the IOC
+    if (window.pendingIOCData) {
+        submitIOCDirect(window.pendingIOCData);
+    }
+}
+
+function submitIOCDirect(data, editingId) {
+    // Show loading state on add modal
+    const submitBtn = document.getElementById('submitIOCBtn');
+    const isEditing = !!editingId;
+    
+    if (!data) {
+        // Collect form data for editing
+        const form = document.getElementById('addIOCForm');
+        const formData = new FormData(form);
+        data = {};
+        formData.forEach((value, key) => {
+            if (key !== 'editingIOCId') {
+                if (value.trim()) {
+                    data[key] = value;
+                } else {
+                    data[key] = null;
+                }
+            }
+        });
+        
+        // Handle checkboxes
+        data.is_active = document.getElementById('iocActive').checked;
+        data.is_whitelisted = document.getElementById('iocWhitelisted').checked;
+        data.is_hidden = document.getElementById('iocHidden').checked;
+    }
+    
+    document.getElementById('submitBtnText').textContent = isEditing ? 'Updating...' : 'Creating...';
+    document.getElementById('submitBtnSpinner').style.display = 'inline';
+    submitBtn.disabled = true;
+    
+    // Determine endpoint
+    const url = isEditing ? `/ioc/api/update/${editingId}` : '/ioc/api/create';
+    const method = isEditing ? 'PUT' : 'POST';
+    
+    // Submit to API
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        // Reset button state
+        document.getElementById('submitBtnText').textContent = isEditing ? 'Update IOC' : 'Create IOC';
+        document.getElementById('submitBtnSpinner').style.display = 'none';
+        submitBtn.disabled = false;
+        
+        if (result.success) {
+            // Show success message
+            alert(isEditing ? 'IOC updated successfully!' : 'IOC created successfully!');
+            
+            // Close modal
+            closeAddModal();
+            
+            // Reload IOCs and stats
+            loadIOCs();
+            loadStats();
+        } else {
+            // Show error
+            alert(`Error ${isEditing ? 'updating' : 'creating'} IOC: ` + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        // Reset button state
+        document.getElementById('submitBtnText').textContent = isEditing ? 'Update IOC' : 'Create IOC';
+        document.getElementById('submitBtnSpinner').style.display = 'none';
+        submitBtn.disabled = false;
+        
+        console.error(`Error ${isEditing ? 'updating' : 'creating'} IOC:`, error);
+        alert(`Failed to ${isEditing ? 'update' : 'create'} IOC: ` + error);
+    });
+}
+
+function editIOC() {
+    // Edit the currently viewed IOC
+    if (currentIOCId) {
+        closeModal();
+        editIOCModal(currentIOCId);
+    }
+}
+
+// Bulk selection functions
+function toggleSelectAll() {
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const checkboxes = document.querySelectorAll('.ioc-checkbox');
+    
+    checkboxes.forEach(checkbox => {
+        const iocId = parseInt(checkbox.getAttribute('data-ioc-id'));
+        checkbox.checked = selectAllCheckbox.checked;
+        
+        if (selectAllCheckbox.checked) {
+            selectedIOCs.add(iocId);
+        } else {
+            selectedIOCs.delete(iocId);
+        }
+    });
+    
+    updateBulkActionsBar();
+}
+
+function toggleIOCSelection(iocId) {
+    if (selectedIOCs.has(iocId)) {
+        selectedIOCs.delete(iocId);
+    } else {
+        selectedIOCs.add(iocId);
+    }
+    
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
+}
+
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const checkboxes = document.querySelectorAll('.ioc-checkbox');
+    
+    if (checkboxes.length === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+        return;
+    }
+    
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    
+    if (checkedCount === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === checkboxes.length) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+    }
+}
+
+function updateBulkActionsBar() {
+    const bulkActionsBar = document.getElementById('bulkActionsBar');
+    const selectedCount = document.getElementById('selectedCount');
+    
+    if (selectedIOCs.size > 0) {
+        bulkActionsBar.style.display = 'block';
+        selectedCount.textContent = selectedIOCs.size;
+    } else {
+        bulkActionsBar.style.display = 'none';
+    }
+}
+
+function clearSelection() {
+    selectedIOCs.clear();
+    
+    // Uncheck all checkboxes
+    document.querySelectorAll('.ioc-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
+}
+
+function editSelected() {
+    if (selectedIOCs.size === 0) {
+        alert('No IOCs selected');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedIOCs.size;
+    document.getElementById('bulkEditForm').reset();
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+function closeBulkEditModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('bulkEditModal').style.display = 'none';
+}
+
+function submitBulkEdit() {
+    const updates = {};
+    
+    // Collect changes
+    const category = document.getElementById('bulkCategory').value;
+    const threatLevel = document.getElementById('bulkThreatLevel').value;
+    const isActive = document.getElementById('bulkActive').checked;
+    const isWhitelisted = document.getElementById('bulkWhitelisted').checked;
+    const isHidden = document.getElementById('bulkHidden').checked;
+    
+    if (category) updates.category = category;
+    if (threatLevel) updates.threat_level = threatLevel;
+    
+    // Always include boolean values if checked
+    if (isActive) updates.is_active = true;
+    if (isWhitelisted) updates.is_whitelisted = true;
+    if (isHidden) updates.is_hidden = true;
+    
+    if (Object.keys(updates).length === 0) {
+        alert('No changes specified');
+        return;
+    }
+    
+    // Confirm action
+    if (!confirm(`Update ${selectedIOCs.size} IOCs with these changes?`)) {
+        return;
+    }
+    
+    // Submit to API
+    fetch('/ioc/api/bulk_update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ioc_ids: Array.from(selectedIOCs),
+            updates: updates
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert(`Successfully updated ${result.updated_count} IOCs`);
+            closeBulkEditModal();
+            clearSelection();
+            loadIOCs();
+            loadStats();
+        } else {
+            alert('Error updating IOCs: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error bulk updating IOCs:', error);
+        alert('Failed to update IOCs: ' + error);
+    });
+}
+
+function deleteSelected() {
+    if (selectedIOCs.size === 0) {
+        alert('No IOCs selected');
+        return;
+    }
+    
+    // Confirm deletion
+    if (!confirm(`Are you sure you want to delete ${selectedIOCs.size} IOCs? This action cannot be undone.`)) {
+        return;
+    }
+    
+    // Submit to API
+    fetch('/ioc/api/bulk_delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ioc_ids: Array.from(selectedIOCs)
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert(`Successfully deleted ${result.deleted_count} IOCs`);
+            clearSelection();
+            loadIOCs();
+            loadStats();
+        } else {
+            alert('Error deleting IOCs: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error bulk deleting IOCs:', error);
+        alert('Failed to delete IOCs: ' + error);
+    });
+}
+
+// Export function
+function exportIOCs() {
+    // Build URL with current filters
+    const params = new URLSearchParams({
+        visibility: visibilityFilter
+    });
+    
+    if (currentSearch) {
+        params.append('search', currentSearch);
+    }
+    
+    if (categoryFilter) {
+        params.append('category', categoryFilter);
+    }
+    
+    if (threatLevelFilter) {
+        params.append('threat_level', threatLevelFilter);
+    }
+    
+    // Open download in new window
+    window.location.href = `/ioc/api/export_csv?${params}`;
+}
+
+// Deduplication functions
+let deduplicationData = null;
+let selectedMerges = {};
+
+function startDeduplication() {
+    // Show modal
+    const modal = document.getElementById('deduplicationModal');
+    if (!modal) {
+        console.error('Deduplication modal not found');
+        return;
+    }
+    
+    modal.style.display = 'flex';
+    document.getElementById('deduplicationLoading').style.display = 'block';
+    document.getElementById('deduplicationContent').style.display = 'none';
+    document.getElementById('noDuplicates').style.display = 'none';
+    document.getElementById('btnApplyDedup').style.display = 'none';
+    
+    // Reset state
+    deduplicationData = null;
+    selectedMerges = {};
+    
+    // Fetch duplicates
+    fetch('/ioc/api/find_duplicates')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(result => {
+            console.log('Deduplication result:', result);
+            document.getElementById('deduplicationLoading').style.display = 'none';
+            
+            if (!result.success) {
+                alert('Error finding duplicates: ' + (result.error || 'Unknown error'));
+                closeDeduplicationModal();
+                return;
+            }
+            
+            deduplicationData = result.duplicate_groups;
+            console.log('Found', deduplicationData.length, 'duplicate groups');
+            
+            if (deduplicationData.length === 0) {
+                document.getElementById('noDuplicates').style.display = 'block';
+            } else {
+                document.getElementById('deduplicationContent').style.display = 'block';
+                document.getElementById('btnApplyDedup').style.display = 'inline-block';
+                displayDeduplicationTree();
+            }
+        })
+        .catch(error => {
+            document.getElementById('deduplicationLoading').style.display = 'none';
+            console.error('Error finding duplicates:', error);
+            alert('Failed to find duplicates: ' + error);
+            closeDeduplicationModal();
+        });
+}
+
+function displayDeduplicationTree() {
+    const tree = document.getElementById('deduplicationTree');
+    tree.innerHTML = '';
+    
+    deduplicationData.forEach((group, groupIndex) => {
+        // Initialize selected merges for this group
+        selectedMerges[groupIndex] = group.duplicates.map((dup, idx) => idx);
+        
+        const groupDiv = document.createElement('div');
+        groupDiv.style.cssText = 'margin-bottom: 24px; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; background: var(--color-bg-secondary);';
+        
+        // Root IOC
+        const rootDiv = document.createElement('div');
+        rootDiv.style.cssText = 'padding: 12px; background: var(--color-bg-primary); border-radius: var(--radius-md); border-left: 4px solid var(--color-success); margin-bottom: 12px;';
+        rootDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <strong style="color: var(--color-success);">🌳 Root IOC (will be kept)</strong>
+            </div>
+            <div style="display: grid; grid-template-columns: 100px 1fr; gap: 8px; font-size: 0.875rem;">
+                <strong>Type:</strong> <span class="badge badge-secondary">${escapeHtml(group.root.type)}</span>
+                <strong>Value:</strong> <code>${escapeHtml(group.root.value)}</code>
+                <strong>Category:</strong> <span class="badge badge-primary">${escapeHtml(group.root.category)}</span>
+                <strong>Threat:</strong> <span class="badge badge-warning">${escapeHtml(group.root.threat_level)}</span>
+                ${group.root.description ? `<strong>Description:</strong> <span>${escapeHtml(group.root.description)}</span>` : ''}
+            </div>
+        `;
+        groupDiv.appendChild(rootDiv);
+        
+        // Duplicates
+        const duplicatesLabel = document.createElement('div');
+        duplicatesLabel.style.cssText = 'margin-bottom: 8px; font-weight: 600; color: var(--color-text-secondary);';
+        duplicatesLabel.innerHTML = `
+            <label style="cursor: pointer;">
+                <input type="checkbox" checked onchange="toggleGroupSelection(${groupIndex}, this.checked)" style="margin-right: 8px;">
+                Duplicates to merge (${group.duplicates.length})
+            </label>
+        `;
+        groupDiv.appendChild(duplicatesLabel);
+        
+        group.duplicates.forEach((dup, dupIndex) => {
+            const dupDiv = document.createElement('div');
+            dupDiv.style.cssText = 'padding: 12px; background: var(--color-bg-primary); border-radius: var(--radius-md); margin-left: 24px; margin-bottom: 8px; border-left: 3px solid var(--color-info);';
+            dupDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <input type="checkbox" id="merge_${groupIndex}_${dupIndex}" checked 
+                           onchange="toggleDuplicateSelection(${groupIndex}, ${dupIndex})"
+                           style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="merge_${groupIndex}_${dupIndex}" style="cursor: pointer; flex: 1;">
+                        <strong>Duplicate IOC #${dup.id}</strong>
+                    </label>
+                </div>
+                <div style="display: grid; grid-template-columns: 100px 1fr; gap: 8px; font-size: 0.875rem; margin-left: 26px;">
+                    <strong>Type:</strong> <span class="badge badge-secondary">${escapeHtml(dup.type)}</span>
+                    <strong>Value:</strong> <code>${escapeHtml(dup.value)}</code>
+                    <strong>Category:</strong> <span class="badge badge-primary">${escapeHtml(dup.category)}</span>
+                    <strong>Threat:</strong> <span class="badge badge-warning">${escapeHtml(dup.threat_level)}</span>
+                    ${dup.description ? `<strong>Description:</strong> <span>${escapeHtml(dup.description)}</span>` : ''}
+                    ${dup.analyst_notes ? `<strong>Notes:</strong> <span style="color: var(--color-text-muted);">${escapeHtml(dup.analyst_notes)}</span>` : ''}
+                </div>
+            `;
+            groupDiv.appendChild(dupDiv);
+        });
+        
+        tree.appendChild(groupDiv);
+    });
+}
+
+function toggleGroupSelection(groupIndex, checked) {
+    const group = deduplicationData[groupIndex];
+    
+    if (checked) {
+        // Select all duplicates in this group
+        selectedMerges[groupIndex] = group.duplicates.map((dup, idx) => idx);
+    } else {
+        // Deselect all
+        selectedMerges[groupIndex] = [];
+    }
+    
+    // Update checkboxes
+    group.duplicates.forEach((dup, dupIndex) => {
+        const checkbox = document.getElementById(`merge_${groupIndex}_${dupIndex}`);
+        if (checkbox) {
+            checkbox.checked = checked;
+        }
+    });
+}
+
+function toggleDuplicateSelection(groupIndex, dupIndex) {
+    const checkbox = document.getElementById(`merge_${groupIndex}_${dupIndex}`);
+    
+    if (checkbox.checked) {
+        if (!selectedMerges[groupIndex].includes(dupIndex)) {
+            selectedMerges[groupIndex].push(dupIndex);
+        }
+    } else {
+        selectedMerges[groupIndex] = selectedMerges[groupIndex].filter(idx => idx !== dupIndex);
+    }
+}
+
+function applyDeduplication() {
+    // Build merge list
+    const merges = [];
+    
+    deduplicationData.forEach((group, groupIndex) => {
+        const selectedDupIndices = selectedMerges[groupIndex] || [];
+        
+        if (selectedDupIndices.length > 0) {
+            const duplicateIds = selectedDupIndices.map(idx => group.duplicates[idx].id);
+            
+            merges.push({
+                root_id: group.root.id,
+                duplicate_ids: duplicateIds
+            });
+        }
+    });
+    
+    if (merges.length === 0) {
+        alert('No duplicates selected to merge');
+        return;
+    }
+    
+    // Count total duplicates to be merged
+    const totalDuplicates = merges.reduce((sum, merge) => sum + merge.duplicate_ids.length, 0);
+    
+    // Confirm
+    if (!confirm(`Merge ${totalDuplicates} duplicate IOCs into their root IOCs? This cannot be undone.`)) {
+        return;
+    }
+    
+    // Disable button
+    const btn = document.getElementById('btnApplyDedup');
+    btn.disabled = true;
+    btn.textContent = 'Merging...';
+    
+    // Send to server
+    fetch('/ioc/api/merge_duplicates', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ merges: merges })
+    })
+    .then(response => response.json())
+    .then(result => {
+        btn.disabled = false;
+        btn.textContent = 'Apply Deduplication';
+        
+        if (!result.success) {
+            alert('Error merging duplicates: ' + (result.error || 'Unknown error'));
+            return;
+        }
+        
+        alert(`Successfully merged ${result.merged_count} duplicate IOCs!`);
+        closeDeduplicationModal();
+        
+        // Reload IOCs
+        loadIOCs();
+        loadStats();
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.textContent = 'Apply Deduplication';
+        console.error('Error merging duplicates:', error);
+        alert('Failed to merge duplicates: ' + error);
+    });
+}
+
+function closeDeduplicationModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('deduplicationModal').style.display = 'none';
+    deduplicationData = null;
+    selectedMerges = {};
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close modals on ESC key
+document.addEventListener('keydown', function(evt) {
+    if (evt.key === 'Escape') {
+        closeModal(evt);
+        closeAddModal(evt);
+    }
+});
+</script>
+
+{% endblock %}
+

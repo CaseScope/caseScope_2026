@@ -54,7 +54,7 @@ if routes_path.exists():
             module = importlib.import_module(f'routes.{module_name}')
             # Look for blueprint in module by checking known blueprint naming pattern
             blueprint_registered = False
-            for attr_name in ['auth_bp', 'admin_bp', 'case_bp', 'dashboard_bp', 'settings_bp', f'{module_name}_bp']:
+            for attr_name in ['auth_bp', 'admin_bp', 'case_bp', 'dashboard_bp', 'settings_bp', 'ai_bp', f'{module_name}_bp']:
                 if hasattr(module, attr_name):
                     attr = getattr(module, attr_name)
                     if hasattr(attr, 'name') and hasattr(attr, 'register'):
@@ -80,6 +80,27 @@ if routes_path.exists():
                         
         except Exception as e:
             print(f"✗ Failed to load routes.{module_name}: {e}")
+
+# ============================================================================
+# AI FEATURES (Conditional Loading)
+# ============================================================================
+
+# Check if AI should be enabled
+try:
+    from config import AI_ENABLED
+    from ai.ai_toggle import is_ai_available
+    
+    if AI_ENABLED:
+        available, reason = is_ai_available()
+        if available:
+            print("✓ AI features enabled and operational")
+        else:
+            print(f"⚠ AI enabled but unavailable: {reason}")
+            print("  AI routes will return 404 until components are ready")
+    else:
+        print("ℹ AI features disabled in configuration")
+except Exception as e:
+    print(f"⚠ Could not check AI status: {e}")
 
 # ============================================================================
 # BASIC ROUTES

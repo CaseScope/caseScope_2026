@@ -15,10 +15,12 @@ This directory contains comprehensive technical documentation for the CaseScope 
 3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
 4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
 5. **Cases**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) - Case management
-5. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload, parse, and display
-6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Query and analyze events
-7. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
-8. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
+6. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload, parse, and display
+7. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Query and analyze events
+8. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence and IOC tracking
+9. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
+10. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
+11. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
 
 ### For System Administrators
 
@@ -144,6 +146,30 @@ This directory contains comprehensive technical documentation for the CaseScope 
 **Critical For**: UI features, file display
 
 **Consolidated From**: FILE_LIST_COMPLETE.md, FILE_LIST_IMPLEMENTATION.md, ENHANCED_FILE_UI.md, HIDDEN_FILES_FEATURE.md, REALTIME_PROGRESS_TRACKING.md
+
+---
+
+### Threat Intelligence & IOC Management
+
+#### [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md)
+**Purpose**: Comprehensive IOC (Indicators of Compromise) management system
+
+**Contents**:
+- IOC database model (types, categories, threat levels)
+- Manual IOC creation, editing, deletion (individual & bulk)
+- Automated IOC extraction from EDR reports
+  - AI-based extraction (primary, via Ollama)
+  - Regex-based extraction (fallback when AI unavailable)
+- Intelligent duplicate detection and merging
+- Manual deduplication with tree view interface
+- Search, filtering, and pagination
+- CSV export
+- Comprehensive audit logging
+- Permission matrix by role
+- API endpoints reference
+- UI components and modals
+
+**Critical For**: Threat intelligence, IOC tracking, EDR analysis
 
 ---
 
@@ -325,6 +351,11 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | NDJSON/JSON Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
 | Event Search System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
+| IOC Management | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
+| IOC Extraction (AI + Regex) | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
+| IOC Deduplication | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
+| AI System | ✅ Complete | [AI_SYSTEM.MD](AI_SYSTEM.MD) |
+| RAG System | ✅ Complete | [RAG_SYSTEM.MD](RAG_SYSTEM.MD) |
 | Case Cleanup | ✅ Complete | [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) |
 | EDR Report Management | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
 | Network Config (Router/VPN IPs) | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
@@ -356,6 +387,8 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - `/case/select` - Case selection page
 - `/case/dashboard` - Case details and management
 - `/case/dashboard/<id>` - Specific case dashboard
+- `/ioc/manage` - IOC management interface
+- `/hunting/dashboard` - Threat hunting dashboard
 
 ### Admin Routes (Administrator Only)
 - `/admin/settings` - System settings (Celery workers, EVTX descriptions)
@@ -363,12 +396,33 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - `/admin/users` - User management (create, edit, delete)
 - `/admin/audit-log` - Audit trail viewer
 
-### API Routes
+### API Routes - Cases
 - `POST /case/create` - Create new case
 - `POST /case/<id>/edit` - Edit case details
 - `POST /case/<id>/delete` - Delete case (admin only)
 - `GET /case/<id>/edr-report` - Get EDR reports
 - `POST /case/<id>/edr-report` - Update EDR reports
+
+### API Routes - IOC Management
+- `GET /ioc/api/list` - List IOCs (paginated, filtered)
+- `GET /ioc/api/get/<id>` - Get single IOC details
+- `GET /ioc/api/stats` - Get IOC statistics
+- `POST /ioc/api/create` - Create new IOC
+- `PUT /ioc/api/update/<id>` - Update IOC
+- `DELETE /ioc/api/delete/<id>` - Delete IOC
+- `POST /ioc/api/check_duplicate` - Check for duplicates
+- `POST /ioc/api/bulk_update` - Bulk update IOCs
+- `POST /ioc/api/bulk_delete` - Bulk delete IOCs
+- `GET /ioc/api/export_csv` - Export IOCs to CSV
+- `GET /ioc/api/find_duplicates` - Find duplicate IOCs
+- `POST /ioc/api/merge_duplicates` - Merge duplicates
+
+### API Routes - Hunting
+- `GET /hunting/api/check_edr` - Check for EDR reports
+- `POST /hunting/api/extract_edr_iocs` - Extract IOCs from EDR (AI + regex fallback)
+- `POST /hunting/api/save_extracted_iocs` - Save extracted IOCs
+
+### API Routes - System
 - `GET /api/dashboard/stats` - System statistics (auto-refresh)
 
 ---
@@ -379,7 +433,9 @@ This directory contains comprehensive technical documentation for the CaseScope 
 |-------|---------|----------------|
 | `user` | User accounts | 1-100 |
 | `case` | Investigation cases | 10-1000 |
+| `ioc` | Indicators of Compromise | 100-10,000+ |
 | `audit_log` | Security audit trail | 100-10,000+ |
+| `event_description` | EVTX event descriptions | 1,100+ |
 
 ---
 
@@ -453,11 +509,18 @@ For questions or issues:
 ## 📅 Changelog
 
 ### 2025-12-24
+- ✅ IOC management system (manual + automated)
+- ✅ IOC extraction from EDR reports (AI + regex fallback)
+- ✅ Intelligent IOC deduplication (auto + manual)
+- ✅ IOC audit logging (comprehensive tracking)
+- ✅ CSV export for IOCs
+- ✅ Regex-based IOC extractor (fallback when AI unavailable)
 - ✅ EVTX event descriptions system (1,100+ events)
 - ✅ Web scraping from multiple sources (ultimatewindowssecurity.com, microsoft.com)
 - ✅ Embedded event database for reliability
 - ✅ Event description search and pagination
 - ✅ Automatic deduplication (keeps most descriptive version)
+- ✅ Comprehensive IOC management documentation
 
 ### 2025-12-23
 - ✅ Event search system with boolean operators

@@ -10,27 +10,43 @@
     </div>
     <div class="card-body">
         <!-- Filters -->
-        <form method="GET" style="margin-bottom: var(--spacing-lg); display: flex; gap: var(--spacing-md);">
-            <div class="form-group" style="margin-bottom: 0; flex: 1;">
-                <input type="text" 
-                       name="action" 
-                       class="form-input" 
-                       placeholder="Filter by action..."
-                       value="{{ action_filter }}">
+        <form method="GET" style="margin-bottom: var(--spacing-lg);">
+            <div style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: var(--spacing-md); align-items: end;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Filter by Action</label>
+                    <input type="text" 
+                           name="action" 
+                           class="form-input" 
+                           placeholder="e.g., login, ioc_created..."
+                           value="{{ action_filter }}">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Filter by User</label>
+                    <input type="text" 
+                           name="user" 
+                           class="form-input" 
+                           placeholder="Username..."
+                           value="{{ user_filter }}">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Per Page</label>
+                    <select name="per_page" class="form-select" onchange="this.form.submit()">
+                        <option value="25" {% if request.args.get('per_page', '50') == '25' %}selected{% endif %}>25</option>
+                        <option value="50" {% if request.args.get('per_page', '50') == '50' %}selected{% endif %}>50</option>
+                        <option value="100" {% if request.args.get('per_page', '50') == '100' %}selected{% endif %}>100</option>
+                        <option value="200" {% if request.args.get('per_page', '50') == '200' %}selected{% endif %}>200</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: var(--spacing-sm);">
+                    <button type="submit" class="btn btn-primary">🔍 Filter</button>
+                    <a href="/admin/audit-log" class="btn btn-secondary">Clear</a>
+                </div>
             </div>
-            <div class="form-group" style="margin-bottom: 0; flex: 1;">
-                <input type="text" 
-                       name="user" 
-                       class="form-input" 
-                       placeholder="Filter by username..."
-                       value="{{ user_filter }}">
-            </div>
-            <button type="submit" class="btn btn-primary">Filter</button>
-            <a href="/admin/audit-log" class="btn btn-secondary">Clear</a>
         </form>
         
         <!-- Audit Log Table -->
         <div class="table-container">
+            {% if logs %}
             <table class="table">
                 <thead>
                     <tr>
@@ -85,22 +101,76 @@
                     {% endfor %}
                 </tbody>
             </table>
+            {% else %}
+            <div class="placeholder-content" style="padding: var(--spacing-xl);">
+                <div class="placeholder-icon">🔍</div>
+                <h3>No Audit Logs Found</h3>
+                <p style="color: var(--color-text-secondary);">
+                    {% if action_filter or user_filter %}
+                    No logs match your current filters. Try adjusting or clearing the filters.
+                    {% else %}
+                    No audit logs have been recorded yet.
+                    {% endif %}
+                </p>
+            </div>
+            {% endif %}
         </div>
         
-        <!-- Pagination -->
+        <!-- Enhanced Pagination -->
         {% if pagination.pages > 1 %}
-        <div style="display: flex; justify-content: center; gap: var(--spacing-sm); margin-top: var(--spacing-lg);">
-            {% if pagination.has_prev %}
-            <a href="?page={{ pagination.prev_num }}" class="btn btn-secondary btn-sm">← Previous</a>
-            {% endif %}
-            
-            <span style="padding: var(--spacing-sm) var(--spacing-md); color: var(--color-text-secondary);">
+        <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-bg-secondary); border-radius: var(--radius-md);">
+            <div class="pagination-info" style="color: var(--color-text-secondary); font-size: 0.875rem;">
                 Page {{ pagination.page }} of {{ pagination.pages }}
-            </span>
-            
-            {% if pagination.has_next %}
-            <a href="?page={{ pagination.next_num }}" class="btn btn-secondary btn-sm">Next →</a>
-            {% endif %}
+                ({{ pagination.total }} total entries)
+            </div>
+            <div class="pagination-controls" style="display: flex; gap: var(--spacing-xs); align-items: center;">
+                {% set base_url = '?per_page=' ~ request.args.get('per_page', '50') %}
+                {% if action_filter %}{% set base_url = base_url ~ '&action=' ~ action_filter %}{% endif %}
+                {% if user_filter %}{% set base_url = base_url ~ '&user=' ~ user_filter %}{% endif %}
+                
+                {% if pagination.has_prev %}
+                <a href="{{ base_url }}&page=1" class="btn btn-secondary btn-sm">First</a>
+                <a href="{{ base_url }}&page={{ pagination.prev_num }}" class="btn btn-secondary btn-sm">Previous</a>
+                {% else %}
+                <button class="btn btn-secondary btn-sm" disabled>First</button>
+                <button class="btn btn-secondary btn-sm" disabled>Previous</button>
+                {% endif %}
+                
+                <div class="pagination-numbers" style="display: flex; gap: var(--spacing-xs);">
+                    {% set start_page = [1, pagination.page - 2]|max %}
+                    {% set end_page = [pagination.pages, pagination.page + 2]|min %}
+                    
+                    {% if start_page > 1 %}
+                        <a href="{{ base_url }}&page=1" class="btn btn-secondary btn-sm">1</a>
+                        {% if start_page > 2 %}
+                            <span style="padding: 0 var(--spacing-xs); color: var(--color-text-muted);">...</span>
+                        {% endif %}
+                    {% endif %}
+                    
+                    {% for page_num in range(start_page, end_page + 1) %}
+                        {% if page_num == pagination.page %}
+                            <button class="btn btn-primary btn-sm" disabled>{{ page_num }}</button>
+                        {% else %}
+                            <a href="{{ base_url }}&page={{ page_num }}" class="btn btn-secondary btn-sm">{{ page_num }}</a>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if end_page < pagination.pages %}
+                        {% if end_page < pagination.pages - 1 %}
+                            <span style="padding: 0 var(--spacing-xs); color: var(--color-text-muted);">...</span>
+                        {% endif %}
+                        <a href="{{ base_url }}&page={{ pagination.pages }}" class="btn btn-secondary btn-sm">{{ pagination.pages }}</a>
+                    {% endif %}
+                </div>
+                
+                {% if pagination.has_next %}
+                <a href="{{ base_url }}&page={{ pagination.next_num }}" class="btn btn-secondary btn-sm">Next</a>
+                <a href="{{ base_url }}&page={{ pagination.pages }}" class="btn btn-secondary btn-sm">Last</a>
+                {% else %}
+                <button class="btn btn-secondary btn-sm" disabled>Next</button>
+                <button class="btn btn-secondary btn-sm" disabled>Last</button>
+                {% endif %}
+            </div>
         </div>
         {% endif %}
     </div>

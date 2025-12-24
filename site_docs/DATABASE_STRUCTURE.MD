@@ -1,9 +1,13 @@
 # CaseScope 2026 - Database Structure
 
+Last Updated: 2025-12-24
+
 ## Technology Stack
-- **Database**: PostgreSQL
+- **Database**: PostgreSQL 14+
 - **ORM**: SQLAlchemy (Flask-SQLAlchemy)
 - **Authentication**: Flask-Login with Werkzeug password hashing
+- **Extensions**: pgvector (for AI embeddings)
+- **Search**: OpenSearch (external)
 
 ## User Management
 
@@ -216,6 +220,139 @@ logon_events = EventDescription.query.filter_by(
 
 ---
 
+## AI & Threat Intelligence
+
+### Pattern Embeddings Table (`pattern_embeddings`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `pattern_id` | String(200) | Unique identifier (e.g., Sigma rule ID, MITRE technique ID), indexed |
+| `source` | String(50) | Source type ('sigma', 'mitre'), indexed |
+| `content` | Text | Full pattern/rule content |
+| `embedding` | VECTOR(384) | Sentence embedding for RAG search |
+| `metadata` | JSONB | Additional fields (technique name, tags, severity), indexed (GIN) |
+| `created_at` | Timestamp | Creation timestamp |
+| `updated_at` | Timestamp | Last update timestamp |
+
+**Indexes**:
+- HNSW index on `embedding` column for fast vector similarity search
+- GIN index on `metadata` for flexible JSONB queries
+- B-tree indexes on `source` and `pattern_id`
+
+**Purpose**: 
+- Store Sigma rules and MITRE ATT&CK technique embeddings for RAG-powered AI assistant
+- Enable semantic search across detection patterns
+- Power AI features (natural language queries, auto-hunting, threat context)
+
+**Note**: Owned by `postgres` user, managed via `app/ai/vector_store.py`
+
+---
+
+## IOC Management
+
+### IOCs Table (`iocs`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `type` | Enum | IOC type (56 types: ipv4, domain, md5, sha256, cve_id, etc.) |
+| `value` | Text | The actual IOC value |
+| `category` | Enum | Category (network, file, host, identity, vulnerability, cloud, mobile) |
+| `confidence` | SmallInt | Confidence score (0-100) |
+| `threat_level` | Enum | Threat level (info, low, medium, high, critical) |
+| `is_whitelisted` | Boolean | Whitelisted flag (default: False) |
+| `is_active` | Boolean | Active/archived flag (default: True) |
+| `first_seen` | Timestamp | First sighting timestamp |
+| `last_seen` | Timestamp | Most recent sighting timestamp |
+| `times_seen` | Integer | Number of sightings (default: 1) |
+| `expires_at` | Timestamp | Optional expiration for time-limited indicators |
+| `source` | Enum | Source (manual, ai_extraction, event_extraction, file_analysis, threat_feed, osint, import) |
+| `source_reference` | Text | Source reference (URL, feed name, case event ID) |
+| `description` | Text | IOC description |
+| `analyst_notes` | Text | Analyst comments/context |
+| `case_id` | Integer | Foreign key to `case.id` (nullable, cascades on delete) |
+| `parent_ioc_id` | Integer | Foreign key to `iocs.id` for hierarchies (e.g., URL → Domain → IP) |
+| `metadata` | JSONB | Type-specific fields (geolocation, WHOIS, etc.) |
+| `enrichment` | JSONB | External threat intel (VirusTotal, AbuseIPDB, etc.) |
+| `created_by` | Integer | Foreign key to `user.id` |
+| `updated_by` | Integer | Foreign key to `user.id` |
+| `created_at` | Timestamp | Creation timestamp |
+| `updated_at` | Timestamp | Last update timestamp (auto-updates via trigger) |
+
+**IOC Types (56 Total)**:
+- **Network** (14): ipv4, ipv6, domain, fqdn, url, uri_path, email_address, email_subject, user_agent, ja3_hash, ja3s_hash, jarm_hash, ssl_cert_hash, ssl_cert_serial
+- **File** (11): md5, sha1, sha256, sha512, ssdeep, imphash, tlsh, filename, filepath, filesize, filetype
+- **Host** (10): registry_key, registry_value, mutex, named_pipe, service_name, scheduled_task, process_name, command_line, parent_child_process, wmi_subscription
+- **Identity** (6): username, sid, email_sender, bitcoin_address, ethereum_address, monero_address
+- **Vulnerability** (6): cve_id, exploit_kit, malware_family, mitre_attack_id, yara_rule, sigma_rule_id
+- **Cloud** (5): aws_account_id, s3_bucket, azure_tenant_id, oauth_app_id, api_key
+- **Mobile** (4): app_package_name, apk_hash, ios_bundle_id, imei
+
+**Indexes**:
+- Core: type, value, type+value, category, threat_level, confidence
+- Filters: is_active, is_whitelisted
+- Temporal: first_seen, last_seen, expires_at
+- Relationships: case_id, parent_ioc_id, source
+- JSONB: metadata, enrichment (GIN indexes)
+- Unique constraint on (type, value, case_id)
+
+**Relationships**:
+- `case` - Belongs to case
+- `created_by_user` - User who created IOC
+- `updated_by_user` - User who last updated IOC
+- `parent_ioc` - Parent IOC (self-referential)
+- `child_iocs` - Child IOCs
+
+### IOC Tags Table (`ioc_tags`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `ioc_id` | Integer | Foreign key to `iocs.id` (cascades on delete) |
+| `tag` | String(100) | Tag name (e.g., 'apt29', 'ransomware', 'false_positive') |
+| `created_at` | Timestamp | Creation timestamp |
+
+**Indexes**:
+- ioc_id, tag (for lookups)
+- Unique constraint on (ioc_id, tag)
+
+### IOC Relationships Table (`ioc_relationships`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `source_ioc_id` | Integer | Foreign key to `iocs.id` (cascades on delete) |
+| `target_ioc_id` | Integer | Foreign key to `iocs.id` (cascades on delete) |
+| `relationship_type` | String(50) | Relationship type (resolves_to, downloads, communicates_with, drops, executes, etc.) |
+| `confidence` | SmallInt | Confidence score (0-100) |
+| `notes` | Text | Relationship notes |
+| `created_at` | Timestamp | Creation timestamp |
+
+**Indexes**:
+- source_ioc_id, target_ioc_id, relationship_type
+- Unique constraint on (source_ioc_id, target_ioc_id, relationship_type)
+
+### IOC Enrichment Table (`ioc_enrichment`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `ioc_id` | Integer | Foreign key to `iocs.id` (cascades on delete) |
+| `enrichment_source` | String(100) | External source (virustotal, abuseipdb, shodan, etc.) |
+| `enrichment_data` | JSONB | Enrichment response data |
+| `success` | Boolean | Enrichment success flag (default: True) |
+| `error_message` | Text | Error details if enrichment failed |
+| `enriched_at` | Timestamp | Enrichment timestamp |
+
+**Purpose**: 
+- Comprehensive IOC tracking system for threat intelligence
+- Support for 56 IOC types across 7 categories
+- Flexible tagging and relationship mapping
+- External threat intel enrichment tracking
+- Case-level IOC association with hierarchical relationships
+
+**Helper Functions**:
+- `increment_ioc_sighting(type, value, case_id)` - Auto-increment times_seen and update last_seen
+- `get_ioc_stats()` - Returns IOC statistics (total, active, critical, breakdowns by category/threat_level)
+
+---
+
 ## Audit Logging
 
 ### AuditLog Table (`audit_log`)
@@ -301,7 +438,7 @@ log_action('create_case',
 **Script**: `app/init_db.py`
 
 **Creates**:
-1. All tables (user, case, audit_log)
+1. All tables (user, case, case_file, audit_log, event_description)
 2. Default administrator account:
    - Username: `admin`
    - Password: `admin`
@@ -314,6 +451,36 @@ source venv/bin/activate
 python3 app/init_db.py
 ```
 
+## Complete Table List
+
+| Table Name | Owner | Purpose |
+|------------|-------|---------|
+| `user` | casescope | User accounts and authentication |
+| `case` | casescope | Investigation cases |
+| `case_file` | casescope | Uploaded files and processing status |
+| `audit_log` | casescope | Security audit trail |
+| `event_description` | casescope | Windows Event Log descriptions |
+| `iocs` | casescope | Indicators of Compromise |
+| `ioc_tags` | casescope | IOC tagging system |
+| `ioc_relationships` | casescope | IOC relationship mappings |
+| `ioc_enrichment` | casescope | External threat intel enrichment log |
+| `pattern_embeddings` | postgres | AI embeddings for Sigma rules & MITRE ATT&CK |
+
 ## Schema Changes & Migrations
 
 Store SQL migration scripts in `/migrations` directory with descriptive names and GRANT statements for the `casescope` PostgreSQL user.
+
+**Existing Migrations**:
+- `add_pgvector_patterns.sql` - Creates pattern_embeddings table with pgvector extension for AI/RAG
+- `add_ioc_management.sql` - Creates IOC management tables (iocs, ioc_tags, ioc_relationships, ioc_enrichment)
+
+## PostgreSQL Extensions
+
+| Extension | Version | Purpose |
+|-----------|---------|---------|
+| `vector` | Latest | pgvector for AI embeddings (384-dimensional sentence transformers) |
+
+**Enable Extensions**:
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```

@@ -261,3 +261,51 @@ class CeleryConfig:
     # Logging
     worker_log_format = '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
     worker_task_log_format = '[%(asctime)s: %(levelname)s/%(processName)s] [%(task_name)s(%(task_id)s)] %(message)s'
+
+
+# ============================================================================
+# AI / LLM SETTINGS (User Adjustable)
+# ============================================================================
+
+# Master AI toggle - Set to False to disable all AI features
+# When disabled:
+#   - AI routes will return 404
+#   - AI UI elements will be hidden
+#   - No AI dependencies loaded
+#   - Saves resources (no Ollama/embedding models loaded)
+AI_ENABLED = True
+
+# Auto-detect AI availability on startup (recommended)
+# If True and AI_ENABLED=True, will check if Ollama/models are available
+# and gracefully disable AI if not found (prevents crashes)
+AI_AUTO_DETECT = True
+
+# Ollama connection
+OLLAMA_HOST = 'http://localhost:11434'
+
+# Models (Q4_K_M quantization for Tesla P4 8GB VRAM)
+# For CPU-only systems, use: 'qwen2.5:3b'
+# For 16GB+ GPU, use: 'qwen2.5:14b-instruct-q5_k_m'
+LLM_MODEL_CHAT = 'qwen2.5:7b-instruct-q4_k_m'      # Chat and analysis
+LLM_MODEL_CODE = 'qwen2.5-coder:7b-instruct-q4_k_m' # DSL generation
+
+# Embedding model (runs on CPU via FastEmbed)
+EMBEDDING_MODEL = 'BAAI/bge-small-en-v1.5'
+
+# Vector store settings (uses PostgreSQL + pgvector)
+VECTOR_STORE_CONFIG = {
+    'host': DATABASE_HOST,
+    'port': DATABASE_PORT,
+    'database': DATABASE_NAME,
+    'user': DATABASE_USER,
+    'password': DATABASE_PASSWORD
+}
+
+# Sigma rules path
+SIGMA_RULES_PATH = '/opt/casescope/data/sigma/sigma/rules'
+MITRE_ATTACK_PATH = '/opt/casescope/data/sigma/mitre_attack.json'
+
+# AI query settings
+AI_MAX_CONTEXT_EVENTS = 50  # Max events to include in LLM context
+AI_RAG_TOP_K = 5            # Number of patterns to retrieve from vector store
+

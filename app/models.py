@@ -170,3 +170,54 @@ class EventDescription(db.Model):
     
     def __repr__(self):
         return f'<EventDescription {self.event_id} - {self.log_source}>'
+
+
+class IOC(db.Model):
+    """
+    Indicators of Compromise - threat intelligence tracking
+    """
+    __tablename__ = 'iocs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Core IOC Data
+    type = db.Column(db.String(50), nullable=False, index=True)  # ipv4, domain, md5, etc.
+    value = db.Column(db.Text, nullable=False, index=True)
+    category = db.Column(db.String(50), nullable=False, index=True)  # network, file, host, etc.
+    
+    # Classification
+    confidence = db.Column(db.SmallInteger)  # 0-100
+    threat_level = db.Column(db.String(20), default='info', index=True)  # info, low, medium, high, critical
+    is_whitelisted = db.Column(db.Boolean, default=False, index=True)
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    is_hidden = db.Column(db.Boolean, default=False, index=True)  # Hide from default view
+    
+    # Temporal Data
+    first_seen = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    times_seen = db.Column(db.Integer, default=1)
+    expires_at = db.Column(db.DateTime)
+    
+    # Source & Attribution
+    source = db.Column(db.String(50), default='manual', index=True)  # manual, ai_extraction, threat_feed, etc.
+    source_reference = db.Column(db.Text)  # URL, feed name, case event ID, etc.
+    description = db.Column(db.Text)
+    analyst_notes = db.Column(db.Text)
+    
+    # Relationships
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=True, index=True)
+    parent_ioc_id = db.Column(db.Integer, db.ForeignKey('iocs.id'), nullable=True)
+    
+    # Audit
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    updated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    case = db.relationship('Case', backref='iocs')
+    creator = db.relationship('User', foreign_keys=[created_by], backref='iocs_created')
+    updater = db.relationship('User', foreign_keys=[updated_by], backref='iocs_updated')
+    
+    def __repr__(self):
+        return f'<IOC {self.type}:{self.value}>'

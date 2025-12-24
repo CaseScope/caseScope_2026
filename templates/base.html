@@ -64,7 +64,7 @@
                     <span>Search</span>
                 </a>
                 
-                <a href="/search/events" class="sidebar-nav-item">
+                <a href="/hunting" class="sidebar-nav-item">
                     <span class="sidebar-nav-icon">🎯</span>
                     <span>Hunt Events</span>
                 </a>
@@ -153,8 +153,16 @@
         </div>
     </div>
     
+    <!-- AI Assistant Modal (Conditional) -->
+    {% if config.AI_ENABLED %}
+        {% include 'ai/assistant.html' %}
+    {% endif %}
+    
     <!-- Core JavaScript -->
     <script src="/static/js/main.js"></script>
+    {% if config.AI_ENABLED %}
+    <script src="/static/js/ai-assistant.js"></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 </body>
 </html>

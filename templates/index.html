@@ -101,6 +101,44 @@
         </div>
     </div>
 </div>
+
+<!-- Row 3: AI Assistant (Conditional) -->
+{% if config.AI_ENABLED %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">🤖 AI Assistant</h2>
+    </div>
+    <div class="card-body">
+        <div class="grid grid-2">
+            <div>
+                <p class="mb-3">
+                    AI-powered threat hunting and analysis using RAG with 3,900+ Sigma rules and MITRE ATT&CK techniques.
+                </p>
+                <ul class="text-small mb-3">
+                    <li>Natural language event search</li>
+                    <li>Automated event analysis</li>
+                    <li>IOC extraction from text</li>
+                    <li>Threat hunting query generation</li>
+                    <li>Interactive DFIR assistant</li>
+                </ul>
+            </div>
+            <div class="text-center">
+                <div id="ai-status-indicator" class="mb-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Checking AI status...</span>
+                    </div>
+                </div>
+                <button id="openAiAssistant" class="btn btn-primary btn-lg" disabled>
+                    🤖 Open AI Assistant
+                </button>
+                <div id="ai-status-message" class="text-small text-muted mt-2">
+                    Checking AI availability...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

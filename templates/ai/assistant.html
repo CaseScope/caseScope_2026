@@ -1,0 +1,181 @@
+<!-- AI Assistant Modal Template -->
+<!-- This template is included by base.html, so it should NOT extend base.html -->
+
+<!-- AI Assistant Modal -->
+<div id="aiModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-container-large">
+        <div class="modal-header">
+            <h2 class="modal-title">🤖 AI Assistant</h2>
+            <button class="modal-close" onclick="closeAiModal()">&times;</button>
+        </div>
+        
+        <div class="modal-tabs">
+            <button class="modal-tab active" data-tab="chat">💬 Chat</button>
+            <button class="modal-tab" data-tab="query">🔍 Natural Language Query</button>
+            <button class="modal-tab" data-tab="analyze">📊 Event Analysis</button>
+            <button class="modal-tab" data-tab="ioc">🎯 IOC Extraction</button>
+        </div>
+        
+        <div class="modal-body" style="flex: 1; overflow-y: auto;">
+            <!-- Chat Tab -->
+            <div id="chat-tab" class="modal-tab-content active">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="chat-message assistant">
+                            <div class="chat-avatar">🤖</div>
+                            <div class="chat-bubble">
+                                Hello! I'm your AI DFIR assistant. I can help you with:
+                                <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+                                    <li>Understanding attack techniques</li>
+                                    <li>Detecting threats in your environment</li>
+                                    <li>Analyzing security events</li>
+                                    <li>Threat hunting guidance</li>
+                                </ul>
+                                Ask me anything about digital forensics and incident response!
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chat-input-area">
+                        <textarea 
+                            id="chatInput" 
+                            class="chat-input" 
+                            rows="2" 
+                            placeholder="Ask me about threat detection, MITRE ATT&CK, Sigma rules, or any DFIR topic..."
+                            onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChatMessage(); }"
+                        ></textarea>
+                        <button class="btn btn-primary" onclick="sendChatMessage()" id="chatSendBtn">
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Natural Language Query Tab -->
+            <div id="query-tab" class="modal-tab-content">
+                <div class="query-input-section">
+                    <label class="form-label">Ask a question about your events:</label>
+                    <textarea 
+                        id="queryInput" 
+                        class="form-input" 
+                        rows="3" 
+                        placeholder="Example: Show me failed login attempts from the last 24 hours"
+                    ></textarea>
+                    <div class="mt-2">
+                        <button class="btn btn-primary" onclick="executeNLQuery()">
+                            🔍 Search Events
+                        </button>
+                        <button class="btn btn-secondary ml-2" onclick="clearQueryResults()">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="queryResults" class="query-results" style="display: none;">
+                    <h3>Results</h3>
+                    <div id="queryStats" class="mb-3"></div>
+                    <div id="queryPatterns" class="mb-3"></div>
+                    <details class="mb-3">
+                        <summary class="cursor-pointer">Generated OpenSearch DSL Query</summary>
+                        <pre id="queryDSL" class="dsl-preview"></pre>
+                    </details>
+                    <div id="queryEvents"></div>
+                </div>
+            </div>
+            
+            <!-- Event Analysis Tab -->
+            <div id="analyze-tab" class="modal-tab-content">
+                <div class="mb-3">
+                    <label class="form-label">Paste events (JSON array or CSV):</label>
+                    <textarea 
+                        id="analyzeInput" 
+                        class="form-input" 
+                        rows="6" 
+                        placeholder='[{"event_id": "4624", "computer": "DC01", ...}]'
+                    ></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Question (optional):</label>
+                    <input 
+                        type="text" 
+                        id="analyzeQuestion" 
+                        class="form-input" 
+                        placeholder="What happened here? Is this suspicious?"
+                    />
+                </div>
+                <button class="btn btn-primary" onclick="analyzeEvents()">
+                    📊 Analyze Events
+                </button>
+                
+                <div id="analyzeResults" class="mt-4" style="display: none;">
+                    <h3>Analysis</h3>
+                    <div id="analysisText" class="card p-3 mb-3"></div>
+                    <div id="analysisPatterns"></div>
+                </div>
+            </div>
+            
+            <!-- IOC Extraction Tab -->
+            <div id="ioc-tab" class="modal-tab-content">
+                <div class="mb-3">
+                    <label class="form-label">Paste text to extract IOCs from:</label>
+                    <textarea 
+                        id="iocInput" 
+                        class="form-input" 
+                        rows="8" 
+                        placeholder="Paste incident reports, malware analysis, or any text containing indicators..."
+                    ></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="extractIOCs()">
+                    🎯 Extract IOCs
+                </button>
+                <button class="btn btn-secondary ml-2" onclick="clearIOCResults()">
+                    Clear
+                </button>
+                
+                <div id="iocResults" class="mt-4" style="display: none;">
+                    <h3>Extracted IOCs (<span id="iocCount">0</span> total)</h3>
+                    
+                    <div id="iocIP" class="ioc-category" style="display: none;">
+                        <h4>🌐 IP Addresses</h4>
+                        <div class="ioc-list" id="iocIPList"></div>
+                    </div>
+                    
+                    <div id="iocDomain" class="ioc-category" style="display: none;">
+                        <h4>🔗 Domains</h4>
+                        <div class="ioc-list" id="iocDomainList"></div>
+                    </div>
+                    
+                    <div id="iocURL" class="ioc-category" style="display: none;">
+                        <h4>🔗 URLs</h4>
+                        <div class="ioc-list" id="iocURLList"></div>
+                    </div>
+                    
+                    <div id="iocHash" class="ioc-category" style="display: none;">
+                        <h4>🔒 File Hashes</h4>
+                        <div class="ioc-list" id="iocHashList"></div>
+                    </div>
+                    
+                    <div id="iocEmail" class="ioc-category" style="display: none;">
+                        <h4>📧 Email Addresses</h4>
+                        <div class="ioc-list" id="iocEmailList"></div>
+                    </div>
+                    
+                    <div id="iocFile" class="ioc-category" style="display: none;">
+                        <h4>📄 File Names</h4>
+                        <div class="ioc-list" id="iocFileList"></div>
+                    </div>
+                    
+                    <div id="iocRegistry" class="ioc-category" style="display: none;">
+                        <h4>🗝️ Registry Keys</h4>
+                        <div class="ioc-list" id="iocRegistryList"></div>
+                    </div>
+                    
+                    <div id="iocCVE" class="ioc-category" style="display: none;">
+                        <h4>🛡️ CVE IDs</h4>
+                        <div class="ioc-list" id="iocCVEList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End AI Assistant Modal -->
