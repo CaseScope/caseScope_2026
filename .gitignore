@@ -48,4 +48,4 @@ ssl/
 .git-credentials
 ATN64025_4055690.ndjson
 *.ndjson
-!old_site/
+_old_site/
