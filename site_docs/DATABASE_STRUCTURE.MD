@@ -353,6 +353,49 @@ logon_events = EventDescription.query.filter_by(
 
 ---
 
+## Known Systems Management
+
+### KnownSystems Table (`known_systems`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `hostname` | String(255) | System hostname, indexed |
+| `domain_name` | String(255) | Domain name, indexed |
+| `ip_address` | String(45) | IP address (IPv4/IPv6), indexed |
+| `system_type` | String(50) | System type (workstation, server, router, switch, printer, wap, other, threat_actor), indexed |
+| `compromised` | String(20) | Compromised status (yes, no, unknown), default: 'unknown', indexed |
+| `source` | String(50) | Source (manual, logs), default: 'manual', indexed |
+| `description` | Text | System description |
+| `analyst_notes` | Text | Analyst notes and observations |
+| `case_id` | Integer | Foreign key to `case.id` (cascades on delete), indexed |
+| `created_by` | Integer | Foreign key to `user.id` |
+| `updated_by` | Integer | Foreign key to `user.id` |
+| `created_at` | Timestamp | Creation timestamp, indexed |
+| `updated_at` | Timestamp | Last update timestamp |
+
+**Indexes**:
+- hostname, domain_name, ip_address (for search)
+- system_type, compromised, source (for filtering)
+- case_id (for case-level queries)
+- created_at (for sorting)
+
+**Relationships**:
+- `case` - Belongs to case
+- `creator` - User who created the entry
+- `updater` - User who last updated the entry
+
+**Purpose**: 
+- Track systems and devices involved in investigations
+- Identify compromised systems vs. legitimate infrastructure
+- Support both manual entry and automated extraction from logs
+- Track workstations, servers, network equipment, and threat actor infrastructure
+
+**Validation**:
+- At least one identifier required (hostname, domain_name, or ip_address)
+- system_type is required
+
+---
+
 ## Audit Logging
 
 ### AuditLog Table (`audit_log`)
@@ -464,6 +507,7 @@ python3 app/init_db.py
 | `ioc_tags` | casescope | IOC tagging system |
 | `ioc_relationships` | casescope | IOC relationship mappings |
 | `ioc_enrichment` | casescope | External threat intel enrichment log |
+| `known_systems` | casescope | Known systems and devices tracking |
 | `pattern_embeddings` | postgres | AI embeddings for Sigma rules & MITRE ATT&CK |
 
 ## Schema Changes & Migrations
@@ -473,6 +517,7 @@ Store SQL migration scripts in `/migrations` directory with descriptive names an
 **Existing Migrations**:
 - `add_pgvector_patterns.sql` - Creates pattern_embeddings table with pgvector extension for AI/RAG
 - `add_ioc_management.sql` - Creates IOC management tables (iocs, ioc_tags, ioc_relationships, ioc_enrichment)
+- `add_known_systems.sql` - Creates known_systems table for tracking devices and infrastructure
 
 ## PostgreSQL Extensions
 

@@ -29,6 +29,10 @@ All route blueprints are automatically discovered and registered by `main.py`.
 - `search.py` - Event search system with boolean operators and file type filtering
 - `upload.py` - File upload system (chunk-based upload, drag & drop)
 - `settings.py` - System settings (Celery worker configuration, EVTX descriptions management)
+- `ioc.py` - IOC management (Indicators of Compromise tracking and analysis)
+- `known_systems.py` - Known systems tracking (workstations, servers, network devices)
+- `hunting.py` - Threat hunting dashboard and IOC hunt operations
+- `ai.py` - AI assistant interface (RAG-powered threat intelligence)
 
 **Adding New Routes**: Simply create a new file in `/app/routes` that exports a blueprint, and it will be auto-loaded on next server restart.
 
@@ -77,10 +81,18 @@ All HTML templates using Jinja2 templating engine.
 - `/templates/case/` - Case management pages:
   - `select.html` - Case selection page with table
   - `dashboard.html` - Case dashboard with details and edit modal
+  - `files.html` - File management UI with upload progress
+  - `upload.html` - File upload interface
 - `/templates/search/` - Event search pages:
   - `events.html` - Event search interface with file type filtering
-- `/templates/upload/` - File upload pages:
-  - `files.html` - File management UI with upload progress
+- `/templates/ioc/` - IOC management pages:
+  - `manage.html` - IOC management interface (list, add, edit, bulk operations)
+- `/templates/systems/` - Known systems pages:
+  - `manage.html` - Systems management interface (list, add, edit, discovery)
+- `/templates/hunting/` - Threat hunting pages:
+  - `dashboard.html` - Threat hunting dashboard and IOC hunt interface
+- `/templates/ai/` - AI assistant pages:
+  - `assistant.html` - AI-powered threat intelligence assistant
 
 ### `/ai_prompts` - AI Model Prompts (User-Editable)
 Template prompts for AI/LLM operations that end users can customize.
