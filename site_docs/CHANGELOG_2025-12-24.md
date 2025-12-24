@@ -482,5 +482,158 @@ This release adds a comprehensive EVTX event description system with **1,100+ Wi
 
 ---
 
-*Last Updated: December 24, 2025*
+## Version 1.3.0 - December 24, 2025 (Evening)
+
+### 🎯 Feature: Known Systems Management with Auto-Discovery
+
+Complete system tracking solution with automated discovery from OpenSearch logs using high-performance aggregations.
+
+---
+
+### ✨ New Features
+
+#### 1. Known Systems Database (`known_systems` table)
+**Files**: `app/models.py`, `migrations/add_known_systems.sql`
+
+New table to track systems involved in investigations:
+- **Identifiers**: `hostname`, `domain_name`, `ip_address` (at least one required)
+- **Classification**: `system_type` (workstation, server, router, switch, printer, wap, other, threat_actor)
+- **Status**: `compromised` (yes, no, unknown)
+- **Source**: `manual` or `logs` (auto-discovered)
+- **Metadata**: `description`, `analyst_notes`
+- **Audit**: `created_by`, `updated_by`, timestamps
+
+**Indexes**: hostname, domain, IP, type, status, source, case_id for fast queries
+
+#### 2. Systems Management Page (`/systems`)
+**Files**: `app/routes/known_systems.py`, `templates/systems/manage.html`
+
+Full-featured interface:
+- Statistics tile with breakdown by type
+- Paginated table (25/50/100 per page)
+- Search across all fields
+- Filter by type, compromised status, source
+- Bulk operations (select multiple, edit, delete)
+- Modals for add/edit/view
+- CSV export
+- Audit logging
+
+#### 3. Auto-Discovery from Logs
+**File**: `app/tasks/task_discover_systems.py`
+
+**Performance**: OpenSearch aggregations extract unique systems in 1-2 seconds (vs. 2-3 minutes with scrolling)
+
+**Extraction Strategy**:
+1. **Terms Aggregations**: Extract unique hostnames from keyword fields
+   - Primary: `normalized_computer` (NDJSON), `computer` (EVTX)
+   - Secondary: `host.name`, `ComputerName`, 10+ other fields
+2. **Domain Extraction**: Separate aggregations for domains
+   - NDJSON: `host.domain` field
+   - EVTX: `event_data_fields.SubjectDomainName`
+3. **IP Resolution**: Aggregate `normalized_computer` + `host.ip` for hostname-to-IP mapping
+4. **FQDN Parsing**: Splits "ATN64025.DWTEMPS.local" → hostname: "ATN64025", domain: "DWTEMPS.local"
+5. **Type Detection**: Pattern-based (server, workstation, router, etc.)
+6. **Deduplication**: Updates existing systems with new data
+
+**Field Type Intelligence**:
+- Detects OpenSearch field mappings
+- Keyword fields (`normalized_computer`, `computer`) aggregated directly
+- Text fields (`host.name`) need `.keyword` suffix
+- Handles nested fields (`host.ip`, `event_data_fields.*`)
+
+**Test Results** (210,040 events):
+- Execution time: ~1.5 seconds
+- Discovered: 1 system (ATN64025)
+- Extracted: Hostname, Domain (DWTEMPS), IP (192.168.1.12)
+- Type: workstation (auto-detected)
+
+---
+
+### 🐛 Bug Fixes
+
+**1. CaseFile Model Compatibility**
+- **Issue**: Task referenced `CaseFile.is_indexed` (doesn't exist in new app)
+- **Fix**: Removed filename extraction logic, rely on normalized_computer
+- **Impact**: Discovery works without CaseFile queries
+
+**2. OpenSearch Keyword Field Mapping**
+- **Issue**: Using `.keyword` suffix on fields that are already keyword type
+- **Fix**: Detect field type, conditionally add `.keyword` only for text fields
+- **Impact**: Aggregations return results (was 0 buckets before)
+
+**3. IP Address Extraction**
+- **Issue**: Zero IPs extracted due to `normalized_computer.keyword` (invalid)
+- **Fix**: Changed to `normalized_computer` (field is already keyword type)
+- **Impact**: Successfully extracts IPs from `host.ip`
+
+**4. Domain Extraction from EVTX**
+- **Issue**: Domains not extracted from Windows Event Logs
+- **Fix**: Added aggregation for `event_data_fields.SubjectDomainName`
+- **Impact**: Domains extracted from both NDJSON and EVTX
+
+**5. Celery Task Registration**
+- **Issue**: Task `tasks.discover_systems_from_logs` not found
+- **Fix**: Added import in `celery_app.py`
+- **Impact**: Task registered and executable
+
+**6. Progress Bar Reset Loop**
+- **Issue**: Progress would show, reset to 0%, then jump back
+- **Fix**: Added `task_track_started = True` to Celery config
+- **Impact**: Smooth progress without resets
+
+---
+
+### 📁 Files Added/Modified
+
+**New Files**:
+- `/app/routes/known_systems.py` (459 lines) - Full CRUD API + discovery
+- `/app/tasks/task_discover_systems.py` (363 lines) - Aggregation-based discovery
+- `/templates/systems/manage.html` (1265 lines) - Management UI
+- `/migrations/add_known_systems.sql` (28 lines) - Database schema
+
+**Modified**:
+- `/app/models.py` - Added `KnownSystem` model
+- `/app/celery_app.py` - Registered task_discover_systems
+- `/app/config.py` - Added `task_track_started = True`
+- `/templates/base.html` - Added "Known Systems" nav link
+- `/css/components.css` - Progress bar and alert styles
+
+**Documentation**:
+- `/site_docs/KNOWN_SYSTEMS.md` - Feature documentation
+- `/site_docs/DATABASE_STRUCTURE.MD` - Updated table list
+- `/site_docs/SITE_LAYOUT.MD` - Updated routes/templates
+
+---
+
+### 🚀 Performance
+
+**Before (Scrolling)**:
+- Method: Scroll through all events, extract fields
+- Time: 2-3 minutes for 200K events
+- Memory: High (loads documents)
+
+**After (Aggregations)**:
+- Method: Terms aggregation on keyword fields
+- Time: 1-2 seconds for 200K+ events
+- Memory: Minimal (only aggregated values)
+- Improvement: 60-90x faster
+
+---
+
+### 💡 Technical Highlights
+
+1. **Aggregation-First Design**: Learned from old_site implementation
+2. **Field Type Awareness**: Handles OpenSearch mapping dynamically
+3. **Multi-Format Support**: Works with both NDJSON (Huntress) and EVTX (Windows)
+4. **Clean Deduplication**: Updates existing vs. adding notes
+5. **Real-Time Progress**: Celery state tracking with modal updates
+6. **Production-Ready**: Error handling, logging, audit trail
+
+---
+
+**Contributors**: System Administrator
+
+---
+
+*Last Updated: December 24, 2025 (Evening)*
 

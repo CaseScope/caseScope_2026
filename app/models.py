@@ -221,3 +221,43 @@ class IOC(db.Model):
     
     def __repr__(self):
         return f'<IOC {self.type}:{self.value}>'
+
+
+class KnownSystem(db.Model):
+    """
+    Known Systems - Track systems/devices in investigation
+    """
+    __tablename__ = 'known_systems'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Core System Data
+    hostname = db.Column(db.String(255), index=True)
+    domain_name = db.Column(db.String(255), index=True)
+    ip_address = db.Column(db.String(45), index=True)  # Supports IPv4 and IPv6
+    
+    # Classification
+    compromised = db.Column(db.String(20), default='unknown', index=True)  # yes, no, unknown
+    source = db.Column(db.String(50), default='manual', index=True)  # manual, logs
+    system_type = db.Column(db.String(50), nullable=False, index=True)  # workstation, server, router, switch, printer, wap, other, threat_actor
+    
+    # Additional Details
+    description = db.Column(db.Text)
+    analyst_notes = db.Column(db.Text)
+    
+    # Relationships
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    
+    # Audit
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    updated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    case = db.relationship('Case', backref='known_systems')
+    creator = db.relationship('User', foreign_keys=[created_by], backref='systems_created')
+    updater = db.relationship('User', foreign_keys=[updated_by], backref='systems_updated')
+    
+    def __repr__(self):
+        return f'<KnownSystem {self.hostname or self.ip_address}>'

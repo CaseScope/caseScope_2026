@@ -51,4 +51,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_scrape_events: {e}")
 
+try:
+    from tasks import task_discover_systems
+    logger.info("✓ Registered system discovery tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_discover_systems: {e}")
+
 logger.info("✓ Celery tasks registered")

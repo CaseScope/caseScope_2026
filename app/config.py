@@ -228,6 +228,8 @@ class CeleryConfig:
     result_serializer = 'json'
     timezone = 'UTC'
     enable_utc = True
+    task_track_started = True  # Track task start and state changes
+    result_expires = 3600  # Results expire after 1 hour
     
     # Worker settings
     worker_prefetch_multiplier = CELERY_PREFETCH_MULTIPLIER

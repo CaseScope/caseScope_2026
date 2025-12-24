@@ -16,3 +16,9 @@ try:
 except Exception as e:
     print(f"⚠ Could not load task_scrape_events: {e}")
 
+try:
+    from tasks import task_discover_systems
+    print("✓ Registered system discovery tasks")
+except Exception as e:
+    print(f"⚠ Could not load task_discover_systems: {e}")
+
