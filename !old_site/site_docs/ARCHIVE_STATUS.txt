@@ -1,0 +1,206 @@
+═══════════════════════════════════════════════════════════════════════════════
+🗄️  ARCHIVE CASE FEATURE - STATUS REPORT
+═══════════════════════════════════════════════════════════════════════════════
+
+Version: v1.18.0 (In Progress)
+Branch: main
+Last Commit: ad79778 (Phase 1-2 Complete + Test Guide)
+
+───────────────────────────────────────────────────────────────────────────────
+✅ PHASE 1: FOUNDATION - COMPLETE
+───────────────────────────────────────────────────────────────────────────────
+
+Database:
+  ✅ Migration script (add_archive_fields.py)
+  ✅ 4 new columns in case table (archive_path, archived_at, archived_by, restored_at)
+  ✅ archive_root_path setting in system_settings table
+  ✅ Case model updated with archive fields + archiver relationship
+
+Settings UI:
+  ✅ "Case Archiving" section in System Settings
+  ✅ Archive root path input with validation
+  ✅ Info panels (how it works, requirements)
+  ✅ Path validation (absolute, exists, writable, space checks)
+
+Files Modified:
+  - app/models.py
+  - app/routes/settings.py
+  - app/templates/settings.html
+  - app/migrations/add_archive_fields.py (new)
+
+Git: Committed 18d9f4c, Pushed ✅
+
+───────────────────────────────────────────────────────────────────────────────
+✅ PHASE 2: CORE FUNCTIONS - COMPLETE
+───────────────────────────────────────────────────────────────────────────────
+
+New File: app/archive_utils.py (688 lines)
+
+Functions Implemented:
+  ✅ get_archive_root_path() - Get configured path from settings
+  ✅ validate_archive_path() - Comprehensive validation
+  ✅ get_case_files_path() - Get case upload directory
+  ✅ get_case_file_size() - Calculate size (bytes/MB/GB + count)
+  ✅ get_archive_directory() - Generate archive dir path
+  ✅ archive_case() - Full archive process
+     • Creates ZIP with structure preserved
+     • Verifies ZIP integrity
+     • Deletes original files
+     • Updates case status to 'Archived'
+     • Records metadata (path, timestamp, user)
+     • Comprehensive logging
+  
+  ✅ restore_case() - Full restore process
+     • Extracts ZIP to original location
+     • Sets ownership (casescope:casescope)
+     • Verifies file count
+     • Updates case status (user choice)
+     • Records restored_at timestamp
+     • Deletes archive ZIP
+     • Comprehensive logging
+  
+  ✅ is_case_archived() - Check if case archived
+  ✅ require_unarchived_case() - Guard helper for routes
+
+Git: Committed 3031641, Pushed ✅
+
+───────────────────────────────────────────────────────────────────────────────
+📋 TEST GUIDE - COMPLETE
+───────────────────────────────────────────────────────────────────────────────
+
+File: ARCHIVE_TEST_PHASE1_PHASE2.md (488 lines)
+
+7 Tests Included:
+  1. System Settings UI verification
+  2. Invalid archive path validation
+  3. Valid archive path configuration
+  4. Database verification
+  5. Archive utils module testing
+  6. Manual archive test (Python console)
+  7. Manual restore test (Python console)
+
+Includes:
+  - Step-by-step instructions
+  - Expected results
+  - Verification commands
+  - Troubleshooting guide
+  - Success criteria checklist
+
+Git: Committed ad79778, Pushed ✅
+
+───────────────────────────────────────────────────────────────────────────────
+⏸️  PAUSED FOR TESTING
+───────────────────────────────────────────────────────────────────────────────
+
+What Works Now:
+  ✅ System Settings UI (archive path configuration)
+  ✅ Archive path validation (real-time in settings)
+  ✅ Database schema ready
+  ✅ Core archive/restore functions (via Python console)
+
+What Doesn't Work Yet:
+  ❌ No UI buttons for archive/restore
+  ❌ No progress modals
+  ❌ No archive warning banner on cases
+  ❌ No automatic guards (can still upload to archived cases)
+  ❌ No API endpoints (must use Python console)
+
+───────────────────────────────────────────────────────────────────────────────
+🚧 REMAINING WORK (11 TODOs)
+───────────────────────────────────────────────────────────────────────────────
+
+Phase 2 (Remaining):
+  ⏳ Add async tasks to tasks.py (archive/restore with progress)
+  ⏳ Create routes/archive.py blueprint (API endpoints)
+
+Phase 3 (UI Integration):
+  ⏳ Add archive warning banner to case dashboard
+  ⏳ Add archive/restore modals with progress tracking
+  ⏳ Add disabled state to file operation buttons
+
+Phase 4 (Backend Guards):
+  ⏳ Add guards to file routes (upload, reindex, delete)
+  ⏳ Add guards to Celery process_file task
+
+Phase 5 (Documentation & Testing):
+  ⏳ Add audit logging for archive events
+  ⏳ Update version.json and APP_MAP.md
+  ⏳ End-to-end testing
+  ⏳ Final commit & push
+
+Estimated: ~3-4 hours to complete remaining phases
+
+───────────────────────────────────────────────────────────────────────────────
+📖 TESTING INSTRUCTIONS
+───────────────────────────────────────────────────────────────────────────────
+
+1. Read Test Guide:
+   cat /opt/casescope/ARCHIVE_TEST_PHASE1_PHASE2.md
+
+2. Test System Settings:
+   - Navigate to System Settings (admin)
+   - Find "Case Archiving" section
+   - Try invalid path: archive (relative)
+   - Try valid path: /archive
+
+3. Create Archive Directory:
+   sudo mkdir -p /archive
+   sudo chown casescope:casescope /archive
+   sudo chmod 755 /archive
+
+4. Run Module Tests:
+   cd /opt/casescope
+   sudo -u casescope bash -c "source venv/bin/activate && cd app && python3 << 'EOF'
+   from main import app, db
+   from archive_utils import get_archive_root_path, validate_archive_path
+   
+   with app.app_context():
+       path = get_archive_root_path()
+       print(f'Archive Path: {path}')
+       
+       if path:
+           validation = validate_archive_path(path)
+           print(f'Valid: {validation[\"valid\"]}')
+           print(f'Message: {validation[\"message\"]}')
+   EOF
+   "
+
+5. Optional: Manual Archive Test
+   - Pick a SMALL test case
+   - Follow Test 6 in ARCHIVE_TEST_PHASE1_PHASE2.md
+   - Verify ZIP created, files removed, database updated
+
+6. Optional: Manual Restore Test
+   - Follow Test 7 in ARCHIVE_TEST_PHASE1_PHASE2.md
+   - Verify files restored, ownership correct, archive deleted
+
+───────────────────────────────────────────────────────────────────────────────
+✅ SUCCESS CRITERIA
+───────────────────────────────────────────────────────────────────────────────
+
+Phase 1-2 working if:
+  □ System Settings shows archive section
+  □ Invalid paths trigger warnings
+  □ Valid path saves successfully
+  □ Database has archive columns
+  □ archive_utils.py imports without errors
+  □ validate_archive_path() returns expected results
+  □ Manual archive test succeeds (optional)
+  □ Manual restore test succeeds (optional)
+
+───────────────────────────────────────────────────────────────────────────────
+🎯 NEXT STEPS
+───────────────────────────────────────────────────────────────────────────────
+
+After Testing Phase 1-2:
+  1. Report test results (pass/fail)
+  2. If issues found: Debug and fix
+  3. If all pass: Continue to Phase 3 (UI integration)
+
+To Continue Development:
+  "continue with phase 3"
+  
+To Report Issues:
+  "test X failed with error: [error message]"
+
+═══════════════════════════════════════════════════════════════════════════════

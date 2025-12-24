@@ -1,0 +1,490 @@
+{% extends "base.html" %}
+
+{% block title %}Evidence Files - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">Evidence Files: {{ case.name }}</h1>
+        <p class="text-secondary">Archival storage for screenshots, exported files, and other evidence items</p>
+        <p style="color: var(--color-warning); font-size: 0.875rem; margin-top: var(--spacing-xs);">
+            ⚠️ NOTE: This is NOT for logs unless they cannot be readily ingested. Store items like screenshots, exports, and evidence that should be retained but not processed.
+        </p>
+    </div>
+    <div class="content-actions">
+        {% if current_user.role != 'read-only' %}
+        <button onclick="bulkSyncAllEvidence()" class="btn" style="background: var(--color-primary); color: white;">
+            <span>🔄</span>
+            <span>Sync All to DFIR-IRIS</span>
+        </button>
+        {% endif %}
+        <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- ============================================================================
+     TILES ROW: Evidence Statistics
+     ============================================================================ -->
+<div class="dashboard-row-2">
+    
+    <!-- TILE 1: FILE STATISTICS -->
+    <div class="card card-no-margin">
+        <div class="card-header">
+            <h2 class="card-title">📁 Evidence Statistics</h2>
+        </div>
+        <div class="card-body">
+            <div class="stat-grid-case">
+                <div class="stat-item">
+                    <div class="stat-item-label">Total Files</div>
+                    <div class="stat-item-value-large">{{ total_files }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">Total Space Used</div>
+                    <div class="stat-item-value-large">{{ "%.2f"|format(total_space_gb) }} GB</div>
+                </div>
+            </div>
+            
+            {% if file_types %}
+            <div style="margin-top: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+                <div class="stat-item-label" style="margin-bottom: var(--spacing-sm);">Files by Type</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--spacing-md);">
+                    {% for ftype, count in file_types.items() %}
+                    <div class="stat-item" style="text-align: center; padding: var(--spacing-sm); background: var(--color-bg-tertiary); border-radius: 4px;">
+                        <div style="font-size: 1.5rem; margin-bottom: 4px;">{{ count }}</div>
+                        <div class="text-secondary" style="font-size: 0.75rem;">{{ ftype }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- TILE 2: UPLOAD OPTIONS -->
+    <div class="card card-no-margin">
+        <div class="card-header">
+            <h2 class="card-title">📤 Upload Evidence</h2>
+        </div>
+        <div class="card-body">
+            <div style="padding: var(--spacing-md);">
+                <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                    Upload screenshots, exported files, or other evidence items that should be retained but not processed.
+                </p>
+                
+                <!-- HTTP Upload -->
+                <div style="margin-bottom: var(--spacing-xl);">
+                    <h3 style="font-size: 1rem; margin-bottom: var(--spacing-sm);">Direct Upload</h3>
+                    <input type="file" id="evidenceFiles" multiple style="margin-bottom: var(--spacing-sm);">
+                    <button onclick="uploadEvidenceFiles()" class="btn btn-primary" id="uploadBtn">
+                        <span>📤</span>
+                        <span>Upload Selected Files</span>
+                    </button>
+                </div>
+                
+                <!-- Bulk Import -->
+                <div>
+                    <h3 style="font-size: 1rem; margin-bottom: var(--spacing-sm);">Bulk Import</h3>
+                    <p style="color: var(--color-text-secondary); font-size: 0.875rem; margin-bottom: var(--spacing-sm);">
+                        Copy files to <code>/opt/casescope/evidence_uploads/</code> then click import:
+                    </p>
+                    <button onclick="bulkImportEvidence()" class="btn" style="background: var(--color-success); color: white;" id="bulkImportBtn">
+                        <span>📥</span>
+                        <span>Import from Bulk Folder</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+</div>
+
+<!-- ============================================================================
+     EVIDENCE FILES TABLE
+     ============================================================================ -->
+<div class="card" style="margin-top: var(--spacing-lg);">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--spacing-md);">
+        <div>
+            <h2 class="card-title">📄 Evidence Files</h2>
+            <span class="text-muted">
+                {% if search_term %}
+                {{ pagination.total }} matching file(s) • Page {{ pagination.page }} of {{ pagination.pages }}
+                {% else %}
+                {{ pagination.total }} total file(s) • Page {{ pagination.page }} of {{ pagination.pages }}
+                {% endif %}
+            </span>
+        </div>
+        <div>
+            <form method="GET" action="{{ url_for('evidence.list_evidence_files', case_id=case.id) }}" style="display: inline-flex; gap: var(--spacing-xs);">
+                <input type="text" 
+                       id="fileSearch" 
+                       name="search"
+                       value="{{ search_term }}"
+                       placeholder="🔍 Search files by name, description, or hash..." 
+                       class="form-input" 
+                       style="width: 350px;">
+                <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1rem;">
+                    <span>🔎</span>
+                </button>
+                {% if search_term %}
+                <a href="{{ url_for('evidence.list_evidence_files', case_id=case.id) }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="Clear search">
+                    <span>✕</span>
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if files %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Type</th>
+                        <th>Size (MB)</th>
+                        <th>Description</th>
+                        <th>Uploaded</th>
+                        <th>Uploaded By</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr data-file-id="{{ file.id }}">
+                        <td>
+                            <strong>{{ file.original_filename }}</strong>
+                            {% if file.file_hash %}
+                            <br><span class="text-muted file-hash-mini">{{ file.file_hash[:16] }}...</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); color: var(--color-primary);">
+                                {{ file.file_type or 'UNKNOWN' }}
+                            </span>
+                        </td>
+                        <td>{{ (file.file_size / 1024 / 1024)|round(2) }}</td>
+                        <td>
+                            <div id="desc-{{ file.id }}" class="evidence-description">
+                                {% if file.description %}
+                                {{ file.description[:100] }}{% if file.description|length > 100 %}...{% endif %}
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ file.uploaded_at.strftime('%Y-%m-%d') }}</span>
+                            <br><span class="text-muted" style="font-size: 0.75rem;">{{ file.uploaded_at.strftime('%H:%M') }}</span>
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ file.uploaded_by or '—' }}</span>
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                <!-- Download button -->
+                                <a href="{{ url_for('evidence.download_evidence', evidence_id=file.id) }}" 
+                                   class="btn btn-sm" 
+                                   style="background: var(--color-info); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                   title="Download file">
+                                    📥
+                                </a>
+                                <!-- Sync to DFIR-IRIS button -->
+                                {% if current_user.role != 'read-only' %}
+                                <button onclick="syncEvidence({{ file.id }}, '{{ file.original_filename|replace("'", "\\'") }}')" 
+                                        class="btn btn-sm" 
+                                        style="background: var(--color-primary); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                        title="Sync to DFIR-IRIS">
+                                    🔄
+                                </button>
+                                {% endif %}
+                                <!-- Edit description button -->
+                                {% if current_user.role != 'read-only' %}
+                                <button onclick="editDescription({{ file.id }}, '{{ file.description|replace("'", "\\'") if file.description else '' }}')" 
+                                        class="btn btn-sm" 
+                                        style="background: var(--color-warning); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                        title="Edit description">
+                                    ✏️
+                                </button>
+                                {% endif %}
+                                <!-- Delete button (admin only) -->
+                                {% if current_user.role == 'administrator' %}
+                                <button onclick="deleteEvidence({{ file.id }}, '{{ file.original_filename|replace("'", "\\'") }}')" 
+                                        class="btn btn-sm" 
+                                        style="background: var(--color-error); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                        title="Delete file">
+                                    🗑️
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination Controls -->
+        {% if search_term %}
+        <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <div class="pagination-info" style="color: var(--color-text-secondary); font-size: 0.875rem;">
+                Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} 
+                to {% if pagination.page * pagination.per_page > pagination.total %}{{ pagination.total }}{% else %}{{ pagination.page * pagination.per_page }}{% endif %} 
+                of {{ pagination.total }} items
+            </div>
+            <div class="pagination-controls" style="display: flex; gap: var(--spacing-xs);">
+                {% if pagination.has_prev %}
+                <a href="{{ url_for('evidence.list_evidence_files', case_id=case.id, page=1, search=search_term) }}" class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem;">««</a>
+                <a href="{{ url_for('evidence.list_evidence_files', case_id=case.id, page=pagination.prev_num, search=search_term) }}" class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem;">‹ Previous</a>
+                {% else %}
+                <span class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">««</span>
+                <span class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">‹ Previous</span>
+                {% endif %}
+                
+                {% set start_page = [1, pagination.page - 2]|max %}
+                {% set end_page = [pagination.pages, pagination.page + 2]|min %}
+                {% if start_page > 1 %}<span style="padding: 6px 12px; color: var(--color-text-secondary);">...</span>{% endif %}
+                
+                {% for page_num in range(start_page, end_page + 1) %}
+                    {% if page_num == pagination.page %}
+                    <span class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem; background: var(--color-primary); color: white; cursor: default;">{{ page_num }}</span>
+                    {% else %}
+                    <a href="{{ url_for('evidence.list_evidence_files', case_id=case.id, page=page_num, search=search_term) }}" class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem;">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if end_page < pagination.pages %}<span style="padding: 6px 12px; color: var(--color-text-secondary);">...</span>{% endif %}
+                
+                {% if pagination.has_next %}
+                <a href="{{ url_for('evidence.list_evidence_files', case_id=case.id, page=pagination.next_num, search=search_term) }}" class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem;">Next ›</a>
+                <a href="{{ url_for('evidence.list_evidence_files', case_id=case.id, page=pagination.pages, search=search_term) }}" class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem;">»»</a>
+                {% else %}
+                <span class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">Next ›</span>
+                <span class="btn btn-sm" style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">»»</span>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        {% include 'components/pagination.html' %}
+        {% endif %}
+        
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
+            <h3>No evidence files uploaded yet</h3>
+            <p style="margin-bottom: var(--spacing-lg);">Upload screenshots, exported files, or other evidence items</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CASE_ID = {{ case.id }};
+
+// Upload evidence files via HTTP
+function uploadEvidenceFiles() {
+    const fileInput = document.getElementById('evidenceFiles');
+    const files = fileInput.files;
+    
+    if (!files || files.length === 0) {
+        alert('Please select files to upload');
+        return;
+    }
+    
+    const btn = document.getElementById('uploadBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span><span>Uploading...</span>';
+    
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    
+    fetch(`/evidence/case/${CASE_ID}/upload`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + data.error + (data.errors ? '\n' + data.errors.join('\n') : ''));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Upload failed: ' + error.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    });
+}
+
+// Bulk import from evidence_uploads folder
+function bulkImportEvidence() {
+    if (!confirm('📥 Bulk Import Evidence Files\n\nThis will import all files from /opt/casescope/evidence_uploads/ folder.\n\nContinue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('bulkImportBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span><span>Importing...</span>';
+    
+    fetch(`/evidence/case/${CASE_ID}/bulk_import`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + data.error + (data.errors ? '\n' + data.errors.join('\n') : ''));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Import failed: ' + error.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    });
+}
+
+// Edit evidence description
+function editDescription(evidenceId, currentDescription) {
+    const newDescription = prompt('Edit description for this evidence file:', currentDescription);
+    
+    if (newDescription === null) {
+        return; // User cancelled
+    }
+    
+    fetch(`/evidence/${evidenceId}/edit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ description: newDescription })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update description in UI
+            const descEl = document.getElementById(`desc-${evidenceId}`);
+            if (newDescription.trim()) {
+                descEl.innerHTML = newDescription.length > 100 ? newDescription.substring(0, 100) + '...' : newDescription;
+            } else {
+                descEl.innerHTML = '<span class="text-muted">—</span>';
+            }
+            alert('Description updated');
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Update failed: ' + error.message);
+    });
+}
+
+// Delete evidence file (admin only)
+function deleteEvidence(evidenceId, filename) {
+    if (!confirm(`🗑️ Delete Evidence File\n\nFile: ${filename}\n\nThis will permanently delete the file from the filesystem and database.\n\nThis action CANNOT be undone!\n\nContinue?`)) {
+        return;
+    }
+    
+    fetch(`/evidence/${evidenceId}/delete`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Evidence file deleted');
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Delete failed: ' + error.message);
+    });
+}
+
+// Sync single evidence file to DFIR-IRIS
+function syncEvidence(evidenceId, filename) {
+    if (!confirm(`🔄 Sync Evidence File to DFIR-IRIS\n\nFile: ${filename}\n\nThis will upload the file to DFIR-IRIS datastore.\n\nContinue?`)) {
+        return;
+    }
+    
+    fetch(`/evidence/${evidenceId}/sync_to_dfir_iris`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert(data.message || 'Sync failed');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Sync failed: ' + error.message);
+    });
+}
+
+// Bulk sync all evidence files to DFIR-IRIS
+function bulkSyncAllEvidence() {
+    if (!confirm(`🔄 Sync All Evidence Files to DFIR-IRIS\n\nThis will upload ALL evidence files in this case to DFIR-IRIS datastore.\n\nFiles already synced will be re-uploaded.\n\nContinue?`)) {
+        return;
+    }
+    
+    fetch(`/evidence/case/${CASE_ID}/bulk_sync_to_dfir_iris`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = data.message;
+            if (data.errors && data.errors.length > 0) {
+                message += '\n\nErrors:\n' + data.errors.join('\n');
+            }
+            alert(message);
+            location.reload();
+        } else {
+            alert(data.message || 'Bulk sync failed');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Bulk sync failed: ' + error.message);
+    });
+}
+</script>
+{% endblock %}
+

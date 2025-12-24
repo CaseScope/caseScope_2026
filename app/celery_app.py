@@ -57,4 +57,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_discover_systems: {e}")
 
+try:
+    from tasks import task_discover_users
+    logger.info("✓ Registered user discovery tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_discover_users: {e}")
+
 logger.info("✓ Celery tasks registered")

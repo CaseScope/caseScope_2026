@@ -5,13 +5,14 @@ Automated threat hunting functionality
 
 from flask import Blueprint, render_template, session, jsonify, request
 from flask_login import login_required, current_user
-from models import Case, IOC
+from models import Case, IOC, KnownSystem, KnownUser
 from main import db
 from audit_logger import log_action
 import logging
 import json
 import ollama
 from utils.ioc_extractor import extract_iocs as regex_extract_iocs
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -331,11 +332,66 @@ Return ONLY the JSON object. No explanations, no markdown, just the JSON."""
                             'index': len(iocs_to_import) - 1
                         }
         
+        # Process hostnames for known systems
+        known_systems_results = []
+        if 'host' in extraction and 'hostnames' in extraction['host']:
+            hostnames = extraction['host'].get('hostnames', [])
+            if isinstance(hostnames, list):
+                for hostname in hostnames:
+                    if hostname and str(hostname).strip():
+                        hostname = str(hostname).strip()
+                        result = _process_hostname_known_system(case_id, hostname, current_user.id)
+                        known_systems_results.append(result)
+        
+        # Process usernames for known users
+        known_users_results = []
+        if 'identity' in extraction and 'usernames' in extraction['identity']:
+            usernames = extraction['identity'].get('usernames', [])
+            sids = extraction['identity'].get('sids', []) if 'sids' in extraction['identity'] else []
+            
+            if isinstance(usernames, list):
+                for idx, username in enumerate(usernames):
+                    if username and str(username).strip():
+                        username = str(username).strip()
+                        # Try to match username with corresponding SID if available
+                        sid = sids[idx] if idx < len(sids) else None
+                        result = _process_username_known_user(case_id, username, current_user.id, sid)
+                        known_users_results.append(result)
+        
+        # Log IOC extraction completion including known systems and users processing
+        systems_created = [r for r in known_systems_results if r['action'] == 'created']
+        systems_updated = [r for r in known_systems_results if r['action'] == 'updated']
+        users_created = [r for r in known_users_results if r['action'] == 'created']
+        users_updated = [r for r in known_users_results if r['action'] == 'updated']
+        
+        log_action(
+            action='ioc_extraction_with_systems_and_users',
+            resource_type='case',
+            resource_id=case_id,
+            resource_name=case.name,
+            details={
+                'performed_by': current_user.username,
+                'iocs_extracted': len(iocs_to_import),
+                'hostnames_processed': len(known_systems_results),
+                'systems_created': len(systems_created),
+                'systems_updated': len(systems_updated),
+                'created_systems': [{'hostname': s['message'].split(': ')[1], 'id': s['system_id']} for s in systems_created],
+                'updated_systems': [{'hostname': s['message'].split(': ')[1], 'id': s['system_id']} for s in systems_updated],
+                'usernames_processed': len(known_users_results),
+                'users_created': len(users_created),
+                'users_updated': len(users_updated),
+                'created_users': [{'username': u['message'].split(': ')[1], 'id': u['user_id']} for u in users_created],
+                'updated_users': [{'username': u['message'].split(': ')[1], 'id': u['user_id']} for u in users_updated]
+            }
+        )
+        
         return jsonify({
             'success': True,
             'extraction_summary': extraction.get('extraction_summary', {}),
             'iocs_to_import': iocs_to_import,
-            'full_extraction': extraction
+            'full_extraction': extraction,
+            'known_systems_processed': known_systems_results,
+            'known_users_processed': known_users_results
         })
         
     except Exception as e:
@@ -343,6 +399,274 @@ Return ONLY the JSON object. No explanations, no markdown, just the JSON."""
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _process_hostname_known_system(case_id, hostname, current_user_id):
+    """
+    Process hostname against known systems:
+    1. If not found, add as a known system with domain/IP if possible (use '-' if not available)
+    2. If found, add note to existing system that it was found in EDR report
+    
+    Returns: dict with action and message
+    """
+    try:
+        # Normalize hostname for comparison
+        hostname_upper = hostname.strip().upper()
+        
+        # Check if hostname already exists in known systems (case-insensitive)
+        existing_system = KnownSystem.query.filter(
+            KnownSystem.case_id == case_id,
+            db.func.upper(KnownSystem.hostname) == hostname_upper
+        ).first()
+        
+        if existing_system:
+            # System found - add note to analyst_notes and mark as compromised
+            note = f"Found in EDR report (IOC extraction)"
+            if existing_system.analyst_notes:
+                # Check if this note already exists
+                if note not in existing_system.analyst_notes:
+                    existing_system.analyst_notes += f"\n{note}"
+            else:
+                existing_system.analyst_notes = note
+            
+            # Mark as compromised since it was found in an EDR report
+            if existing_system.compromised != 'yes':
+                existing_system.compromised = 'yes'
+                compromised_note = "Marked as compromised - found in EDR IOC extraction"
+                if existing_system.analyst_notes:
+                    existing_system.analyst_notes += f"\n{compromised_note}"
+                else:
+                    existing_system.analyst_notes = compromised_note
+            
+            existing_system.updated_by = current_user_id
+            db.session.commit()
+            
+            return {
+                'action': 'updated',
+                'system_id': existing_system.id,
+                'message': f'Updated existing system: {existing_system.hostname}'
+            }
+        else:
+            # System not found - create new known system
+            # Try to extract domain from hostname if it's an FQDN
+            domain = '-'
+            base_hostname = hostname_upper
+            
+            if '.' in hostname and not re.match(r'^\d+\.\d+\.\d+\.\d+$', hostname):
+                # Might be FQDN - split into hostname and domain
+                parts = hostname.split('.', 1)
+                base_hostname = parts[0].upper()
+                domain = parts[1] if len(parts) > 1 else '-'
+            
+            # Create new known system
+            new_system = KnownSystem(
+                hostname=base_hostname,
+                domain_name=domain,
+                ip_address='-',  # Will be filled in if discovered elsewhere
+                system_type='workstation',  # Default type, can be changed by analyst
+                compromised='yes',  # Mark as compromised since found in EDR IOC extraction
+                source='EDR',
+                description='Automatically added from EDR IOC extraction',
+                analyst_notes='Found in EDR report (IOC extraction) - marked as compromised',
+                case_id=case_id,
+                created_by=current_user_id,
+                updated_by=current_user_id
+            )
+            
+            db.session.add(new_system)
+            db.session.commit()
+            
+            return {
+                'action': 'created',
+                'system_id': new_system.id,
+                'message': f'Created new system: {base_hostname}'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error processing hostname for known systems: {e}")
+        db.session.rollback()
+        return {
+            'action': 'error',
+            'message': f'Error: {str(e)}'
+        }
+
+
+def _process_username_known_user(case_id, username, current_user_id, sid=None):
+    """
+    Process username against known users:
+    1. If not found, add as a known user with domain/SID if available (use '-' if not)
+    2. If found, add note to existing user that it was found in EDR report
+    
+    Returns: dict with action and message
+    """
+    try:
+        # Parse username to extract domain and base username
+        domain_name = None
+        base_username = username.strip()
+        user_type = 'unknown'
+        
+        if '\\' in username:
+            # Domain\Username format
+            parts = username.split('\\', 1)
+            domain_name = parts[0].upper()
+            base_username = parts[1]
+            user_type = 'domain'
+        elif '@' in username:
+            # user@domain format - convert to domain\user
+            parts = username.split('@', 1)
+            base_username = parts[0]
+            domain_name = parts[1].upper()
+            user_type = 'domain'
+        
+        # Normalize for comparison
+        username_lower = base_username.lower()
+        domain_lower = domain_name.lower() if domain_name else None
+        
+        # Check if user already exists
+        # First, try to find by username and domain (exact match)
+        if domain_name:
+            existing_user = KnownUser.query.filter(
+                KnownUser.case_id == case_id,
+                db.func.lower(KnownUser.username) == username_lower,
+                db.func.lower(KnownUser.domain_name) == domain_lower
+            ).first()
+        else:
+            # For users without domain, check for domain_name = '-' OR NULL
+            existing_user = KnownUser.query.filter(
+                KnownUser.case_id == case_id,
+                db.func.lower(KnownUser.username) == username_lower,
+                db.or_(
+                    KnownUser.domain_name == '-',
+                    KnownUser.domain_name.is_(None)
+                )
+            ).first()
+        
+        # If we found a user with domain but this one doesn't have domain, merge
+        # (e.g., we saw SL\tabadmin first, now we see tabadmin - should update the domain one)
+        if not existing_user and not domain_name:
+            # Check if there's a domain version of this user
+            domain_version = KnownUser.query.filter(
+                KnownUser.case_id == case_id,
+                db.func.lower(KnownUser.username) == username_lower,
+                KnownUser.domain_name != '-',
+                KnownUser.domain_name.isnot(None)
+            ).first()
+            
+            if domain_version:
+                # Use the domain version instead
+                existing_user = domain_version
+        
+        # If we're adding a domain version but found a non-domain one, update the non-domain one with domain info
+        if not existing_user and domain_name:
+            # Check if there's a non-domain version
+            non_domain_version = KnownUser.query.filter(
+                KnownUser.case_id == case_id,
+                db.func.lower(KnownUser.username) == username_lower,
+                db.or_(
+                    KnownUser.domain_name == '-',
+                    KnownUser.domain_name.is_(None)
+                )
+            ).first()
+            
+            if non_domain_version:
+                # Upgrade the non-domain version with domain info
+                non_domain_version.domain_name = domain_name
+                non_domain_version.user_type = user_type
+                if sid and non_domain_version.sid == '-':
+                    non_domain_version.sid = sid
+                note = f"Found in EDR report (IOC extraction) with domain: {domain_name}"
+                if non_domain_version.analyst_notes:
+                    if note not in non_domain_version.analyst_notes:
+                        non_domain_version.analyst_notes += f"\n{note}"
+                else:
+                    non_domain_version.analyst_notes = note
+                
+                # Mark as compromised since it was found in an EDR report
+                if non_domain_version.compromised != 'yes':
+                    non_domain_version.compromised = 'yes'
+                    compromised_note = "Marked as compromised - found in EDR IOC extraction"
+                    if non_domain_version.analyst_notes:
+                        non_domain_version.analyst_notes += f"\n{compromised_note}"
+                    else:
+                        non_domain_version.analyst_notes = compromised_note
+                
+                non_domain_version.updated_by = current_user_id
+                db.session.commit()
+                
+                display_name = f"{non_domain_version.domain_name}\\{non_domain_version.username}"
+                return {
+                    'action': 'updated',
+                    'user_id': non_domain_version.id,
+                    'message': f'Updated existing user: {display_name}'
+                }
+        
+        if existing_user:
+            # User found - add note to analyst_notes and mark as compromised
+            note = f"Found in EDR report (IOC extraction)"
+            if existing_user.analyst_notes:
+                # Check if this note already exists
+                if note not in existing_user.analyst_notes:
+                    existing_user.analyst_notes += f"\n{note}"
+            else:
+                existing_user.analyst_notes = note
+            
+            # Update SID if we have one and existing doesn't
+            if sid and existing_user.sid == '-':
+                existing_user.sid = sid
+            
+            # Mark as compromised since it was found in an EDR report
+            if existing_user.compromised != 'yes':
+                existing_user.compromised = 'yes'
+                compromised_note = "Marked as compromised - found in EDR IOC extraction"
+                if existing_user.analyst_notes:
+                    existing_user.analyst_notes += f"\n{compromised_note}"
+                else:
+                    existing_user.analyst_notes = compromised_note
+            
+            existing_user.updated_by = current_user_id
+            db.session.commit()
+            
+            display_name = f"{existing_user.domain_name}\\{existing_user.username}" if existing_user.domain_name and existing_user.domain_name != '-' else existing_user.username
+            
+            return {
+                'action': 'updated',
+                'user_id': existing_user.id,
+                'message': f'Updated existing user: {display_name}'
+            }
+        else:
+            # User not found - create new known user
+            new_user = KnownUser(
+                username=base_username,
+                domain_name=domain_name if domain_name else '-',
+                sid=sid if sid else '-',
+                user_type=user_type,
+                compromised='yes',  # Mark as compromised since found in EDR IOC extraction
+                source='ioc_extraction',
+                description='Automatically added from EDR IOC extraction',
+                analyst_notes='Found in EDR report (IOC extraction) - marked as compromised',
+                case_id=case_id,
+                created_by=current_user_id,
+                updated_by=current_user_id
+            )
+            
+            db.session.add(new_user)
+            db.session.commit()
+            
+            display_name = f"{domain_name}\\{base_username}" if domain_name else base_username
+            
+            return {
+                'action': 'created',
+                'user_id': new_user.id,
+                'message': f'Created new user: {display_name}'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error processing username for known users: {e}")
+        db.session.rollback()
+        return {
+            'action': 'error',
+            'message': f'Error: {str(e)}'
+        }
 
 
 def _check_and_merge_ioc(case_id, value, ioc_type):
@@ -463,6 +787,7 @@ def api_save_extracted_iocs():
         
         data = request.get_json()
         iocs_data = data.get('iocs', [])
+        full_extraction = data.get('full_extraction', {})  # Get full extraction data
         
         created_count = 0
         updated_count = 0
@@ -511,6 +836,38 @@ def api_save_extracted_iocs():
         
         db.session.commit()
         
+        # Process hostnames for known systems (if full_extraction provided)
+        known_systems_results = []
+        if full_extraction and 'host' in full_extraction and 'hostnames' in full_extraction['host']:
+            hostnames = full_extraction['host'].get('hostnames', [])
+            if isinstance(hostnames, list):
+                for hostname in hostnames:
+                    if hostname and str(hostname).strip():
+                        hostname = str(hostname).strip()
+                        result = _process_hostname_known_system(case_id, hostname, current_user.id)
+                        known_systems_results.append(result)
+        
+        # Process usernames for known users (if full_extraction provided)
+        known_users_results = []
+        if full_extraction and 'identity' in full_extraction and 'usernames' in full_extraction['identity']:
+            usernames = full_extraction['identity'].get('usernames', [])
+            sids = full_extraction['identity'].get('sids', []) if 'sids' in full_extraction['identity'] else []
+            
+            if isinstance(usernames, list):
+                for idx, username in enumerate(usernames):
+                    if username and str(username).strip():
+                        username = str(username).strip()
+                        # Try to match username with corresponding SID if available
+                        sid = sids[idx] if idx < len(sids) else None
+                        result = _process_username_known_user(case_id, username, current_user.id, sid)
+                        known_users_results.append(result)
+        
+        # Count created vs updated for audit log
+        known_systems_created = len([r for r in known_systems_results if r['action'] == 'created'])
+        known_systems_updated = len([r for r in known_systems_results if r['action'] == 'updated'])
+        known_users_created = len([r for r in known_users_results if r['action'] == 'created'])
+        known_users_updated = len([r for r in known_users_results if r['action'] == 'updated'])
+        
         # Build detailed IOC list for audit log
         saved_ioc_details = []
         for ioc_data in iocs_data:
@@ -522,19 +879,55 @@ def api_save_extracted_iocs():
                 'action': 'updated' if ioc_data.get('existing_ioc_id') else 'created'
             })
         
+        # Prepare audit log details
+        systems_created = [r for r in known_systems_results if r['action'] == 'created']
+        systems_updated = [r for r in known_systems_results if r['action'] == 'updated']
+        users_created = [r for r in known_users_results if r['action'] == 'created']
+        users_updated = [r for r in known_users_results if r['action'] == 'updated']
+        
+        audit_details = {
+            'performed_by': current_user.username,
+            'iocs_created': created_count,
+            'iocs_updated': updated_count,
+            'iocs_details': saved_ioc_details
+        }
+        
+        # Add systems/users info if any were processed
+        if known_systems_results:
+            audit_details.update({
+                'hostnames_processed': len(known_systems_results),
+                'systems_created': len(systems_created),
+                'systems_updated': len(systems_updated),
+                'created_systems': [{'hostname': s['message'].split(': ')[1], 'id': s['system_id']} for s in systems_created] if systems_created else [],
+                'updated_systems': [{'hostname': s['message'].split(': ')[1], 'id': s['system_id']} for s in systems_updated] if systems_updated else []
+            })
+        
+        if known_users_results:
+            audit_details.update({
+                'usernames_processed': len(known_users_results),
+                'users_created': len(users_created),
+                'users_updated': len(users_updated),
+                'created_users': [{'username': u['message'].split(': ')[1], 'id': u['user_id']} for u in users_created] if users_created else [],
+                'updated_users': [{'username': u['message'].split(': ')[1], 'id': u['user_id']} for u in users_updated] if users_updated else []
+            })
+        
         # Log action with detailed information
         log_action(
-            action='iocs_extracted_from_edr',
+            action='iocs_saved_from_edr',
             resource_type='case',
             resource_id=case.id,
             resource_name=case.name,
-            details=f'Extracted and saved {created_count} new IOCs, updated {updated_count} existing IOCs from EDR reports. IOCs: {saved_ioc_details}'
+            details=audit_details
         )
         
         return jsonify({
             'success': True,
             'created_count': created_count,
-            'updated_count': updated_count
+            'updated_count': updated_count,
+            'systems_created': known_systems_created,
+            'systems_updated': known_systems_updated,
+            'users_created': known_users_created,
+            'users_updated': known_users_updated
         })
         
     except Exception as e:

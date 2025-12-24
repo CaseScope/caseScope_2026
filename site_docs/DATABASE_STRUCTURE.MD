@@ -364,7 +364,7 @@ logon_events = EventDescription.query.filter_by(
 | `ip_address` | String(45) | IP address (IPv4/IPv6), indexed |
 | `system_type` | String(50) | System type (workstation, server, router, switch, printer, wap, other, threat_actor), indexed |
 | `compromised` | String(20) | Compromised status (yes, no, unknown), default: 'unknown', indexed |
-| `source` | String(50) | Source (manual, logs), default: 'manual', indexed |
+| `source` | String(50) | Source (manual, logs, EDR, csv_import, ioc_extraction), default: 'manual', indexed |
 | `description` | Text | System description |
 | `analyst_notes` | Text | Analyst notes and observations |
 | `case_id` | Integer | Foreign key to `case.id` (cascades on delete), indexed |
@@ -387,12 +387,77 @@ logon_events = EventDescription.query.filter_by(
 **Purpose**: 
 - Track systems and devices involved in investigations
 - Identify compromised systems vs. legitimate infrastructure
-- Support both manual entry and automated extraction from logs
+- Support manual entry, automated extraction from logs, EDR reports, IOC extraction, and CSV import
 - Track workstations, servers, network equipment, and threat actor infrastructure
+
+**Features**:
+- **Discovery from Logs**: Scan OpenSearch logs to automatically identify systems
+- **CSV Import**: Bulk import systems from CSV (format: name,domain,ip,compromised)
+- **IOC Extraction**: Automatically add hostnames found during EDR IOC extraction
+- **Deduplication**: Hostname-based deduplication across all sources
 
 **Validation**:
 - At least one identifier required (hostname, domain_name, or ip_address)
 - system_type is required
+
+---
+
+## Known Users Management
+
+### KnownUsers Table (`known_users`)
+| Column | Type | Details |
+|--------|------|---------|
+| `id` | Integer | Primary key |
+| `username` | String(255) | Username, indexed |
+| `domain_name` | String(255) | Domain name (or '-' for local/unknown), indexed |
+| `sid` | String(255) | Security Identifier (or '-' if unknown), indexed |
+| `user_type` | String(50) | User type (domain, local, unknown), default: 'unknown', indexed |
+| `compromised` | String(20) | Compromised status (yes, no), default: 'no', indexed |
+| `source` | String(50) | Source (manual, logs, ioc_extraction, csv_import), default: 'manual', indexed |
+| `description` | Text | User description |
+| `analyst_notes` | Text | Analyst notes and observations |
+| `case_id` | Integer | Foreign key to `case.id` (cascades on delete), indexed |
+| `created_by` | Integer | Foreign key to `user.id` |
+| `updated_by` | Integer | Foreign key to `user.id` |
+| `created_at` | Timestamp | Creation timestamp, indexed |
+| `updated_at` | Timestamp | Last update timestamp |
+
+**Indexes**:
+- username, domain_name, sid (for search)
+- user_type, compromised, source (for filtering)
+- case_id (for case-level queries)
+- created_at (for sorting)
+
+**Relationships**:
+- `case` - Belongs to case
+- `creator` - User who created the entry
+- `updater` - User who last updated the entry
+
+**Purpose**: 
+- Track user accounts/identities involved in investigations
+- Identify compromised accounts vs. legitimate users
+- Support manual entry, automated extraction from logs, IOC extraction, and CSV import
+- Distinguish between domain users, local users, and unknown user types
+
+**Features**:
+- **Discovery from Logs**: Scan EVTX and NDJSON logs to automatically identify users
+  - EVTX fields: TargetUserName, SubjectUserName, User, AccountName
+  - NDJSON fields: user.name, user.id, source.user.name, destination.user.name
+  - Extracts domains and SIDs when available
+- **CSV Import**: Bulk import users from CSV (format: name,domain,sid,compromised)
+- **IOC Extraction**: Automatically add usernames found during EDR IOC extraction
+- **Deduplication**: Username + domain based deduplication across all sources
+- **Cross-variant Matching**: Recognizes `user`, `DOMAIN\user`, and `user@domain` as related
+- **System Account Filtering**: Excludes 50+ common system accounts, groups, and service accounts
+
+**User Type Classification**:
+- `domain`: User with domain context (DOMAIN\user or user@domain.com)
+- `local`: Local system account (hostname\user or workgroup account)
+- `unknown`: User without clear domain association
+
+**Validation**:
+- Username is required
+- Domain and SID are optional (use '-' for unknown)
 
 ---
 

@@ -325,7 +325,12 @@ def api_create():
             resource_type='case',
             resource_id=case.id,
             resource_name=case.name,
-            details=f'Created known system: {system_details}'
+            details={
+                'performed_by': current_user.username,
+                'creation_method': 'manual',
+                'system_id': system.id,
+                'system_details': system_details
+            }
         )
         
         return jsonify({
@@ -418,7 +423,13 @@ def api_update(system_id):
             resource_type='known_system',
             resource_id=system.id,
             resource_name=system.hostname or system.ip_address or 'Unknown',
-            details=f'Updated system in case {case.name if case else "Unknown"}. Changes: {changes}'
+            details={
+                'performed_by': current_user.username,
+                'case_name': case.name if case else 'Unknown',
+                'system_id': system.id,
+                'original_state': original_values,
+                'changes': changes
+            }
         )
         
         return jsonify({
@@ -480,7 +491,11 @@ def api_delete(system_id):
             resource_type='known_system',
             resource_id=system_id,
             resource_name=system_details.get('hostname') or system_details.get('ip_address') or 'Unknown',
-            details=f'Deleted system from case {case.name if case else "Unknown"}. System details: {system_details}'
+            details={
+                'performed_by': current_user.username,
+                'case_name': case.name if case else 'Unknown',
+                'deleted_system': system_details
+            }
         )
         
         return jsonify({
@@ -567,7 +582,12 @@ def api_bulk_update():
             resource_type='case',
             resource_id=case.id if case else None,
             resource_name=case.name if case else 'Multiple Cases',
-            details=f'Bulk updated {len(systems)} systems. Changes: {all_changes}'
+            details={
+                'performed_by': current_user.username,
+                'systems_count': len(systems),
+                'updates_applied': updates,
+                'systems_changed': all_changes
+            }
         )
         
         return jsonify({
@@ -630,7 +650,11 @@ def api_bulk_delete():
             resource_type='case',
             resource_id=case.id if case else None,
             resource_name=case.name if case else 'Multiple Cases',
-            details=f'Bulk deleted {len(systems)} systems. Systems: {deleted_systems}'
+            details={
+                'performed_by': current_user.username,
+                'systems_count': len(systems),
+                'deleted_systems': deleted_systems
+            }
         )
         
         return jsonify({
@@ -642,6 +666,173 @@ def api_bulk_delete():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error bulk deleting systems: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@known_systems_bp.route('/api/import_csv', methods=['POST'])
+@login_required
+def api_import_csv():
+    """
+    Import systems from CSV file
+    
+    CSV Format (no header):
+    name,domain,ip,compromised
+    
+    - name: Hostname (required)
+    - domain: Domain name (use , for none)
+    - ip: IP address (use , for none)
+    - compromised: true/false
+    
+    Empty fields represented by ,, (consecutive commas)
+    """
+    try:
+        # Check permissions
+        if current_user.role == 'read-only':
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        # Get case ID from session
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'success': False, 'error': 'No case selected'}), 400
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get uploaded file
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'error': 'File must be a CSV'}), 400
+        
+        # Read CSV content
+        content = file.read().decode('utf-8')
+        csv_reader = csv.reader(StringIO(content))
+        
+        created_count = 0
+        updated_count = 0
+        error_count = 0
+        errors = []
+        
+        line_num = 0
+        for row in csv_reader:
+            line_num += 1
+            
+            # Skip empty rows
+            if not row or all(not cell.strip() for cell in row):
+                continue
+            
+            # Validate row has correct number of fields
+            if len(row) != 4:
+                error_count += 1
+                errors.append(f"Line {line_num}: Expected 4 fields, got {len(row)}")
+                continue
+            
+            # Parse fields
+            hostname = row[0].strip() if row[0].strip() else None
+            domain = row[1].strip() if row[1].strip() else '-'
+            ip_address = row[2].strip() if row[2].strip() else '-'
+            compromised_str = row[3].strip().lower() if row[3].strip() else 'unknown'
+            
+            # Validate required fields
+            if not hostname:
+                error_count += 1
+                errors.append(f"Line {line_num}: Hostname is required")
+                continue
+            
+            # Parse compromised value
+            if compromised_str in ['true', 'yes', '1']:
+                compromised = 'yes'
+            elif compromised_str in ['false', 'no', '0']:
+                compromised = 'no'
+            else:
+                compromised = 'unknown'
+            
+            try:
+                # Check if system already exists
+                existing = KnownSystem.query.filter(
+                    KnownSystem.case_id == case_id,
+                    db.func.upper(KnownSystem.hostname) == hostname.upper()
+                ).first()
+                
+                if existing:
+                    # Update existing system
+                    if domain != '-':
+                        existing.domain_name = domain
+                    if ip_address != '-':
+                        existing.ip_address = ip_address
+                    existing.compromised = compromised
+                    existing.updated_by = current_user.id
+                    
+                    note = f"Updated from CSV import"
+                    if existing.analyst_notes:
+                        existing.analyst_notes += f"\n{note}"
+                    else:
+                        existing.analyst_notes = note
+                    
+                    updated_count += 1
+                else:
+                    # Create new system
+                    new_system = KnownSystem(
+                        hostname=hostname.upper(),
+                        domain_name=domain,
+                        ip_address=ip_address,
+                        system_type='workstation',  # Default
+                        compromised=compromised,
+                        source='csv_import',
+                        description='Imported from CSV',
+                        analyst_notes='Imported from CSV file',
+                        case_id=case_id,
+                        created_by=current_user.id,
+                        updated_by=current_user.id
+                    )
+                    db.session.add(new_system)
+                    created_count += 1
+                
+            except Exception as e:
+                error_count += 1
+                errors.append(f"Line {line_num}: {str(e)}")
+                logger.error(f"Error importing system from line {line_num}: {e}")
+        
+        # Commit all changes
+        db.session.commit()
+        
+        # Log the import
+        log_action(
+            action='systems_imported_from_csv',
+            resource_type='case',
+            resource_id=case.id,
+            resource_name=case.name,
+            details={
+                'performed_by': current_user.username,
+                'created': created_count,
+                'updated': updated_count,
+                'errors': error_count,
+                'total_lines': line_num
+            }
+        )
+        
+        result = {
+            'success': True,
+            'created': created_count,
+            'updated': updated_count,
+            'errors': error_count,
+            'total': created_count + updated_count
+        }
+        
+        if errors:
+            result['error_details'] = errors[:10]  # Limit to first 10 errors
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error importing systems from CSV: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

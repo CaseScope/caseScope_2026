@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Global Failed Files - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">Global Failed Files</h1>
+        <p class="text-secondary">Files that failed during processing across all cases</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('files.global_files') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Global Files</span>
+        </a>
+    </div>
+</div>
+
+<!-- Failed Files Stats -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-body">
+        <div style="text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;">Total Failed Files (All Cases)</div>
+            <div style="font-size: 2rem; font-weight: 700; color: var(--color-error);">{{ failed_count }}</div>
+            <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.5rem;">These files encountered errors during processing</div>
+        </div>
+    </div>
+</div>
+
+<!-- Failed Files List -->
+<div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--spacing-md);">
+        <div>
+            <h2 class="card-title">❌ Failed Files</h2>
+            <span class="text-muted">
+                {% if search_term %}
+                {{ pagination.total }} matching file(s) • Page {{ pagination.page }} of {{ pagination.pages }}
+                {% else %}
+                {{ pagination.total }} total file(s) • Page {{ pagination.page }} of {{ pagination.pages }}
+                {% endif %}
+            </span>
+        </div>
+        <div style="display: flex; gap: var(--spacing-sm); align-items: center; flex-wrap: wrap;">
+            <!-- Search Form -->
+            <form method="GET" action="{{ url_for('files.view_failed_files_global') }}" style="display: inline-flex; gap: var(--spacing-xs);">
+                <input type="text" 
+                       id="fileSearch" 
+                       name="search"
+                       value="{{ search_term }}"
+                       placeholder="🔍 Search files or cases..." 
+                       class="form-input" 
+                       style="width: 250px;">
+                <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1rem;">
+                    <span>🔎</span>
+                </button>
+                {% if search_term %}
+                <a href="{{ url_for('files.view_failed_files_global') }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="Clear search">
+                    <span>✕</span>
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if files_with_cases %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Case</th>
+                        <th style="width: 100px;">Type</th>
+                        <th style="width: 120px;">Size</th>
+                        <th style="width: 150px;">Status</th>
+                        <th style="width: 300px;">Failure Reason</th>
+                        <th style="width: 150px;">Uploaded</th>
+                        <th style="width: 120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in files_with_cases %}
+                    {% set file = item.file %}
+                    {% set case_name = item.case_name %}
+                    <tr>
+                        <td>
+                            <strong>{{ file.original_filename }}</strong>
+                            <div class="text-muted" style="font-size: 0.75rem;">Hash: {{ file.file_hash[:16] }}...</div>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('view_case', case_id=file.case_id) }}" style="color: var(--color-primary); text-decoration: none;">
+                                {{ case_name }}
+                            </a>
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(150, 150, 150, 0.1); color: var(--color-text-secondary);">
+                                {{ file.file_type }}
+                            </span>
+                        </td>
+                        <td>{{ (file.file_size / 1024 / 1024)|round(2) }} MB</td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(220, 53, 69, 0.1); color: var(--color-error); font-size: 0.75rem;">
+                                {{ file.indexing_status }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if file.error_message %}
+                                <span class="text-danger" style="font-size: 0.8rem;">{{ file.error_message }}</span>
+                            {% else %}
+                                <span class="text-muted">No specific error message</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('files.requeue_single_file', case_id=file.case_id, file_id=file.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-sm" style="font-size: 0.75rem; background: var(--color-success); color: white;">
+                                    🔄 Requeue
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if pagination.pages > 1 %}
+        <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <div class="pagination-info" style="color: var(--color-text-secondary); font-size: 0.875rem;">
+                Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} 
+                to {% if pagination.page * pagination.per_page > pagination.total %}{{ pagination.total }}{% else %}{{ pagination.page * pagination.per_page }}{% endif %} 
+                of {{ pagination.total }} files
+            </div>
+            
+            <div class="pagination-controls" style="display: flex; gap: var(--spacing-xs);">
+                {% if pagination.has_prev %}
+                <a href="{{ url_for('files.view_failed_files_global', page=1, search=search_term) }}" class="btn btn-sm">««</a>
+                <a href="{{ url_for('files.view_failed_files_global', page=pagination.prev_num, search=search_term) }}" class="btn btn-sm">‹</a>
+                {% endif %}
+                
+                <span class="btn btn-sm" style="background: var(--color-primary); color: white;">
+                    Page {{ pagination.page }} of {{ pagination.pages }}
+                </span>
+                
+                {% if pagination.has_next %}
+                <a href="{{ url_for('files.view_failed_files_global', page=pagination.next_num, search=search_term) }}" class="btn btn-sm">›</a>
+                <a href="{{ url_for('files.view_failed_files_global', page=pagination.pages, search=search_term) }}" class="btn btn-sm">»»</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">✅</div>
+            <h3>No failed files</h3>
+            <p>All files are processing successfully</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+

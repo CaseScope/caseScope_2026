@@ -1,0 +1,504 @@
+{% extends "base.html" %}
+
+{% block title %}Search Instructions - CaseScope{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1200px; margin: 0 auto; padding: var(--spacing-xl) var(--spacing-lg);">
+    <!-- Page Header -->
+    <div style="margin-bottom: var(--spacing-xl);">
+        <h1 style="font-size: 2rem; font-weight: 700; color: var(--color-text-primary); margin-bottom: var(--spacing-sm);">
+            🔍 Search Instructions & Examples
+        </h1>
+        <p style="color: var(--color-text-secondary); font-size: 1.1rem;">
+            Master CaseScope's powerful search capabilities with these comprehensive examples and syntax guides.
+        </p>
+    </div>
+
+    <!-- Table of Contents -->
+    <div class="card" style="margin-bottom: var(--spacing-xl); background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);">
+        <div class="card-body">
+            <h2 style="font-size: 1.3rem; font-weight: 600; margin-bottom: var(--spacing-md);">📚 Quick Navigation</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--spacing-md);">
+                <a href="#basics" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ Basic Search</a>
+                <a href="#boolean" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ Boolean Operators</a>
+                <a href="#wildcards" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ Wildcards</a>
+                <a href="#fields" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ Field-Specific Queries</a>
+                <a href="#phrases" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ Phrase Searches</a>
+                <a href="#advanced" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ Advanced Techniques</a>
+                <a href="#iis" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ IIS Log Queries</a>
+                <a href="#dfir" style="padding: var(--spacing-sm); background: var(--color-background-secondary); border-radius: 6px; text-decoration: none; color: var(--color-primary); font-weight: 500; transition: transform 0.2s;">→ DFIR Use Cases</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Basic Search -->
+    <div id="basics" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🔤 Basic Search
+            </h2>
+            
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Simple Text Search</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Search for any term across all fields in all events:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        python
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Finds events containing "python" in any field</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Multiple Terms (Default AND)</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">By default, multiple terms require ALL to be present:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        powershell encoded
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Finds events containing BOTH "powershell" AND "encoded"</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Case Sensitivity</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Searches are case-insensitive by default:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-success); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        <div>administrator = Administrator = ADMINISTRATOR</div>
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ All three queries return the same results</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Boolean Operators -->
+    <div id="boolean" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🔀 Boolean Operators
+            </h2>
+            
+            <div style="padding: var(--spacing-md); background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; border-radius: 4px; margin-bottom: var(--spacing-lg); font-size: 0.95rem;">
+                <strong>⚠️ Important:</strong> Operators MUST be UPPERCASE (AND, OR, NOT). Lowercase will be treated as search terms.
+            </div>
+
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">AND Operator</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Requires ALL terms to be present:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        python AND mkeane
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Events must contain BOTH "python" AND "mkeane"</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">OR Operator</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Requires ANY term to be present:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        python OR java OR powershell
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Events containing ANY of these programming languages</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">NOT Operator</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Excludes events containing the term:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        python NOT mkeane
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Events with "python" but WITHOUT "mkeane"</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Grouping with Parentheses</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Control the order of operations:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (admin OR administrator) AND NOT system
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Events with "admin" OR "administrator", but NOT "system"</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-top: var(--spacing-md); margin-bottom: var(--spacing-sm);">
+                        bob AND (NOT joe) OR sam
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Events with "bob" (excluding "joe"), OR events with "sam"</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wildcards -->
+    <div id="wildcards" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🃏 Wildcards & Pattern Matching
+            </h2>
+            
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Asterisk (*) - Multiple Characters</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Match zero or more characters:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        *python*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Matches: python, python.exe, c:\python\, mypython, etc.</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        192.168.1.*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Matches all IPs in 192.168.1.0/24 subnet</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Question Mark (?) - Single Character</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Match exactly one character:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        test?
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Matches: test1, test2, testa, testb (but NOT test or test10)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        192.168.?.1
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Matches: 192.168.1.1, 192.168.2.1, 192.168.9.1</p>
+                </div>
+
+                <div style="padding: var(--spacing-md); background: rgba(34, 197, 94, 0.1); border-left: 3px solid var(--color-success); border-radius: 4px; font-size: 0.95rem;">
+                    <strong>💡 Pro Tip:</strong> Use <code style="background: var(--color-background-tertiary); padding: 2px 6px; border-radius: 3px;">?*</code> to match fields with at least one character (excludes blank/empty values)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Field-Specific Queries -->
+    <div id="fields" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🎯 Field-Specific Queries
+            </h2>
+            
+            <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                Target specific fields using <code style="background: var(--color-background-tertiary); padding: 2px 6px; border-radius: 3px;">fieldname:value</code> syntax:
+            </p>
+
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Windows Event Logs (EVTX)</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        Event.System.EventID:4624
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Find all successful logon events (Event ID 4624)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        normalized_event_id:4625
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Failed logon attempts (normalized field works across all event types)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        normalized_computer:DC01
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ All events from computer "DC01"</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Combining Field Queries</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (EventID:4624 OR EventID:4625) AND ComputerName:DC01
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Login successes AND failures on DC01</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        source_file:Security.evtx AND EventID:4720
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ User account creation events from Security.evtx</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Checking for Empty/Blank Fields</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        _exists_:TargetUserName
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Events where TargetUserName field exists and has a value</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        username:?*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Events where username has at least one character (excludes blanks)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        NOT username:""
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Exclude events with empty username</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phrase Searches -->
+    <div id="phrases" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                📝 Phrase Searches
+            </h2>
+            
+            <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                Use double quotes to search for exact phrases:
+            </p>
+
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        "powershell.exe"
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Exact match for "powershell.exe"</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        "failed login attempt"
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Exact phrase match (all three words in that order)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        "C:\Windows\System32\cmd.exe" AND suspicious
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Combine phrase search with other terms</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- IIS-Specific Queries -->
+    <div id="iis" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🌐 IIS Log Queries
+            </h2>
+            
+            <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">
+                CaseScope supports IIS W3C Extended Log Format. Common fields include:
+            </p>
+
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">HTTP Status Codes</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        sc-status:500
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Find all 500 Internal Server Errors</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        sc-status:40*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ All 40x client errors (401, 403, 404, etc.)</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">URLs and Paths</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        cs-uri-stem:"/api/*"
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ All API endpoint requests</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        cs-uri-query:?*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Requests with non-empty query strings</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">HTTP Methods & Client Info</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        cs-method:POST AND sc-status:200
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Successful POST requests</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        c-ip:192.168.1.100
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ All requests from specific client IP</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        cs-username:?*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Authenticated requests (non-blank username)</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Excluding Blank Usernames</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-success); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        python AND NOT mkeane AND cs-username:?*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Search for "python", exclude "mkeane", require non-blank username</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Techniques -->
+    <div id="advanced" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🚀 Advanced Techniques
+            </h2>
+            
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">Complex Boolean Logic</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (EventID:4624 OR EventID:4625) AND (ComputerName:DC* OR ComputerName:SQL*)
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Login events on Domain Controllers OR SQL Servers</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (powershell OR cmd) AND (encoded OR -enc OR -e) NOT legitimate
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Suspicious PowerShell/CMD with encoding, excluding known legitimate processes</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">IP Address Ranges</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        c-ip:10.* OR c-ip:192.168.* OR c-ip:172.16.*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ All RFC1918 private IP ranges</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        NOT (c-ip:10.* OR c-ip:192.168.* OR c-ip:172.16.*)
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Exclude internal IPs (show only external)</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">File Path Searches</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        *\AppData\Roaming\*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Files in user AppData\Roaming directories</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        *\Temp\* OR *\tmp\*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Files in temporary directories (Windows or Linux)</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DFIR Use Cases -->
+    <div id="dfir" class="card" style="margin-bottom: var(--spacing-xl);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-primary);">
+                🔎 DFIR Use Cases & Examples
+            </h2>
+            
+            <div style="display: grid; gap: var(--spacing-lg);">
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">🔐 Authentication Analysis</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-error); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        EventID:4625 AND NOT (TargetUserName:SYSTEM OR TargetUserName:*$)
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Failed logins excluding system/machine accounts</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-success); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        EventID:4624 AND LogonType:10
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ RDP login successes (Logon Type 10)</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">🛡️ Lateral Movement Detection</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-warning); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (EventID:4624 AND LogonType:3) OR (EventID:4648)
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Network logons (Type 3) or explicit credential usage (4648)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-warning); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (*psexec* OR *wmic* OR *winrm* OR *powershell*) AND NOT ComputerName:ADMIN*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Remote execution tools excluding admin workstations</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">🕵️ Web Attack Patterns</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-error); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        (*sql* OR *union* OR *select* OR *drop*) AND sc-status:500
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Potential SQL injection attempts causing errors</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-error); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        cs-uri-query:(*script* OR *alert* OR *onerror*) AND sc-status:200
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Potential XSS attempts that succeeded</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">🔍 IOC Hunting</h3>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-info); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        c-ip:45.134.83.* OR c-ip:185.220.101.*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: var(--spacing-md);">✓ Traffic from known malicious IP ranges (Tor exit nodes example)</p>
+                    
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-info); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        *mimikatz* OR *lsass* OR *procdump* OR *sekurlsa*
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Credential dumping tool indicators</p>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">⏱️ Time-Based Anomalies</h3>
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-sm);">Use the Date Range filter at the top of the search page, then add queries:</p>
+                    <div style="padding: var(--spacing-md); background: var(--color-background-tertiary); border-radius: 6px; border-left: 4px solid var(--color-primary); font-family: monospace; margin-bottom: var(--spacing-sm);">
+                        EventID:4624 NOT (TargetUserName:SYSTEM OR TargetUserName:*$)
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: 0.9rem;">✓ Set date range to "Last 24 Hours" + "After Hours (6PM-6AM)" to find unusual login times</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tips & Best Practices -->
+    <div class="card" style="margin-bottom: var(--spacing-xl); background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%);">
+        <div class="card-body">
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: var(--spacing-md); color: var(--color-success);">
+                💡 Tips & Best Practices
+            </h2>
+            
+            <div style="display: grid; gap: var(--spacing-md);">
+                <div style="padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: 6px; border-left: 3px solid var(--color-success);">
+                    <strong>✅ Use Filters First</strong>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-secondary);">Apply File Type, Date Range, and SIGMA/IOC filters before complex queries for faster results.</p>
+                </div>
+                
+                <div style="padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: 6px; border-left: 3px solid var(--color-success);">
+                    <strong>✅ Start Broad, Then Narrow</strong>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-secondary);">Begin with simple searches, review results, then add NOT clauses to exclude noise.</p>
+                </div>
+                
+                <div style="padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: 6px; border-left: 3px solid var(--color-success);">
+                    <strong>✅ Use Normalized Fields</strong>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-secondary);"><code>normalized_event_id</code>, <code>normalized_computer</code>, <code>normalized_timestamp</code> work across all file types.</p>
+                </div>
+                
+                <div style="padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: 6px; border-left: 3px solid var(--color-success);">
+                    <strong>✅ Save Frequent Searches</strong>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-secondary);">Your recent searches are saved automatically - click them to reuse complex queries.</p>
+                </div>
+                
+                <div style="padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: 6px; border-left: 3px solid var(--color-warning);">
+                    <strong>⚠️ Remember: Operators Are UPPERCASE</strong>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-secondary);">AND, OR, NOT must be capitalized. Lowercase will be treated as search terms.</p>
+                </div>
+                
+                <div style="padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: 6px; border-left: 3px solid var(--color-info);">
+                    <strong>💡 Test Wildcards Carefully</strong>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-secondary);">Leading wildcards (*term) can be slow. Use field-specific queries when possible.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding: var(--spacing-xl) 0; color: var(--color-text-muted);">
+        <p style="margin-bottom: var(--spacing-sm);">Need more help? Check the <a href="/" style="color: var(--color-primary);">Dashboard</a> or contact your administrator.</p>
+        <p style="font-size: 0.875rem;">CaseScope - Powered by OpenSearch Query DSL</p>
+    </div>
+</div>
+{% endblock %}
+

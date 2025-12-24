@@ -1,0 +1,6 @@
+DESKTOP-001,corp.local,192.168.1.10,true
+SERVER-DC01,corp.local,192.168.1.5,false
+LAPTOP-ABC,,,unknown
+WORKSTATION-05,corp.local,,false
+FIREWALL-01,,10.0.0.1,false
+

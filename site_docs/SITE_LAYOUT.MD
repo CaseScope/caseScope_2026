@@ -31,6 +31,7 @@ All route blueprints are automatically discovered and registered by `main.py`.
 - `settings.py` - System settings (Celery worker configuration, EVTX descriptions management)
 - `ioc.py` - IOC management (Indicators of Compromise tracking and analysis)
 - `known_systems.py` - Known systems tracking (workstations, servers, network devices)
+- `known_users.py` - Known users tracking (user accounts, identities, compromised credentials)
 - `hunting.py` - Threat hunting dashboard and IOC hunt operations
 - `ai.py` - AI assistant interface (RAG-powered threat intelligence)
 
@@ -88,7 +89,9 @@ All HTML templates using Jinja2 templating engine.
 - `/templates/ioc/` - IOC management pages:
   - `manage.html` - IOC management interface (list, add, edit, bulk operations)
 - `/templates/systems/` - Known systems pages:
-  - `manage.html` - Systems management interface (list, add, edit, discovery)
+  - `manage.html` - Systems management interface (list, add, edit, discovery, CSV import)
+- `/templates/users/` - Known users pages:
+  - `manage.html` - Users management interface (list, add, edit, discovery, CSV import)
 - `/templates/hunting/` - Threat hunting pages:
   - `dashboard.html` - Threat hunting dashboard and IOC hunt interface
 - `/templates/ai/` - AI assistant pages:

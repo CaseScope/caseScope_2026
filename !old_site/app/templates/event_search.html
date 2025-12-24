@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Event Search - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🔍 Event Search</h1>
+        <p class="text-secondary">{{ case.name }} (Case ID: {{ case.id }})</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- EVENT STATS ROW -->
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-lg); margin-bottom: var(--spacing-lg);">
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Events</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary);">{{ '{:,}'.format(total_events) }}</div>
+        </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">SIGMA Violations</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">{{ '{:,}'.format(sigma_violations) }}</div>
+        </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">IOC Events</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-error);">{{ '{:,}'.format(ioc_events) }}</div>
+        </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Indexed Files</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-success);">{{ indexed_files }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- SEARCH INTERFACE -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">Search Events</h2>
+    </div>
+    <div class="card-body">
+        <form onsubmit="alert('Search functionality - Coming Soon'); return false;">
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--spacing-md);">
+                <input 
+                    type="text" 
+                    class="form-control" 
+                    placeholder="Search by Event ID, Computer Name, User, Process, etc..." 
+                    style="padding: var(--spacing-md); font-size: 1rem;">
+                <button type="submit" class="btn btn-primary" style="padding: var(--spacing-md) var(--spacing-xl);">
+                    🔍 Search
+                </button>
+            </div>
+            <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-md); flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: var(--spacing-xs);">
+                    <input type="checkbox" checked> SIGMA Violations Only
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--spacing-xs);">
+                    <input type="checkbox" checked> IOC Matches Only
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--spacing-xs);">
+                    <input type="checkbox"> High Severity Only
+                </label>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECENT VIOLATIONS -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Recent SIGMA Violations</h2>
+        <span class="text-secondary">Last 50 violations</span>
+    </div>
+    <div class="card-body">
+        {% if violations %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rule Name</th>
+                        <th>Severity</th>
+                        <th>File</th>
+                        <th>Event ID</th>
+                        <th>Computer</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for violation in violations %}
+                    <tr>
+                        <td><strong>{{ violation.rule_name }}</strong></td>
+                        <td>
+                            {% if violation.severity == 'critical' %}
+                                <span class="status-badge status-ioc">CRITICAL</span>
+                            {% elif violation.severity == 'high' %}
+                                <span class="status-badge status-sigma">HIGH</span>
+                            {% elif violation.severity == 'medium' %}
+                                <span class="status-badge status-indexing">MEDIUM</span>
+                            {% else %}
+                                <span class="status-badge status-queued">{{ violation.severity|upper }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('view_case', case_id=case.id) }}#file-{{ violation.case_file_id }}" 
+                               style="color: var(--color-primary);">
+                                File #{{ violation.case_file_id }}
+                            </a>
+                        </td>
+                        <td><span class="text-muted">{{ violation.event_id or 'N/A' }}</span></td>
+                        <td><span class="text-muted">{{ violation.computer_name or 'N/A' }}</span></td>
+                        <td>{{ violation.event_timestamp.strftime('%Y-%m-%d %H:%M:%S') if violation.event_timestamp else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">✅</div>
+            <h3>No SIGMA violations found</h3>
+            <p>This case has no detected SIGMA rule violations</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

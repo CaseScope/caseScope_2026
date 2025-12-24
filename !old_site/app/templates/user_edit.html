@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_new %}Create User{% else %}Edit User{% endif %} - CaseScope{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 800px;">
+    <h1>{% if is_new %}➕ Create New User{% else %}✏️ Edit User{% endif %}</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <!-- Username (only for new users) -->
+                {% if is_new %}
+                <div class="form-group">
+                    <label for="username">Username *</label>
+                    <input type="text" 
+                           id="username" 
+                           name="username" 
+                           class="form-control" 
+                           required
+                           maxlength="80"
+                           pattern="[a-zA-Z0-9_-]+"
+                           title="Username can only contain letters, numbers, underscores, and hyphens">
+                    <small style="color: var(--color-text-muted);">Letters, numbers, underscores, and hyphens only</small>
+                </div>
+                {% else %}
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" 
+                           class="form-control" 
+                           value="{{ user.username }}" 
+                           disabled
+                           style="background: var(--color-background-tertiary); cursor: not-allowed;">
+                    <small style="color: var(--color-text-muted);">Username cannot be changed</small>
+                </div>
+                {% endif %}
+
+                <!-- Full Name -->
+                <div class="form-group">
+                    <label for="full_name">Full Name</label>
+                    <input type="text" 
+                           id="full_name" 
+                           name="full_name" 
+                           class="form-control" 
+                           value="{{ user.full_name if user else '' }}"
+                           maxlength="120">
+                </div>
+
+                <!-- Email -->
+                <div class="form-group">
+                    <label for="email">Email *</label>
+                    <input type="email" 
+                           id="email" 
+                           name="email" 
+                           class="form-control" 
+                           required
+                           value="{{ user.email if user else '' }}"
+                           maxlength="120">
+                </div>
+
+                <!-- Password -->
+                <div class="form-group">
+                    <label for="password">Password {% if is_new %}*{% else %}(leave blank to keep current){% endif %}</label>
+                    <input type="password" 
+                           id="password" 
+                           name="password" 
+                           class="form-control" 
+                           {% if is_new %}required{% endif %}
+                           minlength="6">
+                    <small style="color: var(--color-text-muted);">Minimum 6 characters</small>
+                </div>
+
+                <!-- Role -->
+                <div class="form-group">
+                    <label for="role">Role *</label>
+                    <select id="role" name="role" class="form-control" required>
+                        {% if current_user.role == 'administrator' %}
+                        <option value="administrator" {% if user and user.role == 'administrator' %}selected{% endif %}>
+                            🛡️ Administrator - Full system access
+                        </option>
+                        <option value="analyst" {% if user and user.role == 'analyst' %}selected{% elif not user %}selected{% endif %}>
+                            🔍 Analyst - Can create and manage cases/files
+                        </option>
+                        {% endif %}
+                        <option value="read-only" {% if user and user.role == 'read-only' %}selected{% elif current_user.role == 'analyst' %}selected{% endif %}>
+                            👁️ Read-Only - View-only access
+                        </option>
+                    </select>
+                    {% if current_user.role == 'analyst' %}
+                    <small style="color: var(--color-text-muted);">Analysts can only create read-only users</small>
+                    {% endif %}
+                </div>
+
+                <!-- Status -->
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: var(--spacing-xs); cursor: pointer;">
+                        <input type="checkbox" 
+                               id="is_active" 
+                               name="is_active" 
+                               {% if is_new or (user and user.is_active) %}checked{% endif %}>
+                        <span>Active</span>
+                    </label>
+                    <small style="color: var(--color-text-muted);">Inactive users cannot log in</small>
+                </div>
+
+                <!-- User Info (for existing users) -->
+                {% if user %}
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-top: var(--spacing-lg);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem;">User Information</h3>
+                    <div style="display: grid; gap: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.875rem;">
+                        <div><strong>Created:</strong> {{ user.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if user.created_at else 'Unknown' }}</div>
+                        <div><strong>Created By:</strong> {{ user.creator.username if user.creator else 'System' }}</div>
+                        <div><strong>Last Login:</strong> {{ user.last_login.strftime('%Y-%m-%d %H:%M:%S UTC') if user.last_login else 'Never' }}</div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Buttons -->
+                <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-xl);">
+                    <button type="submit" class="btn btn-primary">
+                        {% if is_new %}➕ Create User{% else %}💾 Save Changes{% endif %}
+                    </button>
+                    <a href="{{ url_for('users.list_users') }}" class="btn">
+                        Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Permission Info -->
+    <div class="card" style="margin-top: var(--spacing-lg); background: var(--color-background-secondary); border-left: 3px solid var(--color-info);">
+        <div class="card-body">
+            <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                📋 Role Permissions
+            </h3>
+            <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.8;">
+                <li><strong>Administrator:</strong> Can perform any function, view audit trails, edit system settings, and manage all users/cases/files</li>
+                <li><strong>Analyst:</strong> Can create cases, upload files, perform searches; cannot remove data, edit system settings, or edit users of same/higher level</li>
+                <li><strong>Read-Only:</strong> Can only view existing data; cannot add, modify, or remove data; cannot edit own profile</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

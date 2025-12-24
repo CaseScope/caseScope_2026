@@ -358,6 +358,48 @@ def discover_systems_from_logs(self, case_id, user_id):
             
             logger.info(f"System discovery complete: {new_systems_count} created, {updated_systems_count} updated")
             
+            # Log the completion with detailed results
+            from audit_logger import log_action
+            from models import User
+            
+            user = User.query.get(user_id)
+            username = user.username if user else 'Unknown'
+            
+            # Build summary of systems
+            new_systems_list = []
+            updated_systems_list = []
+            
+            for sys_name, sys_data in discovered_systems.items():
+                existing = existing_map.get(sys_name)
+                system_info = {
+                    'hostname': sys_name,
+                    'domain': system_domains.get(sys_name, '-'),
+                    'ip': system_ips.get(sys_name, '-'),
+                    'event_count': sys_data['count']
+                }
+                
+                if not existing:
+                    system_info['type'] = guess_system_type(sys_name)
+                    new_systems_list.append(system_info)
+                else:
+                    updated_systems_list.append(system_info)
+            
+            log_action(
+                action='system_discovery_completed',
+                resource_type='case',
+                resource_id=case.id,
+                resource_name=case.name,
+                details={
+                    'performed_by': username,
+                    'total_events_scanned': total_events,
+                    'systems_found': len(discovered_systems),
+                    'new_systems': new_systems_count,
+                    'updated_systems': updated_systems_count,
+                    'new_systems_list': new_systems_list,
+                    'updated_systems_list': updated_systems_list
+                }
+            )
+            
             return {
                 'status': 'success',
                 'message': 'Discovery complete',

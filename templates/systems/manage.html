@@ -21,6 +21,9 @@
         <button class="btn btn-secondary" onclick="startSystemDiscovery()" title="Auto-discover systems from logs">
             🔍 Find in Logs
         </button>
+        <button class="btn btn-secondary" onclick="showImportCSVModal()" title="Import systems from CSV">
+            📤 Import CSV
+        </button>
         <button class="btn btn-primary" onclick="showAddSystemModal()">
             ➕ Add System
         </button>
@@ -312,6 +315,63 @@
             <button class="btn btn-primary" type="button" id="submitSystemBtn" onclick="submitSystemDirect(event)">
                 <span id="submitBtnText">Create System</span>
                 <span id="submitBtnSpinner" class="spinner-border-sm" style="display: none;"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Import CSV Modal -->
+<div id="importCSVModal" class="modal-overlay" style="display: none;" onclick="closeImportCSVModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">📤 Import Systems from CSV</h2>
+            <button class="modal-close" onclick="closeImportCSVModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <strong>CSV Format (no header):</strong><br>
+                <code>name,domain,ip,compromised</code>
+                <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.9rem;">
+                    <li><strong>name:</strong> Hostname (required)</li>
+                    <li><strong>domain:</strong> Domain name (empty for none)</li>
+                    <li><strong>ip:</strong> IP address (empty for none)</li>
+                    <li><strong>compromised:</strong> true/false</li>
+                </ul>
+                <p style="margin-top: 0.5rem; font-size: 0.9rem;">
+                    <strong>Example:</strong><br>
+                    <code>DESKTOP-001,corp.local,192.168.1.10,true</code><br>
+                    <code>SERVER-DC01,corp.local,,false</code><br>
+                    <code>LAPTOP-ABC,,,unknown</code>
+                </p>
+            </div>
+            
+            <form id="importCSVForm" onsubmit="submitCSVImport(event)">
+                <div class="form-group">
+                    <label class="form-label">Select CSV File</label>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="file" id="csvFileInput" accept=".csv" style="display: none;" required onchange="updateFileName()">
+                        <button type="button" class="btn btn-primary" onclick="document.getElementById('csvFileInput').click()">
+                            📁 Browse Files (Select)
+                        </button>
+                        <span id="selectedFileName" style="color: var(--text-secondary); font-size: 0.9rem;">No file chosen</span>
+                    </div>
+                </div>
+            </form>
+            
+            <div id="importProgress" style="display: none; margin-top: 1rem;">
+                <p>Processing CSV...</p>
+                <div class="spinner-border"></div>
+            </div>
+            
+            <div id="importResults" style="display: none; margin-top: 1rem;">
+                <h4>Import Results</h4>
+                <div id="importResultsContent"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeImportCSVModal(event)">Cancel</button>
+            <button class="btn btn-primary" type="button" id="importCSVBtn" onclick="submitCSVImport(event)">
+                Import
             </button>
         </div>
     </div>
@@ -1124,6 +1184,98 @@ function exportSystems() {
     
     // Open download in new window
     window.location.href = `/systems/api/export_csv?${params}`;
+}
+
+// CSV Import Functions
+function showImportCSVModal() {
+    document.getElementById('importCSVModal').style.display = 'flex';
+    document.getElementById('csvFileInput').value = '';
+    document.getElementById('selectedFileName').textContent = 'No file chosen';
+    document.getElementById('importProgress').style.display = 'none';
+    document.getElementById('importResults').style.display = 'none';
+}
+
+function updateFileName() {
+    const fileInput = document.getElementById('csvFileInput');
+    const fileNameDisplay = document.getElementById('selectedFileName');
+    if (fileInput.files.length > 0) {
+        fileNameDisplay.textContent = fileInput.files[0].name;
+    } else {
+        fileNameDisplay.textContent = 'No file chosen';
+    }
+}
+
+function closeImportCSVModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('importCSVModal').style.display = 'none';
+}
+
+function submitCSVImport(event) {
+    event.preventDefault();
+    
+    const fileInput = document.getElementById('csvFileInput');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Please select a CSV file');
+        return;
+    }
+    
+    // Show progress
+    document.getElementById('importProgress').style.display = 'block';
+    document.getElementById('importResults').style.display = 'none';
+    document.getElementById('importCSVBtn').disabled = true;
+    
+    // Create form data
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Upload and process
+    fetch('/systems/api/import_csv', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('importProgress').style.display = 'none';
+        document.getElementById('importCSVBtn').disabled = false;
+        
+        if (data.success) {
+            let resultHTML = `
+                <div class="alert alert-success">
+                    <strong>✓ Import Complete!</strong><br>
+                    Created: ${data.created}<br>
+                    Updated: ${data.updated}<br>
+                    Total: ${data.total}
+                </div>
+            `;
+            
+            if (data.errors > 0) {
+                resultHTML += `
+                    <div class="alert alert-warning" style="margin-top: 0.5rem;">
+                        <strong>⚠ Errors: ${data.errors}</strong><br>
+                        ${data.error_details ? data.error_details.join('<br>') : ''}
+                    </div>
+                `;
+            }
+            
+            document.getElementById('importResultsContent').innerHTML = resultHTML;
+            document.getElementById('importResults').style.display = 'block';
+            
+            // Reload systems list
+            setTimeout(() => {
+                loadSystems(currentPage);
+                loadStats();
+            }, 1500);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        document.getElementById('importProgress').style.display = 'none';
+        document.getElementById('importCSVBtn').disabled = false;
+        alert('Error: ' + error.message);
+    });
 }
 
 // System Discovery Functions

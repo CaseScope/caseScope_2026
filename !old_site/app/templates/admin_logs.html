@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}System Logs - CaseScope{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>🔧 System Logs</h1>
+
+    <!-- Log Controls -->
+    <div class="card" style="margin-bottom: var(--spacing-lg);">
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-md); align-items: end;">
+                <div>
+                    <label style="font-size: 0.875rem; color: var(--color-text-muted);">Service</label>
+                    <select id="serviceSelect" class="form-control">
+                        <option value="casescope">CaseScope Web Application</option>
+                        <option value="casescope-worker">Celery Workers</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label style="font-size: 0.875rem; color: var(--color-text-muted);">Lines</label>
+                    <select id="linesSelect" class="form-control">
+                        <option value="50">Last 50 lines</option>
+                        <option value="100" selected>Last 100 lines</option>
+                        <option value="200">Last 200 lines</option>
+                        <option value="500">Last 500 lines</option>
+                        <option value="1000">Last 1000 lines</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label style="font-size: 0.875rem; color: var(--color-text-muted);">Level</label>
+                    <select id="levelSelect" class="form-control">
+                        <option value="all" selected>All Levels</option>
+                        <option value="error">Errors Only</option>
+                        <option value="warning">Warnings Only</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: var(--spacing-sm);">
+                    <button onclick="refreshLogs()" class="btn btn-primary" style="flex: 1;">
+                        🔄 Refresh
+                    </button>
+                    <button onclick="downloadLogs()" class="btn" style="flex: 1;">
+                        💾 Download
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Display -->
+    <div class="card">
+        <div class="card-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md);">
+                <h3 style="margin: 0;">Log Output</h3>
+                <div style="display: flex; gap: var(--spacing-sm); align-items: center;">
+                    <label style="display: flex; align-items: center; gap: var(--spacing-xs); cursor: pointer;">
+                        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
+                        <span style="font-size: 0.875rem;">Auto-refresh (10s)</span>
+                    </label>
+                    <button onclick="clearLogs()" class="btn btn-sm">🗑️ Clear View</button>
+                </div>
+            </div>
+            
+            <div id="logsContainer" style="background: #1e1e1e; color: #d4d4d4; padding: var(--spacing-md); border-radius: var(--border-radius); font-family: 'Courier New', monospace; font-size: 0.75rem; max-height: 70vh; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
+                <div style="text-align: center; padding: var(--spacing-xl); color: #888;">
+                    Click "Refresh" to load logs...
+                </div>
+            </div>
+            
+            <div id="logStats" style="margin-top: var(--spacing-sm); color: var(--color-text-muted); font-size: 0.875rem;">
+                Ready
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Patterns Help -->
+    <div class="card" style="margin-top: var(--spacing-lg); background: var(--color-background-secondary); border-left: 3px solid var(--color-info);">
+        <div class="card-body">
+            <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                📖 Common Log Patterns
+            </h3>
+            <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.8;">
+                <li><strong>ERROR:</strong> Application errors that need attention</li>
+                <li><strong>WARNING:</strong> Potential issues that may need investigation</li>
+                <li><strong>INFO:</strong> General informational messages</li>
+                <li><strong>DEBUG:</strong> Detailed debugging information</li>
+                <li><strong>Traceback:</strong> Python stack traces for errors</li>
+                <li><strong>Worker exiting:</strong> Celery worker shutdown events</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+let autoRefreshInterval = null;
+
+async function refreshLogs() {
+    const service = document.getElementById('serviceSelect').value;
+    const lines = document.getElementById('linesSelect').value;
+    const level = document.getElementById('levelSelect').value;
+    const container = document.getElementById('logsContainer');
+    const stats = document.getElementById('logStats');
+    
+    container.innerHTML = '<div style="text-align: center; padding: var(--spacing-xl);"><div class="spinner"></div><p style="color: #888;">Loading logs...</p></div>';
+    stats.textContent = 'Loading...';
+    
+    try {
+        const endpoint = service === 'casescope-worker' 
+            ? `/admin/logs/worker?lines=${lines}`
+            : `/admin/logs/fetch?lines=${lines}&level=${level}&service=${service}`;
+            
+        const response = await fetch(endpoint);
+        const data = await response.json();
+        
+        if (data.success) {
+            container.textContent = data.logs || 'No logs found';
+            stats.textContent = `Showing ${data.lines} lines from ${service} service`;
+            
+            // Highlight errors and warnings
+            highlightLogs(container);
+        } else {
+            container.innerHTML = `<div style="color: #ff6b6b; padding: var(--spacing-md);">Error: ${data.error}</div>`;
+            stats.textContent = 'Error loading logs';
+        }
+    } catch (error) {
+        container.innerHTML = `<div style="color: #ff6b6b; padding: var(--spacing-md);">Error: ${error.message}</div>`;
+        stats.textContent = 'Error loading logs';
+    }
+}
+
+function highlightLogs(container) {
+    let html = container.textContent;
+    
+    // Highlight ERROR in red
+    html = html.replace(/ERROR/g, '<span style="color: #ff6b6b; font-weight: bold;">ERROR</span>');
+    html = html.replace(/error:/gi, '<span style="color: #ff6b6b; font-weight: bold;">error:</span>');
+    
+    // Highlight WARNING in yellow
+    html = html.replace(/WARNING/g, '<span style="color: #ffd43b; font-weight: bold;">WARNING</span>');
+    html = html.replace(/warning:/gi, '<span style="color: #ffd43b; font-weight: bold;">warning:</span>');
+    
+    // Highlight Traceback in orange
+    html = html.replace(/Traceback/g, '<span style="color: #ff922b; font-weight: bold;">Traceback</span>');
+    
+    // Highlight Exception in orange
+    html = html.replace(/Exception/g, '<span style="color: #ff922b; font-weight: bold;">Exception</span>');
+    
+    // Highlight INFO in blue
+    html = html.replace(/\[INFO\]/g, '<span style="color: #74c0fc;">[INFO]</span>');
+    
+    // Highlight timestamps in gray
+    html = html.replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/g, '<span style="color: #888;">$1</span>');
+    
+    container.innerHTML = html;
+}
+
+function clearLogs() {
+    document.getElementById('logsContainer').innerHTML = '<div style="text-align: center; padding: var(--spacing-xl); color: #888;">Logs cleared. Click "Refresh" to reload.</div>';
+    document.getElementById('logStats').textContent = 'Cleared';
+}
+
+function downloadLogs() {
+    const service = document.getElementById('serviceSelect').value;
+    window.location.href = `/admin/logs/download/${service}`;
+}
+
+function toggleAutoRefresh() {
+    const enabled = document.getElementById('autoRefresh').checked;
+    
+    if (enabled) {
+        refreshLogs(); // Initial refresh
+        autoRefreshInterval = setInterval(refreshLogs, 10000); // Every 10 seconds
+    } else {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
+        }
+    }
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+});
+</script>
+{% endblock %}
+

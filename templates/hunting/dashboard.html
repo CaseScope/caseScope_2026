@@ -437,7 +437,8 @@ function saveExtractedIOCs() {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            iocs: iocsToSave
+            iocs: iocsToSave,
+            full_extraction: extractionState.currentExtractionData.full_extraction  // Pass full extraction for hostname/user processing
         })
     })
     .then(response => response.json())
@@ -456,8 +457,18 @@ function saveExtractedIOCs() {
             // More reports to process
             extractNextReport();
         } else {
-            // All done
-            alert(`Successfully imported ${data.created_count} IOCs!`);
+            // All done - show comprehensive summary
+            let message = `Successfully imported ${data.created_count} new IOCs`;
+            if (data.updated_count > 0) {
+                message += ` and updated ${data.updated_count} existing IOCs`;
+            }
+            if (data.systems_created > 0 || data.systems_updated > 0) {
+                message += `\n\n🖥️ Known Systems: ${data.systems_created} created, ${data.systems_updated} updated`;
+            }
+            if (data.users_created > 0 || data.users_updated > 0) {
+                message += `\n👥 Known Users: ${data.users_created} created, ${data.users_updated} updated`;
+            }
+            alert(message);
             closeExtractionModal();
             // Optionally reload page or update stats
         }

@@ -261,3 +261,43 @@ class KnownSystem(db.Model):
     
     def __repr__(self):
         return f'<KnownSystem {self.hostname or self.ip_address}>'
+
+
+class KnownUser(db.Model):
+    """
+    Known Users - Track user accounts in investigation
+    """
+    __tablename__ = 'known_users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Core User Data
+    username = db.Column(db.String(255), nullable=False, index=True)
+    domain_name = db.Column(db.String(255), index=True)  # Domain or hostname for local users
+    sid = db.Column(db.String(255), index=True)  # Security Identifier
+    
+    # Classification
+    compromised = db.Column(db.String(20), default='no', index=True)  # yes, no
+    user_type = db.Column(db.String(50), default='unknown', index=True)  # domain, local, unknown
+    source = db.Column(db.String(50), default='manual', index=True)  # manual, logs, ioc_extraction
+    
+    # Additional Details
+    description = db.Column(db.Text)
+    analyst_notes = db.Column(db.Text)
+    
+    # Relationships
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    
+    # Audit
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    updated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    case = db.relationship('Case', backref='known_users')
+    creator = db.relationship('User', foreign_keys=[created_by], backref='users_created')
+    updater = db.relationship('User', foreign_keys=[updated_by], backref='users_updated')
+    
+    def __repr__(self):
+        return f'<KnownUser {self.domain_name}\\{self.username}>' if self.domain_name else f'<KnownUser {self.username}>'

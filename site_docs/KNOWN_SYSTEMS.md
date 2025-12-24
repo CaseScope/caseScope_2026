@@ -17,7 +17,7 @@ Track systems and devices involved in investigations, including workstations, se
 | `ip_address` | VARCHAR(45) | IP address - IPv4/IPv6 (optional) |
 | `system_type` | VARCHAR(50) | Type: workstation, server, router, switch, printer, wap, other, threat_actor |
 | `compromised` | VARCHAR(20) | Status: yes, no, unknown (default: unknown) |
-| `source` | VARCHAR(50) | Source: manual, logs (default: manual) |
+| `source` | VARCHAR(50) | Source: manual, logs, EDR, csv_import, ioc_extraction (default: manual) |
 | `description` | TEXT | Description (optional) |
 | `analyst_notes` | TEXT | Analyst notes (optional) |
 | `case_id` | INTEGER | Foreign key to case (required) |
@@ -106,6 +106,21 @@ POST /systems/api/bulk_delete
 GET /systems/api/export_csv?search=query&system_type=workstation
 ```
 
+### Import CSV
+```
+POST /systems/api/import_csv
+Content-Type: multipart/form-data
+file: [CSV file]
+```
+
+**CSV Format (no header)**:
+```
+name,domain,ip,compromised
+DESKTOP-001,corp.local,192.168.1.10,true
+SERVER-DC01,corp.local,,false
+LAPTOP-ABC,,,unknown
+```
+
 ## Features
 
 - **Statistics Tile**: Shows total systems, compromised count, workstations, and servers
@@ -113,6 +128,7 @@ GET /systems/api/export_csv?search=query&system_type=workstation
 - **Filters**: Filter by system type, compromised status, and source
 - **Pagination**: Configurable page size (25, 50, 100)
 - **Auto-Discovery**: Scan OpenSearch events to automatically discover systems
+- **CSV Import/Export**: Bulk import/export systems via CSV
 - **Bulk Operations**: 
   - Select multiple systems with checkboxes
   - Bulk edit selected systems
@@ -120,10 +136,52 @@ GET /systems/api/export_csv?search=query&system_type=workstation
 - **Modals**:
   - Add System: Create new system entry
   - Edit System: Update existing system (single or bulk)
+  - Import CSV: Bulk import from CSV with format help
   - View Details: Read-only view of system information
   - Discovery Progress: Real-time progress tracking for auto-discovery
 - **CSV Export**: Export filtered results to CSV file
 - **Audit Logging**: All create/update/delete operations logged
+
+## CSV Import/Export
+
+### Export Format
+Exported CSV includes all fields with headers for reference.
+
+### Import Format (NO HEADER)
+```csv
+name,domain,ip,compromised
+DESKTOP-001,corp.local,192.168.1.10,true
+SERVER-DC01,corp.local,,false
+LAPTOP-ABC,,,unknown
+FIREWALL-01,,10.0.0.1,false
+```
+
+**Rules**:
+- No header row
+- 4 fields: name, domain, ip, compromised
+- Empty fields: Use consecutive commas (e.g., `LAPTOP,,,false`)
+- Name (hostname) is required
+- Compromised: `true`/`false`/`yes`/`no`/`1`/`0`/`unknown`
+- Deduplication: Existing systems are updated, not duplicated
+
+### CSV Import Features
+- **Smart Parsing**: Handles optional domain and IP fields
+- **Deduplication**: Updates existing systems based on hostname (case-insensitive)
+- **Error Reporting**: Line-by-line error reporting for invalid entries
+- **Validation**: Hostname is required, other fields optional
+- **Audit Logging**: All imports logged with details
+- **System Type**: Defaults to 'workstation' for imports (can be edited later)
+
+## IOC Extraction Integration
+
+When hostnames are extracted during EDR IOC extraction:
+1. Hostname is processed through `_process_hostname_known_system()`
+2. FQDN parsing: `server.domain.com` → Hostname: `SERVER`, Domain: `domain.com`
+3. System is created or existing entry is updated
+4. Compromised status set to 'yes' (found in EDR report)
+5. System type defaults to 'workstation'
+6. Source set to 'EDR'
+7. Audit log created
 
 ## Auto-Discovery from Logs
 
@@ -218,6 +276,9 @@ Important for aggregations:
 - `systems_bulk_updated` - Bulk edit operation
 - `systems_bulk_deleted` - Bulk delete operation
 - `systems_exported` - CSV export
+- `systems_imported_from_csv` - CSV import
+- `system_discovery_started` - Auto-discovery initiated
+- `system_discovery_completed` - Auto-discovery finished
 
 ## System Types
 
@@ -247,8 +308,9 @@ Applied: 2025-12-24
 
 Follows the same pattern as IOC Management:
 - Central CSS used throughout (no inline styles)
-- Consistent modal design
+- Consistent modal design with standard classes
 - Responsive table layout
 - Badge-based status indicators
 - Bulk action toolbar
+- Styled file input button for CSV import
 

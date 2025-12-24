@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}My Profile - CaseScope{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 800px;">
+    <h1>👤 My Profile</h1>
+
+    <div class="card">
+        <div class="card-body">
+            {% if user.role == 'read-only' %}
+            <!-- Read-only view for read-only users -->
+            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-lg); border-left: 3px solid var(--color-warning);">
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                    ⚠️ Read-only users cannot edit their profile. Please contact an administrator to make changes.
+                </p>
+            </div>
+            
+            <div style="display: grid; gap: var(--spacing-md);">
+                <div>
+                    <label style="color: var(--color-text-muted); font-size: 0.875rem; display: block; margin-bottom: 4px;">Username</label>
+                    <div style="font-size: 1.1rem;"><strong>{{ user.username }}</strong></div>
+                </div>
+                
+                <div>
+                    <label style="color: var(--color-text-muted); font-size: 0.875rem; display: block; margin-bottom: 4px;">Full Name</label>
+                    <div>{{ user.full_name or '-' }}</div>
+                </div>
+                
+                <div>
+                    <label style="color: var(--color-text-muted); font-size: 0.875rem; display: block; margin-bottom: 4px;">Email</label>
+                    <div>{{ user.email }}</div>
+                </div>
+                
+                <div>
+                    <label style="color: var(--color-text-muted); font-size: 0.875rem; display: block; margin-bottom: 4px;">Role</label>
+                    <div>
+                        {% if user.role == 'administrator' %}
+                        <span class="status-badge status-failed">🛡️ Administrator</span>
+                        {% elif user.role == 'analyst' %}
+                        <span class="status-badge status-sigma">🔍 Analyst</span>
+                        {% elif user.role == 'read-only' %}
+                        <span class="status-badge">👁️ Read-Only</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div>
+                    <label style="color: var(--color-text-muted); font-size: 0.875rem; display: block; margin-bottom: 4px;">Account Created</label>
+                    <div>{{ user.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if user.created_at else 'Unknown' }}</div>
+                </div>
+                
+                <div>
+                    <label style="color: var(--color-text-muted); font-size: 0.875rem; display: block; margin-bottom: 4px;">Last Login</label>
+                    <div>{{ user.last_login.strftime('%Y-%m-%d %H:%M:%S UTC') if user.last_login else 'Never' }}</div>
+                </div>
+            </div>
+            
+            {% else %}
+            <!-- Editable form for administrators and analysts -->
+            <form method="POST">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" 
+                           class="form-control" 
+                           value="{{ user.username }}" 
+                           disabled
+                           style="background: var(--color-background-tertiary); cursor: not-allowed;">
+                    <small style="color: var(--color-text-muted);">Username cannot be changed</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="full_name">Full Name</label>
+                    <input type="text" 
+                           id="full_name" 
+                           name="full_name" 
+                           class="form-control" 
+                           value="{{ user.full_name or '' }}"
+                           maxlength="120">
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email *</label>
+                    <input type="email" 
+                           id="email" 
+                           name="email" 
+                           class="form-control" 
+                           required
+                           value="{{ user.email }}"
+                           maxlength="120">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">New Password (leave blank to keep current)</label>
+                    <input type="password" 
+                           id="password" 
+                           name="password" 
+                           class="form-control" 
+                           minlength="6">
+                    <small style="color: var(--color-text-muted);">Minimum 6 characters</small>
+                </div>
+
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-top: var(--spacing-lg);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem;">Account Information</h3>
+                    <div style="display: grid; gap: var(--spacing-xs); color: var(--color-text-muted); font-size: 0.875rem;">
+                        <div><strong>Role:</strong> 
+                            {% if user.role == 'administrator' %}
+                            <span class="status-badge status-failed">🛡️ Administrator</span>
+                            {% elif user.role == 'analyst' %}
+                            <span class="status-badge status-sigma">🔍 Analyst</span>
+                            {% elif user.role == 'read-only' %}
+                            <span class="status-badge">👁️ Read-Only</span>
+                            {% endif %}
+                        </div>
+                        <div><strong>Created:</strong> {{ user.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if user.created_at else 'Unknown' }}</div>
+                        <div><strong>Created By:</strong> {{ user.creator.username if user.creator else 'System' }}</div>
+                        <div><strong>Last Login:</strong> {{ user.last_login.strftime('%Y-%m-%d %H:%M:%S UTC') if user.last_login else 'Never' }}</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-xl);">
+                    <button type="submit" class="btn btn-primary">💾 Save Changes</button>
+                    <a href="{{ url_for('dashboard') }}" class="btn">Cancel</a>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+

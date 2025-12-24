@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}File Management - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">📁 Global File Management</h1>
+        <p class="text-secondary">View and manage all case files across the platform</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Dashboard</span>
+        </a>
+    </div>
+</div>
+
+<!-- FILE STATS ROW -->
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-lg); margin-bottom: var(--spacing-lg);">
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Files</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary);">{{ total_files }}</div>
+        </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Indexed Files</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-success);">{{ indexed_files }}</div>
+        </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Processing</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">{{ processing_files }}</div>
+        </div>
+    </div>
+    
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-body">
+            <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Storage</div>
+            <div style="font-size: 1.125rem; font-weight: 700; color: var(--color-text-primary);">{{ '%.2f'|format(total_storage_mb / 1024) }} GB</div>
+        </div>
+    </div>
+</div>
+
+<!-- FILES TABLE -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">All Case Files</h2>
+        <span class="text-secondary">{{ files|length }} file(s)</span>
+    </div>
+    <div class="card-body">
+        {% if files %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Case</th>
+                        <th>Filename</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Status</th>
+                        <th>Events</th>
+                        <th>SIGMA</th>
+                        <th>IOCs</th>
+                        <th>Uploaded</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('view_case', case_id=file.case_id) }}" style="color: var(--color-primary); font-weight: 600;">
+                                Case #{{ file.case_id }}
+                            </a>
+                        </td>
+                        <td>
+                            <strong>{{ file.original_filename }}</strong>
+                            {% if file.file_hash %}
+                            <br><span class="text-muted" style="font-size: 0.75rem;">{{ file.file_hash[:16] }}...</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info);">
+                                {{ file.file_type or 'UNKNOWN' }}
+                            </span>
+                        </td>
+                        <td>{{ (file.file_size / 1024 / 1024)|round(2) }} MB</td>
+                        <td>
+                            {% if file.indexing_status == 'Completed' %}
+                                <span class="status-badge status-completed">Completed</span>
+                            {% elif file.indexing_status == 'Indexing' %}
+                                <span class="status-badge status-indexing">Indexing</span>
+                            {% elif file.indexing_status == 'SIGMA Testing' %}
+                                <span class="status-badge status-sigma">SIGMA Testing</span>
+                            {% elif file.indexing_status == 'IOC Hunting' %}
+                                <span class="status-badge status-ioc">IOC Hunting</span>
+                            {% elif file.indexing_status == 'Queued' %}
+                                <span class="status-badge status-queued">Queued</span>
+                            {% else %}
+                                <span class="status-badge status-failed">{{ file.indexing_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ '{:,}'.format(file.event_count or 0) }}</td>
+                        <td>
+                            {% if file.violation_count > 0 %}
+                                <span class="status-badge status-sigma">{{ file.violation_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.ioc_event_count > 0 %}
+                                <span class="status-badge status-ioc">{{ file.ioc_event_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📁</div>
+            <h3>No files uploaded yet</h3>
+            <p>Upload files to cases to see them here</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

@@ -113,6 +113,31 @@ The IOC (Indicators of Compromise) Management System provides comprehensive func
 7. Displays extracted IOCs in table format
 8. User selects which IOCs to import
 9. System handles duplicates intelligently
+10. **Automatic Known Systems/Users Processing:**
+    - Hostnames automatically added to Known Systems (compromised='yes', source='EDR')
+    - Usernames automatically added to Known Users (compromised='yes', source='ioc_extraction')
+    - Existing systems/users marked as compromised if not already
+    - SIDs and domains extracted when available
+    - Cross-variant deduplication applied for usernames
+
+**Automatic Compromised Status:**
+
+When IOCs are extracted from EDR reports, related systems and users are automatically marked as compromised:
+
+- **Known Systems**: 
+  - Hostnames found in reports → System created or updated
+  - Compromised status set to 'yes'
+  - Source set to 'EDR'
+  - Note added: "Found in EDR report (IOC extraction) - marked as compromised"
+  - FQDN parsing: `server.domain.com` → Hostname: `SERVER`, Domain: `domain.com`
+
+- **Known Users**:
+  - Usernames found in reports → User created or updated
+  - Compromised status set to 'yes'
+  - Source set to 'ioc_extraction'
+  - Note added: "Found in EDR report (IOC extraction) - marked as compromised"
+  - Domain and SID extracted when available
+  - Cross-variant matching: `user`, `DOMAIN\user`, `user@domain` recognized as same user
 
 **Duplicate Handling During Extraction:**
 

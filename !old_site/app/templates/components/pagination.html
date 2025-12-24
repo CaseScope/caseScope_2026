@@ -1,0 +1,109 @@
+{# Reusable Pagination Component #}
+{# Usage: 
+   {% set endpoint = 'route_name' %}
+   {% include 'components/pagination.html' %}
+   
+   Requires in context: pagination, endpoint
+   Optional: case_id (for case-specific routes), search_query (for search pages), source_filter (for EVTX descriptions)
+#}
+
+{% if pagination and pagination.pages > 1 %}
+<div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+    
+    <!-- Pagination Info -->
+    <div class="pagination-info" style="color: var(--color-text-secondary); font-size: 0.875rem;">
+        Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} 
+        to {% if pagination.page * pagination.per_page > pagination.total %}{{ pagination.total }}{% else %}{{ pagination.page * pagination.per_page }}{% endif %} 
+        of {{ pagination.total }} items
+    </div>
+    
+    <!-- Pagination Controls -->
+    <div class="pagination-controls" style="display: flex; gap: var(--spacing-xs);">
+        
+        {# First Page #}
+        {% if pagination.has_prev %}
+        <a href="{% if case_id %}{{ url_for(endpoint, case_id=case_id, page=1, q=search_query, source=source_filter) }}{% else %}{{ url_for(endpoint, page=1, q=search_query, source=source_filter) }}{% endif %}" 
+           class="btn btn-sm" 
+           style="padding: 6px 12px; font-size: 0.875rem;">
+            ««
+        </a>
+        {% else %}
+        <span class="btn btn-sm" 
+              style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">
+            ««
+        </span>
+        {% endif %}
+        
+        {# Previous Page #}
+        {% if pagination.has_prev %}
+        <a href="{% if case_id %}{{ url_for(endpoint, case_id=case_id, page=pagination.prev_num, q=search_query, source=source_filter) }}{% else %}{{ url_for(endpoint, page=pagination.prev_num, q=search_query, source=source_filter) }}{% endif %}" 
+           class="btn btn-sm" 
+           style="padding: 6px 12px; font-size: 0.875rem;">
+            ‹ Previous
+        </a>
+        {% else %}
+        <span class="btn btn-sm" 
+              style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">
+            ‹ Previous
+        </span>
+        {% endif %}
+        
+        {# Page Numbers (show 5 pages around current) #}
+        {% set start_page = [1, pagination.page - 2]|max %}
+        {% set end_page = [pagination.pages, pagination.page + 2]|min %}
+        
+        {% if start_page > 1 %}
+        <span style="padding: 6px 12px; color: var(--color-text-secondary);">...</span>
+        {% endif %}
+        
+        {% for page_num in range(start_page, end_page + 1) %}
+            {% if page_num == pagination.page %}
+            <span class="btn btn-sm" 
+                  style="padding: 6px 12px; font-size: 0.875rem; background: var(--color-primary); color: white; cursor: default;">
+                {{ page_num }}
+            </span>
+            {% else %}
+            <a href="{% if case_id %}{{ url_for(endpoint, case_id=case_id, page=page_num, q=search_query, source=source_filter) }}{% else %}{{ url_for(endpoint, page=page_num, q=search_query, source=source_filter) }}{% endif %}" 
+               class="btn btn-sm" 
+               style="padding: 6px 12px; font-size: 0.875rem;">
+                {{ page_num }}
+            </a>
+            {% endif %}
+        {% endfor %}
+        
+        {% if end_page < pagination.pages %}
+        <span style="padding: 6px 12px; color: var(--color-text-secondary);">...</span>
+        {% endif %}
+        
+        {# Next Page #}
+        {% if pagination.has_next %}
+        <a href="{% if case_id %}{{ url_for(endpoint, case_id=case_id, page=pagination.next_num, q=search_query, source=source_filter) }}{% else %}{{ url_for(endpoint, page=pagination.next_num, q=search_query, source=source_filter) }}{% endif %}" 
+           class="btn btn-sm" 
+           style="padding: 6px 12px; font-size: 0.875rem;">
+            Next ›
+        </a>
+        {% else %}
+        <span class="btn btn-sm" 
+              style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">
+            Next ›
+        </span>
+        {% endif %}
+        
+        {# Last Page #}
+        {% if pagination.has_next %}
+        <a href="{% if case_id %}{{ url_for(endpoint, case_id=case_id, page=pagination.pages, q=search_query, source=source_filter) }}{% else %}{{ url_for(endpoint, page=pagination.pages, q=search_query, source=source_filter) }}{% endif %}" 
+           class="btn btn-sm" 
+           style="padding: 6px 12px; font-size: 0.875rem;">
+            »»
+        </a>
+        {% else %}
+        <span class="btn btn-sm" 
+              style="padding: 6px 12px; font-size: 0.875rem; opacity: 0.5; cursor: not-allowed;">
+            »»
+        </span>
+        {% endif %}
+        
+    </div>
+</div>
+{% endif %}
+
