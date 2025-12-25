@@ -102,9 +102,37 @@ def get_case_statistics():
     # Total cases
     total_cases = Case.query.count()
     
-    # Total events (will need to query OpenSearch or sum from case files table in future)
-    # Placeholder for now
+    # Total events - query all OpenSearch indices
     total_events = 0
+    try:
+        from opensearchpy import OpenSearch
+        from app.config import Config
+        
+        client = OpenSearch(
+            hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}],
+            use_ssl=Config.OPENSEARCH_USE_SSL,
+            verify_certs=False,
+            ssl_show_warn=False,
+            timeout=10
+        )
+        
+        # Get all indices that match case pattern
+        all_cases = Case.query.all()
+        for case in all_cases:
+            index_name = f"case_{case.id}"
+            try:
+                # Check if index exists
+                if client.indices.exists(index=index_name):
+                    # Get document count for this index
+                    stats = client.count(index=index_name)
+                    total_events += stats.get('count', 0)
+            except Exception as e:
+                # Skip if index doesn't exist or is inaccessible
+                continue
+                
+    except Exception as e:
+        # If OpenSearch is not available, return 0
+        pass
     
     # Total users
     total_users = User.query.count()
@@ -150,6 +178,13 @@ def get_software_versions():
     except Exception:
         versions['opensearch'] = 'Not detected'
     
+    # OpenSearchPy (Python client) version
+    try:
+        import opensearchpy
+        versions['opensearchpy'] = opensearchpy.__version__
+    except Exception:
+        versions['opensearchpy'] = 'Unknown'
+    
     # Flask version
     try:
         import flask
@@ -164,6 +199,13 @@ def get_software_versions():
     except Exception:
         versions['sqlalchemy'] = 'Unknown'
     
+    # Psycopg2 (PostgreSQL adapter) version
+    try:
+        import psycopg2
+        versions['psycopg2'] = psycopg2.__version__
+    except Exception:
+        versions['psycopg2'] = 'Unknown'
+    
     # Gunicorn version
     try:
         import gunicorn
@@ -177,6 +219,23 @@ def get_software_versions():
         versions['celery'] = celery.__version__
     except Exception:
         versions['celery'] = 'Not installed'
+    
+    # Ollama (AI/LLM) version
+    try:
+        import ollama
+        # Ollama Python library version
+        versions['ollama_py'] = ollama.__version__ if hasattr(ollama, '__version__') else 'Installed'
+        
+        # Try to get actual Ollama server version
+        try:
+            client = ollama.Client()
+            # Ollama doesn't have a direct version endpoint, but we can confirm it's running
+            versions['ollama_server'] = 'Running'
+        except Exception:
+            versions['ollama_server'] = 'Not detected'
+    except Exception:
+        versions['ollama_py'] = 'Not installed'
+        versions['ollama_server'] = 'Not installed'
     
     # Werkzeug version
     try:

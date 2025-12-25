@@ -46,6 +46,21 @@
                 🔍 Extract IOCs from EDR
             </button>
             
+            <!-- Failed Logins -->
+            <button class="btn btn-warning" id="btnFailedLogins" onclick="showLoginEvents('failed')" title="View failed login attempts (Event ID 4625)">
+                ⚠️ Failed Logins
+            </button>
+            
+            <!-- Success Logins -->
+            <button class="btn btn-success" id="btnSuccessLogins" onclick="showLoginEvents('success')" title="View successful logins (Event ID 4624)">
+                ✓ Success Logins
+            </button>
+            
+            <!-- Hunt IOCs -->
+            <button class="btn btn-primary" id="btnHuntIOCs" onclick="startIOCHunt()" title="Search all events for known IOCs">
+                🎯 Hunt IOCs
+            </button>
+            
             <!-- Placeholder buttons - will be populated as functionality is added -->
             <button class="btn btn-secondary" disabled>
                 🎭 Sigma Rules
@@ -160,6 +175,265 @@
             <button class="btn btn-secondary" onclick="closeExtractionModal(event)">Cancel</button>
             <button class="btn btn-warning" id="btnSkipReport" style="display: none;" onclick="skipCurrentReport()">Skip</button>
             <button class="btn btn-primary" id="btnSaveIOCs" style="display: none;" onclick="saveExtractedIOCs()">Save</button>
+        </div>
+    </div>
+    </div>
+</div>
+
+<!-- Login Events Modal -->
+<div id="loginEventsModal" class="modal-overlay" style="display: none;" onclick="closeLoginModal(event)">
+    <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title" id="loginModalTitle">🔑 Login Events</h2>
+            <button class="modal-close" onclick="closeLoginModal(event)">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <!-- Controls Section -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex gap-3 align-items-center">
+                    <label style="font-weight: 500;">Sort:</label>
+                    <select id="loginSort" class="form-select-sm" onchange="sortLoginEvents()">
+                        <option value="desc">Newest First</option>
+                        <option value="asc">Oldest First</option>
+                    </select>
+                </div>
+                
+                <div class="d-flex gap-2 align-items-center" style="flex: 1; max-width: 400px;">
+                    <input type="text" id="loginSearch" class="form-control-sm" placeholder="Search results..." 
+                           oninput="filterLoginEvents()" style="flex: 1;">
+                    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('loginSearch').value=''; filterLoginEvents();">Clear</button>
+                </div>
+                
+                <div>
+                    <span id="loginCount" class="badge badge-info">0 events</span>
+                </div>
+            </div>
+            
+            <!-- Loading Indicator -->
+            <div id="loginLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner-border text-primary"></div>
+                <p>Loading login events...</p>
+            </div>
+            
+            <!-- Results Table -->
+            <div id="loginResults" style="display: none;">
+                <div class="table-container" style="max-height: 60vh; overflow-y: auto;">
+                    <table class="table table-hover">
+                        <thead style="position: sticky; top: 0; background: var(--color-bg-tertiary); z-index: 10;">
+                            <tr>
+                                <th style="width: 180px;">Date/Time</th>
+                                <th style="width: 150px;">Username</th>
+                                <th style="width: 150px;">Source IP</th>
+                                <th style="width: 150px;">Source Hostname</th>
+                                <th style="width: 150px;">Target System</th>
+                                <th style="width: 120px;">Target IP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="loginEventsTable">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- No Results -->
+            <div id="loginNoResults" style="display: none;" class="placeholder-content">
+                <div class="placeholder-icon">🔍</div>
+                <h3>No Login Events Found</h3>
+                <p id="noResultsMessage">No matching events found in the current case</p>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeLoginModal(event)">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Login Events Modal -->
+<div id="loginEventsModal" class="modal-overlay" style="display: none;" onclick="closeLoginModal(event)">
+    <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title" id="loginModalTitle">🔑 Login Events</h2>
+            <button class="modal-close" onclick="closeLoginModal(event)">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <!-- Controls Section -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex gap-3 align-items-center">
+                    <label style="font-weight: 500;">Sort:</label>
+                    <select id="loginSort" class="form-select-sm" onchange="sortLoginEvents()">
+                        <option value="desc">Newest First</option>
+                        <option value="asc">Oldest First</option>
+                    </select>
+                </div>
+                
+                <div class="d-flex gap-2 align-items-center" style="flex: 1; max-width: 400px;">
+                    <input type="text" id="loginSearch" class="form-control-sm" placeholder="Search results..." 
+                           oninput="filterLoginEvents()" style="flex: 1;">
+                    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('loginSearch').value=''; filterLoginEvents();">Clear</button>
+                </div>
+                
+                <div>
+                    <span id="loginCount" class="badge badge-info">0 events</span>
+                </div>
+            </div>
+            
+            <!-- Loading Indicator -->
+            <div id="loginLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner-border text-primary"></div>
+                <p>Loading login events...</p>
+            </div>
+            
+            <!-- Results Table -->
+            <div id="loginResults" style="display: none;">
+                <div class="table-container" style="max-height: 60vh; overflow-y: auto;">
+                    <table class="table table-hover">
+                        <thead style="position: sticky; top: 0; background: var(--color-bg-tertiary); z-index: 10;">
+                            <tr>
+                                <th style="width: 180px;">Date/Time</th>
+                                <th style="width: 150px;">Username</th>
+                                <th style="width: 150px;">Source IP</th>
+                                <th style="width: 150px;">Source Hostname</th>
+                                <th style="width: 150px;">Target System</th>
+                                <th style="width: 120px;">Target IP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="loginEventsTable">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- No Results -->
+            <div id="loginNoResults" style="display: none;" class="placeholder-content">
+                <div class="placeholder-icon">🔍</div>
+                <h3>No Login Events Found</h3>
+                <p id="noResultsMessage">No matching events found in the current case</p>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeLoginModal(event)">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- IOC Hunt Progress Modal -->
+<div id="iocHuntModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🎯 IOC Hunt</h2>
+            <button class="modal-close" onclick="closeIOCHuntModal()">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <!-- Progress Section -->
+            <div id="huntProgressContainer">
+                <div style="margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span id="huntStatus" style="font-weight: 500;">Initializing...</span>
+                        <span id="huntProgressText" style="font-weight: 600; color: var(--color-primary);">0%</span>
+                    </div>
+                    <div style="background: var(--color-bg-secondary); border-radius: 8px; height: 24px; overflow: hidden;">
+                        <div id="huntProgress" style="background: linear-gradient(90deg, var(--color-primary), var(--color-success)); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                
+                <!-- Current IOC -->
+                <div id="huntCurrentIOCContainer" style="display: none; margin-bottom: 24px; padding: 12px; background: var(--color-bg-secondary); border-radius: 8px;">
+                    <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 4px;">Currently hunting:</div>
+                    <code id="huntCurrentIOC" style="font-size: 0.9rem;"></code>
+                </div>
+                
+                <!-- Live Statistics -->
+                <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                    <div class="stat-card">
+                        <div class="stat-value" id="huntStatsScanned">0</div>
+                        <div class="stat-label">Events Scanned</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value text-primary" id="huntStatsTotalEvents">0</div>
+                        <div class="stat-label">Total Events</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value text-success" id="huntStatsTagged">0</div>
+                        <div class="stat-label">Events Tagged</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value text-warning" id="huntStatsHits">0</div>
+                        <div class="stat-label">IOC Hits</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results Section -->
+            <div id="huntResultsContainer" style="display: none;">
+                <div style="text-align: center; padding: 24px; background: var(--color-success); color: white; border-radius: 8px; margin-bottom: 24px;">
+                    <h3 style="margin: 0; font-size: 1.5rem;">✅ Hunt Complete!</h3>
+                </div>
+                
+                <!-- Summary Stats -->
+                <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                    <div class="stat-card">
+                        <div class="stat-value" id="resultEventsScanned">0</div>
+                        <div class="stat-label">Events Scanned</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value text-success" id="resultEventsTagged">0</div>
+                        <div class="stat-label">Events Tagged</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value text-warning" id="resultTotalHits">0</div>
+                        <div class="stat-label">Total IOC Hits</div>
+                    </div>
+                </div>
+                
+                <!-- Threat Level Breakdown -->
+                <h4 style="margin-bottom: 12px;">Hits by Threat Level</h4>
+                <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+                    <span class="badge badge-error" style="padding: 8px 16px; font-size: 1rem;">
+                        Critical: <strong id="resultCritical">0</strong>
+                    </span>
+                    <span class="badge badge-warning" style="padding: 8px 16px; font-size: 1rem;">
+                        High: <strong id="resultHigh">0</strong>
+                    </span>
+                    <span class="badge badge-info" style="padding: 8px 16px; font-size: 1rem;">
+                        Medium: <strong id="resultMedium">0</strong>
+                    </span>
+                    <span class="badge badge-secondary" style="padding: 8px 16px; font-size: 1rem;">
+                        Low: <strong id="resultLow">0</strong>
+                    </span>
+                    <span class="badge badge-secondary" style="padding: 8px 16px; font-size: 1rem;">
+                        Info: <strong id="resultInfo">0</strong>
+                    </span>
+                </div>
+                
+                <!-- IOC Hit Details -->
+                <h4 style="margin-bottom: 12px;">Hits by IOC</h4>
+                <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>IOC Value</th>
+                                <th class="text-end">Hits</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultByIOCTable">
+                            <tr>
+                                <td colspan="2" class="text-center text-secondary">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button id="huntCloseBtn" class="btn btn-primary" onclick="closeIOCHuntModal()" style="display: none;">Close</button>
         </div>
     </div>
 </div>
@@ -504,8 +778,329 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ============================================================================
+// LOGIN EVENTS MODAL
+// ============================================================================
+
+let loginEventsState = {
+    type: 'failed', // 'failed' or 'success'
+    allEvents: [],
+    filteredEvents: [],
+    sortOrder: 'desc'
+};
+
+function showLoginEvents(type) {
+    loginEventsState.type = type;
+    loginEventsState.sortOrder = 'desc';
+    
+    // Update modal title
+    const eventId = type === 'failed' ? '4625' : '4624';
+    const icon = type === 'failed' ? '⚠️' : '✓';
+    const title = type === 'failed' ? 'Failed Logins' : 'Success Logins';
+    document.getElementById('loginModalTitle').textContent = `${icon} ${title} (Event ID ${eventId})`;
+    
+    // Show modal and loading
+    document.getElementById('loginEventsModal').style.display = 'flex';
+    document.getElementById('loginLoading').style.display = 'flex';
+    document.getElementById('loginResults').style.display = 'none';
+    document.getElementById('loginNoResults').style.display = 'none';
+    
+    // Reset controls
+    document.getElementById('loginSort').value = 'desc';
+    document.getElementById('loginSearch').value = '';
+    
+    // Fetch events
+    fetchLoginEvents(type);
+}
+
+function fetchLoginEvents(type) {
+    const eventId = type === 'failed' ? '4625' : '4624';
+    
+    fetch(`/hunting/api/login_events?event_id=${eventId}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('loginLoading').style.display = 'none';
+            
+            if (!data.success) {
+                document.getElementById('loginNoResults').style.display = 'block';
+                document.getElementById('noResultsMessage').textContent = data.error || 'Failed to fetch events';
+                return;
+            }
+            
+            loginEventsState.allEvents = data.events;
+            loginEventsState.filteredEvents = [...data.events];
+            
+            if (data.events.length === 0) {
+                document.getElementById('loginNoResults').style.display = 'block';
+                document.getElementById('noResultsMessage').textContent = `No ${type} login events found in this case`;
+            } else {
+                document.getElementById('loginResults').style.display = 'block';
+                renderLoginEvents();
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching login events:', error);
+            document.getElementById('loginLoading').style.display = 'none';
+            document.getElementById('loginNoResults').style.display = 'block';
+            document.getElementById('noResultsMessage').textContent = 'Error loading events: ' + error;
+        });
+}
+
+function sortLoginEvents() {
+    const sortOrder = document.getElementById('loginSort').value;
+    loginEventsState.sortOrder = sortOrder;
+    
+    loginEventsState.filteredEvents.sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
+    });
+    
+    renderLoginEvents();
+}
+
+function filterLoginEvents() {
+    const searchTerm = document.getElementById('loginSearch').value.toLowerCase();
+    
+    if (!searchTerm) {
+        loginEventsState.filteredEvents = [...loginEventsState.allEvents];
+    } else {
+        loginEventsState.filteredEvents = loginEventsState.allEvents.filter(event => {
+            return (
+                event.username.toLowerCase().includes(searchTerm) ||
+                event.source_ip.toLowerCase().includes(searchTerm) ||
+                event.source_hostname.toLowerCase().includes(searchTerm) ||
+                event.target_system.toLowerCase().includes(searchTerm) ||
+                event.target_ip.toLowerCase().includes(searchTerm)
+            );
+        });
+    }
+    
+    // Re-apply sort
+    sortLoginEvents();
+}
+
+function renderLoginEvents() {
+    const tbody = document.getElementById('loginEventsTable');
+    tbody.innerHTML = '';
+    
+    // Update count
+    document.getElementById('loginCount').textContent = `${loginEventsState.filteredEvents.length} events`;
+    
+    if (loginEventsState.filteredEvents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary" style="padding: 48px;">No matching events found</td></tr>';
+        return;
+    }
+    
+    loginEventsState.filteredEvents.forEach(event => {
+        const row = document.createElement('tr');
+        
+        row.innerHTML = `
+            <td>${escapeHtml(event.timestamp)}</td>
+            <td><strong>${escapeHtml(event.username)}</strong></td>
+            <td><code>${escapeHtml(event.source_ip)}</code></td>
+            <td>${escapeHtml(event.source_hostname)}</td>
+            <td><strong>${escapeHtml(event.target_system)}</strong></td>
+            <td><code>${escapeHtml(event.target_ip)}</code></td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+function closeLoginModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('loginEventsModal').style.display = 'none';
+}
+
+// ============================================================================
+// IOC Hunt Progress Tracking
+// ============================================================================
+
+let iocHuntTaskId = null;
+let iocHuntProgressInterval = null;
+
+function startIOCHunt() {
+    // Confirm action
+    if (!confirm('Start hunting for IOCs in all case events? This may take several minutes for large datasets.')) {
+        return;
+    }
+    
+    // Disable button
+    const btn = document.getElementById('btnHuntIOCs');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Starting...';
+    
+    fetch('/hunting/api/hunt_iocs', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            iocHuntTaskId = data.task_id;
+            showIOCHuntModal();
+            checkIOCHuntProgress();
+        } else {
+            alert('Failed to start IOC hunt: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = '🎯 Hunt IOCs';
+        }
+    })
+    .catch(error => {
+        console.error('Error starting IOC hunt:', error);
+        alert('Error starting IOC hunt: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '🎯 Hunt IOCs';
+    });
+}
+
+function showIOCHuntModal() {
+    const modal = document.getElementById('iocHuntModal');
+    
+    // Reset modal state
+    document.getElementById('huntProgress').style.width = '0%';
+    document.getElementById('huntProgressText').textContent = '0%';
+    document.getElementById('huntStatus').textContent = 'Initializing...';
+    document.getElementById('huntStatsScanned').textContent = '0';
+    document.getElementById('huntStatsTotalEvents').textContent = '0';
+    document.getElementById('huntStatsHits').textContent = '0';
+    document.getElementById('huntStatsTagged').textContent = '0';
+    
+    // Hide results, show progress
+    document.getElementById('huntProgressContainer').style.display = 'block';
+    document.getElementById('huntResultsContainer').style.display = 'none';
+    document.getElementById('huntCloseBtn').style.display = 'none';
+    
+    modal.style.display = 'flex';
+}
+
+function checkIOCHuntProgress() {
+    if (!iocHuntTaskId) return;
+    
+    fetch(`/hunting/api/hunt_iocs/status/${iocHuntTaskId}`)
+    .then(response => response.json())
+    .then(data => {
+        const progress = data.progress || 0;
+        const status = data.status || 'Processing...';
+        
+        // Update progress bar
+        document.getElementById('huntProgress').style.width = progress + '%';
+        document.getElementById('huntProgressText').textContent = Math.round(progress) + '%';
+        document.getElementById('huntStatus').textContent = status;
+        
+        // Update live stats
+        if (data.events_scanned !== undefined) {
+            document.getElementById('huntStatsScanned').textContent = data.events_scanned.toLocaleString();
+        }
+        if (data.total_events !== undefined) {
+            document.getElementById('huntStatsTotalEvents').textContent = data.total_events.toLocaleString();
+        }
+        if (data.total_hits !== undefined) {
+            document.getElementById('huntStatsHits').textContent = data.total_hits.toLocaleString();
+        }
+        if (data.events_with_hits !== undefined) {
+            document.getElementById('huntStatsTagged').textContent = data.events_with_hits.toLocaleString();
+        }
+        
+        // Show current IOC being hunted
+        if (data.current_ioc) {
+            document.getElementById('huntCurrentIOC').textContent = data.current_ioc;
+            document.getElementById('huntCurrentIOCContainer').style.display = 'block';
+        }
+        
+        if (data.state === 'SUCCESS') {
+            // Hunt complete
+            showIOCHuntResults(data);
+            clearInterval(iocHuntProgressInterval);
+            
+            // Re-enable button
+            const btn = document.getElementById('btnHuntIOCs');
+            btn.disabled = false;
+            btn.innerHTML = '🎯 Hunt IOCs';
+        } else if (data.state === 'FAILURE') {
+            // Hunt failed
+            document.getElementById('huntStatus').textContent = 'Hunt failed: ' + (data.error || 'Unknown error');
+            document.getElementById('huntStatus').style.color = '#cc4526';
+            clearInterval(iocHuntProgressInterval);
+            
+            // Re-enable button
+            const btn = document.getElementById('btnHuntIOCs');
+            btn.disabled = false;
+            btn.innerHTML = '🎯 Hunt IOCs';
+            
+            // Show close button
+            document.getElementById('huntCloseBtn').style.display = 'inline-block';
+        } else {
+            // Still in progress, check again in 2 seconds
+            if (!iocHuntProgressInterval) {
+                iocHuntProgressInterval = setInterval(checkIOCHuntProgress, 2000);
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error checking hunt progress:', error);
+        clearInterval(iocHuntProgressInterval);
+        
+        // Re-enable button
+        const btn = document.getElementById('btnHuntIOCs');
+        btn.disabled = false;
+        btn.innerHTML = '🎯 Hunt IOCs';
+    });
+}
+
+function showIOCHuntResults(data) {
+    // Hide progress, show results
+    document.getElementById('huntProgressContainer').style.display = 'none';
+    document.getElementById('huntResultsContainer').style.display = 'block';
+    document.getElementById('huntCloseBtn').style.display = 'inline-block';
+    
+    // Populate summary
+    document.getElementById('resultEventsScanned').textContent = (data.events_scanned || 0).toLocaleString();
+    document.getElementById('resultEventsTagged').textContent = (data.events_with_hits || 0).toLocaleString();
+    document.getElementById('resultTotalHits').textContent = (data.total_hits || 0).toLocaleString();
+    
+    // Populate by threat level
+    const byThreatLevel = data.by_threat_level || {};
+    document.getElementById('resultCritical').textContent = (byThreatLevel.critical || 0).toLocaleString();
+    document.getElementById('resultHigh').textContent = (byThreatLevel.high || 0).toLocaleString();
+    document.getElementById('resultMedium').textContent = (byThreatLevel.medium || 0).toLocaleString();
+    document.getElementById('resultLow').textContent = (byThreatLevel.low || 0).toLocaleString();
+    document.getElementById('resultInfo').textContent = (byThreatLevel.info || 0).toLocaleString();
+    
+    // Populate by IOC table
+    const byIOC = data.by_ioc || {};
+    const tbody = document.getElementById('resultByIOCTable');
+    tbody.innerHTML = '';
+    
+    // Sort by hit count descending
+    const sorted = Object.entries(byIOC).sort((a, b) => b[1] - a[1]);
+    
+    if (sorted.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" class="text-center text-secondary" style="padding: 24px;">No IOC matches found</td></tr>';
+    } else {
+        sorted.forEach(([ioc, count]) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><code>${escapeHtml(ioc)}</code></td>
+                <td class="text-end"><strong>${count.toLocaleString()}</strong></td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+}
+
+function closeIOCHuntModal() {
+    document.getElementById('iocHuntModal').style.display = 'none';
+    clearInterval(iocHuntProgressInterval);
+    iocHuntProgressInterval = null;
+    iocHuntTaskId = null;
+}
+
 {% endif %}
 </script>
 
 {% endblock %}
-

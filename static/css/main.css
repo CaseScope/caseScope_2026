@@ -357,7 +357,7 @@ a:hover {
 }
 
 .btn-primary {
-    background: var(--color-primary);
+    background: #3d7acc;  /* ~20% darker than #4c9aff */
     color: white;
 }
 
@@ -367,7 +367,7 @@ a:hover {
 }
 
 .btn-success {
-    background: var(--color-success);
+    background: #2b8f65;  /* ~20% darker than #36b37e */
     color: white;
 }
 
@@ -377,7 +377,7 @@ a:hover {
 }
 
 .btn-warning {
-    background: var(--color-warning);
+    background: #cc8900;  /* ~20% darker than #ffab00 */
     color: white;
 }
 
@@ -387,7 +387,7 @@ a:hover {
 }
 
 .btn-danger, .btn-error {
-    background: var(--color-error);
+    background: #cc4526;  /* ~20% darker than #ff5630 */
     color: white;
 }
 

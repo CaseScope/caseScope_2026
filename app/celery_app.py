@@ -63,4 +63,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_discover_users: {e}")
 
+try:
+    from tasks import task_hunt_iocs
+    logger.info("✓ Registered IOC hunting tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_hunt_iocs: {e}")
+
 logger.info("✓ Celery tasks registered")

@@ -453,6 +453,7 @@ Examples:
 4. **System Name** - Computer/host name
 5. **Event ID** - Windows Event ID or "EDR"
 6. **Description** - Event description (truncated)
+7. **IOCs** - IOC type badges (color-coded by threat level)
 
 **File Type Filters:**
 - Checkboxes above results table
@@ -483,6 +484,18 @@ else:
 - Event ID: "EDR" instead of numeric ID
 - Description: `process.command_line` truncated to 120 chars
 - System Name: From `normalized_computer` or `host.hostname`
+
+**IOC Badges:**
+When events contain IOCs (from IOC hunting), badges display in the IOCs column:
+- One badge per unique IOC type found in the event
+- Badge label: IOC type (e.g., "file", "command_line", "domain")
+- Badge color: Determined by threat level
+  - Red (`badge-error`) - critical
+  - Orange (`badge-warning`) - high
+  - Blue (`badge-info`) - medium
+  - Gray (`badge-secondary`) - low/info
+- Hover tooltip shows IOC details
+- Backend query joins with `event_ioc_hits` table to fetch IOC data for displayed events
 
 ### Sorting Controls
 

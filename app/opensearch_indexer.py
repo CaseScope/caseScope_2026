@@ -83,7 +83,12 @@ class OpenSearchIndexer:
                         'source_file': {'type': 'keyword'},
                         'file_type': {'type': 'keyword'},
                         'case_id': {'type': 'keyword'},
-                        'indexed_at': {'type': 'date'}
+                        'indexed_at': {'type': 'date'},
+                        
+                        # Analyst tagging fields
+                        'analyst_tagged': {'type': 'boolean'},
+                        'analyst_tagged_by': {'type': 'keyword'},
+                        'analyst_tagged_at': {'type': 'date'}
                     }
                 }
             }
@@ -123,7 +128,8 @@ class OpenSearchIndexer:
             """Generate actions for bulk indexing"""
             for event in events:
                 # Add metadata
-                event['indexed_at'] = datetime.utcnow().isoformat()
+                from datetime import datetime, timezone
+                event['indexed_at'] = datetime.now(timezone.utc).isoformat()
                 if case_id:
                     event['case_id'] = str(case_id)
                 if source_file:

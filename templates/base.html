@@ -30,28 +30,28 @@
             
             <nav class="sidebar-nav">
                 <!-- Dashboard -->
-                <a href="/" class="sidebar-nav-item active">
+                <a href="/" class="sidebar-nav-item {% if request.path == '/' %}active{% endif %}">
                     <span class="sidebar-nav-icon">📊</span>
                     <span>Dashboard</span>
                 </a>
                 
                 <!-- Case Management -->
-                <a href="/case/dashboard" class="sidebar-nav-item">
+                <a href="/case/dashboard" class="sidebar-nav-item {% if request.path == '/case/dashboard' %}active{% endif %}">
                     <span class="sidebar-nav-icon">📈</span>
                     <span>Case Dashboard</span>
                 </a>
                 
-                <a href="/case/files" class="sidebar-nav-item">
+                <a href="/case/files" class="sidebar-nav-item {% if request.path.startswith('/case/files') %}active{% endif %}">
                     <span class="sidebar-nav-icon">📄</span>
                     <span>Case Files</span>
                 </a>
                 
-                <a href="/case/select" class="sidebar-nav-item">
+                <a href="/case/select" class="sidebar-nav-item {% if request.path == '/case/select' %}active{% endif %}">
                     <span class="sidebar-nav-icon">📁</span>
                     <span>Select Case</span>
                 </a>
                 
-                <a href="/case/evidence" class="sidebar-nav-item">
+                <a href="/case/evidence" class="sidebar-nav-item {% if request.path.startswith('/case/evidence') %}active{% endif %}">
                     <span class="sidebar-nav-icon">🗂️</span>
                     <span>Case Evidence</span>
                 </a>
@@ -59,27 +59,27 @@
                 <!-- Search Section -->
                 <div class="sidebar-section-header">Search</div>
                 
-                <a href="/search" class="sidebar-nav-item">
+                <a href="/search" class="sidebar-nav-item {% if request.path.startswith('/search') %}active{% endif %}">
                     <span class="sidebar-nav-icon">🔍</span>
                     <span>Search</span>
                 </a>
                 
-                <a href="/hunting" class="sidebar-nav-item">
+                <a href="/hunting" class="sidebar-nav-item {% if request.path.startswith('/hunting') %}active{% endif %}">
                     <span class="sidebar-nav-icon">🎯</span>
                     <span>Hunt Events</span>
                 </a>
                 
-                <a href="/systems" class="sidebar-nav-item">
+                <a href="/systems" class="sidebar-nav-item {% if request.path.startswith('/systems') %}active{% endif %}">
                     <span class="sidebar-nav-icon">💻</span>
                     <span>Known Systems</span>
                 </a>
                 
-                <a href="/users" class="sidebar-nav-item">
+                <a href="/users" class="sidebar-nav-item {% if request.path.startswith('/users') %}active{% endif %}">
                     <span class="sidebar-nav-icon">👤</span>
                     <span>Known Users</span>
                 </a>
                 
-                <a href="/ioc" class="sidebar-nav-item">
+                <a href="/ioc" class="sidebar-nav-item {% if request.path.startswith('/ioc') %}active{% endif %}">
                     <span class="sidebar-nav-icon">🎯</span>
                     <span>IOC Management</span>
                 </a>
@@ -88,17 +88,17 @@
                 {% if current_user and current_user.is_authenticated and current_user.role == 'administrator' %}
                 <div class="sidebar-section-header">Administrator</div>
                 
-                <a href="/settings" class="sidebar-nav-item">
+                <a href="/settings" class="sidebar-nav-item {% if request.path.startswith('/settings') %}active{% endif %}">
                     <span class="sidebar-nav-icon">⚙️</span>
                     <span>Settings</span>
                 </a>
                 
-                <a href="/admin/users" class="sidebar-nav-item">
+                <a href="/admin/users" class="sidebar-nav-item {% if request.path.startswith('/admin/users') %}active{% endif %}">
                     <span class="sidebar-nav-icon">👥</span>
                     <span>Users</span>
                 </a>
                 
-                <a href="/admin/audit-log" class="sidebar-nav-item">
+                <a href="/admin/audit-log" class="sidebar-nav-item {% if request.path.startswith('/admin/audit-log') %}active{% endif %}">
                     <span class="sidebar-nav-icon">📋</span>
                     <span>Audit Log</span>
                 </a>

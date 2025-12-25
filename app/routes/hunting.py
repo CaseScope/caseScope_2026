@@ -19,6 +19,112 @@ logger = logging.getLogger(__name__)
 hunting_bp = Blueprint('hunting', __name__, url_prefix='/hunting')
 
 
+# ============================================================================
+# USERNAME FILTERING - Exclude system accounts and groups
+# ============================================================================
+
+# Universal/system usernames to exclude (case-insensitive)
+EXCLUDED_USERNAMES = {
+    # System accounts
+    'system', 'local service', 'network service', 'local_service', 'network_service',
+    'dwa\\system', 'nt authority\\system', 'nt authority\\local service', 
+    'nt authority\\network service', 'authority\\system',
+    
+    # Built-in Windows accounts
+    'guest', 'administrator', 'defaultaccount', 'default', 'wdagutilityaccount',
+    'krbtgt', 'wsiaccount', 'wsiuser', 'defaultuser', 'defaultuser0',
+    
+    # Windows group names (not user accounts)
+    'users', 'administrators', 'guests', 'power users', 'backup operators',
+    'replicator', 'network configuration operators', 'performance monitor users',
+    'performance log users', 'distributed com users', 'iis_iusrs',
+    'cryptographic operators', 'event log readers', 'certificate service dcom access',
+    'rds remote access servers', 'rds endpoint servers', 'rds management servers',
+    'hyper-v administrators', 'access control assistance operators',
+    'remote management users', 'storage replica administrators',
+    'domain admins', 'domain users', 'domain guests', 'domain computers',
+    'domain controllers', 'schema admins', 'enterprise admins', 'group policy creator owners',
+    'read-only domain controllers', 'cloneable domain controllers', 'protected users',
+    'key admins', 'enterprise key admins', 'dnsadmins', 'dnsupdateproxy',
+    
+    # Health monitoring accounts
+    'healthmailbox', 'healthmailboxc3d7722', 'healthmailbox0659e34', 
+    'healthmailbox83d6781', 'healthmailbox6ded678', 'healthmailbox7108a4e',
+    'healthmailbox4a58f8e', 'healthmailboxdb3a90f', 'healthmailboxfdcd4b9',
+    'healthmailboxbe58608', 'healthmailboxf6f5e91', 'healthmailboxfd78d85',
+    'healthmailbox968e74d', 'healthmailbox2ab6a02', 'healthmailbox57e9d8a',
+    
+    # Service accounts (common patterns)
+    'udw', 'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3', 'umfd-4', 'umfd-5',
+    'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4', 'dwm-5',
+    'anonymous logon', 'anonymous', 'nobody',
+    
+    # Empty or invalid usernames
+    '-', '', 'null', 'n/a', 'unknown',
+    
+    # Microsoft services
+    'microsoft.activedirectory', 'azure ad connect', 'aad connect',
+    'msol_', 'exchange online', 'o365', 'office365',
+}
+
+# Prefixes to exclude (case-insensitive)
+EXCLUDED_PREFIXES = [
+    'msol_',
+    'healthmailbox',
+    'umfd-',
+    'dwm-',
+    'system\\',
+    'nt authority\\',
+    'font driver host\\',
+    'window manager\\',
+]
+
+# Patterns to exclude
+EXCLUDED_PATTERNS = [
+    r'^.*\$$',  # Computer accounts ending with $
+    r'^S-\d+-\d+',  # SIDs that look like usernames
+    r'.*_\d+[a-z]{5,}$',  # Pattern like "name_5wofrIv" (likely auto-generated/junk)
+    r'^[a-z0-9]{20,}$',  # Very long random strings
+    r'^[A-Z0-9]{8,}-[A-Z0-9]{4,}-',  # GUID patterns
+]
+
+
+def should_exclude_username(username):
+    """
+    Check if username should be excluded based on patterns and exclusion lists
+    
+    Args:
+        username: Username to check
+    
+    Returns:
+        bool: True if username should be excluded, False otherwise
+    """
+    if not username or not isinstance(username, str):
+        return True
+    
+    username_lower = username.lower().strip()
+    
+    # Skip empty or too short
+    if not username_lower or len(username_lower) < 2:
+        return True
+    
+    # Check exact matches
+    if username_lower in EXCLUDED_USERNAMES:
+        return True
+    
+    # Check prefixes
+    for prefix in EXCLUDED_PREFIXES:
+        if username_lower.startswith(prefix.lower()):
+            return True
+    
+    # Check patterns
+    for pattern in EXCLUDED_PATTERNS:
+        if re.match(pattern, username, re.IGNORECASE):
+            return True
+    
+    return False
+
+
 @hunting_bp.route('/')
 @hunting_bp.route('/dashboard')
 @login_required
@@ -73,6 +179,124 @@ def api_check_edr():
         
     except Exception as e:
         logger.error(f"Error checking EDR: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@hunting_bp.route('/api/login_events')
+@login_required
+def api_login_events():
+    """
+    Fetch login events from OpenSearch (4624 or 4625)
+    """
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'success': False, 'error': 'No case selected'}), 400
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Check permissions for read-only users
+        if current_user.role == 'read-only':
+            if case.id != current_user.case_assigned:
+                return jsonify({'success': False, 'error': 'Access denied'}), 403
+        
+        # Get event ID from query parameter
+        event_id = request.args.get('event_id', '4625')
+        
+        # Initialize OpenSearch client
+        from opensearchpy import OpenSearch
+        from app.config import Config
+        
+        client = OpenSearch(
+            hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}],
+            use_ssl=Config.OPENSEARCH_USE_SSL,
+            verify_certs=False,
+            ssl_show_warn=False,
+            timeout=30
+        )
+        
+        index_name = f"case_{case_id}"
+        
+        # Check if index exists
+        if not client.indices.exists(index=index_name):
+            return jsonify({
+                'success': True,
+                'events': [],
+                'total': 0
+            })
+        
+        # Build query for login events
+        query = {
+            'term': {
+                'event_id': event_id
+            }
+        }
+        
+        # Use scroll API to get all results (bypasses 10K limit)
+        from opensearchpy.helpers import scan
+        
+        # Get all matching events using scroll
+        scroll_results = scan(
+            client,
+            index=index_name,
+            query={'query': query},
+            _source=[
+                'normalized_timestamp', 'timestamp', 'computer', 'normalized_computer',
+                'event_data', 'event_data_fields', 'event_id'
+            ],
+            size=1000,  # Batch size
+            scroll='5m'
+        )
+        
+        # Parse results
+        events = []
+        for hit in scroll_results:
+            source = hit['_source']
+            
+            # Try both event_data and event_data_fields (different formats)
+            event_data = source.get('event_data_fields', source.get('event_data', {})) or {}
+            
+            # Extract relevant fields - works for both 4624 and 4625
+            timestamp = source.get('normalized_timestamp', source.get('timestamp', 'N/A'))
+            username = event_data.get('TargetUserName', event_data.get('SubjectUserName', 'N/A'))
+            source_ip = event_data.get('IpAddress', 'N/A')
+            source_hostname = event_data.get('WorkstationName', 'N/A')
+            target_system = source.get('computer', source.get('normalized_computer', 'N/A'))
+            target_ip = source_ip  # Same as source IP for login events
+            
+            # Filter out system accounts and groups
+            if should_exclude_username(username):
+                continue
+            
+            events.append({
+                'timestamp': timestamp,
+                'username': username,
+                'source_ip': source_ip,
+                'source_hostname': source_hostname,
+                'target_system': target_system,
+                'target_ip': target_ip
+            })
+        
+        # Sort by timestamp descending (newest first)
+        events.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        log_action(
+            action='hunt_login_events',
+            resource_type='case',
+            resource_id=case_id,
+            details=f'Queried event ID {event_id}: found {len(events)} events'
+        )
+        
+        return jsonify({
+            'success': True,
+            'events': events,
+            'total': len(events)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching login events: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -934,3 +1158,113 @@ def api_save_extracted_iocs():
         db.session.rollback()
         logger.error(f"Error saving extracted IOCs: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# IOC HUNTING
+# ============================================================================
+
+@hunting_bp.route('/api/hunt_iocs', methods=['POST'])
+@login_required
+def api_hunt_iocs():
+    """
+    Start background IOC hunt task
+    """
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'success': False, 'error': 'No case selected'}), 400
+        
+        # Check permissions
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Read-only users cannot hunt IOCs
+        if current_user.role == 'read-only':
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        # Import task
+        from tasks.task_hunt_iocs import hunt_iocs
+        
+        # Start background task
+        task = hunt_iocs.delay(case_id, current_user.id)
+        
+        log_action(
+            action='ioc_hunt_started',
+            resource_type='case',
+            resource_id=case_id,
+            resource_name=case.name,
+            details={'task_id': task.id}
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'IOC hunt started'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting IOC hunt: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@hunting_bp.route('/api/hunt_iocs/status/<task_id>')
+@login_required
+def api_hunt_iocs_status(task_id):
+    """
+    Check status of IOC hunt task
+    """
+    try:
+        from tasks.task_hunt_iocs import hunt_iocs
+        from celery.result import AsyncResult
+        
+        task = AsyncResult(task_id, app=hunt_iocs.app)
+        
+        if task.state == 'PENDING':
+            response = {
+                'state': 'PENDING',
+                'status': 'Task is queued...',
+                'progress': 0
+            }
+        elif task.state == 'PROGRESS':
+            response = {
+                'state': 'PROGRESS',
+                'status': task.info.get('status', ''),
+                'progress': task.info.get('progress', 0),
+                'events_scanned': task.info.get('events_scanned', 0),
+                'total_events': task.info.get('total_events', 0),
+                'events_with_hits': task.info.get('events_with_hits', 0),
+                'total_hits': task.info.get('total_hits', 0),
+                'current_ioc': task.info.get('current_ioc', ''),
+                'ioc_count': task.info.get('ioc_count', 0)
+            }
+        elif task.state == 'SUCCESS':
+            result = task.result
+            response = {
+                'state': 'SUCCESS',
+                'status': 'Hunt complete!',
+                'progress': 100,
+                'events_scanned': result.get('events_scanned', 0),
+                'events_with_hits': result.get('events_with_hits', 0),
+                'total_hits': result.get('total_hits', 0),
+                'by_ioc': result.get('by_ioc', {}),
+                'by_threat_level': result.get('by_threat_level', {})
+            }
+        elif task.state == 'FAILURE':
+            response = {
+                'state': 'FAILURE',
+                'status': 'Task failed',
+                'error': str(task.info)
+            }
+        else:
+            response = {
+                'state': task.state,
+                'status': str(task.info)
+            }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking hunt status: {e}", exc_info=True)
+        return jsonify({'state': 'FAILURE', 'error': str(e)}), 500

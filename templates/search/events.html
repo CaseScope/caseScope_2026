@@ -85,28 +85,55 @@
             </div>
         </div>
         
-        <!-- File Type Filters -->
-        <div class="filters-section">
-            <div class="filters-header">
-                <strong>File Types:</strong>
+        <!-- Filters Section -->
+        <div class="filters-grid">
+            <!-- File Type Filters -->
+            <div class="filter-group">
+                <div class="filters-header">
+                    <strong>File Types:</strong>
+                </div>
+                <div class="filters-checkboxes">
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterEVTX" value="EVTX" checked onchange="applyFilters()">
+                        <span class="filter-label">EVTX Files</span>
+                    </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterNDJSON" value="NDJSON" checked onchange="applyFilters()">
+                        <span class="filter-label">NDJSON Files</span>
+                    </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterIIS" value="IIS" checked onchange="applyFilters()">
+                        <span class="filter-label">IIS Files</span>
+                    </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterCSV" value="CSV" checked onchange="applyFilters()">
+                        <span class="filter-label">CSV Files</span>
+                    </label>
+                </div>
             </div>
-            <div class="filters-checkboxes">
-                <label class="filter-checkbox">
-                    <input type="checkbox" id="filterEVTX" value="EVTX" checked onchange="applyFilters()">
-                    <span class="filter-label">EVTX Files</span>
-                </label>
-                <label class="filter-checkbox">
-                    <input type="checkbox" id="filterNDJSON" value="NDJSON" checked onchange="applyFilters()">
-                    <span class="filter-label">NDJSON Files</span>
-                </label>
-                <label class="filter-checkbox">
-                    <input type="checkbox" id="filterIIS" value="IIS" checked onchange="applyFilters()">
-                    <span class="filter-label">IIS Files</span>
-                </label>
-                <label class="filter-checkbox">
-                    <input type="checkbox" id="filterCSV" value="CSV" checked onchange="applyFilters()">
-                    <span class="filter-label">CSV Files</span>
-                </label>
+            
+            <!-- Event Tags Filter -->
+            <div class="filter-group">
+                <div class="filters-header">
+                    <strong>Event Tags:</strong>
+                </div>
+                <div class="filters-checkboxes">
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterOtherEvents" checked onchange="applyFilters()">
+                        <span class="filter-label">📄 Other Events</span>
+                        <span class="filter-description">Events without tags or IOCs</span>
+                    </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterTaggedEvents" checked onchange="applyFilters()">
+                        <span class="filter-label">⭐ Tagged Events</span>
+                        <span class="filter-description">Analyst tagged events</span>
+                    </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterIOCEvents" checked onchange="applyFilters()">
+                        <span class="filter-label">🔴 IOC Events</span>
+                        <span class="filter-description">Events with IOCs in them</span>
+                    </label>
+                </div>
             </div>
         </div>
     </div>
@@ -132,6 +159,7 @@
                         <th style="width: 150px;">System Name</th>
                         <th style="width: 100px;">Event ID</th>
                         <th>Description</th>
+                        <th style="width: 200px;">IOCs</th>
                     </tr>
                 </thead>
                 <tbody id="eventsTableBody">
@@ -215,6 +243,7 @@ let sortField = 'normalized_timestamp';
 let sortOrder = 'desc';
 let currentQuery = '';
 let fileTypeFilters = ['EVTX', 'NDJSON', 'IIS', 'CSV']; // All enabled by default
+let eventTagFilters = ['other', 'tagged', 'ioc']; // All enabled by default
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -263,6 +292,12 @@ function applyFilters() {
     if (document.getElementById('filterIIS').checked) fileTypeFilters.push('IIS');
     if (document.getElementById('filterCSV').checked) fileTypeFilters.push('CSV');
     
+    // Get checked event tag filters
+    eventTagFilters = [];
+    if (document.getElementById('filterOtherEvents').checked) eventTagFilters.push('other');
+    if (document.getElementById('filterTaggedEvents').checked) eventTagFilters.push('tagged');
+    if (document.getElementById('filterIOCEvents').checked) eventTagFilters.push('ioc');
+    
     currentPage = 1; // Reset to first page when filters change
     loadEvents();
 }
@@ -289,6 +324,11 @@ function loadEvents() {
     // Add file type filters
     if (fileTypeFilters.length > 0) {
         params.append('file_types', fileTypeFilters.join(','));
+    }
+    
+    // Add event tag filters (works like file types - checked = include, unchecked = exclude)
+    if (eventTagFilters.length > 0) {
+        params.append('event_tags', eventTagFilters.join(','));
     }
     
     // Fetch events
@@ -355,6 +395,26 @@ function populateTable(events) {
             '<span class="tag-star tag-star-active" onclick="event.stopPropagation(); toggleTag(this, \'' + event.id + '\')">⭐</span>' :
             '<span class="tag-star" onclick="event.stopPropagation(); toggleTag(this, \'' + event.id + '\')">☆</span>';
         
+        // IOC Type Badges
+        let iocBadgesHtml = '';
+        if (event.ioc_types && event.ioc_types.length > 0) {
+            // Get unique types
+            const uniqueTypes = {};
+            event.ioc_types.forEach(ioc => {
+                if (!uniqueTypes[ioc.type] || getThreatLevelPriority(ioc.threat_level) > getThreatLevelPriority(uniqueTypes[ioc.type])) {
+                    uniqueTypes[ioc.type] = ioc.threat_level;
+                }
+            });
+            
+            // Create badges
+            const badges = Object.entries(uniqueTypes).map(([type, level]) => {
+                const threatClass = getThreatLevelClass(level);
+                return `<span class="badge badge-${threatClass} ioc-type-badge">${type}</span>`;
+            });
+            
+            iocBadgesHtml = badges.join(' ');
+        }
+        
         row.innerHTML = `
             <td class="text-center">${taggedHtml}</td>
             <td>${timestampStr}</td>
@@ -362,6 +422,7 @@ function populateTable(events) {
             <td><span class="badge badge-secondary">${event.computer}</span></td>
             <td><span class="badge badge-info">${event.event_id}</span></td>
             <td class="event-description">${escapeHtml(event.description)}</td>
+            <td class="ioc-badges-cell">${iocBadgesHtml}</td>
         `;
         
         tbody.appendChild(row);
@@ -424,18 +485,86 @@ function previousPage() {
 }
 
 function toggleTag(element, eventId) {
-    // Placeholder for future tagging feature
-    element.classList.toggle('tag-star-active');
-    element.textContent = element.classList.contains('tag-star-active') ? '⭐' : '☆';
+    const isCurrentlyTagged = element.classList.contains('tag-star-active');
+    const apiEndpoint = isCurrentlyTagged ? 'untag' : 'tag';
     
-    // TODO: Make API call to persist tag state
-    console.log('Toggle tag for event:', eventId);
+    // Show loading state
+    const originalContent = element.textContent;
+    element.textContent = '⏳';
+    element.style.cursor = 'wait';
+    
+    // Make API call
+    fetch(`/search/api/event/${eventId}/${apiEndpoint}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Toggle the UI
+            element.classList.toggle('tag-star-active');
+            element.textContent = element.classList.contains('tag-star-active') ? '⭐' : '☆';
+            element.style.cursor = 'pointer';
+            
+            // If we're filtering to only show tagged events and we just untagged, refresh the view
+            if (!eventTagFilters.includes('other') && !eventTagFilters.includes('ioc') && !element.classList.contains('tag-star-active')) {
+                // We're in "tagged only" mode and just untagged this event - reload to remove it from view
+                loadEvents();
+            }
+        } else {
+            // Revert on error
+            element.textContent = originalContent;
+            element.style.cursor = 'pointer';
+            alert('Error: ' + (data.error || 'Failed to update tag'));
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling tag:', error);
+        element.textContent = originalContent;
+        element.style.cursor = 'pointer';
+        alert('Failed to update tag: ' + error.message);
+    });
 }
 
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function getThreatLevelClass(level) {
+    const map = {
+        'critical': 'error',
+        'high': 'warning',
+        'medium': 'info',
+        'low': 'secondary',
+        'info': 'secondary'
+    };
+    return map[level] || 'info';
+}
+
+function getThreatLevelPriority(level) {
+    const map = {
+        'critical': 5,
+        'high': 4,
+        'medium': 3,
+        'low': 2,
+        'info': 1
+    };
+    return map[level] || 3;
+}
+
+function getThreatLevelIcon(level) {
+    const map = {
+        'critical': '🔴',
+        'high': '🟠',
+        'medium': '🟡',
+        'low': '🔵',
+        'info': '⚪'
+    };
+    return map[level] || '🟡';
 }
 
 // Modal functions
@@ -954,27 +1083,42 @@ function searchFieldValue(evt, value, element) {
     margin: 0;
 }
 
-.filters-section {
+.filters-grid {
     margin-top: 20px;
     padding-top: 16px;
     border-top: 1px solid var(--color-border);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+}
+
+@media (max-width: 768px) {
+    .filters-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .filters-header {
     color: var(--color-text-primary);
     font-size: 14px;
-    margin-bottom: 12px;
+    font-weight: 600;
 }
 
 .filters-checkboxes {
     display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .filter-checkbox {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     cursor: pointer;
     user-select: none;
@@ -987,10 +1131,22 @@ function searchFieldValue(evt, value, element) {
     cursor: pointer;
     width: 16px;
     height: 16px;
+    margin-top: 2px;
+    flex-shrink: 0;
 }
 
 .filter-label {
     cursor: pointer;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.filter-description {
+    display: block;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-top: 2px;
+    font-weight: normal;
 }
 
 .loading-indicator {
@@ -1068,6 +1224,18 @@ function searchFieldValue(evt, value, element) {
 
 .badge-csv {
     background: var(--color-warning);
+}
+
+.ioc-badges-cell {
+    white-space: nowrap;
+}
+
+.ioc-type-badge {
+    margin: 2px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: lowercase;
+    display: inline-block;
 }
 
 .pagination-container {

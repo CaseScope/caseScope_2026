@@ -105,7 +105,11 @@ def api_search_events():
         file_types_param = request.args.get('file_types', '')
         file_type_filters = [ft.strip().upper() for ft in file_types_param.split(',') if ft.strip()]
         
-        logger.info(f"Search request - query: '{query_string}', file_types_param: '{file_types_param}', file_type_filters: {file_type_filters}")
+        # Get event tag filters (works like file types - checked = include those events)
+        event_tags_param = request.args.get('event_tags', '')
+        event_tag_filters = [tag.strip().lower() for tag in event_tags_param.split(',') if tag.strip()]
+        
+        logger.info(f"Search request - query: '{query_string}', file_types: {file_type_filters}, event_tags: {event_tag_filters}")
         
         # Build OpenSearch query
         index_name = f"case_{case_id}"
@@ -177,6 +181,65 @@ def api_search_events():
                 }
             })
         
+        # Add event tag filters
+        # Logic: If all tags are checked, show ALL events (no filter)
+        #        If some tags unchecked, exclude those types
+        # Tag types: 'other' (no tag, no IOC), 'tagged' (analyst tagged), 'ioc' (has IOC hits)
+        
+        # Only apply filter if not all tags are selected
+        all_tag_types = ['other', 'tagged', 'ioc']
+        if event_tag_filters and set(event_tag_filters) != set(all_tag_types):
+            # Some tags are unchecked, so we need to filter them out
+            tag_must_not_clauses = []
+            
+            # Get IOC event IDs (we'll need this for multiple filters)
+            from models import EventIOCHit
+            from main import db
+            
+            ioc_hits_query = db.session.query(
+                EventIOCHit.opensearch_doc_id
+            ).filter(
+                EventIOCHit.case_id == case_id
+            ).distinct()
+            
+            ioc_event_ids = [hit[0] for hit in ioc_hits_query.all()]
+            logger.info(f"Found {len(ioc_event_ids)} events with IOC hits")
+            
+            # If 'other' not checked, exclude events with no tags and no IOCs
+            if 'other' not in event_tag_filters:
+                # Exclude events that are NOT tagged AND NOT in IOC list
+                # This is complex - we need to exclude events that don't have either characteristic
+                # Better approach: include only events that ARE tagged OR have IOCs
+                tag_must_not_clauses.append({
+                    'bool': {
+                        'must_not': [
+                            {'term': {'analyst_tagged': True}},
+                            {'ids': {'values': ioc_event_ids}} if ioc_event_ids else {'match_none': {}}
+                        ]
+                    }
+                })
+            
+            # If 'tagged' not checked, exclude tagged events
+            if 'tagged' not in event_tag_filters:
+                tag_must_not_clauses.append({
+                    'term': {'analyst_tagged': True}
+                })
+            
+            # If 'ioc' not checked, exclude IOC events
+            if 'ioc' not in event_tag_filters and ioc_event_ids:
+                tag_must_not_clauses.append({
+                    'ids': {'values': ioc_event_ids}
+                })
+            
+            # Apply the exclusion filters
+            if tag_must_not_clauses:
+                for clause in tag_must_not_clauses:
+                    must_clauses.append({
+                        'bool': {
+                            'must_not': clause
+                        }
+                    })
+        
         # Build final query
         if must_clauses:
             if len(must_clauses) == 1:
@@ -240,7 +303,8 @@ def api_search_events():
                 'source_file', '@timestamp', 'timestamp',
                 'event_id', 'computer', 'channel', 'provider_name',
                 'host.hostname', 'host.name', 'event.code', 'event.type', 'event.category',
-                'process.name', 'process.command_line', 'command_line', 'file_type'
+                'process.name', 'process.command_line', 'command_line', 'file_type',
+                'analyst_tagged', 'analyst_tagged_by', 'analyst_tagged_at'
             ],
             'track_total_hits': True
         }
@@ -301,7 +365,9 @@ def api_search_events():
         
         # Parse results
         events = []
+        event_ids = []  # Collect OpenSearch document IDs
         for hit in response['hits']['hits']:
+            event_ids.append(hit['_id'])
             source = hit['_source']
             
             # Determine file type
@@ -403,8 +469,40 @@ def api_search_events():
                 'event_id': event_id,
                 'computer': computer,
                 'description': description,
-                'tagged': False
+                'tagged': source.get('analyst_tagged', False),
+                'tagged_by': source.get('analyst_tagged_by'),
+                'tagged_at': source.get('analyst_tagged_at'),
+                'ioc_types': []  # Will be populated below
             })
+        
+        # Query database for IOC hits for these events
+        if event_ids:
+            from models import EventIOCHit
+            from main import db
+            
+            # Get unique IOC types for each event
+            ioc_hits = db.session.query(
+                EventIOCHit.opensearch_doc_id,
+                EventIOCHit.ioc_type,
+                EventIOCHit.threat_level
+            ).filter(
+                EventIOCHit.opensearch_doc_id.in_(event_ids),
+                EventIOCHit.case_id == case_id
+            ).distinct().all()
+            
+            # Create lookup dictionary with unique IOC types per event
+            from collections import defaultdict
+            ioc_lookup = defaultdict(list)
+            for hit in ioc_hits:
+                ioc_lookup[hit.opensearch_doc_id].append({
+                    'type': hit.ioc_type,
+                    'threat_level': hit.threat_level
+                })
+            
+            # Update events with IOC type information
+            for event in events:
+                if event['id'] in ioc_lookup:
+                    event['ioc_types'] = ioc_lookup[event['id']]
         
         # If we used reverse search, reverse the results back
         if use_reverse:
@@ -468,4 +566,270 @@ def api_get_event(event_id):
         
     except Exception as e:
         logger.error(f"Error fetching event: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@search_bp.route('/api/event/<event_id>/tag', methods=['POST'])
+@login_required
+def api_tag_event(event_id):
+    """
+    Tag an event as analyst-selected
+    
+    Updates the OpenSearch document with analyst_tagged=true and metadata
+    """
+    try:
+        # Get case ID from session
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'error': 'No case selected'}), 400
+        
+        # Verify access
+        from models import Case
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'error': 'Case not found'}), 404
+        
+        if current_user.role == 'read-only':
+            if case.id != current_user.case_assigned:
+                return jsonify({'error': 'Access denied'}), 403
+        
+        # Update event in OpenSearch
+        index_name = f"case_{case_id}"
+        client = get_opensearch_client()
+        
+        try:
+            # Update document with analyst tagging metadata
+            from datetime import datetime, timezone
+            update_body = {
+                'doc': {
+                    'analyst_tagged': True,
+                    'analyst_tagged_by': current_user.username,
+                    'analyst_tagged_at': datetime.now(timezone.utc).isoformat()
+                }
+            }
+            
+            client.update(index=index_name, id=event_id, body=update_body)
+            
+            logger.info(f"Event {event_id} tagged by {current_user.username} in case {case_id}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Event tagged successfully'
+            })
+            
+        except NotFoundError:
+            return jsonify({'error': 'Event not found'}), 404
+        
+    except Exception as e:
+        logger.error(f"Error tagging event: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@search_bp.route('/api/event/<event_id>/untag', methods=['POST'])
+@login_required
+def api_untag_event(event_id):
+    """
+    Remove analyst tag from an event
+    
+    Updates the OpenSearch document with analyst_tagged=false
+    """
+    try:
+        # Get case ID from session
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'error': 'No case selected'}), 400
+        
+        # Verify access
+        from models import Case
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'error': 'Case not found'}), 404
+        
+        if current_user.role == 'read-only':
+            if case.id != current_user.case_assigned:
+                return jsonify({'error': 'Access denied'}), 403
+        
+        # Update event in OpenSearch
+        index_name = f"case_{case_id}"
+        client = get_opensearch_client()
+        
+        try:
+            # Update document to remove analyst tagging
+            update_body = {
+                'doc': {
+                    'analyst_tagged': False,
+                    'analyst_tagged_by': None,
+                    'analyst_tagged_at': None
+                }
+            }
+            
+            client.update(index=index_name, id=event_id, body=update_body)
+            
+            logger.info(f"Event {event_id} untagged by {current_user.username} in case {case_id}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Event tag removed successfully'
+            })
+            
+        except NotFoundError:
+            return jsonify({'error': 'Event not found'}), 404
+        
+    except Exception as e:
+        logger.error(f"Error untagging event: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@search_bp.route('/api/tagged_events/count')
+@login_required
+def api_tagged_events_count():
+    """
+    Get count of tagged events for current case
+    
+    Returns the number of analyst-tagged events
+    """
+    try:
+        # Get case ID from session
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'error': 'No case selected'}), 400
+        
+        # Verify access
+        from models import Case
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'error': 'Case not found'}), 404
+        
+        if current_user.role == 'read-only':
+            if case.id != current_user.case_assigned:
+                return jsonify({'error': 'Access denied'}), 403
+        
+        # Query OpenSearch for tagged events count
+        index_name = f"case_{case_id}"
+        client = get_opensearch_client()
+        
+        try:
+            # Check if index exists
+            if not client.indices.exists(index=index_name):
+                return jsonify({
+                    'success': True,
+                    'count': 0
+                })
+            
+            # Count tagged events
+            query = {
+                'query': {
+                    'term': {'analyst_tagged': True}
+                }
+            }
+            
+            count_response = client.count(index=index_name, body=query)
+            
+            return jsonify({
+                'success': True,
+                'count': count_response['count']
+            })
+            
+        except Exception as e:
+            logger.error(f"Error counting tagged events: {e}")
+            return jsonify({'error': str(e)}), 500
+        
+    except Exception as e:
+        logger.error(f"Error in tagged events count: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@search_bp.route('/api/tagged_events')
+@login_required
+def api_get_tagged_events():
+    """
+    Get all tagged events for current case
+    
+    Used for automated hunting and analyst review workflows
+    Returns simplified event data for all tagged events
+    """
+    try:
+        # Get case ID from session
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'error': 'No case selected'}), 400
+        
+        # Verify access
+        from models import Case
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'error': 'Case not found'}), 404
+        
+        if current_user.role == 'read-only':
+            if case.id != current_user.case_assigned:
+                return jsonify({'error': 'Access denied'}), 403
+        
+        # Query OpenSearch for all tagged events
+        index_name = f"case_{case_id}"
+        client = get_opensearch_client()
+        
+        try:
+            # Check if index exists
+            if not client.indices.exists(index=index_name):
+                return jsonify({
+                    'success': True,
+                    'events': [],
+                    'total': 0
+                })
+            
+            # Query for tagged events
+            query = {
+                'query': {
+                    'term': {'analyst_tagged': True}
+                },
+                'sort': [
+                    {'analyst_tagged_at': {'order': 'desc'}}
+                ],
+                'size': 10000  # Max tagged events to return
+            }
+            
+            response = client.search(index=index_name, body=query)
+            
+            # Parse results
+            tagged_events = []
+            for hit in response['hits']['hits']:
+                source = hit['_source']
+                
+                # Get basic event info
+                timestamp = (
+                    source.get('normalized_timestamp') or
+                    source.get('@timestamp') or
+                    source.get('timestamp')
+                )
+                
+                computer = (
+                    source.get('normalized_computer') or
+                    source.get('computer') or
+                    'Unknown'
+                )
+                
+                event_id = source.get('normalized_event_id') or source.get('event_id') or 'N/A'
+                
+                tagged_events.append({
+                    'id': hit['_id'],
+                    'timestamp': timestamp,
+                    'computer': computer,
+                    'event_id': event_id,
+                    'tagged_by': source.get('analyst_tagged_by'),
+                    'tagged_at': source.get('analyst_tagged_at'),
+                    'file_type': source.get('file_type', 'UNKNOWN')
+                })
+            
+            return jsonify({
+                'success': True,
+                'events': tagged_events,
+                'total': len(tagged_events)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching tagged events: {e}")
+            return jsonify({'error': str(e)}), 500
+        
+    except Exception as e:
+        logger.error(f"Error in get tagged events: {e}")
         return jsonify({'error': str(e)}), 500

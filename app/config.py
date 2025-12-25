@@ -122,7 +122,7 @@ RABBITMQ_VHOST = 'casescope'
 
 # Celery worker settings
 CELERY_WORKERS = 8  # Number of concurrent workers (recommended: 2-4)
-CELERY_MAX_TASKS_PER_CHILD = 100  # Restart worker after N tasks (prevents memory leaks) - CRITICAL: Low value!
+CELERY_MAX_TASKS_PER_CHILD = 1000  # Restart worker after N tasks (prevents memory leaks)
 CELERY_TASK_TIME_LIMIT = None  # Task hard timeout in seconds (None = no limit, user can cancel via UI)
 CELERY_TASK_SOFT_TIME_LIMIT = None  # Task soft timeout in seconds (None = no limit)
 

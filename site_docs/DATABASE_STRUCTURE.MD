@@ -351,6 +351,44 @@ logon_events = EventDescription.query.filter_by(
 - `increment_ioc_sighting(type, value, case_id)` - Auto-increment times_seen and update last_seen
 - `get_ioc_stats()` - Returns IOC statistics (total, active, critical, breakdowns by category/threat_level)
 
+### Event IOC Hits Table (`event_ioc_hits`)
+|| Column | Type | Details |
+||--------|------|---------|
+|| `id` | Integer | Primary key |
+|| `case_id` | Integer | Foreign key to `case.id` (cascades on delete), indexed |
+|| `opensearch_doc_id` | String(255) | OpenSearch document ID, indexed |
+|| `event_record_id` | BigInteger | Event record ID (nullable) |
+|| `event_id` | String(255) | Event ID, indexed |
+|| `event_timestamp` | DateTime | Event timestamp |
+|| `computer` | String(255) | Computer/hostname |
+|| `ioc_id` | Integer | Foreign key to `iocs.id` (cascades on delete), indexed |
+|| `ioc_value` | String(1000) | IOC value (denormalized) |
+|| `ioc_type` | String(50) | IOC type (denormalized), indexed |
+|| `ioc_category` | String(50) | IOC category (denormalized) |
+|| `threat_level` | String(20) | Threat level (denormalized), indexed |
+|| `matched_in_field` | String(255) | Field where IOC was found |
+|| `match_context` | Text | Context of the match |
+|| `confidence` | String(20) | Confidence level (default: 'high') |
+|| `detected_at` | DateTime | Detection timestamp (default: now), indexed |
+|| `detected_by` | Integer | Foreign key to `user.id` |
+
+**Indexes**:
+- case_id, opensearch_doc_id, ioc_id, event_id
+- threat_level, ioc_type, detected_at
+- Unique constraint on (case_id, opensearch_doc_id, ioc_id)
+
+**Relationships**:
+- `case` - Belongs to case
+- `ioc` - References IOC
+- `detector` - User who initiated hunt
+
+**Purpose**:
+- Links OpenSearch events to IOC database entries
+- Powers IOC badge display in search results
+- Tracks which events contain which IOCs
+- Supports IOC hunt statistics and reporting
+- Enables filtering events by IOC presence
+
 ---
 
 ## Known Systems Management
@@ -572,7 +610,9 @@ python3 app/init_db.py
 | `ioc_tags` | casescope | IOC tagging system |
 | `ioc_relationships` | casescope | IOC relationship mappings |
 | `ioc_enrichment` | casescope | External threat intel enrichment log |
+| `event_ioc_hits` | casescope | Event-to-IOC linkage tracking |
 | `known_systems` | casescope | Known systems and devices tracking |
+| `known_users` | casescope | Known users and identities tracking |
 | `pattern_embeddings` | postgres | AI embeddings for Sigma rules & MITRE ATT&CK |
 
 ## Schema Changes & Migrations
@@ -583,6 +623,8 @@ Store SQL migration scripts in `/migrations` directory with descriptive names an
 - `add_pgvector_patterns.sql` - Creates pattern_embeddings table with pgvector extension for AI/RAG
 - `add_ioc_management.sql` - Creates IOC management tables (iocs, ioc_tags, ioc_relationships, ioc_enrichment)
 - `add_known_systems.sql` - Creates known_systems table for tracking devices and infrastructure
+- `add_known_users.sql` - Creates known_users table for tracking user accounts and identities
+- `add_event_ioc_hits.sql` - Creates event_ioc_hits table for linking events to IOCs
 
 ## PostgreSQL Extensions
 

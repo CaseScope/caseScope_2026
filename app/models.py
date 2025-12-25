@@ -301,3 +301,46 @@ class KnownUser(db.Model):
     
     def __repr__(self):
         return f'<KnownUser {self.domain_name}\\{self.username}>' if self.domain_name else f'<KnownUser {self.username}>'
+
+
+class EventIOCHit(db.Model):
+    """
+    Tracks which events contain which IOCs
+    Links OpenSearch events to IOC database entries
+    """
+    __tablename__ = 'event_ioc_hits'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    
+    # Event identification
+    opensearch_doc_id = db.Column(db.String(255), nullable=False, index=True)
+    event_record_id = db.Column(db.BigInteger)
+    event_id = db.Column(db.String(255), index=True)
+    event_timestamp = db.Column(db.DateTime)
+    computer = db.Column(db.String(255))
+    
+    # IOC information
+    ioc_id = db.Column(db.Integer, db.ForeignKey('iocs.id'), nullable=False, index=True)
+    ioc_value = db.Column(db.String(1000), nullable=False)
+    ioc_type = db.Column(db.String(50), index=True)
+    ioc_category = db.Column(db.String(50))
+    threat_level = db.Column(db.String(20), index=True)
+    
+    # Match details
+    matched_in_field = db.Column(db.String(255))
+    match_context = db.Column(db.Text)
+    confidence = db.Column(db.String(20), default='high')
+    
+    # Metadata
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    detected_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    
+    # Relationships
+    case = db.relationship('Case', backref='ioc_hits')
+    ioc = db.relationship('IOC', backref='event_hits')
+    detector = db.relationship('User', backref='ioc_detections')
+    
+    def __repr__(self):
+        return f'<EventIOCHit IOC:{self.ioc_id} in Event:{self.opensearch_doc_id}>'
+
