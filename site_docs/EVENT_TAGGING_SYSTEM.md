@@ -44,17 +44,18 @@ Response:
 
 ### Search with Filters
 
-`GET /search/api/events?event_tags=other,tagged,ioc`
+`GET /search/api/events?event_tags=other,tagged,ioc,sigma`
 
 Parameters: `file_types`, `event_tags`, `q`, `page`, `per_page`
 
 ## Event Tag Filters
 
-### Three Filter Types (Default: All Checked)
+### Four Filter Types (Default: All Checked)
 
-1. **📄 Other Events** - Events without tags or IOCs
+1. **📄 Other Events** - Events without tags, IOCs, or Sigma hits
 2. **⭐ Tagged Events** - Analyst-tagged events  
 3. **🔴 IOC Events** - Events with IOC hits
+4. **🟣 SIGMA Events** - Events matching Sigma rules
 
 ### Filter Behavior
 
@@ -67,9 +68,10 @@ Works exactly like File Type filters using exclusion logic.
 
 | Filters Checked | Result |
 |----------------|--------|
-| All 3 ✓ | Shows all events (no filtering) |
-| Other + Tagged ✓ | Hides IOC events |
-| Tagged only ✓ | Shows only analyst-tagged events |
+| All 4 ✓ | Shows all events (no filtering) |
+| Other + Tagged ✓ | Hides IOC and Sigma events |
+| Tagged + IOC ✓ | Shows only analyst-tagged and IOC events |
+| SIGMA only ✓ | Shows only Sigma rule matches |
 | Other only ✓ | Shows only regular events |
 | None ✓ | Shows nothing (all excluded) |
 
@@ -80,6 +82,7 @@ File Type and Event Tag filters work together (AND):
 ```
 EVTX ✓ + Tagged ✓ = Tagged EVTX events only
 NDJSON ✓ + IOC ✓ = NDJSON events with IOCs
+EVTX ✓ + SIGMA ✓ = EVTX events with Sigma hits
 ```
 
 ## UI Features
@@ -94,6 +97,7 @@ Located in Event Search page, right side:
 - Other Events checkbox
 - Tagged Events checkbox
 - IOC Events checkbox
+- SIGMA Events checkbox
 
 All work together with exclusion logic.
 
@@ -101,11 +105,12 @@ All work together with exclusion logic.
 
 ### Event Classification
 
-- **Other**: `analyst_tagged != true` AND `NOT IN ioc_event_ids`
+- **Other**: `analyst_tagged != true` AND `NOT IN ioc_event_ids` AND `NOT IN sigma_event_ids`
 - **Tagged**: `analyst_tagged == true`
 - **IOC**: `opensearch_doc_id IN ioc_event_ids`
+- **SIGMA**: `opensearch_doc_id IN sigma_event_ids`
 
-Events can overlap (tagged + IOC).
+Events can overlap (tagged + IOC + Sigma).
 
 ### OpenSearch Query
 
@@ -113,13 +118,16 @@ Events can overlap (tagged + IOC).
 # All checked = No filter
 
 # If 'other' unchecked:
-must_not: [bool: {must_not: [tagged, ioc]}]
+must_not: [bool: {must_not: [tagged, ioc, sigma]}]
 
 # If 'tagged' unchecked:
 must_not: [{term: {analyst_tagged: true}}]
 
 # If 'ioc' unchecked:
 must_not: [{ids: {values: [ioc_event_ids]}}]
+
+# If 'sigma' unchecked:
+must_not: [{ids: {values: [sigma_event_ids]}}]
 ```
 
 ### Frontend (JavaScript)
@@ -130,6 +138,7 @@ eventTagFilters = [];
 if ($('#filterOtherEvents').checked) eventTagFilters.push('other');
 if ($('#filterTaggedEvents').checked) eventTagFilters.push('tagged');
 if ($('#filterIOCEvents').checked) eventTagFilters.push('ioc');
+if ($('#filterSigmaEvents').checked) eventTagFilters.push('sigma');
 
 // Pass to API
 params.append('event_tags', eventTagFilters.join(','));
@@ -144,8 +153,9 @@ params.append('event_tags', eventTagFilters.join(','));
 2. Star fills (⭐) and tag is saved
 
 **Filter view:**
-1. Uncheck "Other Events" to see only tagged/IOC events
+1. Uncheck "Other Events" to see only tagged/IOC/Sigma events
 2. Uncheck "IOC Events" to hide IOC hunting results
+3. Check only "SIGMA Events" to see Sigma rule matches
 
 ### For Automation
 
@@ -233,7 +243,7 @@ Possible additions:
 ## Related Documentation
 
 - [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event search
-- [IOC_HUNT_IMPLEMENTATION.md](IOC_HUNT_IMPLEMENTATION.md) - Hunting
+- [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma hunting
 - [AUDIT.MD](AUDIT.MD) - Audit logging
 
 ## Testing

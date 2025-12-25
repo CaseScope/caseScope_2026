@@ -447,13 +447,14 @@ Examples:
 ### Results Table
 
 **Columns:**
-1. **Tagged** - Star icon (for future tagging feature)
+1. **Tagged** - Star icon (for event tagging)
 2. **Timestamp** - Event timestamp, sortable
 3. **Type** - EVTX, NDJSON/EDR, CSV, or IIS
 4. **System Name** - Computer/host name
 5. **Event ID** - Windows Event ID or "EDR"
 6. **Description** - Event description (truncated)
 7. **IOCs** - IOC type badges (color-coded by threat level)
+8. **SIGMA Detections** - Sigma rule badges (color-coded by severity)
 
 **File Type Filters:**
 - Checkboxes above results table
@@ -496,6 +497,16 @@ When events contain IOCs (from IOC hunting), badges display in the IOCs column:
   - Gray (`badge-secondary`) - low/info
 - Hover tooltip shows IOC details
 - Backend query joins with `event_ioc_hits` table to fetch IOC data for displayed events
+
+**SIGMA Badges:**
+When events match Sigma rules (from Sigma rule hunting), badges display in the SIGMA Detections column:
+- Badge shows count of matched rules (e.g., "3 rules")
+- Badge color determined by highest severity:
+  - Red (`badge-error`) - Critical/High
+  - Orange (`badge-warning`) - Medium
+  - Blue (`badge-info`) - Low/Informational
+- Hover tooltip shows matched rule titles and severity levels
+- Backend query joins with `event_sigma_hits` table to fetch Sigma data for displayed events
 
 ### Sorting Controls
 

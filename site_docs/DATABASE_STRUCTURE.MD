@@ -391,6 +391,39 @@ logon_events = EventDescription.query.filter_by(
 
 ---
 
+### Event Sigma Hits Table (`event_sigma_hits`)
+|| Column | Type | Details |
+||--------|------|---------|
+|| `id` | Integer | Primary key |
+|| `case_id` | Integer | Foreign key to `case.id`, indexed |
+|| `opensearch_doc_id` | String(255) | OpenSearch document ID, indexed |
+|| `file_id` | Integer | Foreign key to `case_file.id`, indexed |
+|| `sigma_rule_id` | String(255) | Sigma rule ID (e.g., UUID), indexed |
+|| `rule_title` | Text | Human-readable rule title |
+|| `rule_level` | String(50) | Severity (critical, high, medium, low, informational), indexed |
+|| `mitre_tags` | Text | Comma-separated MITRE ATT&CK tags |
+|| `matched_at` | DateTime | Detection timestamp (default: now), indexed |
+|| `detected_by` | Integer | Foreign key to `user.id` |
+
+**Indexes**:
+- case_id, opensearch_doc_id, file_id, sigma_rule_id
+- rule_level, matched_at, detected_by
+- Unique constraint on (opensearch_doc_id, sigma_rule_id)
+
+**Relationships**:
+- `case` - Belongs to case
+- `case_file` - References EVTX file that was scanned
+- `detector` - User who initiated hunt
+
+**Purpose**:
+- Links OpenSearch events to Sigma rule detections
+- Powers Sigma badge display in search results with severity-based colors
+- Tracks which events match which Sigma rules
+- Supports Sigma hunt statistics and reporting
+- Enables filtering events by Sigma rule matches
+
+---
+
 ## Known Systems Management
 
 ### KnownSystems Table (`known_systems`)
@@ -611,6 +644,7 @@ python3 app/init_db.py
 | `ioc_relationships` | casescope | IOC relationship mappings |
 | `ioc_enrichment` | casescope | External threat intel enrichment log |
 | `event_ioc_hits` | casescope | Event-to-IOC linkage tracking |
+| `event_sigma_hits` | casescope | Event-to-Sigma rule linkage tracking |
 | `known_systems` | casescope | Known systems and devices tracking |
 | `known_users` | casescope | Known users and identities tracking |
 | `pattern_embeddings` | postgres | AI embeddings for Sigma rules & MITRE ATT&CK |
@@ -625,6 +659,7 @@ Store SQL migration scripts in `/migrations` directory with descriptive names an
 - `add_known_systems.sql` - Creates known_systems table for tracking devices and infrastructure
 - `add_known_users.sql` - Creates known_users table for tracking user accounts and identities
 - `add_event_ioc_hits.sql` - Creates event_ioc_hits table for linking events to IOCs
+- `add_event_sigma_hits.sql` - Creates event_sigma_hits table for linking events to Sigma rule detections
 
 ## PostgreSQL Extensions
 

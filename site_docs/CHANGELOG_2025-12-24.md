@@ -783,7 +783,7 @@ New table to track which events contain which IOCs:
 - `/app/celery_app.py` - Registered task_hunt_iocs
 
 **Documentation**:
-- `/site_docs/IOC_HUNT_IMPLEMENTATION.md` - Updated with badge integration
+- `/site_docs/THREAT_HUNTING.md` - Consolidated IOC and Sigma hunting documentation
 - `/site_docs/SEARCH_SYSTEM.md` - Documented IOCs column
 - `/site_docs/DATABASE_STRUCTURE.MD` - Added event_ioc_hits table
 

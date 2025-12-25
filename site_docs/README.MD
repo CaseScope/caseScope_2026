@@ -17,11 +17,12 @@ This directory contains comprehensive technical documentation for the CaseScope 
 5. **Cases**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) - Case management
 6. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload, parse, and display
 7. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) + [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Query, analyze, and tag events
-8. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) + [IOC_HUNT_IMPLEMENTATION.md](IOC_HUNT_IMPLEMENTATION.md) - Threat intelligence and IOC tracking
-9. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
-10. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
-11. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
-12. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
+8. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma rule hunting
+9. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
+10. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
+11. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
+12. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
+13. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
 
 ### For System Administrators
 
@@ -110,7 +111,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 **Critical For**: File upload features, EVTX/NDJSON processing
 
-**Consolidated From**: CHUNK_UPLOAD_SYSTEM.md, EVTX_PARSING_INDEXING.md, IMPLEMENTATION_COMPLETE.md, UPLOAD_REDIRECT_COMPLETE.md, UPLOAD_TEST_RESULTS.md, EVTX_DIAGNOSIS_SUMMARY.md, MEMORY_MANAGEMENT.md, MEMORY_SAFE_DESIGN.md
+**Consolidated From**: CHUNK_UPLOAD_SYSTEM.md, EVTX_PARSING_INDEXING.md, IMPLEMENTATION_COMPLETE.md, UPLOAD_REDIRECT_COMPLETE.md, UPLOAD_TEST_RESULTS.md, EVTX_DIAGNOSIS_SUMMARY.md, MEMORY_MANAGEMENT.md, MEMORY_SAFE_DESIGN.md, FILE_LIST_COMPLETE.md, FILE_LIST_IMPLEMENTATION.md, ENHANCED_FILE_UI.md, HIDDEN_FILES_FEATURE.md, REALTIME_PROGRESS_TRACKING.md
 
 ---
 
@@ -150,13 +151,32 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 ---
 
-### Threat Intelligence & IOC Management
+### User Management & Security
+
+#### [THREAT_HUNTING.md](THREAT_HUNTING.md)
+**Purpose**: Automated IOC and SIGMA rule hunting system
+
+**Contents**:
+- IOC hunting implementation (search strategies, badge display)
+- SIGMA rule hunting with Chainsaw (3,083 rules)
+- Event matching algorithms
+- Background processing with Celery
+- Progress tracking and status updates
+- Badge system with severity-based colors
+- Integration with event tagging filters
+- API endpoints and UI components
+- Performance optimization strategies
+- Troubleshooting guides
+
+**Critical For**: Automated threat detection, event triage
+
+---
 
 #### [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md)
 **Purpose**: Comprehensive IOC (Indicators of Compromise) management system
 
 **Contents**:
-- IOC database model (types, categories, threat levels)
+- IOC database model (56 types, 7 categories, threat levels)
 - Manual IOC creation, editing, deletion (individual & bulk)
 - Automated IOC extraction from EDR reports
   - AI-based extraction (primary, via Ollama)
@@ -166,11 +186,9 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - Search, filtering, and pagination
 - CSV export
 - Comprehensive audit logging
-- Permission matrix by role
 - API endpoints reference
-- UI components and modals
 
-**Critical For**: Threat intelligence, IOC tracking, EDR analysis
+**Critical For**: Threat intelligence database, IOC tracking, EDR analysis
 
 ---
 
@@ -302,8 +320,8 @@ This directory contains comprehensive technical documentation for the CaseScope 
 4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
 5. **Case Management**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD)
 6. **File Upload**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) - Chunked upload system
-7. **File Parsing**: [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) - EVTX/NDJSON parsers
-8. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event querying
+7. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event querying
+8. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma hunting
 9. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
 
 ### For System Administrators
@@ -354,8 +372,12 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | Event Tagging System | ✅ Complete | [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) |
 | File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | IOC Management | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
+| IOC Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
 | IOC Extraction (AI + Regex) | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
 | IOC Deduplication | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
+| SIGMA Rule Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
+| Known Systems Tracking | ✅ Complete | [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) |
+| Known Users Tracking | ✅ Complete | [KNOWN_USERS.md](KNOWN_USERS.md) |
 | AI System | ✅ Complete | [AI_SYSTEM.MD](AI_SYSTEM.MD) |
 | RAG System | ✅ Complete | [RAG_SYSTEM.MD](RAG_SYSTEM.MD) |
 | Case Cleanup | ✅ Complete | [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) |
@@ -510,32 +532,30 @@ For questions or issues:
 
 ## 📅 Changelog
 
+### 2025-12-25
+- ✅ SIGMA rule hunting system (3,083 rules via Chainsaw)
+- ✅ Severity-based badge coloring for Sigma detections
+- ✅ IOC hunting system with multi-strategy search
+- ✅ Event tag filtering (4 types: Other, Tagged, IOC, SIGMA)
+- ✅ Consolidated threat hunting documentation
+
 ### 2025-12-24
 - ✅ IOC management system (manual + automated)
 - ✅ IOC extraction from EDR reports (AI + regex fallback)
 - ✅ Intelligent IOC deduplication (auto + manual)
+- ✅ Known Systems tracking with auto-discovery
+- ✅ Known Users tracking with auto-discovery
 - ✅ IOC audit logging (comprehensive tracking)
-- ✅ CSV export for IOCs
+- ✅ CSV export/import for IOCs, Systems, and Users
 - ✅ Regex-based IOC extractor (fallback when AI unavailable)
 - ✅ EVTX event descriptions system (1,100+ events)
-- ✅ Web scraping from multiple sources (ultimatewindowssecurity.com, microsoft.com)
-- ✅ Embedded event database for reliability
-- ✅ Event description search and pagination
-- ✅ Automatic deduplication (keeps most descriptive version)
-- ✅ Comprehensive IOC management documentation
 
 ### 2025-12-23
 - ✅ Event search system with boolean operators
 - ✅ File type filtering (EVTX, NDJSON, IIS, CSV)
-- ✅ Event ID display fix for EVTX files
 - ✅ NDJSON/JSON/JSONL parsing
-- ✅ Search blob for full-text search
 - ✅ Process tree visualization
 - ✅ Deep pagination optimization
-- ✅ Source system detection fix
-- ✅ File parsing documentation
-- ✅ Search system documentation
-- ✅ Case cleanup procedure documentation
 - ✅ Celery worker configuration UI
 
 ### 2025-12-21
@@ -543,10 +563,7 @@ For questions or issues:
 - ✅ Role-based access control (RBAC)
 - ✅ Comprehensive audit logging
 - ✅ Case management (CRUD operations)
-- ✅ Case dashboard with network config
-- ✅ EDR report management
 - ✅ System dashboard with auto-refresh
-- ✅ Documentation suite created
 
 ---
 
