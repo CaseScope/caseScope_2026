@@ -50,7 +50,7 @@ The Threat Hunting System provides comprehensive automated threat detection capa
 #### Smart Search Strategies
 
 **By IOC Type**:
-1. **IPv4**: Searches IpAddress, SourceAddress, DestAddress, ClientIPAddress fields
+1. **IPv4**: Searches IpAddress, SourceAddress, DestAddress, ClientIPAddress (EVTX), src_ip, dst_ip, extracted_ips (firewall CSV), normalized_source_ip, normalized_dest_ip (normalized fields)
 2. **File Hashes**: Searches Hashes, Hash, MD5, SHA1, SHA256 fields (case-insensitive)
 3. **Domain**: Searches DestinationHostname, QueryName, TargetServerName fields
 4. **File Name**: Searches TargetFilename, ImagePath, FileName fields

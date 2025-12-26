@@ -1184,18 +1184,22 @@ def api_hunt_iocs():
         if current_user.role == 'read-only':
             return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
         
+        # Get clear_previous option from request
+        data = request.get_json() or {}
+        clear_previous = data.get('clear_previous', True)
+        
         # Import task
         from tasks.task_hunt_iocs import hunt_iocs
         
         # Start background task
-        task = hunt_iocs.delay(case_id, current_user.id)
+        task = hunt_iocs.delay(case_id, current_user.id, clear_previous)
         
         log_action(
             action='ioc_hunt_started',
             resource_type='case',
             resource_id=case_id,
             resource_name=case.name,
-            details={'task_id': task.id}
+            details={'task_id': task.id, 'clear_previous': clear_previous}
         )
         
         return jsonify({
@@ -1267,4 +1271,124 @@ def api_hunt_iocs_status(task_id):
         
     except Exception as e:
         logger.error(f"Error checking hunt status: {e}", exc_info=True)
+        return jsonify({'state': 'FAILURE', 'error': str(e)}), 500
+
+
+# ============================================================================
+# SIGMA HUNTING
+# ============================================================================
+
+@hunting_bp.route('/api/hunt_sigma', methods=['POST'])
+@login_required
+def api_hunt_sigma():
+    """
+    Start background Sigma hunt task using Chainsaw
+    """
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'success': False, 'error': 'No case selected'}), 400
+        
+        # Check permissions
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Read-only users cannot hunt
+        if current_user.role == 'readonly':
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        # Get clear_previous option from request
+        data = request.get_json() or {}
+        clear_previous = data.get('clear_previous', True)
+        
+        # Start Celery task
+        from tasks.task_hunt_sigma import hunt_sigma
+        task = hunt_sigma.delay(case_id, current_user.id, clear_previous)
+        
+        # Log action
+        log_action(
+            action='sigma_hunt',
+            details={
+                'case_id': case_id,
+                'case_name': case.name,
+                'clear_previous': clear_previous,
+                'task_id': task.id
+            }
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Sigma hunt started'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting Sigma hunt: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@hunting_bp.route('/api/hunt_sigma/status/<task_id>')
+@login_required
+def api_hunt_sigma_status(task_id):
+    """
+    Check status of Sigma hunt task
+    """
+    try:
+        from tasks.task_hunt_sigma import hunt_sigma
+        from celery.result import AsyncResult
+        
+        task = AsyncResult(task_id, app=hunt_sigma.app)
+        
+        if task.state == 'PENDING':
+            response = {
+                'state': 'PENDING',
+                'status': 'Task is queued...',
+                'progress': 0,
+                'current_file': '',
+                'files_checked': 0,
+                'events_tagged': 0,
+                'total_hits': 0
+            }
+        elif task.state == 'PROGRESS':
+            info = task.info or {}
+            response = {
+                'state': 'PROGRESS',
+                'status': f"Processing {info.get('current', 0)}/{info.get('total', 0)} files...",
+                'progress': info.get('percent', 0),
+                'current_file': info.get('current_file', ''),
+                'files_checked': info.get('files_checked', 0),
+                'events_tagged': info.get('events_tagged', 0),
+                'total_hits': info.get('total_hits', 0),
+                'current': info.get('current', 0),
+                'total': info.get('total', 0)
+            }
+        elif task.state == 'SUCCESS':
+            result = task.result
+            response = {
+                'state': 'SUCCESS',
+                'status': 'Sigma hunt complete!',
+                'progress': 100,
+                'files_checked': result.get('files_checked', 0),
+                'files_ignored': result.get('files_ignored', 0),
+                'events_tagged': result.get('events_tagged', 0),
+                'total_hits': result.get('total_hits', 0),
+                'rules_matched': result.get('rules_matched', {})
+            }
+        elif task.state == 'FAILURE':
+            response = {
+                'state': 'FAILURE',
+                'status': 'Task failed',
+                'error': str(task.info)
+            }
+        else:
+            response = {
+                'state': task.state,
+                'status': str(task.info)
+            }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking Sigma hunt status: {e}", exc_info=True)
         return jsonify({'state': 'FAILURE', 'error': str(e)}), 500

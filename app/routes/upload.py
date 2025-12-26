@@ -165,15 +165,63 @@ def complete_upload(case_id):
                 'error': f'File size mismatch. Expected: {file_size}, Got: {actual_size}'
             }), 500
         
+        # Calculate file hash after assembly (memory-safe streaming)
+        logger.info(f"Calculating SHA256 hash for {file_name}...")
+        hash_obj = hashlib.sha256()
+        with open(final_path, 'rb') as f:
+            while chunk_data := f.read(8388608):  # 8MB chunks
+                hash_obj.update(chunk_data)
+        file_hash = hash_obj.hexdigest()
+        logger.info(f"Calculated SHA256: {file_hash[:16]}...")
+        
+        # Check for duplicate file in this case (per-case deduplication)
+        from models import CaseFile
+        duplicate = CaseFile.query.filter_by(
+            case_id=case_id,
+            file_hash=file_hash
+        ).first()
+        
+        is_duplicate = False
+        duplicate_info = None
+        force_reupload = data.get('forceReupload', False)
+        
+        if duplicate and not force_reupload:
+            # Duplicate found - prepare warning info
+            is_duplicate = True
+            duplicate_info = {
+                'id': duplicate.id,
+                'filename': duplicate.original_filename,
+                'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None,
+                'event_count': duplicate.event_count,
+                'file_size': duplicate.file_size
+            }
+            
+            logger.info(f"Duplicate file detected: {file_name} (hash: {file_hash[:16]}...)")
+            
+            # Clean up uploaded file and chunks
+            os.remove(final_path)
+            try:
+                shutil.rmtree(chunk_dir)
+            except Exception as e:
+                logger.warning(f"Failed to clean up chunks: {e}")
+            
+            return jsonify({
+                'success': False,
+                'isDuplicate': True,
+                'duplicate': duplicate_info,
+                'message': f'File already uploaded to this case on {duplicate_info["uploaded_at"]}',
+                'fileHash': file_hash
+            }), 409  # 409 Conflict
+        
         # Clean up chunks
         try:
             shutil.rmtree(chunk_dir)
         except Exception as e:
             logger.warning(f"Failed to clean up chunks: {e}")
         
-        # Queue file for processing
+        # Queue file for processing (pass hash to ingest task)
         from tasks.task_file_upload import ingest_staged_file
-        task = ingest_staged_file.delay(case_id, final_path)
+        task = ingest_staged_file.delay(case_id, final_path, file_hash)
         
         # Log action
         from audit_logger import log_action

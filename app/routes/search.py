@@ -184,16 +184,16 @@ def api_search_events():
         # Add event tag filters
         # Logic: If all tags are checked, show ALL events (no filter)
         #        If some tags unchecked, exclude those types
-        # Tag types: 'other' (no tag, no IOC), 'tagged' (analyst tagged), 'ioc' (has IOC hits)
+        # Tag types: 'other' (no tag, no IOC, no Sigma), 'tagged' (analyst tagged), 'ioc' (has IOC hits), 'sigma' (has Sigma hits)
         
         # Only apply filter if not all tags are selected
-        all_tag_types = ['other', 'tagged', 'ioc']
+        all_tag_types = ['other', 'tagged', 'ioc', 'sigma']
         if event_tag_filters and set(event_tag_filters) != set(all_tag_types):
             # Some tags are unchecked, so we need to filter them out
             tag_must_not_clauses = []
             
             # Get IOC event IDs (we'll need this for multiple filters)
-            from models import EventIOCHit
+            from models import EventIOCHit, EventSigmaHit
             from main import db
             
             ioc_hits_query = db.session.query(
@@ -205,17 +205,30 @@ def api_search_events():
             ioc_event_ids = [hit[0] for hit in ioc_hits_query.all()]
             logger.info(f"Found {len(ioc_event_ids)} events with IOC hits")
             
-            # If 'other' not checked, exclude events with no tags and no IOCs
+            # Get Sigma event IDs
+            sigma_hits_query = db.session.query(
+                EventSigmaHit.opensearch_doc_id
+            ).filter(
+                EventSigmaHit.case_id == case_id
+            ).distinct()
+            
+            sigma_event_ids = [hit[0] for hit in sigma_hits_query.all()]
+            logger.info(f"Found {len(sigma_event_ids)} events with Sigma hits")
+            
+            # If 'other' not checked, exclude events with no tags, no IOCs, and no Sigma
             if 'other' not in event_tag_filters:
-                # Exclude events that are NOT tagged AND NOT in IOC list
-                # This is complex - we need to exclude events that don't have either characteristic
-                # Better approach: include only events that ARE tagged OR have IOCs
+                # Exclude events that are NOT tagged AND NOT in IOC list AND NOT in Sigma list
+                exclude_conditions = [
+                    {'term': {'analyst_tagged': True}}
+                ]
+                if ioc_event_ids:
+                    exclude_conditions.append({'ids': {'values': ioc_event_ids}})
+                if sigma_event_ids:
+                    exclude_conditions.append({'ids': {'values': sigma_event_ids}})
+                
                 tag_must_not_clauses.append({
                     'bool': {
-                        'must_not': [
-                            {'term': {'analyst_tagged': True}},
-                            {'ids': {'values': ioc_event_ids}} if ioc_event_ids else {'match_none': {}}
-                        ]
+                        'must_not': exclude_conditions
                     }
                 })
             
@@ -229,6 +242,12 @@ def api_search_events():
             if 'ioc' not in event_tag_filters and ioc_event_ids:
                 tag_must_not_clauses.append({
                     'ids': {'values': ioc_event_ids}
+                })
+            
+            # If 'sigma' not checked, exclude Sigma events
+            if 'sigma' not in event_tag_filters and sigma_event_ids:
+                tag_must_not_clauses.append({
+                    'ids': {'values': sigma_event_ids}
                 })
             
             # Apply the exclusion filters
@@ -477,8 +496,9 @@ def api_search_events():
         
         # Query database for IOC hits for these events
         if event_ids:
-            from models import EventIOCHit
+            from models import EventIOCHit, EventSigmaHit
             from main import db
+            from sqlalchemy import func
             
             # Get unique IOC types for each event
             ioc_hits = db.session.query(
@@ -499,10 +519,61 @@ def api_search_events():
                     'threat_level': hit.threat_level
                 })
             
-            # Update events with IOC type information
+            # Get Sigma hit counts and highest severity for each event
+            sigma_hits = db.session.query(
+                EventSigmaHit.opensearch_doc_id,
+                func.count(EventSigmaHit.id).label('hit_count'),
+                func.max(
+                    db.case(
+                        (EventSigmaHit.rule_level == 'critical', 5),
+                        (EventSigmaHit.rule_level == 'high', 4),
+                        (EventSigmaHit.rule_level == 'medium', 3),
+                        (EventSigmaHit.rule_level == 'low', 2),
+                        else_=1
+                    )
+                ).label('max_severity')
+            ).filter(
+                EventSigmaHit.opensearch_doc_id.in_(event_ids),
+                EventSigmaHit.case_id == case_id
+            ).group_by(EventSigmaHit.opensearch_doc_id).all()
+            
+            # Get rule titles for each event (for tooltip)
+            sigma_rules_query = db.session.query(
+                EventSigmaHit.opensearch_doc_id,
+                EventSigmaHit.rule_title,
+                EventSigmaHit.rule_level
+            ).filter(
+                EventSigmaHit.opensearch_doc_id.in_(event_ids),
+                EventSigmaHit.case_id == case_id
+            ).all()
+            
+            # Create lookup dictionary for Sigma rules
+            from collections import defaultdict
+            sigma_rules_lookup = defaultdict(list)
+            for rule in sigma_rules_query:
+                sigma_rules_lookup[rule.opensearch_doc_id].append({
+                    'title': rule.rule_title,
+                    'level': rule.rule_level
+                })
+            
+            # Create lookup dictionary for Sigma hits
+            sigma_lookup = {}
+            severity_map = {5: 'critical', 4: 'high', 3: 'medium', 2: 'low', 1: 'informational'}
+            for hit in sigma_hits:
+                sigma_lookup[hit.opensearch_doc_id] = {
+                    'count': hit.hit_count,
+                    'level': severity_map.get(hit.max_severity, 'medium'),
+                    'rules': sigma_rules_lookup.get(hit.opensearch_doc_id, [])
+                }
+            
+            # Update events with IOC and Sigma information
             for event in events:
                 if event['id'] in ioc_lookup:
                     event['ioc_types'] = ioc_lookup[event['id']]
+                if event['id'] in sigma_lookup:
+                    event['sigma_count'] = sigma_lookup[event['id']]['count']
+                    event['sigma_level'] = sigma_lookup[event['id']]['level']
+                    event['sigma_rules'] = sigma_lookup[event['id']]['rules']
         
         # If we used reverse search, reverse the results back
         if use_reverse:

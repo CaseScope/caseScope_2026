@@ -147,6 +147,7 @@ Details: Unusual RDP session from compromised account...
 | `file_type` | String(50) | File type (evtx, json, csv, ndjson, etc.) |
 | `file_size` | BigInteger | File size in bytes |
 | `file_path` | String(1000) | Full storage path |
+| `file_hash` | String(64), indexed | SHA256 hash for file deduplication (per case) |
 | `source_system` | String(200) | Computer name extracted from events |
 | `event_count` | Integer | Number of events parsed (default: 0) |
 | `sigma_violations` | Integer | Number of Sigma rule matches (default: 0) |

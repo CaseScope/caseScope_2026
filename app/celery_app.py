@@ -69,4 +69,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_hunt_iocs: {e}")
 
+try:
+    from tasks import task_hunt_sigma
+    logger.info("✓ Registered Sigma hunting tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_hunt_sigma: {e}")
+
 logger.info("✓ Celery tasks registered")

@@ -9,6 +9,7 @@ The CaseScope parsing system transforms raw evidence files (EVTX, NDJSON) into s
 - ✅ **NDJSON** - Newline-Delimited JSON (EDR logs, Elastic Agent, etc.)
 - ✅ **JSON** - JSON event files (same parser as NDJSON)
 - ✅ **JSONL** - JSON Lines format (same parser as NDJSON)
+- ✅ **CSV** - Firewall logs (SonicWall, generic firewall formats)
 
 **Key Features:**
 - Fast, memory-safe parsing
@@ -132,6 +133,63 @@ Output: "4625 ATN64025 admin"
 1. `normalized_computer` - Added during normalization
 2. `host.hostname` - Standard ECS field
 3. `host.name` - Alternative ECS field
+
+### CSV Detection (Firewall Logs)
+**Fields Checked:**
+1. `src_ip` - Source IP from SonicWall/firewall logs
+2. `computer` - If present in CSV data
+3. `hostname` - Alternative field
+4. Note: Many firewall CSV files don't contain hostname info
+
+**Success Rate:** 100% (after operator precedence bug fix for EVTX/NDJSON)
+
+---
+
+## CSV Firewall Parser
+
+**File:** `app/parsers/firewall_csv_parser.py`
+
+**Supported Formats:**
+- SonicWall CSV logs
+- Generic firewall logs (source/dest IPs, action field)
+
+**Features:**
+- Auto-detects CSV source type (SonicWall vs generic)
+- Normalizes field names to snake_case
+- Extracts timestamps (MM/DD/YYYY HH:MM:SS format)
+- Extracts all IP addresses (source, dest, NAT IPs)
+- Parses geo-blocking messages from Message field
+- Creates comprehensive search_blob
+- Handles empty values (0.0.0.0, "") properly
+
+**Performance:**
+- Pure Python CSV parsing
+- Stream processing (no full file load)
+- Handles large CSV files (100k+ rows)
+
+**Normalization:**
+```python
+# Field name normalization
+"Src. IP" → "src_ip"
+"Src.NAT IP" → "src_nat_ip"
+"FW Action" → "fw_action"
+
+# Event field rename (to avoid OpenSearch conflict)
+"Event" → "fw_event"
+```
+
+**Extracted IPs:**
+- `src_ip`, `dst_ip` - Primary IPs
+- `src_nat_ip`, `dst_nat_ip` - NAT IPs
+- `extracted_ips` - Array of all IPs for IOC hunting
+
+**Geo-Blocking Extraction:**
+```
+Message: "TCP access rule: Geo-IP Blocking inbound traffic from China (203.0.113.5)"
+→ geo_blocked_country: "China"
+→ geo_blocked_ip: "203.0.113.5"
+→ geo_block_direction: "inbound"
+```
 
 **Success Rate:** 100% (after operator precedence bug fix)
 

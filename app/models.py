@@ -86,6 +86,9 @@ class CaseFile(db.Model):
     file_size = db.Column(db.BigInteger)  # bytes
     file_path = db.Column(db.String(1000))  # storage path
     
+    # File identification
+    file_hash = db.Column(db.String(64), index=True)  # SHA256 hash for deduplication
+    
     # Parsed metadata
     source_system = db.Column(db.String(200))  # Computer name from events
     event_count = db.Column(db.Integer, default=0)
@@ -343,4 +346,47 @@ class EventIOCHit(db.Model):
     
     def __repr__(self):
         return f'<EventIOCHit IOC:{self.ioc_id} in Event:{self.opensearch_doc_id}>'
+
+
+class EventSigmaHit(db.Model):
+    """
+    Tracks which events match which Sigma rules
+    Links OpenSearch events to Sigma rule detections
+    """
+    __tablename__ = 'event_sigma_hits'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    
+    # Event identification
+    opensearch_doc_id = db.Column(db.String(255), nullable=False, index=True)
+    event_record_id = db.Column(db.BigInteger)
+    event_id = db.Column(db.String(255), index=True)
+    event_timestamp = db.Column(db.DateTime)
+    computer = db.Column(db.String(255))
+    
+    # File that was scanned
+    file_id = db.Column(db.Integer, db.ForeignKey('case_file.id'))
+    
+    # Sigma rule information
+    sigma_rule_id = db.Column(db.String(500), nullable=False, index=True)
+    rule_title = db.Column(db.Text)
+    rule_level = db.Column(db.String(50), index=True)  # critical, high, medium, low, informational
+    mitre_tags = db.Column(db.Text)  # comma-separated MITRE ATT&CK tags
+    
+    # Match details
+    matched_field = db.Column(db.String(255))
+    confidence = db.Column(db.String(20), default='high')
+    
+    # Metadata
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    detected_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    
+    # Relationships
+    case = db.relationship('Case', backref='sigma_hits')
+    file = db.relationship('CaseFile', backref='sigma_hits')
+    detector = db.relationship('User', backref='sigma_detections')
+    
+    def __repr__(self):
+        return f'<EventSigmaHit Rule:{self.sigma_rule_id} in Event:{self.opensearch_doc_id}>'
 

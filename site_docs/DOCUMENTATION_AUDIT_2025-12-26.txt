@@ -1,0 +1,81 @@
+Documentation Audit Report
+Generated: $(date)
+===========================================
+
+CONSOLIDATION SUMMARY
+---------------------
+Files Before: 24
+Files After: 20
+Files Removed: 5
+
+REMOVED FILES (Consolidated):
+1. CASE_PERMISSIONS.MD → Merged into PERMISSIONS.MD
+2. CASE_TABLE_NEW_FIELDS.MD → Merged into DATABASE_STRUCTURE.MD  
+3. SETTINGS_WORKER_CONFIGURATION.md → Merged into CELERY_SYSTEM.md
+4. CHANGELOG_2025-12-23.md → Merged into CHANGELOG.md
+5. CHANGELOG_2025-12-24.md → Merged into CHANGELOG.md
+
+UPDATED FILES:
+--------------
+1. FILE_PARSING_SYSTEM.md
+   - Added CSV firewall parser support
+   - Updated supported file types list
+
+2. DATABASE_STRUCTURE.MD
+   - Added file_hash field documentation
+   - Verified case table fields (router_ips, vpn_ips, edr_reports, opensearch_index)
+
+3. FILE_UPLOAD_PROCESSING.md
+   - Added SHA256 hash-based deduplication section
+   - Updated upload flow diagrams with deduplication steps
+   - Added duplicate detection for all 3 upload methods
+
+4. CELERY_SYSTEM.md
+   - Added Dynamic Worker Configuration section
+   - Documented Settings page integration
+   - Added CPU limit enforcement documentation
+   - Confirmed current worker count (8 workers)
+
+5. THREAT_HUNTING.md
+   - Updated IPv4 IOC hunting to include firewall CSV fields
+   - Added src_ip, dst_ip, extracted_ips to documented search fields
+
+6. README.MD
+   - Updated all references to deleted files
+   - Updated developer/admin guide paths
+   - Fixed broken documentation links
+
+VERIFICATION CHECKS:
+--------------------
+✓ Firewall CSV parser documented
+✓ File deduplication system documented  
+✓ Worker configuration system documented
+✓ IOC hunting includes firewall fields
+✓ All file references updated
+✓ No broken links in README.MD
+✓ Database schema includes all current fields
+
+FINAL FILE LIST (20 files):
+----------------------------
+AI_SYSTEM.MD
+AUDIT.MD
+CASE_CLEANUP_PROCEDURE.md
+CELERY_SYSTEM.md
+CHANGELOG.md (consolidated)
+DATABASE_STRUCTURE.MD
+EVENT_TAGGING_SYSTEM.md
+FILE_MANAGEMENT_UI.md
+FILE_PARSING_SYSTEM.md
+FILE_UPLOAD_PROCESSING.md
+IOC-MANAGEMENT.md
+KNOWN_SYSTEMS.md
+KNOWN_USERS.md
+PERMISSIONS.MD
+RAG_SYSTEM.MD
+README.MD
+SEARCH_SYSTEM.md
+SITE_LAYOUT.MD
+THREAT_HUNTING.md
+USERS.MD
+
+All documentation is now accurate and consolidated.

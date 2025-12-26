@@ -92,11 +92,15 @@ REDIS_PASSWORD = None          # Set password or None if no auth
 ### Worker Settings
 
 ```python
-CELERY_WORKERS = 2             # Number of concurrent workers (2, 4, 6, or 8)
+CELERY_WORKERS = 8             # Number of concurrent workers (2, 4, 6, or 8) - adjustable via Settings page
 CELERY_MAX_TASKS_PER_CHILD = 100  # Restart worker after N tasks (prevents memory leaks)
 CELERY_TASK_TIME_LIMIT = None     # No timeout - user can cancel via UI
 CELERY_TASK_SOFT_TIME_LIMIT = None
 ```
+
+**Note:** Worker count can be adjusted via the Settings page (Admin only) - see "Dynamic Worker Configuration" section below.
+
+**Current System Configuration**: 8 workers (from config.py)
 
 **Production Settings (Battle-tested):**
 - `CELERY_WORKERS = 2` - Most systems
@@ -428,3 +432,59 @@ OPENSEARCH_MAX_RETRIES = 3
 - ✅ All configuration user-adjustable with clear comments
 
 **Celery is now fully operational and ready to handle background tasks!** 🚀
+
+---
+
+## 🔧 Dynamic Worker Configuration
+
+**User-adjustable worker count via Settings page (Administrator only).**
+
+### How to Adjust Workers
+
+1. Navigate to **Settings** (left menu, admin-only)
+2. View current worker count and system info:
+   - CPU Cores: Auto-detected
+   - Maximum Allowed: 2/3 of CPU cores
+   - Current Workers: From config file
+3. Select new worker count from dropdown (2, 4, 6, or 8)
+4. Click "Apply Changes"
+5. System automatically:
+   - Validates against CPU limits
+   - Updates `/opt/casescope/app/config.py`
+   - Restarts `casescope-workers` service
+   - Logs change to audit trail
+
+### CPU Limit Enforcement
+
+**Formula:** `max_workers = (cpu_count * 2) / 3`
+
+| CPU Cores | Max Workers | Options Available |
+|-----------|-------------|-------------------|
+| 4 | 2 | 2 only |
+| 6 | 4 | 2, 4 |
+| 12 | 8 | 2, 4, 6, 8 |
+| 16 | 10 | 2, 4, 6, 8 |
+| 24 | 16 | 2, 4, 6, 8 |
+
+**Why 2/3?** Leaves CPU headroom for Flask, PostgreSQL, OpenSearch, and Redis.
+
+### Sudo Permissions Required
+
+Created `/etc/sudoers.d/casescope`:
+```bash
+casescope ALL=(ALL) NOPASSWD: /bin/systemctl restart casescope-workers
+casescope ALL=(ALL) NOPASSWD: /bin/systemctl restart casescope-new
+casescope ALL=(ALL) NOPASSWD: /bin/systemctl status casescope-workers
+casescope ALL=(ALL) NOPASSWD: /bin/systemctl status casescope-new
+```
+
+This allows the web app (running as `casescope` user) to restart services without password prompts.
+
+### Recommendations
+
+- **2 workers**: Most systems, light workloads
+- **4 workers**: Heavy workloads, 8+ cores
+- **6 workers**: High-performance, 12+ cores
+- **8 workers**: Maximum, 16+ cores only
+
+---

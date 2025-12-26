@@ -367,6 +367,15 @@ async function uploadFileChunked(file, onProgress) {
         
         if (!completeResponse.ok) {
             const error = await completeResponse.json();
+            
+            // Handle duplicate file (409 Conflict)
+            if (completeResponse.status === 409 && error.isDuplicate) {
+                const dupError = new Error(error.message || 'Duplicate file detected');
+                dupError.isDuplicate = true;
+                dupError.duplicate = error.duplicate;
+                throw dupError;
+            }
+            
             throw new Error(error.error || 'Failed to complete upload');
         }
         
@@ -437,8 +446,17 @@ async function startUpload() {
                 
             } catch (error) {
                 console.error(`Failed to upload ${file.name}:`, error);
-                statusCell.innerHTML = `<span class="badge badge-error">✗ Failed</span>`;
-                results.push({ file: file.name, success: false, error: error.message });
+                
+                // Handle duplicate files differently
+                if (error.isDuplicate) {
+                    statusCell.innerHTML = `<span class="badge badge-warning">⚠ Duplicate</span>`;
+                    const dupInfo = error.duplicate;
+                    const dupMsg = `File already exists (uploaded on ${dupInfo.uploaded_at})`;
+                    results.push({ file: file.name, success: false, error: dupMsg, isDuplicate: true });
+                } else {
+                    statusCell.innerHTML = `<span class="badge badge-error">✗ Failed</span>`;
+                    results.push({ file: file.name, success: false, error: error.message });
+                }
                 failCount++;
             }
         }
@@ -458,10 +476,23 @@ async function startUpload() {
             message += `✓ Success: ${successCount}\n`;
             message += `✗ Failed: ${failCount}\n\n`;
             if (failCount > 0) {
-                message += 'Failed files:\n';
-                results.filter(r => !r.success).forEach(r => {
-                    message += `  - ${r.file}: ${r.error}\n`;
-                });
+                const duplicates = results.filter(r => !r.success && r.isDuplicate);
+                const realFailures = results.filter(r => !r.success && !r.isDuplicate);
+                
+                if (duplicates.length > 0) {
+                    message += 'Duplicate files (already uploaded):\n';
+                    duplicates.forEach(r => {
+                        message += `  - ${r.file}\n`;
+                    });
+                    message += '\n';
+                }
+                
+                if (realFailures.length > 0) {
+                    message += 'Failed files:\n';
+                    realFailures.forEach(r => {
+                        message += `  - ${r.file}: ${r.error}\n`;
+                    });
+                }
             }
             alert(message);
             

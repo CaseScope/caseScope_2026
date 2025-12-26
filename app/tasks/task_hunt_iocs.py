@@ -28,7 +28,7 @@ def build_smart_ioc_query(ioc):
     queries = []
     
     if ioc_type == 'ipv4':
-        # IP address - search specific fields
+        # IP address - search specific fields (EVTX + firewall logs)
         queries.append({
             'multi_match': {
                 'query': ioc_value,
@@ -37,6 +37,11 @@ def build_smart_ioc_query(ioc):
                     'event_data_fields.SourceAddress^3',
                     'event_data_fields.DestAddress^3',
                     'event_data_fields.ClientIPAddress^3',
+                    'src_ip^3',  # Firewall logs
+                    'dst_ip^3',  # Firewall logs
+                    'extracted_ips^3',  # Firewall logs - array of IPs
+                    'normalized_source_ip^3',  # Normalized field
+                    'normalized_dest_ip^3',  # Normalized field
                     'search_blob'
                 ],
                 'type': 'phrase'
@@ -263,13 +268,14 @@ def determine_match_field(event_doc, ioc):
 
 
 @celery.task(bind=True, name='tasks.hunt_iocs')
-def hunt_iocs(self, case_id, user_id):
+def hunt_iocs(self, case_id, user_id, clear_previous=True):
     """
     Hunt for all IOCs in case events with progress tracking
     
     Args:
         case_id: Case ID to hunt in
         user_id: User who initiated the hunt
+        clear_previous: If True, clear previous IOC hits before scanning (default: True)
     
     Returns:
         dict: Statistics about the hunt
@@ -290,6 +296,13 @@ def hunt_iocs(self, case_id, user_id):
                 'events_with_hits': 0,
                 'total_hits': 0
             })
+            
+            # Clear previous IOC hits if requested
+            if clear_previous:
+                logger.info(f"Clearing previous IOC hits for case {case_id}")
+                deleted_count = EventIOCHit.query.filter_by(case_id=case_id).delete()
+                db.session.commit()
+                logger.info(f"Cleared {deleted_count} previous IOC hits")
             
             # Get case
             case = Case.query.get(case_id)

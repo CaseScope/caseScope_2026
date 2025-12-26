@@ -113,7 +113,8 @@ def process_uploaded_files(self, case_id, files_list):
         'total_files': len(files_list),
         'processed': 0,
         'staged_files': [],
-        'errors': []
+        'errors': [],
+        'duplicates': []  # Track duplicates separately
     }
     
     try:
@@ -141,10 +142,54 @@ def process_uploaded_files(self, case_id, files_list):
                     
                     # Extract ZIP recursively
                     extracted = extract_zip_recursive(file_path, staging_path, case_id)
-                    results['staged_files'].extend(extracted)
-                    results['processed'] += len(extracted)
                     
                     logger.info(f"Extracted {len(extracted)} valid files from {filename}")
+                    
+                    # Queue each extracted file for ingestion with hash + dedup check
+                    for extracted_path in extracted:
+                        try:
+                            extracted_filename = os.path.basename(extracted_path)
+                            
+                            # Calculate hash
+                            import hashlib
+                            logger.info(f"Calculating hash for {extracted_filename}...")
+                            hash_obj = hashlib.sha256()
+                            with open(extracted_path, 'rb') as f:
+                                while chunk := f.read(8388608):  # 8MB chunks
+                                    hash_obj.update(chunk)
+                            file_hash = hash_obj.hexdigest()
+                            logger.info(f"Hash: {file_hash[:16]}...")
+                            
+                            # Check for duplicate
+                            from main import app, db
+                            from models import CaseFile
+                            
+                            with app.app_context():
+                                duplicate = CaseFile.query.filter_by(
+                                    case_id=case_id,
+                                    file_hash=file_hash
+                                ).first()
+                                
+                                if duplicate:
+                                    logger.warning(f"Duplicate detected: {extracted_filename} (matches {duplicate.filename})")
+                                    os.remove(extracted_path)
+                                    results['duplicates'].append({
+                                        'filename': extracted_filename,
+                                        'existing_filename': duplicate.original_filename,
+                                        'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None
+                                    })
+                                    continue
+                            
+                            # Queue for ingestion
+                            ingest_task = ingest_staged_file.delay(case_id, extracted_path, file_hash)
+                            results['staged_files'].append(extracted_path)
+                            results['processed'] += 1
+                            logger.info(f"Queued {extracted_filename} for ingestion (task: {ingest_task.id})")
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing extracted file {extracted_path}: {e}")
+                            results['errors'].append(f"Error: {os.path.basename(extracted_path)} - {str(e)}")
+
                     
                 elif is_valid_file(filename):
                     # Valid non-ZIP file - move directly to staging
@@ -153,10 +198,45 @@ def process_uploaded_files(self, case_id, files_list):
                     dest_path = os.path.join(staging_path, dest_filename)
                     
                     shutil.move(file_path, dest_path)
+                    
+                    # Calculate file hash
+                    import hashlib
+                    logger.info(f"Calculating hash for {filename}...")
+                    hash_obj = hashlib.sha256()
+                    with open(dest_path, 'rb') as f:
+                        while chunk := f.read(8388608):  # 8MB chunks
+                            hash_obj.update(chunk)
+                    file_hash = hash_obj.hexdigest()
+                    logger.info(f"Hash: {file_hash[:16]}...")
+                    
+                    # Check for duplicate (per-case)
+                    from main import app, db
+                    from models import CaseFile
+                    
+                    with app.app_context():
+                        duplicate = CaseFile.query.filter_by(
+                            case_id=case_id,
+                            file_hash=file_hash
+                        ).first()
+                        
+                        if duplicate:
+                            logger.warning(f"Duplicate file detected: {filename} (matches {duplicate.filename})")
+                            # Remove duplicate file
+                            os.remove(dest_path)
+                            results['duplicates'].append({
+                                'filename': filename,
+                                'existing_filename': duplicate.original_filename,
+                                'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None
+                            })
+                            continue
+                    
+                    # Queue file for ingestion with hash
+                    ingest_task = ingest_staged_file.delay(case_id, dest_path, file_hash)
                     results['staged_files'].append(dest_path)
                     results['processed'] += 1
                     
-                    logger.info(f"Moved valid file to staging: {filename}")
+                    logger.info(f"Queued {filename} for ingestion (task: {ingest_task.id})")
+
                     
                 else:
                     # Invalid file type
@@ -189,13 +269,8 @@ def process_uploaded_files(self, case_id, files_list):
                 except Exception as e:
                     logger.error(f"Error removing {remaining_file}: {e}")
         
-        # Step 3: Queue files for ingestion
-        # TODO: Trigger ingestion tasks for staged files
-        # For now, just log the staged files
-        logger.info(f"Files ready for ingestion in {staging_path}: {len(results['staged_files'])}")
-        
         results['status'] = 'completed'
-        results['message'] = f"Processed {results['processed']} files. {len(results['errors'])} errors."
+        results['message'] = f"Processed {results['processed']} files. {len(results['errors'])} errors. Files queued for indexing."
         
         return results
         
@@ -207,7 +282,7 @@ def process_uploaded_files(self, case_id, files_list):
 
 
 @celery.task(name='tasks.ingest_staged_file', queue='ingestion')
-def ingest_staged_file(case_id, file_path):
+def ingest_staged_file(case_id, file_path, file_hash=None):
     """
     Ingest a single staged file
     After successful ingestion, move to storage
@@ -215,6 +290,7 @@ def ingest_staged_file(case_id, file_path):
     Args:
         case_id: Case ID
         file_path: Full path to staged file
+        file_hash: Optional SHA256 hash (calculated during upload)
     
     Returns:
         dict: Ingestion results
@@ -223,6 +299,7 @@ def ingest_staged_file(case_id, file_path):
     from opensearch_indexer import OpenSearchIndexer
     from config import (OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL,
                        OPENSEARCH_BULK_CHUNK_SIZE, OPENSEARCH_INDEX_PREFIX)
+    import hashlib
     
     storage_path = os.path.join(BASE_STORAGE_PATH, f'case_{case_id}')
     os.makedirs(storage_path, exist_ok=True)
@@ -237,6 +314,22 @@ def ingest_staged_file(case_id, file_path):
         'events_indexed': 0,
         'errors': []
     }
+    
+    # Calculate hash if not provided
+    if not file_hash and os.path.exists(file_path):
+        logger.info(f"Calculating file hash for {filename}...")
+        hash_obj = hashlib.sha256()
+        try:
+            with open(file_path, 'rb') as f:
+                while chunk := f.read(8388608):  # 8MB chunks
+                    hash_obj.update(chunk)
+            file_hash = hash_obj.hexdigest()
+            logger.info(f"Calculated SHA256: {file_hash[:16]}...")
+        except Exception as e:
+            logger.error(f"Error calculating hash: {e}")
+            file_hash = None
+    
+    results['file_hash'] = file_hash
     
     try:
         logger.info(f"Ingesting file: {filename} for case {case_id}")
@@ -397,6 +490,7 @@ def ingest_staged_file(case_id, file_path):
                         file_type='evtx',
                         file_size=file_size,
                         file_path=actual_storage_path,
+                        file_hash=file_hash,  # Add hash
                         source_system=source_system,  # This will now always be set
                         event_count=total_indexed,
                         uploaded_by=1,  # TODO: Get from session/context
@@ -536,6 +630,7 @@ def ingest_staged_file(case_id, file_path):
                             file_type='ndjson',
                             file_size=file_size,
                             file_path=actual_storage_path,
+                            file_hash=file_hash,  # Add hash
                             source_system=source_system,  # This will now always be set
                             event_count=total_indexed,
                             uploaded_by=1,  # TODO: Get from session/context
@@ -559,10 +654,144 @@ def ingest_staged_file(case_id, file_path):
                 return results
             
         elif file_ext == '.csv':
-            # TODO: Implement CSV parsing
-            results['status'] = 'skipped'
-            results['message'] = 'CSV parsing not yet implemented'
-            return results
+            # Parse CSV file (firewall logs, etc.)
+            logger.info(f"Parsing CSV file: {filename}")
+            
+            # Import CSV parser
+            from parsers.firewall_csv_parser import parse_firewall_csv
+            
+            # Index into OpenSearch with chunked processing
+            index_name = f"{OPENSEARCH_INDEX_PREFIX}{case_id}"
+            indexer = OpenSearchIndexer(
+                host=OPENSEARCH_HOST,
+                port=OPENSEARCH_PORT,
+                use_ssl=OPENSEARCH_USE_SSL
+            )
+            
+            # MEMORY-SAFE: Process in chunks to avoid OOM
+            chunk = []
+            chunk_size = 5000  # Process 5000 events at a time
+            total_indexed = 0
+            total_failed = 0
+            log_source_type = None  # Track detected source type
+            
+            logger.info(f"Processing CSV events in chunks of {chunk_size}...")
+            
+            try:
+                event_counter = 0
+                for event in parse_firewall_csv(file_path):
+                    event_counter += 1
+                    chunk.append(event)
+                    
+                    # Capture log source type from first event
+                    if log_source_type is None:
+                        log_source_type = event.get('log_source_type', 'firewall_csv')
+                        if event_counter == 1:
+                            logger.info(f"Detected log source type: {log_source_type}")
+                            logger.info(f"First CSV event keys: {list(event.keys())[:15]}")
+                    
+                    # When chunk is full, index it
+                    if len(chunk) >= chunk_size:
+                        stats = indexer.bulk_index(
+                            index_name=index_name,
+                            events=iter(chunk),
+                            chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                            case_id=case_id,
+                            source_file=filename,
+                            file_type=log_source_type
+                        )
+                        total_indexed += stats['indexed']
+                        total_failed += stats.get('failed', 0)
+                        
+                        # Clear chunk to free memory
+                        chunk = []
+                        
+                        logger.info(f"Indexed {total_indexed} events so far...")
+                
+                # Index any remaining events
+                if chunk:
+                    stats = indexer.bulk_index(
+                        index_name=index_name,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type=log_source_type
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                
+                # Move to storage after successful ingestion
+                storage_file_path = os.path.join(storage_path, filename)
+                try:
+                    shutil.move(file_path, storage_file_path)
+                    actual_storage_path = storage_file_path
+                except (FileNotFoundError, OSError) as move_error:
+                    # File might have already been moved or doesn't exist
+                    if os.path.exists(storage_file_path):
+                        actual_storage_path = storage_file_path
+                        logger.warning(f"File already in storage: {storage_file_path}")
+                    else:
+                        actual_storage_path = storage_file_path
+                        logger.warning(f"File move failed but events indexed: {move_error}")
+                
+                results['events_indexed'] = total_indexed
+                results['events_failed'] = total_failed
+                results['log_source_type'] = log_source_type
+                results['storage_path'] = actual_storage_path
+                results['status'] = 'success'
+                
+                logger.info(f"Indexed {total_indexed} events from CSV file {filename}")
+                
+                # Create CaseFile record
+                try:
+                    import sys
+                    import os as os_sys
+                    # Add app dir to path if not already there
+                    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    if app_dir not in sys.path:
+                        sys.path.insert(0, app_dir)
+                    
+                    from main import app, db
+                    from models import CaseFile
+                    
+                    # Get Flask app context
+                    with app.app_context():
+                        # Get actual file size (use 0 if file not accessible)
+                        try:
+                            file_size = os.path.getsize(actual_storage_path)
+                        except (FileNotFoundError, OSError):
+                            file_size = 0
+                        
+                        case_file = CaseFile(
+                            case_id=case_id,
+                            filename=filename,
+                            original_filename=filename,
+                            file_type=log_source_type,
+                            file_size=file_size,
+                            file_path=actual_storage_path,
+                            file_hash=file_hash,  # Add hash
+                            source_system='Firewall',  # Generic for now
+                            event_count=total_indexed,
+                            uploaded_by=1,  # TODO: Get from session/context
+                            status='indexed',
+                            indexed_at=datetime.utcnow()
+                        )
+                        db.session.add(case_file)
+                        db.session.commit()
+                        logger.info(f"Created CaseFile record for {filename} with type={log_source_type}")
+                except Exception as e:
+                    logger.error(f"Failed to create CaseFile record: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+            except Exception as e:
+                logger.error(f"Error processing CSV file: {e}")
+                import traceback
+                traceback.print_exc()
+                results['status'] = 'error'
+                results['error'] = str(e)
+                return results
             
         elif file_ext == '.log':
             # TODO: Implement LOG parsing

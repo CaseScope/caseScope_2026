@@ -72,12 +72,37 @@ class OpenSearchIndexer:
                         'normalized_timestamp': {'type': 'date'},
                         'normalized_computer': {'type': 'keyword'},
                         'normalized_event_id': {'type': 'keyword'},
+                        'normalized_source_ip': {'type': 'ip'},
+                        'normalized_dest_ip': {'type': 'ip'},
                         
                         # Search blob - flattened searchable text from all fields
                         'search_blob': {
                             'type': 'text',
                             'analyzer': 'standard'
                         },
+                        
+                        # Firewall/CSV-specific fields
+                        'log_source_type': {'type': 'keyword'},
+                        'row_number': {'type': 'long'},
+                        'src_ip': {'type': 'ip'},
+                        'dst_ip': {'type': 'ip'},
+                        'src_port': {'type': 'integer'},
+                        'dst_port': {'type': 'integer'},
+                        'src_mac': {'type': 'keyword'},
+                        'dst_mac': {'type': 'keyword'},
+                        'src_zone': {'type': 'keyword'},
+                        'dst_zone': {'type': 'keyword'},
+                        'ip_protocol': {'type': 'keyword'},
+                        'fw_action': {'type': 'keyword'},
+                        'application': {'type': 'keyword'},
+                        'priority': {'type': 'keyword'},
+                        'access_rule': {'type': 'keyword'},
+                        'rx_bytes': {'type': 'long'},
+                        'tx_bytes': {'type': 'long'},
+                        'extracted_ips': {'type': 'ip'},
+                        'geo_blocked_country': {'type': 'keyword'},
+                        'geo_blocked_ip': {'type': 'ip'},
+                        'geo_block_direction': {'type': 'keyword'},
                         
                         # Metadata fields
                         'source_file': {'type': 'keyword'},

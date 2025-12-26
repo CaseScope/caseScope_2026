@@ -14,14 +14,14 @@ This directory contains comprehensive technical documentation for the CaseScope 
 2. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema and relationships
 3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
 4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
-5. **Cases**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) - Case management
+5. **Cases**: Case management (covered in DATABASE_STRUCTURE.MD)
 6. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload, parse, and display
 7. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) + [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Query, analyze, and tag events
 8. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma rule hunting
 9. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
 10. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
 11. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
-12. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
+12. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing and dynamic worker configuration
 13. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
 
 ### For System Administrators
@@ -29,7 +29,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 1. **Installation**: Follow README instructions
 2. **User Management**: [USERS.MD](USERS.MD) - Create/manage accounts
 3. **Permissions**: [PERMISSIONS.MD](PERMISSIONS.MD) - Understand role capabilities
-4. **Settings**: [SETTINGS_WORKER_CONFIGURATION.md](SETTINGS_WORKER_CONFIGURATION.md) - Configure workers via UI
+4. **Settings**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Configure workers via Settings page
 5. **Audit Log**: [AUDIT.MD](AUDIT.MD) - Monitor system activity
 6. **Server Config**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Gunicorn, SSL, systemd
 
@@ -38,7 +38,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 1. **Audit System**: [AUDIT.MD](AUDIT.MD) - Complete audit trail
 2. **Access Control**: [PERMISSIONS.MD](PERMISSIONS.MD) - RBAC implementation
 3. **User Lifecycle**: [USERS.MD](USERS.MD) - Account management
-4. **Case Operations**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) - Case-specific controls
+4. **Case Operations**: [PERMISSIONS.MD](PERMISSIONS.MD) - Case-specific controls
 
 ---
 
@@ -96,8 +96,18 @@ This directory contains comprehensive technical documentation for the CaseScope 
 ### File Upload & Processing
 
 #### [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md)
-**Purpose**: Complete file upload and EVTX parsing system
 **Purpose**: Complete file upload and processing system
+
+**Contents**:
+- Three upload methods (web chunked, drag/drop, bulk folder)
+- SHA256 hash-based deduplication (per case)
+- Duplicate detection across all upload methods
+- Chunk upload mechanism (5MB chunks, 3 concurrent)
+- Memory-safe processing for large files
+- Celery task integration
+- Comprehensive troubleshooting
+
+**Critical For**: Understanding file ingestion pipeline
 
 **Contents**:
 - Chunk-based upload (5MB chunks, 3 concurrent)
@@ -276,7 +286,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 ### Case Management
 
-#### [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD)
+#### [PERMISSIONS.MD](PERMISSIONS.MD)
 **Purpose**: Case-specific permission rules and enforcement
 
 **Contents**:
@@ -293,7 +303,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 ---
 
-#### [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD)
+#### [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
 **Purpose**: Detailed documentation of case table fields
 
 **Contents**:
@@ -318,9 +328,11 @@ This directory contains comprehensive technical documentation for the CaseScope 
 2. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema
 3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
 4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
-5. **Case Management**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) + [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD)
+5. **Case Management**: [PERMISSIONS.MD](PERMISSIONS.MD) + [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
 6. **File Upload**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) - Chunked upload system
-7. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event querying
+7. **File Parsing**: [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) - Event extraction and normalization
+8. **OpenSearch Fields**: [OPENSEARCH_FIELDS.md](OPENSEARCH_FIELDS.md) - Field mappings and types
+9. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event querying
 8. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma hunting
 9. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
 
@@ -336,13 +348,13 @@ This directory contains comprehensive technical documentation for the CaseScope 
 1. **Audit System**: [AUDIT.MD](AUDIT.MD) - Complete audit trail
 2. **Access Control**: [PERMISSIONS.MD](PERMISSIONS.MD) - RBAC implementation
 3. **User Lifecycle**: [USERS.MD](USERS.MD) - Account management
-4. **Case Operations**: [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) - Case-specific controls
+4. **Case Operations**: [PERMISSIONS.MD](PERMISSIONS.MD) - Case-specific controls
 
 ---
 
 ### Settings & Configuration
 
-#### [SETTINGS_WORKER_CONFIGURATION.md](SETTINGS_WORKER_CONFIGURATION.md)
+#### [CELERY_SYSTEM.md](CELERY_SYSTEM.md)
 **Purpose**: Dynamic worker configuration via Settings page
 
 **Contents**:
@@ -363,8 +375,8 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | User Authentication | ✅ Complete | [USERS.MD](USERS.MD) |
 | Role-Based Access Control | ✅ Complete | [PERMISSIONS.MD](PERMISSIONS.MD) |
 | Audit Logging | ✅ Complete | [AUDIT.MD](AUDIT.MD) |
-| Case Management | ✅ Complete | [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) |
-| Case Dashboard | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
+| Case Management | ✅ Complete | [PERMISSIONS.MD](PERMISSIONS.MD) |
+| Case Dashboard | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
 | File Upload & Processing | ✅ Complete | [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) |
 | EVTX Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
 | NDJSON/JSON Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
@@ -381,9 +393,9 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | AI System | ✅ Complete | [AI_SYSTEM.MD](AI_SYSTEM.MD) |
 | RAG System | ✅ Complete | [RAG_SYSTEM.MD](RAG_SYSTEM.MD) |
 | Case Cleanup | ✅ Complete | [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) |
-| EDR Report Management | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
-| Network Config (Router/VPN IPs) | ✅ Complete | [CASE_TABLE_NEW_FIELDS.MD](CASE_TABLE_NEW_FIELDS.MD) |
-| Celery Worker Configuration | ✅ Complete | [SETTINGS_WORKER_CONFIGURATION.md](SETTINGS_WORKER_CONFIGURATION.md) |
+| EDR Report Management | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
+| Network Config (Router/VPN IPs) | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
+| Celery Worker Configuration | ✅ Complete | [CELERY_SYSTEM.md](CELERY_SYSTEM.md) |
 | EVTX Event Descriptions | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
 
 ---
@@ -514,7 +526,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - Check table permissions for `casescope` user
 
 **Case Management Issues**:
-- Refer to [CASE_PERMISSIONS.MD](CASE_PERMISSIONS.MD) - Role restrictions
+- Refer to [PERMISSIONS.MD](PERMISSIONS.MD) - Role restrictions
 - Check session for selected case
 - Verify viewer case assignment
 

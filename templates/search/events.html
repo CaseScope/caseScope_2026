@@ -133,6 +133,11 @@
                         <span class="filter-label">🔴 IOC Events</span>
                         <span class="filter-description">Events with IOCs in them</span>
                     </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" id="filterSigmaEvents" checked onchange="applyFilters()">
+                        <span class="filter-label">🟣 SIGMA Events</span>
+                        <span class="filter-description">Events matching Sigma rules</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -160,6 +165,7 @@
                         <th style="width: 100px;">Event ID</th>
                         <th>Description</th>
                         <th style="width: 200px;">IOCs</th>
+                        <th style="width: 150px;">SIGMA Detections</th>
                     </tr>
                 </thead>
                 <tbody id="eventsTableBody">
@@ -297,6 +303,7 @@ function applyFilters() {
     if (document.getElementById('filterOtherEvents').checked) eventTagFilters.push('other');
     if (document.getElementById('filterTaggedEvents').checked) eventTagFilters.push('tagged');
     if (document.getElementById('filterIOCEvents').checked) eventTagFilters.push('ioc');
+    if (document.getElementById('filterSigmaEvents').checked) eventTagFilters.push('sigma');
     
     currentPage = 1; // Reset to first page when filters change
     loadEvents();
@@ -415,6 +422,21 @@ function populateTable(events) {
             iocBadgesHtml = badges.join(' ');
         }
         
+        // Sigma Detections Badges
+        let sigmaBadgesHtml = '';
+        if (event.sigma_count && event.sigma_count > 0) {
+            // Build tooltip with rule names
+            let tooltipText = `${event.sigma_count} Sigma rule(s) matched`;
+            if (event.sigma_rules && event.sigma_rules.length > 0) {
+                const ruleNames = event.sigma_rules.map(r => r.title).join('\\n');
+                tooltipText = ruleNames;
+            }
+            
+            // Use the highest severity level to determine color
+            const levelClass = getSigmaLevelClass(event.sigma_level);
+            sigmaBadgesHtml = `<span class="badge badge-${levelClass} ioc-type-badge" title="${escapeHtml(tooltipText)}">${event.sigma_count} rules</span>`;
+        }
+        
         row.innerHTML = `
             <td class="text-center">${taggedHtml}</td>
             <td>${timestampStr}</td>
@@ -423,6 +445,7 @@ function populateTable(events) {
             <td><span class="badge badge-info">${event.event_id}</span></td>
             <td class="event-description">${escapeHtml(event.description)}</td>
             <td class="ioc-badges-cell">${iocBadgesHtml}</td>
+            <td class="sigma-badges-cell">${sigmaBadgesHtml}</td>
         `;
         
         tbody.appendChild(row);
@@ -565,6 +588,28 @@ function getThreatLevelIcon(level) {
         'info': '⚪'
     };
     return map[level] || '🟡';
+}
+
+function getSigmaLevelClass(level) {
+    const map = {
+        'critical': 'error',      // Red
+        'high': 'error',          // Red
+        'medium': 'warning',      // Orange
+        'low': 'info',            // Blue
+        'informational': 'info'   // Blue
+    };
+    return map[level] || 'info';
+}
+
+function getSigmaLevelIcon(level) {
+    const map = {
+        'critical': '🔴',
+        'high': '🟠',
+        'medium': '🔵',
+        'low': '⚪',
+        'informational': '⚪'
+    };
+    return map[level] || '🟣';
 }
 
 // Modal functions

@@ -260,34 +260,103 @@ for event in parse_evtx_file(file_path):
 2. Files split into 5MB chunks (e.g., 523MB file = 105 chunks)
 3. Upload chunks (3 at a time in parallel)
 4. Assemble file on server
-5. Verify file size matches
-6. Move to staging folder
-7. Queue for processing
+5. **Calculate SHA256 hash of assembled file** ✨
+6. **Check for duplicate file (per case, by hash)** ✨
+7. If duplicate:
+   - Return HTTP 409 (Conflict) with details
+   - Frontend displays "⚠ Duplicate" badge with message
+   - Skip processing
+8. If unique:
+   - Verify file size matches
+   - Move to staging folder
+   - Queue for processing with file hash
 
 ### **Method 3: Bulk Upload Folder**
 
 1. User copies files to `/opt/casescope/bulk_upload/{case_id}/`
 2. User clicks "Scan for New Files"
 3. Extract ZIP files recursively
-4. Validate file types
-5. Move to staging
+4. **Calculate SHA256 hash (streaming)** ✨
+5. **Check for duplicate file (per case, by hash)** ✨
+6. If duplicate:
+   - Log warning with details
+   - Skip processing
+   - Remove duplicate from staging
+7. If unique:
+   - Validate file types
+   - Move to staging
+   - Queue for processing with file hash
 
 ### **Processing (Celery Worker)**
 
 1. Parse file:
    - EVTX → `parse_evtx_file()` (Rust-based, 10-100x faster)
    - JSON/NDJSON/JSONL → `parse_ndjson_file()` (Python JSON parser)
-   - CSV → (coming soon)
+   - CSV → `FirewallCSVParser()` (SonicWall, generic firewall formats)
 2. Normalize events (add search_blob, normalized fields)
 3. Extract source system (computer/hostname)
 4. Index to OpenSearch (bulk, chunked) with file_type metadata:
    - EVTX files: `file_type='EVTX'`
    - NDJSON files: `file_type='NDJSON'`
-   - CSV files: `file_type='CSV'`
+   - CSV files: `file_type='sonicwall_csv'` or `'firewall_csv'`
    - IIS files: `file_type='IIS'`
-5. Create CaseFile database record
+5. Create CaseFile database record (includes file_hash)
 6. Move to storage
 7. Clean up staging
+
+---
+
+## 🔐 File Deduplication System
+
+**Feature**: SHA256 hash-based file-level deduplication (per case)
+
+### How It Works
+
+1. **Hash Calculation**:
+   - Web upload: After chunk assembly
+   - Bulk upload: Streaming during file move
+   - ZIP extraction: After extraction
+
+2. **Duplicate Check**:
+   ```python
+   existing_file = CaseFile.query.filter_by(
+       case_id=case_id, 
+       file_hash=file_hash
+   ).first()
+   ```
+
+3. **If Duplicate Found**:
+   - **Web Upload**: HTTP 409 (Conflict) response with details
+   - **Bulk Upload**: Warning logged, file removed, skip processing
+   - **User Notification**: Shows original upload date and filename
+
+4. **If Unique**:
+   - Proceed with normal processing
+   - Store hash in `case_file.file_hash` column
+
+### Frontend Handling (Web Upload)
+
+**Duplicate Detection**:
+```javascript
+if (completeResponse.status === 409 && error.isDuplicate) {
+    statusCell.innerHTML = '<span class="badge badge-warning">⚠ Duplicate</span>';
+    // Show detailed message
+}
+```
+
+**Summary Alert**:
+- Shows count: Success, Duplicates, Failures
+- Lists duplicate files with original upload dates
+- Clear distinction between actual failures and duplicates
+
+### Benefits
+
+- ✅ Prevents duplicate file processing
+- ✅ Saves storage space
+- ✅ Saves processing time
+- ✅ Per-case scope (same file can exist in different cases)
+- ✅ Memory-safe streaming hash calculation
+- ✅ Works across all 3 upload methods
 
 ---
 
