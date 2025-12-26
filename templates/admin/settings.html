@@ -90,13 +90,12 @@
                 </a>
             </div>
             
-            <!-- Placeholder for future tiles -->
-            <div class="setting-tile setting-tile-placeholder">
-                <h4 class="mb-2 text-muted">Coming Soon</h4>
-                <p class="text-small text-secondary mb-3">Additional rules and configurations will be available here</p>
-                <button class="btn btn-secondary" disabled>
-                    Not Available
-                </button>
+            <div class="setting-tile">
+                <h4 class="mb-2">SIGMA Rules</h4>
+                <p class="text-small text-secondary mb-3">Manage SIGMA detection rules and enable/disable rules</p>
+                <a href="{{ url_for('settings.sigma_rules') }}" class="btn btn-primary">
+                    Manage SIGMA Rules
+                </a>
             </div>
         </div>
     </div>

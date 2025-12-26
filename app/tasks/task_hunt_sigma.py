@@ -8,6 +8,7 @@ import logging
 import tempfile
 import subprocess
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -183,6 +184,8 @@ def run_chainsaw_on_evtx_file(evtx_path, case_id, os_client, index_name, filenam
     Run Chainsaw directly on EVTX file (this works!),
     then match detections back to OpenSearch documents.
     
+    ONLY uses enabled SIGMA rules from the database.
+    
     Args:
         evtx_path: Path to EVTX file
         case_id: Case ID
@@ -196,86 +199,123 @@ def run_chainsaw_on_evtx_file(evtx_path, case_id, os_client, index_name, filenam
     from opensearchpy.helpers import scan
     
     try:
-        # STEP 1: Run Chainsaw on raw EVTX
-        output_json = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
-        output_path = output_json.name
-        output_json.close()
+        # Get list of enabled rules only
+        from models import SigmaRule
+        enabled_rules = SigmaRule.query.filter_by(is_enabled=True).all()
         
-        cmd = [
-            CHAINSAW_BIN,
-            'hunt', evtx_path,
-            '-s', SIGMA_RULES,
-            '--mapping', '/opt/casescope/rules/mappings/sigma-event-logs-all.yml',
-            '--json',
-            '--output', output_path
-        ]
+        if not enabled_rules:
+            logger.warning("No enabled SIGMA rules found, skipping hunt")
+            return []
         
-        logger.debug(f"Running Chainsaw: {' '.join(cmd)}")
+        # Create temporary directory with symlinks to enabled rules
+        import tempfile
+        import shutil
+        temp_rules_dir = tempfile.mkdtemp(prefix='sigma_enabled_')
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-        
-        if result.returncode != 0 and result.returncode != 1:
-            logger.warning(f"Chainsaw exit code {result.returncode}")
-        
-        # STEP 2: Parse Chainsaw results
-        detections = []
-        
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            try:
-                with open(output_path, 'r', encoding='utf-8') as f:
-                    chainsaw_data = json.load(f)
-                    if not isinstance(chainsaw_data, list):
-                        chainsaw_data = [chainsaw_data]
-                
-                logger.info(f"Chainsaw found {len(chainsaw_data)} detections")
-                
-                # STEP 3: Match detections to OpenSearch doc IDs
-                # For each detection, find matching event in OpenSearch
-                for detection in chainsaw_data:
-                    timestamp = detection.get('timestamp', '')
+        try:
+            # Create symlinks for enabled rules
+            for rule in enabled_rules:
+                rule_full_path = os.path.join('/opt/casescope/rules/sigma', rule.source_folder, rule.rule_path)
+                if os.path.exists(rule_full_path):
+                    # Create subdirectories as needed
+                    rule_subdir = os.path.dirname(rule.rule_path)
+                    if rule_subdir:
+                        os.makedirs(os.path.join(temp_rules_dir, rule_subdir), exist_ok=True)
                     
-                    # Extract event details from Chainsaw output
+                    # Create symlink
+                    link_path = os.path.join(temp_rules_dir, rule.rule_path)
                     try:
-                        event_system = detection.get('document', {}).get('data', {}).get('Event', {}).get('System', {})
-                        event_record_id = event_system.get('EventRecordID')
-                        event_id = str(event_system.get('EventID', ''))
-                        computer = event_system.get('Computer', '')
-                    except:
-                        event_record_id = None
-                        event_id = ''
-                        computer = ''
-                    
-                    # Find matching document in OpenSearch
-                    doc_id = find_matching_opensearch_doc(
-                        os_client=os_client,
-                        index_name=index_name,
-                        filename=filename,
-                        timestamp=timestamp,
-                        event_record_id=event_record_id,
-                        event_id=event_id,
-                        computer=computer
-                    )
-                    
-                    if doc_id:
-                        detection['_opensearch_doc_id'] = doc_id
-                        detection['_event_record_id'] = event_record_id
-                        detection['_event_id'] = event_id
-                        detection['_computer'] = computer
-                        detections.append(detection)
-                    else:
-                        logger.debug(f"Could not match detection: record_id={event_record_id}, event_id={event_id}")
+                        os.symlink(rule_full_path, link_path)
+                    except FileExistsError:
+                        pass  # Link already exists
             
-            except Exception as e:
-                logger.error(f"Failed to parse Chainsaw output: {e}", exc_info=True)
-        else:
-            logger.warning(f"Chainsaw output file empty or missing: {output_path}")
+            logger.info(f"Using {len(enabled_rules)} enabled SIGMA rules for hunting")
+            
+            # STEP 1: Run Chainsaw on raw EVTX with enabled rules only
+            output_json = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
+            output_path = output_json.name
+            output_json.close()
+            
+            cmd = [
+                CHAINSAW_BIN,
+                'hunt', evtx_path,
+                '-s', temp_rules_dir,  # Use temp directory with only enabled rules
+                '--mapping', '/opt/casescope/rules/mappings/sigma-event-logs-all.yml',
+                '--json',
+                '--output', output_path
+            ]
+            
+            logger.debug(f"Running Chainsaw: {' '.join(cmd)}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+            
+            if result.returncode != 0 and result.returncode != 1:
+                logger.warning(f"Chainsaw exit code {result.returncode}")
+            
+            # STEP 2: Parse Chainsaw results
+            detections = []
+            
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                try:
+                    with open(output_path, 'r', encoding='utf-8') as f:
+                        chainsaw_data = json.load(f)
+                        if not isinstance(chainsaw_data, list):
+                            chainsaw_data = [chainsaw_data]
+                    
+                    logger.info(f"Chainsaw found {len(chainsaw_data)} detections")
+                    
+                    # STEP 3: Match detections to OpenSearch doc IDs
+                    # For each detection, find matching event in OpenSearch
+                    for detection in chainsaw_data:
+                        timestamp = detection.get('timestamp', '')
+                        
+                        # Extract event details from Chainsaw output
+                        try:
+                            event_system = detection.get('document', {}).get('data', {}).get('Event', {}).get('System', {})
+                            event_record_id = event_system.get('EventRecordID')
+                            event_id = str(event_system.get('EventID', ''))
+                            computer = event_system.get('Computer', '')
+                        except:
+                            event_record_id = None
+                            event_id = ''
+                            computer = ''
+                        
+                        # Find matching document in OpenSearch
+                        doc_id = find_matching_opensearch_doc(
+                            os_client=os_client,
+                            index_name=index_name,
+                            filename=filename,
+                            timestamp=timestamp,
+                            event_record_id=event_record_id,
+                            event_id=event_id,
+                            computer=computer
+                        )
+                        
+                        if doc_id:
+                            detection['_opensearch_doc_id'] = doc_id
+                            detection['_event_record_id'] = event_record_id
+                            detection['_event_id'] = event_id
+                            detection['_computer'] = computer
+                            detections.append(detection)
+                        else:
+                            logger.debug(f"Could not match detection: record_id={event_record_id}, event_id={event_id}")
+                
+                except Exception as e:
+                    logger.error(f"Failed to parse Chainsaw output: {e}", exc_info=True)
+            else:
+                logger.warning(f"Chainsaw output file empty or missing: {output_path}")
+            
+            # Cleanup output file
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+            
+            logger.info(f"Matched {len(detections)} detections to OpenSearch documents")
+            return detections
         
-        # Cleanup
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-        
-        logger.info(f"Matched {len(detections)} detections to OpenSearch documents")
-        return detections
+        finally:
+            # Cleanup temporary rules directory
+            if os.path.exists(temp_rules_dir):
+                shutil.rmtree(temp_rules_dir)
         
     except subprocess.TimeoutExpired:
         logger.error(f"Chainsaw timed out processing {evtx_path}")

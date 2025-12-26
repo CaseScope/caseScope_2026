@@ -348,6 +348,31 @@ class EventIOCHit(db.Model):
         return f'<EventIOCHit IOC:{self.ioc_id} in Event:{self.opensearch_doc_id}>'
 
 
+class SigmaRule(db.Model):
+    """
+    Tracks SIGMA rules available in the system and their enabled/disabled status
+    """
+    __tablename__ = 'sigma_rules'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    rule_path = db.Column(db.String(512), nullable=False, unique=True, index=True)  # Relative path from rules/sigma/rules/
+    rule_id = db.Column(db.String(255))  # UUID from rule file
+    rule_title = db.Column(db.String(512))  # Title from rule file
+    rule_level = db.Column(db.String(50), index=True)  # critical, high, medium, low
+    rule_status = db.Column(db.String(50))  # Status from rule file (stable, experimental, etc.)
+    rule_category = db.Column(db.String(255), index=True)  # e.g., 'windows/process_creation'
+    logsource = db.Column(db.JSON)  # Logsource information from rule
+    mitre_tags = db.Column(db.Text)  # Comma-separated MITRE ATT&CK tags
+    is_enabled = db.Column(db.Boolean, default=True, nullable=False, index=True)  # Whether the rule is enabled
+    source_folder = db.Column(db.String(255), default='rules', index=True)  # rules, rules-emerging-threats, etc.
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_synced = db.Column(db.DateTime)  # Last time rules were synced from disk
+    
+    def __repr__(self):
+        return f'<SigmaRule {self.rule_title} ({self.rule_path})>'
+
+
 class EventSigmaHit(db.Model):
     """
     Tracks which events match which Sigma rules

@@ -75,4 +75,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_hunt_sigma: {e}")
 
+try:
+    from tasks import task_sigma_management
+    logger.info("✓ Registered Sigma management tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_sigma_management: {e}")
+
 logger.info("✓ Celery tasks registered")

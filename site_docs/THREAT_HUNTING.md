@@ -1,6 +1,6 @@
 # Threat Hunting System - IOC & SIGMA
 
-**Last Updated**: 2025-12-25  
+**Last Updated**: 2025-12-26  
 **Status**: ✅ Production Ready  
 **Location**: `/hunting/dashboard`
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-The Threat Hunting System provides comprehensive automated threat detection capabilities using both IOC (Indicators of Compromise) matching and SIGMA rule detection. Events matching IOCs or Sigma rules are automatically tagged with relevant metadata and displayed with color-coded badges in search results.
+The Threat Hunting System provides comprehensive automated threat detection using both IOC (Indicators of Compromise) matching and SIGMA rule detection. Events matching IOCs or Sigma rules are automatically tagged and displayed with color-coded badges in search results.
 
 ---
 
@@ -65,10 +65,10 @@ The Threat Hunting System provides comprehensive automated threat detection capa
 - **Column**: "IOCs" column in event search results
 - **Badge Display**: Shows IOC type badges (e.g., "file", "command_line", "domain")
 - **Color Coding**: Badges colored by threat level:
-  - 🔴 Red (critical)
-  - 🟠 Orange (high)
-  - 🔵 Blue (medium)
-  - Gray (low/info)
+  - 🔴 Red (`badge-error`) - Critical
+  - 🟠 Orange (`badge-warning`) - High
+  - 🔵 Blue (`badge-info`) - Medium
+  - Gray (`badge-secondary`) - Low/Info
 - **Smart Grouping**: One badge per IOC type found in event
 - **Tooltip**: Hover to see IOC details
 
@@ -76,25 +76,39 @@ The Threat Hunting System provides comprehensive automated threat detection capa
 
 ### 2. SIGMA Rule Hunting
 
-**Database Table**: `event_sigma_hits`
+**Database Tables**: 
+- `event_sigma_hits` - Detection results
+- `sigma_rules` - Rule management (3,652 total rules)
 
-**Purpose**: Scan EVTX files against 3,083 Sigma detection rules using Chainsaw binary.
+**Purpose**: Scan EVTX files against enabled SIGMA detection rules using Chainsaw binary.
 
 #### Infrastructure
 - **Chainsaw Binary**: v2.13.1 at `/opt/casescope/bin/chainsaw`
-- **Sigma Rules**: 3,083 rules at `/opt/casescope/rules/sigma`
-- **Chainsaw Mappings**: `/opt/casescope/rules/mappings`
+- **Sigma Rules**: 3,652 rules at `/opt/casescope/rules/sigma/` (across 4 source folders)
+- **Chainsaw Mappings**: `/opt/casescope/rules/mappings/`
+- **Rule Management**: `/settings/sigma-rules` (Settings page)
+
+#### Current Rule Counts
+- **rules**: 3,083 core detection rules
+- **rules-emerging-threats**: 436 threat-specific rules
+- **rules-threat-hunting**: 131 hunting-focused rules
+- **rules-compliance**: 2 compliance rules
+- **Total**: 3,652 rules
 
 #### Features
+- **Enabled Rules Only**: Only uses rules enabled in database (toggle switches control hunting)
 - Background processing with progress tracking
 - Runs Chainsaw against each completed, non-hidden EVTX file
 - Parses JSON output and matches to OpenSearch events
 - Stores rule title, severity, and MITRE tags
 - Supports clear/re-scan option
+- Bulk toggle buttons:
+  - **🎯 Threat Hunting**: Enable threat-hunting + emerging-threats only (567 rules)
+  - **✓ All Rules**: Enable all 3,652 rules
 - Severity-based badge colors:
-  - 🔴 Critical/High = Red
-  - 🟠 Medium = Orange
-  - 🔵 Low/Info = Blue
+  - 🔴 Critical/High = Red (`badge-error`)
+  - 🟠 Medium = Orange (`badge-warning`)
+  - 🔵 Low/Info = Blue (`badge-info`)
 
 #### How It Works
 
@@ -102,23 +116,43 @@ The Threat Hunting System provides comprehensive automated threat detection capa
 2. Modal presents option to clear previous detections (default: checked)
 3. Background task starts (`task_hunt_sigma.py`):
    - Clears old detections (if requested)
+   - **Queries database for enabled rules only** (`is_enabled = True`)
+   - Creates temporary directory with symlinks to enabled rule files
    - Gets all completed, non-hidden EVTX files where:
      - `file_type = 'evtx'`
      - `is_hidden = False`
      - `status = 'indexed'`
    - For each file:
-     - Runs Chainsaw: `chainsaw hunt <file> -s /rules/sigma --mapping /mappings --json -q`
+     - Runs Chainsaw: `chainsaw hunt <file> -s <temp_dir> --mapping /mappings --json`
      - Parses JSON array output
      - Matches detections to OpenSearch events by:
        - Event Record ID (most reliable)
        - Computer name + Event ID + Timestamp (±5 sec tolerance)
      - Creates `EventSigmaHit` records in database
      - Updates progress: `xxx/yyy files checked, zzz%`
+   - Cleans up temporary directory
 4. Results displayed in modal:
    - Files checked / Files ignored
    - Events tagged
    - Total detections
    - Top 20 rules matched (by title)
+
+#### Rule Management
+
+**Settings Page**: `/settings/sigma-rules`
+
+Features:
+- View all 3,652 rules with metadata
+- Toggle switches to enable/disable individual rules
+- Search and filter by: title, ID, tags, source folder, level, status
+- Pagination (50 rules per page)
+- **Update from GitHub**: Clone/pull latest rules from SigmaHQ/sigma repository
+- **Sync from Disk**: Scan filesystem and sync to database
+- **Bulk Operations**:
+  - **Threat Hunting Mode**: Enable 567 rules (threat-hunting + emerging-threats), disable others
+  - **All Rules Mode**: Enable all 3,652 rules
+
+**Important**: Toggle switches immediately affect next hunt - no service restart required!
 
 #### Event Matching Strategy
 
@@ -203,6 +237,17 @@ Matching prioritizes:
 }
 ```
 
+### SIGMA Rule Management
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/settings/sigma-rules` | GET | Management page |
+| `/settings/sigma-rules/api/list` | GET | List rules (paginated) |
+| `/settings/sigma-rules/api/toggle` | POST | Enable/disable rule |
+| `/settings/sigma-rules/api/bulk-toggle` | POST | Bulk enable/disable |
+| `/settings/sigma-rules/api/update` | POST | Update from GitHub |
+| `/settings/sigma-rules/api/sync` | POST | Sync from disk |
+
 ---
 
 ## User Interface
@@ -229,6 +274,33 @@ Both buttons open modals with:
 
 **Auto-refresh**: Progress checks every 2 seconds
 
+### SIGMA Rule Management
+
+**Location**: `/settings/sigma-rules`
+
+**Features**:
+- Statistics cards: Total rules, Enabled, Disabled, Source folders
+- Source folder breakdown cards
+- Bulk action buttons (top right):
+  - **🎯 Threat Hunting**: Enable threat-hunting + emerging-threats only
+  - **✓ All Rules**: Enable all rules
+- Action buttons:
+  - **Update Rules from GitHub**: Clone/pull latest from SigmaHQ/sigma
+  - **Sync from Disk**: Scan filesystem and sync to database
+- Search and filter:
+  - Text search (title, ID, MITRE tags)
+  - Source folder filter
+  - Rule level filter (Critical, High, Medium, Low, Informational)
+  - Status filter (Enabled, Disabled, All)
+- Rules table:
+  - Toggle switches for enable/disable
+  - Rule title and path
+  - Level badge (color-coded)
+  - Category
+  - Source folder
+  - MITRE ATT&CK tags with technique numbers
+  - Pagination (50 per page)
+
 ---
 
 ## Performance
@@ -242,10 +314,13 @@ Both buttons open modals with:
 - **Typical Performance**: Handles 30M+ events gracefully
 
 ### SIGMA Hunting
-- **3,083 Sigma rules** scanned per EVTX file
-- **Chainsaw execution**: 30-180 seconds per EVTX file (depends on file size)
-- **Large cases** (1,000 files): ~30+ minutes total
+- **Enabled rules only**: Performance scales with enabled rule count
+- **Threat Hunting mode**: 567 rules (faster)
+- **All Rules mode**: 3,652 rules (comprehensive)
+- **Chainsaw execution**: 30-180 seconds per EVTX file (depends on file size and rule count)
+- **Large cases** (1,000 files): 30+ minutes total (depends on enabled rules)
 - **Database inserts**: Batch size 100 for efficiency
+- **Temporary directory**: Symlinks created/cleaned up per hunt
 
 ---
 
@@ -253,15 +328,19 @@ Both buttons open modals with:
 
 ### Permissions
 - **Read-only users**: Cannot hunt (view results only)
-- **Analysts**: Can hunt
-- **Administrators**: Can hunt
+- **Analysts**: Can hunt and manage rules
+- **Administrators**: Can hunt and manage rules
 
 ### Audit Logging
 - Hunt start events:
   - `ioc_hunt_started` - IOC hunt initiated
   - `sigma_hunt_started` - Sigma hunt initiated
-- Includes task_id, clear_previous flag, and user
-- Hunt completion logged automatically
+- Rule management events:
+  - `toggle_sigma_rule` - Individual rule enabled/disabled
+  - `bulk_toggle_sigma_rules` - Bulk rule changes
+  - `update_sigma_rules` - GitHub update triggered
+  - `sync_sigma_rules` - Disk sync triggered
+- Includes task_id, user, and operation details
 
 ---
 
@@ -279,16 +358,23 @@ Both buttons open modals with:
 
 ### SIGMA Hunting
 1. `/opt/casescope/bin/chainsaw` - Binary (9.9MB)
-2. `/opt/casescope/rules/sigma/` - 3,083 rules (42MB)
+2. `/opt/casescope/rules/sigma/` - 3,652 rules (42MB)
 3. `/opt/casescope/rules/mappings/` - Chainsaw mappings
-4. `/opt/casescope/migrations/add_event_sigma_hits.sql` - Database schema
-5. `/opt/casescope/app/models.py` - Added `EventSigmaHit` model
-6. `/opt/casescope/app/tasks/task_hunt_sigma.py` - Celery task
-7. `/opt/casescope/app/routes/hunting.py` - Added Sigma hunt API routes
-8. `/opt/casescope/app/routes/search.py` - Added Sigma hit counts to event search
-9. `/opt/casescope/templates/hunting/dashboard.html` - Button + modal
-10. `/opt/casescope/templates/search/events.html` - Added SIGMA Detections column
-11. `/opt/casescope/app/celery_app.py` - Registered Sigma hunt task
+4. `/opt/casescope/migrations/add_event_sigma_hits.sql` - Detection results table
+5. `/opt/casescope/migrations/add_sigma_rules.sql` - Rule management table
+6. `/opt/casescope/app/models.py` - Added `EventSigmaHit` and `SigmaRule` models
+7. `/opt/casescope/app/tasks/task_hunt_sigma.py` - Celery task (enabled rules only)
+8. `/opt/casescope/app/tasks/task_sigma_management.py` - GitHub update and sync tasks
+9. `/opt/casescope/app/utils/sigma_utils.py` - Rule parsing and management utilities
+10. `/opt/casescope/app/routes/hunting.py` - Added Sigma hunt API routes
+11. `/opt/casescope/app/routes/settings.py` - Added SIGMA management API routes
+12. `/opt/casescope/app/routes/search.py` - Added Sigma hit counts to event search
+13. `/opt/casescope/templates/hunting/dashboard.html` - Button + modal
+14. `/opt/casescope/templates/admin/settings.html` - Added SIGMA Rules tile
+15. `/opt/casescope/templates/admin/sigma_rules.html` - Management page
+16. `/opt/casescope/templates/search/events.html` - Added SIGMA Detections column
+17. `/opt/casescope/app/celery_app.py` - Registered Sigma tasks
+18. `/opt/casescope/scripts/sync_sigma_rules.py` - Command-line sync utility
 
 ---
 
@@ -330,8 +416,14 @@ See [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) for details.
 
 **No detections found:**
 - Check EVTX files are present and not hidden
+- Verify enabled rules: Navigate to Settings → SIGMA Rules
 - Verify Chainsaw has execute permissions: `ls -lh /opt/casescope/bin/chainsaw`
-- Test Chainsaw manually: `/opt/casescope/bin/chainsaw hunt <file> -s /opt/casescope/rules/sigma`
+- Test Chainsaw manually: `/opt/casescope/bin/chainsaw hunt <file> -s /opt/casescope/rules/sigma/rules`
+
+**Wrong rules being used:**
+- Check enabled rules in Settings → SIGMA Rules
+- Verify toggle switches match your intent
+- Use bulk buttons for quick mode switching
 
 **Events not matching:**
 - Check OpenSearch index exists for case
@@ -343,15 +435,39 @@ See [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) for details.
 - Review logs for errors
 - Ensure sufficient disk space for temp files
 
+### SIGMA Rule Management Issues
+
+**No rules showing:**
+- Rules need to be synced from disk first
+- Click "Sync from Disk" button or run `/opt/casescope/scripts/sync_sigma_rules.py`
+
+**Update from GitHub fails:**
+- Check network connectivity: `curl -I https://github.com`
+- Check git installed: `which git`
+- Check permissions: `ls -la /opt/casescope/rules/sigma`
+
+**Database permission errors:**
+- Run migration script: `/opt/casescope/migrations/add_sigma_rules.sql`
+- Verify permissions: `sudo -u postgres psql casescope -c "\dp sigma_rules"`
+
 ---
 
 ## Maintenance
 
 ### Update Sigma Rules (monthly recommended)
+**Via Web Interface**:
+1. Navigate to Settings → SIGMA Rules
+2. Click "Update Rules from GitHub"
+3. Wait for completion (2-5 minutes)
+4. Click "Sync from Disk" if needed
+
+**Via Command Line**:
 ```bash
 cd /opt/casescope/rules/sigma
 sudo -u casescope git pull
-# Re-hunt to apply new rules
+cd /opt/casescope
+source venv/bin/activate
+python3 scripts/sync_sigma_rules.py
 ```
 
 ### Clear Old Detections
@@ -359,8 +475,13 @@ sudo -u casescope git pull
 -- Clear IOC detections older than 90 days
 DELETE FROM event_ioc_hits WHERE detected_at < NOW() - INTERVAL '90 days';
 
--- Clear Sigma detections older than 90 days
-DELETE FROM event_sigma_hits WHERE matched_at < NOW() - INTERVAL '90 days';
+-- Clear Sigma detections older than 90 days  
+DELETE FROM event_sigma_hits WHERE detected_at < NOW() - INTERVAL '90 days';
+```
+
+### Verify Rule Counts
+```bash
+sudo -u postgres psql casescope -c "SELECT source_folder, COUNT(*), SUM(CASE WHEN is_enabled THEN 1 ELSE 0 END) as enabled FROM sigma_rules GROUP BY source_folder;"
 ```
 
 ---
@@ -373,6 +494,8 @@ DELETE FROM event_sigma_hits WHERE matched_at < NOW() - INTERVAL '90 days';
 4. **Update Rules**: Keep Sigma rules up-to-date monthly
 5. **Monitor Performance**: Watch Celery logs during large hunts
 6. **Tag Key Events**: Manually tag important findings for easy reference
+7. **Optimize Rule Sets**: Use "Threat Hunting" mode for faster hunts when appropriate
+8. **Rule Management**: Disable noisy or irrelevant rules to improve signal-to-noise ratio
 
 ---
 
@@ -386,5 +509,5 @@ DELETE FROM event_sigma_hits WHERE matched_at < NOW() - INTERVAL '90 days';
 
 ---
 
-**Status**: Both IOC and SIGMA hunting systems are production-ready and actively in use. 🚀
+**Status**: Both IOC and SIGMA hunting systems are production-ready and actively in use. SIGMA rule management system provides full control over detection rules. 🚀
 
