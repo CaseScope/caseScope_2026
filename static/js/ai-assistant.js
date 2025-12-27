@@ -253,6 +253,14 @@ async function executeNLQuery() {
         return;
     }
     
+    // Easter egg check - case insensitive and punctuation insensitive
+    const normalizedQuestion = question.toLowerCase().replace(/[^\w\s]/g, '');
+    if (normalizedQuestion === 'what is the airspeed of an unladen swallow' || 
+        normalizedQuestion === 'what is the airspeed of an unlaiden swallow') {
+        showSwallowEasterEgg();
+        return;
+    }
+    
     const resultsDiv = document.getElementById('queryResults');
     resultsDiv.style.display = 'block';
     resultsDiv.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div><p class="mt-2">Searching events...</p></div>';
@@ -514,4 +522,60 @@ function clearIOCResults() {
     document.getElementById('iocInput').value = '';
     document.getElementById('iocResults').style.display = 'none';
 }
+
+// ============================================================================
+// Easter Egg Functions
+// ============================================================================
+
+function showSwallowEasterEgg() {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById('swallowEasterEggModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'swallowEasterEggModal';
+        modal.className = 'modal-overlay';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="modal-container" onclick="event.stopPropagation()" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">🦅 Airspeed Velocity</h2>
+                    <button class="modal-close" onclick="closeSwallowEasterEgg(event)">×</button>
+                </div>
+                <div class="modal-body">
+                    <p style="font-size: 20px; text-align: center; margin: 24px 0; line-height: 1.6; font-weight: 500;">
+                        African or European?
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" onclick="closeSwallowEasterEgg(event)">I Don't Know That!</button>
+                </div>
+            </div>
+        `;
+        modal.onclick = function(event) {
+            if (event.target === modal) {
+                closeSwallowEasterEgg(event);
+            }
+        };
+        document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+}
+
+function closeSwallowEasterEgg(evt) {
+    if (evt) evt.stopPropagation();
+    const modal = document.getElementById('swallowEasterEggModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// ESC key handler for swallow easter egg
+document.addEventListener('keydown', function(evt) {
+    if (evt.key === 'Escape') {
+        const modal = document.getElementById('swallowEasterEggModal');
+        if (modal && modal.style.display === 'flex') {
+            closeSwallowEasterEgg(evt);
+        }
+    }
+});
 

@@ -73,6 +73,78 @@
     </div>
 </div>
 
+<!-- SSL Certificate Management -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔒 SSL Certificate Management</h2>
+    </div>
+    <div class="card-body">
+        <p class="text-secondary mb-4">Upload SSL certificate and private key for HTTPS web server</p>
+        
+        <div class="grid grid-2">
+            <!-- Current Certificate Info -->
+            <div>
+                <h4 class="mb-3">Current Certificate</h4>
+                <table class="info-table">
+                    <tr>
+                        <td class="info-label">SSL Enabled</td>
+                        <td class="info-value">
+                            {% if config.SSL_ENABLED %}
+                                <span class="badge badge-success">✓ Yes</span>
+                            {% else %}
+                                <span class="badge badge-warning">⚠ No</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="info-label">Certificate Path</td>
+                        <td class="info-value"><code>{{ config.SSL_CERT_PATH }}</code></td>
+                    </tr>
+                    <tr>
+                        <td class="info-label">Key Path</td>
+                        <td class="info-value"><code>{{ config.SSL_KEY_PATH }}</code></td>
+                    </tr>
+                </table>
+                
+                <div class="mt-3">
+                    <p class="text-small text-muted mb-2"><strong>Note:</strong></p>
+                    <ul class="text-small">
+                        <li>Upload PEM-formatted certificate and key files</li>
+                        <li>Server will restart automatically after upload</li>
+                        <li>Backup your existing certificate before uploading</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Upload Form -->
+            <div>
+                <h4 class="mb-3">Upload New Certificate</h4>
+                <form id="sslUploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="certFile" class="form-label">SSL Certificate (cert.pem)</label>
+                        <input type="file" id="certFile" name="certFile" class="form-control" accept=".pem,.crt,.cer" required>
+                        <small class="form-text text-muted">PEM-encoded certificate file</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="keyFile" class="form-label">Private Key (key.pem)</label>
+                        <input type="file" id="keyFile" name="keyFile" class="form-control" accept=".pem,.key" required>
+                        <small class="form-text text-muted">PEM-encoded private key file (unencrypted)</small>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary" onclick="uploadSSLCertificate()" id="sslUploadBtn">
+                        Upload Certificate
+                    </button>
+                </form>
+                
+                <div id="sslUploadResult" class="mt-3" style="display: none;">
+                    <div class="alert" id="sslUploadAlert"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Rules & Description Updates -->
 <div class="card">
     <div class="card-header">
@@ -237,6 +309,86 @@ async function updateWorkers() {
     } finally {
         btn.disabled = false;
         btn.textContent = 'Apply Changes';
+    }
+}
+
+// ============================================================================
+// SSL Certificate Upload Management
+// ============================================================================
+async function uploadSSLCertificate() {
+    const form = document.getElementById('sslUploadForm');
+    const btn = document.getElementById('sslUploadBtn');
+    const resultDiv = document.getElementById('sslUploadResult');
+    const alertDiv = document.getElementById('sslUploadAlert');
+    
+    const certFile = document.getElementById('certFile').files[0];
+    const keyFile = document.getElementById('keyFile').files[0];
+    
+    // Validate files selected
+    if (!certFile || !keyFile) {
+        resultDiv.style.display = 'block';
+        alertDiv.className = 'alert alert-danger';
+        alertDiv.textContent = 'Please select both certificate and key files';
+        return;
+    }
+    
+    // Validate file extensions
+    const certExt = certFile.name.split('.').pop().toLowerCase();
+    const keyExt = keyFile.name.split('.').pop().toLowerCase();
+    
+    if (!['pem', 'crt', 'cer'].includes(certExt)) {
+        resultDiv.style.display = 'block';
+        alertDiv.className = 'alert alert-danger';
+        alertDiv.textContent = 'Certificate file must be .pem, .crt, or .cer format';
+        return;
+    }
+    
+    if (!['pem', 'key'].includes(keyExt)) {
+        resultDiv.style.display = 'block';
+        alertDiv.className = 'alert alert-danger';
+        alertDiv.textContent = 'Private key file must be .pem or .key format';
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+    
+    try {
+        const formData = new FormData();
+        formData.append('cert_file', certFile);
+        formData.append('key_file', keyFile);
+        
+        const response = await fetch('/settings/api/upload-ssl', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        resultDiv.style.display = 'block';
+        
+        if (data.success) {
+            alertDiv.className = 'alert alert-success';
+            alertDiv.innerHTML = '<strong>Success!</strong><br>' + data.message;
+            
+            // Clear form
+            form.reset();
+            
+            // Show warning about server restart
+            if (data.restart_required) {
+                alertDiv.innerHTML += '<br><br><strong>⚠ Note:</strong> Server restart may be required for changes to take effect.';
+            }
+        } else {
+            alertDiv.className = 'alert alert-danger';
+            alertDiv.innerHTML = '<strong>Error:</strong><br>' + (data.error || 'Failed to upload SSL certificate');
+        }
+    } catch (error) {
+        resultDiv.style.display = 'block';
+        alertDiv.className = 'alert alert-danger';
+        alertDiv.innerHTML = '<strong>Error:</strong><br>' + error.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Upload Certificate';
     }
 }
 

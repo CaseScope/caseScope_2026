@@ -756,3 +756,180 @@ def api_sync_sigma_rules_status(task_id):
     except Exception as e:
         logger.error(f"Error checking SIGMA sync task status: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# SSL Certificate Management Routes
+# ============================================================================
+
+@settings_bp.route('/api/upload-ssl', methods=['POST'])
+@login_required
+@admin_required
+def api_upload_ssl():
+    """
+    API endpoint to upload SSL certificate and private key
+    """
+    from audit_logger import log_action
+    from werkzeug.utils import secure_filename
+    import shutil
+    from datetime import datetime
+    
+    try:
+        # Get uploaded files
+        if 'cert_file' not in request.files or 'key_file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'Both certificate and key files are required'
+            }), 400
+        
+        cert_file = request.files['cert_file']
+        key_file = request.files['key_file']
+        
+        if cert_file.filename == '' or key_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No files selected'
+            }), 400
+        
+        # Validate file extensions
+        cert_filename = secure_filename(cert_file.filename)
+        key_filename = secure_filename(key_file.filename)
+        
+        cert_ext = cert_filename.rsplit('.', 1)[1].lower() if '.' in cert_filename else ''
+        key_ext = key_filename.rsplit('.', 1)[1].lower() if '.' in key_filename else ''
+        
+        allowed_cert_exts = {'pem', 'crt', 'cer'}
+        allowed_key_exts = {'pem', 'key'}
+        
+        if cert_ext not in allowed_cert_exts:
+            return jsonify({
+                'success': False,
+                'error': f'Certificate file must have one of these extensions: {", ".join(allowed_cert_exts)}'
+            }), 400
+        
+        if key_ext not in allowed_key_exts:
+            return jsonify({
+                'success': False,
+                'error': f'Key file must have one of these extensions: {", ".join(allowed_key_exts)}'
+            }), 400
+        
+        # Read file contents for validation
+        cert_content = cert_file.read().decode('utf-8')
+        key_content = key_file.read().decode('utf-8')
+        
+        # Validate certificate format
+        if not cert_content.strip().startswith('-----BEGIN CERTIFICATE-----'):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid certificate format. File must be PEM-encoded and start with "-----BEGIN CERTIFICATE-----"'
+            }), 400
+        
+        if not cert_content.strip().endswith('-----END CERTIFICATE-----'):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid certificate format. File must be PEM-encoded and end with "-----END CERTIFICATE-----"'
+            }), 400
+        
+        # Validate private key format
+        key_headers = [
+            '-----BEGIN PRIVATE KEY-----',
+            '-----BEGIN RSA PRIVATE KEY-----',
+            '-----BEGIN EC PRIVATE KEY-----',
+            '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+        ]
+        
+        if not any(cert_content.strip().startswith(header) for header in key_headers):
+            # Check if it's actually in the key content
+            if not any(key_content.strip().startswith(header) for header in key_headers):
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid private key format. File must be PEM-encoded private key'
+                }), 400
+        
+        # Check for encrypted private key (not supported by Gunicorn)
+        if '-----BEGIN ENCRYPTED PRIVATE KEY-----' in key_content or 'ENCRYPTED' in key_content:
+            return jsonify({
+                'success': False,
+                'error': 'Encrypted private keys are not supported. Please provide an unencrypted private key.'
+            }), 400
+        
+        # Ensure SSL directory exists
+        ssl_dir = '/opt/casescope/ssl'
+        os.makedirs(ssl_dir, exist_ok=True)
+        
+        # Backup existing certificates if they exist
+        backup_dir = f'/opt/casescope/ssl/backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        cert_path = '/opt/casescope/ssl/cert.pem'
+        key_path = '/opt/casescope/ssl/key.pem'
+        
+        if os.path.exists(cert_path) or os.path.exists(key_path):
+            os.makedirs(backup_dir, exist_ok=True)
+            if os.path.exists(cert_path):
+                shutil.copy2(cert_path, os.path.join(backup_dir, 'cert.pem'))
+            if os.path.exists(key_path):
+                shutil.copy2(key_path, os.path.join(backup_dir, 'key.pem'))
+            logger.info(f"Backed up existing SSL certificates to {backup_dir}")
+        
+        # Write new certificate and key
+        with open(cert_path, 'w') as f:
+            f.write(cert_content)
+        
+        with open(key_path, 'w') as f:
+            f.write(key_content)
+        
+        # Set proper permissions (readable by casescope user only)
+        os.chmod(cert_path, 0o600)
+        os.chmod(key_path, 0o600)
+        
+        # Change ownership to casescope user
+        try:
+            import pwd
+            casescope_uid = pwd.getpwnam('casescope').pw_uid
+            casescope_gid = pwd.getpwnam('casescope').pw_gid
+            os.chown(cert_path, casescope_uid, casescope_gid)
+            os.chown(key_path, casescope_uid, casescope_gid)
+            os.chown(ssl_dir, casescope_uid, casescope_gid)
+            if os.path.exists(backup_dir):
+                os.chown(backup_dir, casescope_uid, casescope_gid)
+        except Exception as e:
+            logger.warning(f"Could not change ownership to casescope user: {e}")
+        
+        logger.info(f"SSL certificate and key uploaded successfully by {current_user.username}")
+        
+        # Audit log
+        log_action('upload_ssl_certificate',
+                   resource_type='system_settings',
+                   resource_id=1,
+                   resource_name='ssl_certificate',
+                   details={
+                       'cert_path': cert_path,
+                       'key_path': key_path,
+                       'backup_dir': backup_dir if os.path.exists(backup_dir) else None,
+                       'uploaded_by': current_user.username,
+                       'cert_filename': cert_filename,
+                       'key_filename': key_filename
+                   })
+        
+        return jsonify({
+            'success': True,
+            'message': f'SSL certificate and private key uploaded successfully to {ssl_dir}',
+            'cert_path': cert_path,
+            'key_path': key_path,
+            'backup_dir': backup_dir if os.path.exists(backup_dir) else None,
+            'restart_required': True
+        })
+        
+    except UnicodeDecodeError:
+        return jsonify({
+            'success': False,
+            'error': 'Invalid file encoding. Files must be text-based PEM format.'
+        }), 400
+    except Exception as e:
+        logger.error(f"Error uploading SSL certificate: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+

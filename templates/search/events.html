@@ -199,6 +199,26 @@
 
 {% endif %}
 
+<!-- Easter Egg Modal -->
+<div id="easterEggModal" class="modal-overlay" style="display: none;" onclick="closeEasterEggModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🏰 Monty Python Reference Detected</h2>
+            <button class="modal-close" onclick="closeEasterEggModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 16px; text-align: center; margin: 24px 0; line-height: 1.8;">
+                I don't want to talk to you, no more, you empty-headed animal,
+                food trough wiper. I fart in your general direction. Your mother
+                was a hamster and your father smelt of elderberries.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="closeEasterEggModal(event)">I Fart in Your General Direction</button>
+        </div>
+    </div>
+</div>
+
 <!-- Event Detail Modal -->
 <div id="eventDetailModal" class="modal-overlay" style="display: none;" onclick="closeEventModal(event)">
     <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
@@ -266,6 +286,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function performSearch() {
     currentQuery = document.getElementById('searchInput').value.trim();
+    
+    // Easter egg check - case insensitive and punctuation insensitive
+    const normalizedQuery = currentQuery.toLowerCase().replace(/[^\w\s]/g, '');
+    if (normalizedQuery === 'now look here my good man') {
+        showEasterEggModal();
+        return;
+    }
+    
     currentPage = 1; // Reset to first page
     loadEvents();
 }
@@ -1027,6 +1055,27 @@ function searchFieldValue(evt, value, element) {
     currentPage = 1;
     loadEvents();
 }
+
+// Easter egg functions
+function showEasterEggModal() {
+    const modal = document.getElementById('easterEggModal');
+    modal.style.display = 'flex';
+}
+
+function closeEasterEggModal(evt) {
+    if (evt) evt.stopPropagation();
+    document.getElementById('easterEggModal').style.display = 'none';
+}
+
+// Close easter egg modal on ESC key
+document.addEventListener('keydown', function(evt) {
+    if (evt.key === 'Escape') {
+        const easterEggModal = document.getElementById('easterEggModal');
+        if (easterEggModal.style.display === 'flex') {
+            closeEasterEggModal(evt);
+        }
+    }
+});
 
 </script>
 
