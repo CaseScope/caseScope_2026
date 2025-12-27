@@ -28,7 +28,7 @@ All route blueprints are automatically discovered and registered by `main.py`.
 - `dashboard.py` - Main dashboard with system stats and metrics API
 - `search.py` - Event search system with boolean operators and file type filtering
 - `upload.py` - File upload system (chunk-based upload, drag & drop)
-- `settings.py` - System settings (Celery worker configuration, EVTX descriptions management)
+- `settings.py` - System settings (Celery worker configuration, EVTX descriptions management, SSL certificate upload)
 - `ioc.py` - IOC management (Indicators of Compromise tracking and analysis)
 - `known_systems.py` - Known systems tracking (workstations, servers, network devices)
 - `known_users.py` - Known users tracking (user accounts, identities, compromised credentials)

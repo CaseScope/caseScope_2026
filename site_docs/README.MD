@@ -1,6 +1,6 @@
 # CaseScope 2026 - Documentation Index
 
-**Last Updated**: December 25, 2025
+**Last Updated**: December 27, 2025
 
 This directory contains comprehensive technical documentation for the CaseScope 2026 Digital Forensics & Incident Response platform.
 
@@ -12,24 +12,23 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 1. **Read First**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Understand project structure and design principles
 2. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema and relationships
-3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
-4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
-5. **Cases**: Case management (covered in DATABASE_STRUCTURE.MD)
-6. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) + [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md) - Upload, parse, and display
-7. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) + [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Query, analyze, and tag events
-8. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma rule hunting with full rule management
-9. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
-10. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
-11. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
-12. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing and dynamic worker configuration
-13. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
+3. **Authentication**: [USERS.MD](USERS.MD) - User management and authentication
+4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Access control and audit logging
+5. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) - Upload and parse evidence files
+6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) + [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Query and tag events
+7. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma rule hunting
+8. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
+9. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
+10. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
+11. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
+12. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
 
 ### For System Administrators
 
-1. **Installation**: Follow README instructions
+1. **Installation**: Follow main project README
 2. **User Management**: [USERS.MD](USERS.MD) - Create/manage accounts
-3. **Permissions**: [PERMISSIONS.MD](PERMISSIONS.MD) - Understand role capabilities
-4. **Settings**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Configure workers via Settings page
+3. **Permissions**: [PERMISSIONS.MD](PERMISSIONS.MD) - Role capabilities
+4. **Settings**: Settings page for system configuration
 5. **Audit Log**: [AUDIT.MD](AUDIT.MD) - Monitor system activity
 6. **Server Config**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Gunicorn, SSL, systemd
 
@@ -68,9 +67,11 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - User table (authentication, roles)
 - Case table (investigations, network config, EDR reports)
 - CaseFile table (uploaded files tracking)
-- AuditLog table (security trail)
+- IOC tables (indicators of compromise)
+- Event tracking tables (ioc_hits, sigma_hits)
+- Known assets tables (systems, users)
+- Audit log table (security trail)
 - Field types and relationships
-- Example queries and usage patterns
 
 **Critical For**: Backend development, database migrations
 
@@ -81,15 +82,13 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 **Contents**:
 - Celery configuration (Redis, workers, queues)
-- Production-proven settings (battle-tested)
+- Production-proven settings
 - Memory-safe task design
 - Service management commands
 - Troubleshooting guide
-- Performance tuning
+- Dynamic worker configuration via Settings page
 
 **Critical For**: Async operations, file processing
-
-**Consolidated From**: CELERY_COMPLETE.md, CELERY_CONFIGURATION.md, CELERY_IMPLEMENTATION_SUMMARY.md, CELERY_PRODUCTION_SETTINGS.md
 
 ---
 
@@ -101,27 +100,12 @@ This directory contains comprehensive technical documentation for the CaseScope 
 **Contents**:
 - Three upload methods (web chunked, drag/drop, bulk folder)
 - SHA256 hash-based deduplication (per case)
-- Duplicate detection across all upload methods
 - Chunk upload mechanism (5MB chunks, 3 concurrent)
 - Memory-safe processing for large files
 - Celery task integration
 - Comprehensive troubleshooting
 
-**Critical For**: Understanding file ingestion pipeline
-
-**Contents**:
-- Chunk-based upload (5MB chunks, 3 concurrent)
-- EVTX parsing (Rust-based, 10-100x faster)
-- NDJSON/JSON/JSONL parsing (EDR logs, Elastic Agent)
-- OpenSearch bulk indexing
-- Memory-safe streaming design (16GB+ systems)
-- ZIP extraction (recursive)
-- API reference
-- Performance benchmarks
-
-**Critical For**: File upload features, EVTX/NDJSON processing
-
-**Consolidated From**: CHUNK_UPLOAD_SYSTEM.md, EVTX_PARSING_INDEXING.md, IMPLEMENTATION_COMPLETE.md, UPLOAD_REDIRECT_COMPLETE.md, UPLOAD_TEST_RESULTS.md, EVTX_DIAGNOSIS_SUMMARY.md, MEMORY_MANAGEMENT.md, MEMORY_SAFE_DESIGN.md, FILE_LIST_COMPLETE.md, FILE_LIST_IMPLEMENTATION.md, ENHANCED_FILE_UI.md, HIDDEN_FILES_FEATURE.md, REALTIME_PROGRESS_TRACKING.md
+**Critical For**: File upload features, evidence ingestion
 
 ---
 
@@ -131,13 +115,11 @@ This directory contains comprehensive technical documentation for the CaseScope 
 **Contents**:
 - EVTX parser internals (Rust library integration)
 - NDJSON parser with ECS support
+- CSV firewall parser
 - Search blob creation algorithm
 - Source system detection logic
 - Normalization process
-- Process tree extraction
 - Memory-safe chunked processing
-- Error handling strategies
-- Performance benchmarks
 
 **Critical For**: Understanding parsing pipeline, troubleshooting parser issues
 
@@ -147,89 +129,120 @@ This directory contains comprehensive technical documentation for the CaseScope 
 **Purpose**: File list interface with real-time updates
 
 **Contents**:
-- File list table (8 columns with metadata)
+- File list table with metadata
 - Real-time statistics (5-second updates)
 - Processing progress indicator
 - Search & filter system
-- Hidden files feature (auto-classify empty files)
+- Hidden files feature
 - Auto-refresh during processing
-- System name extraction (100% success rate)
 
 **Critical For**: UI features, file display
 
-**Consolidated From**: FILE_LIST_COMPLETE.md, FILE_LIST_IMPLEMENTATION.md, ENHANCED_FILE_UI.md, HIDDEN_FILES_FEATURE.md, REALTIME_PROGRESS_TRACKING.md
+---
+
+### Search & Analysis
+
+#### [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md)
+**Purpose**: Event search system with boolean operators
+
+**Contents**:
+- Boolean search operators (AND, OR, NOT)
+- Parenthetical grouping
+- File type filtering (EVTX, NDJSON, CSV, IIS)
+- Deep pagination (100K+ events)
+- Event detail modal with JSON tree
+- Process tree visualization
+- Performance optimization
+
+**Critical For**: Event querying and analysis
 
 ---
 
-### User Management & Security
+#### [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md)
+**Purpose**: Manual event tagging system
+
+**Contents**:
+- Tag/untag events
+- Four filter types (Other, Tagged, IOC, SIGMA)
+- OpenSearch-based storage
+- Performance considerations
+
+**Use For**: Event triage and filtering
+
+---
+
+#### [OPENSEARCH_FIELDS.md](OPENSEARCH_FIELDS.md)
+**Purpose**: OpenSearch field structure and mappings
+
+**Contents**:
+- Core field categories (EVTX, normalized, CSV)
+- Field type mapping
+- Index structure (case-level)
+- Query examples
+- Performance considerations
+
+**Critical For**: Understanding indexed data
+
+---
+
+### Threat Hunting & Intelligence
 
 #### [THREAT_HUNTING.md](THREAT_HUNTING.md)
 **Purpose**: Automated IOC and SIGMA rule hunting system
 
 **Contents**:
-- IOC hunting implementation (search strategies, badge display)
-- SIGMA rule hunting with Chainsaw (3,083 rules)
+- IOC hunting implementation
+- SIGMA rule hunting with Chainsaw (3,652 rules)
 - Event matching algorithms
-- Background processing with Celery
-- Progress tracking and status updates
-- Badge system with severity-based colors
-- Integration with event tagging filters
-- API endpoints and UI components
-- Performance optimization strategies
-- Troubleshooting guides
+- Background processing
+- Badge system with severity colors
+- Rule management interface
 
-**Critical For**: Automated threat detection, event triage
+**Critical For**: Automated threat detection
 
 ---
 
 #### [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md)
-**Purpose**: Comprehensive IOC (Indicators of Compromise) management system
+**Purpose**: Comprehensive IOC management system
 
 **Contents**:
-- IOC database model (56 types, 7 categories, threat levels)
-- Manual IOC creation, editing, deletion (individual & bulk)
-- Automated IOC extraction from EDR reports
-  - AI-based extraction (primary, via Ollama)
-  - Regex-based extraction (fallback when AI unavailable)
+- IOC database model (56 types, 7 categories)
+- Manual IOC creation, editing, deletion
+- Automated IOC extraction from EDR reports (AI + regex fallback)
 - Intelligent duplicate detection and merging
-- Manual deduplication with tree view interface
-- Search, filtering, and pagination
-- CSV export
-- Comprehensive audit logging
-- API endpoints reference
+- Manual deduplication with tree view
+- Search, filtering, pagination
+- CSV export/import
 
-**Critical For**: Threat intelligence database, IOC tracking, EDR analysis
+**Critical For**: Threat intelligence database
 
 ---
 
-### User Management & Security
-
-#### [SITE_LAYOUT.MD](SITE_LAYOUT.MD)
-**Purpose**: Project structure, file organization, and design principles
+#### [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md)
+**Purpose**: Track systems and devices in investigations
 
 **Contents**:
-- File naming conventions (`Type_section_function.py`)
-- Directory structure (`/app`, `/static`, `/templates`, etc.)
-- Flask blueprints and auto-loading system
-- CSS architecture (centralized styling)
-- Server configuration (Gunicorn, HTTPS, systemd)
-- Key design principles
+- System tracking database
+- Manual entry and auto-discovery from logs
+- CSV import/export
+- System type detection
+- FQDN handling and deduplication
 
-**Read First**: Essential for understanding project organization
+**Use For**: Asset tracking, system identification
 
 ---
 
-#### [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
-**Purpose**: Complete database schema and field definitions
+#### [KNOWN_USERS.md](KNOWN_USERS.md)
+**Purpose**: Track user accounts and identities
 
 **Contents**:
-- User table (authentication, roles)
-- Case table (investigations, network config, EDR reports)
-- AuditLog table (security trail)
-- Field types and relationships
-- Example queries and usage patterns
+- User tracking database
+- Manual entry and auto-discovery from logs
+- CSV import/export
+- Cross-variant deduplication (user, DOMAIN\user, user@domain)
+- System account filtering (50+ exclusions)
 
-**Critical For**: Backend development, database migrations
+**Use For**: Account tracking, identity management
 
 ---
 
@@ -237,15 +250,15 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 #### [USERS.MD](USERS.MD)
 **Purpose**: User authentication and account management
+
+**Contents**:
 - User model and database schema
 - Authentication flow (login/logout)
 - Session management (8-hour timeout)
 - Password security (Werkzeug hashing)
 - User roles (administrator, analyst, read-only)
-- Case assignment for viewers
 - User interface components
 - Default admin account (`admin`/`admin`)
-- Common queries and troubleshooting
 
 **Use For**: Implementing user features, debugging auth issues
 
@@ -256,12 +269,10 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 **Contents**:
 - Complete permission matrices by role
-- Route decorators (`@admin_required`, `@admin_or_analyst_required`)
+- Route decorators (`@admin_required`, etc.)
 - Server-side enforcement patterns
-- Client-side UI control (conditional rendering)
+- Client-side UI control
 - Access control examples for all features
-- Security best practices
-- Privilege escalation prevention
 
 **Critical For**: Security features, access control implementation
 
@@ -274,97 +285,70 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - What gets audited (login, user management, case operations)
 - Audit log schema and fields
 - `audit_logger.py` module usage
-- Automatic context capture (user, IP, timestamp)
-- Viewing audit logs (web interface with modal)
-- Query examples for common scenarios
+- Viewing audit logs (web interface)
+- Query examples
 - Compliance readiness (SOC 2, HIPAA, PCI-DSS, GDPR)
-- Data retention and security considerations
 
 **Use For**: Compliance, security monitoring, forensic investigation
 
 ---
 
-### Case Management
+### AI & Advanced Features
 
-#### [PERMISSIONS.MD](PERMISSIONS.MD)
-**Purpose**: Case-specific permission rules and enforcement
+#### [AI_SYSTEM.MD](AI_SYSTEM.MD)
+**Purpose**: AI-powered analysis system
 
 **Contents**:
-- Permission matrix (create, edit, delete cases)
-- Administrator: Full access including deletion
-- Analyst: Create and edit (no delete)
-- Viewer: Read-only access to assigned case only
-- UI element visibility by role
-- Route-level access control
-- Audit logging for case operations
-- Testing checklist by role
+- Architecture and components
+- LLM integration (Ollama, Qwen2.5)
+- Natural language queries
+- Event analysis
+- IOC extraction
+- Setup and configuration
 
-**Critical For**: Case management features, role restrictions
+**Use For**: AI feature implementation
 
 ---
 
-#### [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
-**Purpose**: Detailed documentation of case table fields
+#### [RAG_SYSTEM.MD](RAG_SYSTEM.MD)
+**Purpose**: Retrieval Augmented Generation for threat intelligence
 
 **Contents**:
-- `opensearch_index` - Case-level indexing
-- `router_ips` - Network infrastructure tracking
-- `vpn_ips` - VPN ranges (supports IPs, CIDR, ranges)
-- `edr_reports` - EDR report storage with delimiter
-- Field formats and examples
-- UI helper text recommendations
-- Python parsing examples
-- Migration history
+- RAG architecture
+- Vector database (pgvector)
+- Sigma rules and MITRE ATT&CK embeddings
+- Semantic search
+- Performance considerations
 
-**Use For**: Case form implementation, data validation
+**Use For**: AI context enhancement
 
 ---
 
-## 🚀 Quick Start Guide
+### Maintenance & Operations
 
-### For Developers
+#### [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md)
+**Purpose**: Reset case data procedures
 
-1. **Start Here**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Understand project structure
-2. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema
-3. **Authentication**: [USERS.MD](USERS.MD) - Implement user features
-4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Enforce access control
-5. **Case Management**: [PERMISSIONS.MD](PERMISSIONS.MD) + [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
-6. **File Upload**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) - Chunked upload system
-7. **File Parsing**: [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) - Event extraction and normalization
-8. **OpenSearch Fields**: [OPENSEARCH_FIELDS.md](OPENSEARCH_FIELDS.md) - Field mappings and types
-9. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event querying
-8. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma hunting
-9. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
+**Contents**:
+- Data storage locations
+- Cleanup procedures for each storage type
+- Statistics recalculation
+- Full reset vs selective cleanup
 
-### For System Administrators
-
-1. **User Management**: [USERS.MD](USERS.MD) - Create/manage accounts
-2. **Permissions**: [PERMISSIONS.MD](PERMISSIONS.MD) - Understand role capabilities
-3. **Audit Log**: [AUDIT.MD](AUDIT.MD) - Monitor system activity
-4. **Server Config**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Configure Gunicorn, SSL, systemd
-
-### For Security Auditors
-
-1. **Audit System**: [AUDIT.MD](AUDIT.MD) - Complete audit trail
-2. **Access Control**: [PERMISSIONS.MD](PERMISSIONS.MD) - RBAC implementation
-3. **User Lifecycle**: [USERS.MD](USERS.MD) - Account management
-4. **Case Operations**: [PERMISSIONS.MD](PERMISSIONS.MD) - Case-specific controls
+**Use For**: Case maintenance, testing, data cleanup
 
 ---
 
-### Settings & Configuration
-
-#### [CELERY_SYSTEM.md](CELERY_SYSTEM.md)
-**Purpose**: Dynamic worker configuration via Settings page
+#### [CHANGELOG.md](CHANGELOG.md)
+**Purpose**: Version history and feature additions
 
 **Contents**:
-- Web UI for adjusting Celery workers (2, 4, 6, or 8)
-- CPU limit validation (2/3 of cores)
-- Automatic service restart
-- Audit logging of changes
-- Sudo permissions for casescope user
+- Version-by-version changes
+- New features
+- Bug fixes
+- Breaking changes
 
-**Use For**: Administrator configuration, worker scaling
+**Use For**: Tracking system evolution
 
 ---
 
@@ -375,11 +359,11 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | User Authentication | ✅ Complete | [USERS.MD](USERS.MD) |
 | Role-Based Access Control | ✅ Complete | [PERMISSIONS.MD](PERMISSIONS.MD) |
 | Audit Logging | ✅ Complete | [AUDIT.MD](AUDIT.MD) |
-| Case Management | ✅ Complete | [PERMISSIONS.MD](PERMISSIONS.MD) |
-| Case Dashboard | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
+| Case Management | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
 | File Upload & Processing | ✅ Complete | [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) |
 | EVTX Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
 | NDJSON/JSON Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
+| CSV Firewall Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
 | Event Search System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | Event Tagging System | ✅ Complete | [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) |
 | File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
@@ -388,26 +372,25 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | IOC Extraction (AI + Regex) | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
 | IOC Deduplication | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
 | SIGMA Rule Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
+| SIGMA Rule Management | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
 | Known Systems Tracking | ✅ Complete | [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) |
 | Known Users Tracking | ✅ Complete | [KNOWN_USERS.md](KNOWN_USERS.md) |
 | AI System | ✅ Complete | [AI_SYSTEM.MD](AI_SYSTEM.MD) |
 | RAG System | ✅ Complete | [RAG_SYSTEM.MD](RAG_SYSTEM.MD) |
 | Case Cleanup | ✅ Complete | [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) |
-| EDR Report Management | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
-| Network Config (Router/VPN IPs) | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
 | Celery Worker Configuration | ✅ Complete | [CELERY_SYSTEM.md](CELERY_SYSTEM.md) |
-| EVTX Event Descriptions | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
+| SSL Certificate Upload | ✅ Complete | Settings page |
 
 ---
 
 ## 🔐 Security Features
 
-- **Authentication**: Session-based with 8-hour timeout
+- **Authentication**: Session-based with configurable timeout
 - **Password Security**: Werkzeug hashing (bcrypt-compatible)
 - **RBAC**: Three-tier role system (administrator, analyst, read-only)
 - **Audit Trail**: Immutable log of all security-sensitive actions
 - **Access Control**: Multi-layer enforcement (route, template, JavaScript)
-- **HTTPS**: SSL/TLS support with configurable certificates
+- **HTTPS**: SSL/TLS support with certificate management
 - **Session Management**: Server-side sessions, secure cookies
 
 ---
@@ -419,90 +402,39 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - `/health` - Health check endpoint
 
 ### Protected Routes (Authenticated)
-- `/` - Dashboard (system stats, auto-refresh)
-- `/case/select` - Case selection page
-- `/case/dashboard` - Case details and management
-- `/case/dashboard/<id>` - Specific case dashboard
-- `/ioc/manage` - IOC management interface
-- `/hunting/dashboard` - Threat hunting dashboard
+- `/` - Dashboard (system stats)
+- `/case/select` - Case selection
+- `/case/dashboard/<id>` - Case dashboard
+- `/case/<id>/files` - File management
+- `/case/<id>/upload` - File upload
+- `/search/events` - Event search
+- `/ioc/manage` - IOC management
+- `/hunting/dashboard` - Threat hunting
+- `/systems/manage` - Known systems
+- `/users/manage` - Known users
+- `/ai/assistant` - AI assistant
 
 ### Admin Routes (Administrator Only)
-- `/admin/settings` - System settings (Celery workers, EVTX descriptions)
-- `/admin/settings/evtx-descriptions` - EVTX event descriptions management
-- `/admin/users` - User management (create, edit, delete)
+- `/admin/users` - User management
 - `/admin/audit-log` - Audit trail viewer
-
-### API Routes - Cases
-- `POST /case/create` - Create new case
-- `POST /case/<id>/edit` - Edit case details
-- `POST /case/<id>/delete` - Delete case (admin only)
-- `GET /case/<id>/edr-report` - Get EDR reports
-- `POST /case/<id>/edr-report` - Update EDR reports
-
-### API Routes - IOC Management
-- `GET /ioc/api/list` - List IOCs (paginated, filtered)
-- `GET /ioc/api/get/<id>` - Get single IOC details
-- `GET /ioc/api/stats` - Get IOC statistics
-- `POST /ioc/api/create` - Create new IOC
-- `PUT /ioc/api/update/<id>` - Update IOC
-- `DELETE /ioc/api/delete/<id>` - Delete IOC
-- `POST /ioc/api/check_duplicate` - Check for duplicates
-- `POST /ioc/api/bulk_update` - Bulk update IOCs
-- `POST /ioc/api/bulk_delete` - Bulk delete IOCs
-- `GET /ioc/api/export_csv` - Export IOCs to CSV
-- `GET /ioc/api/find_duplicates` - Find duplicate IOCs
-- `POST /ioc/api/merge_duplicates` - Merge duplicates
-
-### API Routes - Hunting
-- `GET /hunting/api/check_edr` - Check for EDR reports
-- `POST /hunting/api/extract_edr_iocs` - Extract IOCs from EDR (AI + regex fallback)
-- `POST /hunting/api/save_extracted_iocs` - Save extracted IOCs
-
-### API Routes - System
-- `GET /api/dashboard/stats` - System statistics (auto-refresh)
-
----
-
-## 🗄️ Database Tables
-
-| Table | Purpose | Rows (typical) |
-|-------|---------|----------------|
-| `user` | User accounts | 1-100 |
-| `case` | Investigation cases | 10-1000 |
-| `ioc` | Indicators of Compromise | 100-10,000+ |
-| `audit_log` | Security audit trail | 100-10,000+ |
-| `event_description` | EVTX event descriptions | 1,100+ |
-
----
-
-## 🔧 Configuration
-
-**User-Configurable Settings** (`/app/config.py`):
-- Web server port (default: 443)
-- SSL certificates
-- Database connection (PostgreSQL)
-- OpenSearch connection
-- Session timeout (default: 8 hours)
+- `/settings` - System settings
+- `/settings/evtx-descriptions` - EVTX event descriptions
+- `/settings/sigma-rules` - SIGMA rule management
 
 ---
 
 ## 📝 Conventions
 
 ### File Naming
-- Routes: `route_section_function.py` (e.g., `route_admin_users.py`)
-- Models: `model_name.py` (e.g., `models.py`)
-- Tasks: `task_operation.py` (e.g., `task_ioc_hunt.py`)
+- Routes: `{section}.py` (e.g., `admin.py`, `case.py`)
+- Models: `models.py`
+- Tasks: `task_{operation}.py` (e.g., `task_file_upload.py`)
 
 ### Code Style
 - Python: PEP 8 compliance
 - SQL: PostgreSQL 14+ syntax
 - JavaScript: ES6+ features
 - CSS: BEM-like methodology with utility classes
-
-### Commit Messages
-- Format: `[Component] Description`
-- Example: `[Auth] Add session timeout configuration`
-- Include issue/ticket numbers when applicable
 
 ---
 
@@ -525,10 +457,10 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - Verify PostgreSQL connection
 - Check table permissions for `casescope` user
 
-**Case Management Issues**:
-- Refer to [PERMISSIONS.MD](PERMISSIONS.MD) - Role restrictions
-- Check session for selected case
-- Verify viewer case assignment
+**File Processing Issues**:
+- Refer to [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) - Troubleshooting
+- Check Celery workers: `systemctl status casescope-workers`
+- Review logs: `/opt/casescope/logs/celery_worker.log`
 
 ---
 
@@ -542,41 +474,4 @@ For questions or issues:
 
 ---
 
-## 📅 Changelog
-
-### 2025-12-25
-- ✅ SIGMA rule hunting system (3,083 rules via Chainsaw)
-- ✅ Severity-based badge coloring for Sigma detections
-- ✅ IOC hunting system with multi-strategy search
-- ✅ Event tag filtering (4 types: Other, Tagged, IOC, SIGMA)
-- ✅ Consolidated threat hunting documentation
-
-### 2025-12-24
-- ✅ IOC management system (manual + automated)
-- ✅ IOC extraction from EDR reports (AI + regex fallback)
-- ✅ Intelligent IOC deduplication (auto + manual)
-- ✅ Known Systems tracking with auto-discovery
-- ✅ Known Users tracking with auto-discovery
-- ✅ IOC audit logging (comprehensive tracking)
-- ✅ CSV export/import for IOCs, Systems, and Users
-- ✅ Regex-based IOC extractor (fallback when AI unavailable)
-- ✅ EVTX event descriptions system (1,100+ events)
-
-### 2025-12-23
-- ✅ Event search system with boolean operators
-- ✅ File type filtering (EVTX, NDJSON, IIS, CSV)
-- ✅ NDJSON/JSON/JSONL parsing
-- ✅ Process tree visualization
-- ✅ Deep pagination optimization
-- ✅ Celery worker configuration UI
-
-### 2025-12-21
-- ✅ Complete user authentication system
-- ✅ Role-based access control (RBAC)
-- ✅ Comprehensive audit logging
-- ✅ Case management (CRUD operations)
-- ✅ System dashboard with auto-refresh
-
----
-
-*This documentation is maintained alongside the codebase. If you find outdated information, please update it immediately.*
+*This documentation is maintained alongside the codebase. All information verified against live code as of December 27, 2025.*
