@@ -364,6 +364,19 @@ def delete_user(user_id):
                 'case_name': case.name if case else 'Unknown'
             }
         
+        # Check for CaseFile records that would violate NOT NULL constraint
+        from models import CaseFile
+        uploaded_files_count = CaseFile.query.filter_by(uploaded_by=user_id).count()
+        
+        if uploaded_files_count > 0:
+            # We cannot delete this user because they have uploaded files
+            # Options: 1) Prevent deletion, 2) Reassign files to another user, 3) Delete files
+            # For now, we'll prevent deletion and inform the admin
+            return jsonify({
+                'success': False,
+                'error': f'Cannot delete user: they have uploaded {uploaded_files_count} file(s). Reassign or delete these files first.'
+            }), 400
+        
         db.session.delete(user)
         db.session.commit()
         

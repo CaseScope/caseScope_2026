@@ -301,6 +301,30 @@ def delete_case(case_id):
         case_status = case.status
         opensearch_index = case.opensearch_index
         
+        # Import required models for cascade deletion
+        from models import CaseFile, KnownSystem, KnownUser, EventIOCHit, EventSigmaHit, IOC
+        
+        # Delete all child records to avoid foreign key constraint violations
+        # These tables have case_id as NOT NULL foreign key
+        
+        # Delete EventIOCHit records
+        EventIOCHit.query.filter_by(case_id=case_id_copy).delete()
+        
+        # Delete EventSigmaHit records
+        EventSigmaHit.query.filter_by(case_id=case_id_copy).delete()
+        
+        # Delete IOCs (nullable but should be cleaned up)
+        IOC.query.filter_by(case_id=case_id_copy).delete()
+        
+        # Delete KnownUsers
+        KnownUser.query.filter_by(case_id=case_id_copy).delete()
+        
+        # Delete KnownSystems
+        KnownSystem.query.filter_by(case_id=case_id_copy).delete()
+        
+        # Delete CaseFiles
+        CaseFile.query.filter_by(case_id=case_id_copy).delete()
+        
         # Delete the case
         db.session.delete(case)
         db.session.commit()

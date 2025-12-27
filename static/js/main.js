@@ -3,8 +3,36 @@
  * Core functionality
  */
 
-// Auto-dismiss flash messages after 5 seconds
+// ============================================================================
+// THEME SWITCHING
+// ============================================================================
+
+function toggleTheme() {
+    const currentTheme = localStorage.getItem('theme') || 'dark';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    localStorage.setItem('theme', newTheme);
+    document.body.classList.toggle('light-theme');
+    
+    // Update theme icon
+    const icon = document.getElementById('themeIcon');
+    if (icon) {
+        icon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+    }
+    
+    console.log(`Theme switched to: ${newTheme}`);
+}
+
+// Apply saved theme on page load
 document.addEventListener('DOMContentLoaded', function() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-theme');
+        const icon = document.getElementById('themeIcon');
+        if (icon) icon.textContent = '☀️';
+    }
+    
+    // Auto-dismiss flash messages after 5 seconds
     const flashMessages = document.querySelectorAll('.flash-message');
     flashMessages.forEach(msg => {
         setTimeout(() => {
@@ -13,6 +41,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 5000);
     });
 });
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+// Auto-dismiss flash messages after 5 seconds (moved to DOMContentLoaded above)
 
 // Utility: Format numbers with commas
 function formatNumber(num) {

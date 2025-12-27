@@ -118,6 +118,12 @@
                 
                 <div class="header-right">
                     {% if current_user and current_user.is_authenticated %}
+                    <!-- Theme Toggle -->
+                    <button class="theme-toggle" onclick="toggleTheme()">
+                        <span id="themeIcon">🌙</span>
+                        Theme
+                    </button>
+                    
                     <div class="user-info">
                         <span>{{ current_user.username }}</span>
                         <span class="user-role">({{ current_user.role|default('User') }})</span>

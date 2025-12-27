@@ -122,13 +122,13 @@
                 <form id="sslUploadForm" enctype="multipart/form-data">
                     <div class="form-group">
                         <label for="certFile" class="form-label">SSL Certificate (cert.pem)</label>
-                        <input type="file" id="certFile" name="certFile" class="form-control" accept=".pem,.crt,.cer" required>
+                        <input type="file" id="certFile" name="certFile" class="form-input" accept=".pem,.crt,.cer" required>
                         <small class="form-text text-muted">PEM-encoded certificate file</small>
                     </div>
                     
                     <div class="form-group">
                         <label for="keyFile" class="form-label">Private Key (key.pem)</label>
-                        <input type="file" id="keyFile" name="keyFile" class="form-control" accept=".pem,.key" required>
+                        <input type="file" id="keyFile" name="keyFile" class="form-input" accept=".pem,.key" required>
                         <small class="form-text text-muted">PEM-encoded private key file (unencrypted)</small>
                     </div>
                     
@@ -139,6 +139,9 @@
                 
                 <div id="sslUploadResult" class="mt-3" style="display: none;">
                     <div class="alert" id="sslUploadAlert"></div>
+                    <button type="button" class="btn btn-success mt-2" onclick="restartService()" id="restartServiceBtn" style="display: none;">
+                        🔄 Restart Service to Apply Changes
+                    </button>
                 </div>
             </div>
         </div>
@@ -320,6 +323,7 @@ async function uploadSSLCertificate() {
     const btn = document.getElementById('sslUploadBtn');
     const resultDiv = document.getElementById('sslUploadResult');
     const alertDiv = document.getElementById('sslUploadAlert');
+    const restartBtn = document.getElementById('restartServiceBtn');
     
     const certFile = document.getElementById('certFile').files[0];
     const keyFile = document.getElementById('keyFile').files[0];
@@ -329,6 +333,7 @@ async function uploadSSLCertificate() {
         resultDiv.style.display = 'block';
         alertDiv.className = 'alert alert-danger';
         alertDiv.textContent = 'Please select both certificate and key files';
+        restartBtn.style.display = 'none';
         return;
     }
     
@@ -340,6 +345,7 @@ async function uploadSSLCertificate() {
         resultDiv.style.display = 'block';
         alertDiv.className = 'alert alert-danger';
         alertDiv.textContent = 'Certificate file must be .pem, .crt, or .cer format';
+        restartBtn.style.display = 'none';
         return;
     }
     
@@ -347,11 +353,13 @@ async function uploadSSLCertificate() {
         resultDiv.style.display = 'block';
         alertDiv.className = 'alert alert-danger';
         alertDiv.textContent = 'Private key file must be .pem or .key format';
+        restartBtn.style.display = 'none';
         return;
     }
     
     btn.disabled = true;
     btn.textContent = 'Uploading...';
+    restartBtn.style.display = 'none';
     
     try {
         const formData = new FormData();
@@ -374,21 +382,70 @@ async function uploadSSLCertificate() {
             // Clear form
             form.reset();
             
-            // Show warning about server restart
+            // Show restart button if needed
             if (data.restart_required) {
-                alertDiv.innerHTML += '<br><br><strong>⚠ Note:</strong> Server restart may be required for changes to take effect.';
+                restartBtn.style.display = 'inline-block';
             }
         } else {
             alertDiv.className = 'alert alert-danger';
             alertDiv.innerHTML = '<strong>Error:</strong><br>' + (data.error || 'Failed to upload SSL certificate');
+            restartBtn.style.display = 'none';
         }
     } catch (error) {
         resultDiv.style.display = 'block';
         alertDiv.className = 'alert alert-danger';
         alertDiv.innerHTML = '<strong>Error:</strong><br>' + error.message;
+        restartBtn.style.display = 'none';
     } finally {
         btn.disabled = false;
         btn.textContent = 'Upload Certificate';
+    }
+}
+
+// ============================================================================
+// Service Restart Function
+// ============================================================================
+async function restartService() {
+    const btn = document.getElementById('restartServiceBtn');
+    const alertDiv = document.getElementById('sslUploadAlert');
+    
+    if (!confirm('Are you sure you want to restart the CaseScope service? This will briefly interrupt service.')) {
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = '🔄 Restarting...';
+    
+    try {
+        const response = await fetch('/settings/api/restart-service', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alertDiv.className = 'alert alert-success';
+            alertDiv.innerHTML = '<strong>Success!</strong><br>' + data.message + '<br><br>The page will reload in 3 seconds...';
+            btn.style.display = 'none';
+            
+            // Reload page after service restart
+            setTimeout(() => {
+                window.location.reload();
+            }, 3000);
+        } else {
+            alertDiv.className = 'alert alert-danger';
+            alertDiv.innerHTML = '<strong>Error:</strong><br>' + (data.error || 'Failed to restart service');
+            btn.disabled = false;
+            btn.textContent = '🔄 Restart Service to Apply Changes';
+        }
+    } catch (error) {
+        alertDiv.className = 'alert alert-danger';
+        alertDiv.innerHTML = '<strong>Error:</strong><br>' + error.message;
+        btn.disabled = false;
+        btn.textContent = '🔄 Restart Service to Apply Changes';
     }
 }
 

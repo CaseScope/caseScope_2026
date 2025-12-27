@@ -6,7 +6,7 @@ Manage Indicators of Compromise for threat intelligence
 from flask import Blueprint, render_template, jsonify, request, session, Response
 from flask_login import login_required, current_user
 from main import db
-from models import IOC, Case
+from models import IOC, Case, EventIOCHit
 from audit_logger import log_action
 import logging
 import csv
@@ -632,6 +632,10 @@ def api_delete(ioc_id):
             'source': ioc.source
         }
         
+        # Delete associated EventIOCHit records first to avoid foreign key constraint violation
+        event_hits_count = EventIOCHit.query.filter_by(ioc_id=ioc_id).count()
+        EventIOCHit.query.filter_by(ioc_id=ioc_id).delete()
+        
         # Delete the IOC
         db.session.delete(ioc)
         db.session.commit()
@@ -775,6 +779,7 @@ def api_bulk_delete():
         
         # Store IOC details for audit log
         deleted_iocs = []
+        total_event_hits = 0
         for ioc in iocs:
             deleted_iocs.append({
                 'id': ioc.id,
@@ -783,6 +788,11 @@ def api_bulk_delete():
                 'category': ioc.category,
                 'threat_level': ioc.threat_level
             })
+            # Delete associated EventIOCHit records first
+            event_hits_count = EventIOCHit.query.filter_by(ioc_id=ioc.id).count()
+            total_event_hits += event_hits_count
+            EventIOCHit.query.filter_by(ioc_id=ioc.id).delete()
+            
             db.session.delete(ioc)
         
         db.session.commit()
@@ -1130,6 +1140,9 @@ def api_merge_duplicates():
                 threat_order = {'info': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
                 if threat_order.get(dup_ioc.threat_level, 0) > threat_order.get(root_ioc.threat_level, 0):
                     root_ioc.threat_level = dup_ioc.threat_level
+                
+                # Reassign EventIOCHit records from duplicate to root IOC
+                EventIOCHit.query.filter_by(ioc_id=dup_ioc.id).update({'ioc_id': root_ioc.id})
                 
                 # Delete the duplicate
                 db.session.delete(dup_ioc)

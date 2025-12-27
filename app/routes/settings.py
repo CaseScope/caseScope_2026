@@ -10,6 +10,8 @@ import logging
 import os
 import psutil
 import subprocess
+import tempfile
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -817,17 +819,61 @@ def api_upload_ssl():
         cert_content = cert_file.read().decode('utf-8')
         key_content = key_file.read().decode('utf-8')
         
-        # Validate certificate format
-        if not cert_content.strip().startswith('-----BEGIN CERTIFICATE-----'):
-            return jsonify({
-                'success': False,
-                'error': 'Invalid certificate format. File must be PEM-encoded and start with "-----BEGIN CERTIFICATE-----"'
-            }), 400
+        # Helper function to detect and convert PKCS#12/bag format to PEM
+        def extract_pem_from_bag(content, extract_type='certificate'):
+            """Extract PEM content from PKCS#12 bag format"""
+            lines = content.strip().split('\n')
+            pem_lines = []
+            in_pem = False
+            
+            if extract_type == 'certificate':
+                start_markers = ['-----BEGIN CERTIFICATE-----']
+                end_markers = ['-----END CERTIFICATE-----']
+            else:  # private key
+                start_markers = [
+                    '-----BEGIN PRIVATE KEY-----',
+                    '-----BEGIN RSA PRIVATE KEY-----',
+                    '-----BEGIN EC PRIVATE KEY-----'
+                ]
+                end_markers = [
+                    '-----END PRIVATE KEY-----',
+                    '-----END RSA PRIVATE KEY-----',
+                    '-----END EC PRIVATE KEY-----'
+                ]
+            
+            for line in lines:
+                # Check if we're starting PEM content
+                if any(marker in line for marker in start_markers):
+                    in_pem = True
+                    pem_lines.append(line)
+                elif in_pem:
+                    pem_lines.append(line)
+                    # Check if we're ending PEM content
+                    if any(marker in line for marker in end_markers):
+                        break
+            
+            if pem_lines:
+                return '\n'.join(pem_lines)
+            return None
         
+        # Check if certificate is in PEM format or needs extraction
+        if not cert_content.strip().startswith('-----BEGIN CERTIFICATE-----'):
+            # Try to extract PEM from bag format
+            extracted_cert = extract_pem_from_bag(cert_content, 'certificate')
+            if extracted_cert:
+                cert_content = extracted_cert
+                logger.info("Converted certificate from PKCS#12/bag format to PEM")
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid certificate format. File must be PEM-encoded or contain PEM data'
+                }), 400
+        
+        # Validate certificate has proper end marker
         if not cert_content.strip().endswith('-----END CERTIFICATE-----'):
             return jsonify({
                 'success': False,
-                'error': 'Invalid certificate format. File must be PEM-encoded and end with "-----END CERTIFICATE-----"'
+                'error': 'Invalid certificate format. Certificate must end with "-----END CERTIFICATE-----"'
             }), 400
         
         # Validate private key format
@@ -835,19 +881,22 @@ def api_upload_ssl():
             '-----BEGIN PRIVATE KEY-----',
             '-----BEGIN RSA PRIVATE KEY-----',
             '-----BEGIN EC PRIVATE KEY-----',
-            '-----BEGIN ENCRYPTED PRIVATE KEY-----'
         ]
         
-        if not any(cert_content.strip().startswith(header) for header in key_headers):
-            # Check if it's actually in the key content
-            if not any(key_content.strip().startswith(header) for header in key_headers):
+        # Check if key needs extraction from bag format
+        if not any(key_content.strip().startswith(header) for header in key_headers):
+            extracted_key = extract_pem_from_bag(key_content, 'key')
+            if extracted_key:
+                key_content = extracted_key
+                logger.info("Converted private key from PKCS#12/bag format to PEM")
+            else:
                 return jsonify({
                     'success': False,
-                    'error': 'Invalid private key format. File must be PEM-encoded private key'
+                    'error': 'Invalid private key format. File must be PEM-encoded or contain PEM data'
                 }), 400
         
         # Check for encrypted private key (not supported by Gunicorn)
-        if '-----BEGIN ENCRYPTED PRIVATE KEY-----' in key_content or 'ENCRYPTED' in key_content:
+        if '-----BEGIN ENCRYPTED PRIVATE KEY-----' in key_content or 'Proc-Type: 4,ENCRYPTED' in key_content:
             return jsonify({
                 'success': False,
                 'error': 'Encrypted private keys are not supported. Please provide an unencrypted private key.'
@@ -933,3 +982,55 @@ def api_upload_ssl():
             'error': str(e)
         }), 500
 
+
+@settings_bp.route('/api/restart-service', methods=['POST'])
+@admin_required
+def restart_service():
+    """Restart the casescope-new service"""
+    try:
+        # Import audit logger
+        from app.audit_logger import log_action
+        
+        logger.info(f"Service restart requested by {current_user.username}")
+        
+        # Execute service restart with sudo
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'casescope-new'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            # Audit log
+            log_action('restart_service',
+                      resource_type='system',
+                      resource_id=1,
+                      resource_name='casescope-new',
+                      details={
+                          'service': 'casescope-new',
+                          'restarted_by': current_user.username
+                      })
+            
+            return jsonify({
+                'success': True,
+                'message': 'Service casescope-new restarted successfully'
+            })
+        else:
+            logger.error(f"Failed to restart service: {result.stderr}")
+            return jsonify({
+                'success': False,
+                'error': f'Failed to restart service: {result.stderr}'
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Service restart timed out'
+        }), 500
+    except Exception as e:
+        logger.error(f"Error restarting service: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
