@@ -50,7 +50,7 @@
     </div>
 
     <!-- Statistics Section -->
-    <div class="row mb-4 browser-stats-section" id="statsSection">
+    <div class="row mb-4 hidden" id="statsSection">
         <div class="col-md-3">
             <div class="stat-card">
                 <div class="stat-icon">📊</div>
@@ -96,7 +96,7 @@
             </div>
 
             <!-- Pagination -->
-            <div class="browser-pagination" id="paginationContainer">
+            <div class="hidden" id="paginationContainer">
                 <div class="pagination-controls mt-3">
                     <button id="prevButton" class="btn btn-secondary" onclick="changePage(-1)" disabled>
                         ← Previous
@@ -133,14 +133,14 @@ async function loadStats() {
         const data = await response.json();
         
         if (data.total_visits > 0) {
-            document.getElementById('statsSection').classList.add('visible');
+            document.getElementById('statsSection').classList.remove('hidden');
             document.getElementById('totalVisits').textContent = formatNumber(data.total_visits);
             
             // Display top URLs
             if (data.top_urls && data.top_urls.length > 0) {
                 const urlsHtml = data.top_urls.map(u => {
                     const displayUrl = u.url.length > 60 ? u.url.substring(0, 57) + '...' : u.url;
-                    return `<div class="browser-url-item">
+                    return `<div class="d-flex justify-content-between align-items-center mb-2 gap-2">
                         <a href="${u.url}" target="_blank" class="text-small browser-url-link" title="${u.url}">${displayUrl}</a>
                         <span class="badge badge-info">${formatNumber(u.count)}</span>
                     </div>`;
@@ -153,7 +153,7 @@ async function loadStats() {
             // Display browser types
             if (data.browser_types && data.browser_types.length > 0) {
                 const browsersHtml = data.browser_types.map(b => 
-                    `<div class="browser-type-item">
+                    `<div class="d-flex justify-content-between align-items-center mb-2 gap-2">
                         <span class="badge badge-primary browser-type-badge">${b.browser}</span>
                         <span class="text-small">${formatNumber(b.count)} events</span>
                     </div>`
@@ -261,9 +261,9 @@ function updatePagination(data) {
     
     const paginationContainer = document.getElementById('paginationContainer');
     if (totalPages > 1) {
-        paginationContainer.classList.add('visible');
+        paginationContainer.classList.remove('hidden');
     } else {
-        paginationContainer.classList.remove('visible');
+        paginationContainer.classList.add('hidden');
     }
     
     document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
