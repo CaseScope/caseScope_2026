@@ -1,5 +1,40 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.2 - December 28, 2025
+
+### 🐛 Critical Fix: Sort Field Changed to timestamp
+
+**Root Cause Discovered:**
+The `normalized_timestamp` field was defined in the OpenSearch index mapping but **never populated** during EVTX parsing. All events were missing this field, causing OpenSearch to assign a sort value of `Long.MAX_VALUE` (9223372036854775807) to every event. This resulted in sorting by `_id` only, which is essentially random order.
+
+**Why It Was Broken:**
+- Events literally had: `2022 → 2021 → 2020 → 2023 → 2023 → 2023 → 2025 → 2024 → 2025`
+- OpenSearch query showed ALL events with identical sort value: `9223372036854775807`
+- The field existed in mapping but EVTX parser never set it
+- Previous fix (v1.5.1 `missing` parameter) didn't help because ALL events were missing the field
+
+**Solution:**
+Changed default sort field from `normalized_timestamp` to `timestamp`:
+- The `timestamp` field IS populated during EVTX parsing
+- Direct OpenSearch testing confirmed proper chronological sorting
+- Events now display: `2025-09-05 → 2025-09-05 → 2025-09-05... → 2022-05-06` (newest first ✓)
+
+**Files Modified:**
+- `app/routes/search.py` - Changed default sort field to `timestamp`
+- `templates/search/events.html` - Updated frontend JavaScript and dropdown
+
+**Verification:**
+```bash
+curl localhost:9200/case_3/_search -d '{"sort": [{"timestamp": {"order": "desc"}}]}'
+# Returns events in perfect chronological order ✓
+```
+
+**Future Work:**
+- Update EVTX parser to populate `normalized_timestamp` for consistency
+- For now, `timestamp` field works reliably across all existing data
+
+---
+
 ## Version 1.5.1 - December 28, 2025
 
 ### 🐛 Critical Fix: Timestamp Sorting
