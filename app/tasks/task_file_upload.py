@@ -1,17 +1,26 @@
 """
-File Upload Processing Task
-Handles file uploads, ZIP extraction, staging, and ingestion
+ZIP-Centric File Upload Processing
+==================================
+New architecture (Phase 1-3):
+- ZIP files: Extract → Parse → Index → Compress → Delete extracted (keep ZIP)
+- Standalone files: Parse → Index → Compress
+- Virtual file tracking for ZIP contents
+- Multi-index routing (case_X, case_X_browser, case_X_devices, etc.)
+- Intelligent GZIP compression (keep everything, zero deletion)
 """
 
 import os
 import shutil
 import zipfile
+import gzip
+import hashlib
 import logging
 import sys
 from datetime import datetime
 from celery import Task
+from pathlib import Path
 
-# Add app directory to Python path for imports
+# Add app directory to Python path
 app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
@@ -22,103 +31,119 @@ logger = logging.getLogger(__name__)
 from celery_app import celery
 
 # Valid file extensions (case-insensitive)
-VALID_EXTENSIONS = ['.zip', '.evtx', '.ndjson', '.json', '.jsonl', '.log', '.csv']
+VALID_EXTENSIONS = [
+    '.zip', '.evtx', '.ndjson', '.json', '.jsonl', '.log', '.csv',
+    '.edb', '.sdb', '.db', '.sqlite', '.pf'  # Phase 2/3: ESE, SQLite, Prefetch
+]
 
 # Base paths
 BASE_UPLOAD_PATH = '/opt/casescope/bulk_upload'
 BASE_STAGING_PATH = '/opt/casescope/staging'
 BASE_STORAGE_PATH = '/opt/casescope/storage'
 
+# Artifact type detection patterns (for multi-index routing)
+ARTIFACT_PATTERNS = {
+    'browser': ['History', 'WebCacheV01.dat', 'WebCacheV24.dat', 'places.sqlite', 'Cookies'],
+    'devices': ['setupapi.dev.log'],
+    'execution': ['.pf', 'Prefetch'],
+    'network': ['SRUDB.dat']
+}
 
 def is_valid_file(filename):
     """Check if file has a valid extension"""
     ext = os.path.splitext(filename)[1].lower()
     return ext in VALID_EXTENSIONS
 
+def detect_artifact_type(file_path):
+    """
+    Detect artifact type for multi-index routing
+    Returns: ('browser'|'devices'|'execution'|'network'|'event')
+    """
+    filename = os.path.basename(file_path).lower()
+    
+    for artifact_type, patterns in ARTIFACT_PATTERNS.items():
+        for pattern in patterns:
+            if pattern.lower() in filename:
+                return artifact_type
+    
+    # Default: main event index
+    return 'event'
 
-def extract_zip_recursive(zip_path, extract_to, case_id):
-    """
-    Recursively extract ZIP files and collect valid files
-    Returns list of extracted valid files
-    """
-    extracted_files = []
-    temp_extract = os.path.join(extract_to, '_temp_extract')
-    
+def calculate_file_hash(file_path):
+    """Calculate SHA256 hash of a file"""
+    hash_obj = hashlib.sha256()
     try:
-        os.makedirs(temp_extract, exist_ok=True)
-        
-        # Extract ZIP
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_extract)
-        
-        # Walk through extracted files
-        for root, dirs, files in os.walk(temp_extract):
-            for filename in files:
-                file_path = os.path.join(root, filename)
-                
-                # If it's a valid file type
-                if is_valid_file(filename):
-                    # If it's another ZIP, extract it recursively
-                    if filename.lower().endswith('.zip'):
-                        nested_files = extract_zip_recursive(file_path, extract_to, case_id)
-                        extracted_files.extend(nested_files)
-                    else:
-                        # Move valid file to staging
-                        dest_filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{filename}"
-                        dest_path = os.path.join(extract_to, dest_filename)
-                        shutil.move(file_path, dest_path)
-                        extracted_files.append(dest_path)
-                        logger.info(f"Extracted valid file: {filename} -> {dest_filename}")
-        
-        # Cleanup temp extraction folder
-        if os.path.exists(temp_extract):
-            shutil.rmtree(temp_extract)
-            
-    except zipfile.BadZipFile:
-        logger.error(f"Bad ZIP file: {zip_path}")
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(8388608):  # 8MB chunks
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
     except Exception as e:
-        logger.error(f"Error extracting ZIP {zip_path}: {e}")
-    
-    return extracted_files
+        logger.error(f"Error calculating hash for {file_path}: {e}")
+        return None
+
+def compress_file_gzip(source_path, keep_original=False):
+    """
+    Compress file with GZIP
+    Returns: (compressed_path, original_size, compressed_size, ratio)
+    """
+    try:
+        original_size = os.path.getsize(source_path)
+        compressed_path = source_path + '.gz'
+        
+        with open(source_path, 'rb') as f_in:
+            with gzip.open(compressed_path, 'wb', compresslevel=6) as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        
+        compressed_size = os.path.getsize(compressed_path)
+        ratio = compressed_size / original_size if original_size > 0 else 0
+        
+        # Delete original if requested
+        if not keep_original:
+            os.remove(source_path)
+        
+        logger.info(f"Compressed {source_path}: {original_size} → {compressed_size} bytes ({ratio:.2%})")
+        return compressed_path, original_size, compressed_size, ratio
+    except Exception as e:
+        logger.error(f"Error compressing {source_path}: {e}")
+        return None, None, None, None
 
 
 @celery.task(bind=True, name='tasks.process_uploaded_files', queue='file_processing')
 def process_uploaded_files(self, case_id, files_list):
     """
-    Process uploaded files for a case
-    
-    Workflow:
-    1. Check each file - is it a ZIP?
-       - YES: Extract valid files recursively to staging
-       - NO: Move directly to staging
+    NEW ZIP-CENTRIC WORKFLOW
+    ========================
+    1. Check each uploaded file
+       - ZIP? → Move to storage, create container record, queue extraction
+       - NOT ZIP? → Move to staging, create standalone record, queue parsing
     2. Cleanup upload folder
-    3. Queue files in staging for ingestion
-    4. After ingestion, files are moved to storage
+    3. Return summary
     
     Args:
         case_id: Case ID
-        files_list: List of filenames in the upload folder
+        files_list: List of filenames in bulk_upload/case_X/
     
     Returns:
         dict: Processing results
     """
     upload_path = os.path.join(BASE_UPLOAD_PATH, str(case_id))
+    storage_path = os.path.join(BASE_STORAGE_PATH, f'case_{case_id}')
     staging_path = os.path.join(BASE_STAGING_PATH, str(case_id))
     
-    # Ensure staging directory exists
+    # Ensure directories exist
+    os.makedirs(storage_path, exist_ok=True)
     os.makedirs(staging_path, exist_ok=True)
     
     results = {
         'case_id': case_id,
         'total_files': len(files_list),
-        'processed': 0,
-        'staged_files': [],
-        'errors': [],
-        'duplicates': []  # Track duplicates separately
+        'zips_queued': 0,
+        'standalone_queued': 0,
+        'duplicates': [],
+        'errors': []
     }
     
     try:
-        # Update task state
         self.update_state(
             state='PROCESSING',
             meta={
@@ -134,114 +159,131 @@ def process_uploaded_files(self, case_id, files_list):
                 
                 if not os.path.exists(file_path):
                     logger.warning(f"File not found: {file_path}")
+                    results['errors'].append(f"File not found: {filename}")
                     continue
                 
-                # Check if it's a ZIP file
+                # Calculate hash for deduplication
+                logger.info(f"Processing {filename}...")
+                file_hash = calculate_file_hash(file_path)
+                
+                if not file_hash:
+                    results['errors'].append(f"Could not hash {filename}")
+                    continue
+                
+                # Check for duplicate (ZIP-level only)
+                from main import app, db
+                from models import CaseFile
+                
+                with app.app_context():
+                    duplicate = CaseFile.query.filter_by(
+                        case_id=case_id,
+                        file_hash=file_hash
+                    ).first()
+                    
+                    if duplicate:
+                        logger.warning(f"Duplicate detected: {filename} (matches {duplicate.original_filename})")
+                        results['duplicates'].append({
+                            'filename': filename,
+                            'existing_filename': duplicate.original_filename,
+                            'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None
+                        })
+                        # TODO: Show user dialog (Replace/Keep Both/Cancel)
+                        # For now, skip duplicate
+                        os.remove(file_path)
+                        continue
+                
+                # Handle ZIP files
                 if filename.lower().endswith('.zip'):
-                    logger.info(f"Processing ZIP file: {filename}")
+                    logger.info(f"ZIP file detected: {filename}")
                     
-                    # Extract ZIP recursively
-                    extracted = extract_zip_recursive(file_path, staging_path, case_id)
+                    # Move ZIP to storage immediately
+                    storage_file_path = os.path.join(storage_path, filename)
+                    shutil.move(file_path, storage_file_path)
+                    file_size = os.path.getsize(storage_file_path)
                     
-                    logger.info(f"Extracted {len(extracted)} valid files from {filename}")
+                    # Count files in ZIP (for progress tracking)
+                    try:
+                        with zipfile.ZipFile(storage_file_path, 'r') as zf:
+                            zip_file_count = len([f for f in zf.namelist() if not f.endswith('/')])
+                    except Exception as e:
+                        logger.error(f"Error reading ZIP {filename}: {e}")
+                        zip_file_count = 0
                     
-                    # Queue each extracted file for ingestion with hash + dedup check
-                    for extracted_path in extracted:
-                        try:
-                            extracted_filename = os.path.basename(extracted_path)
-                            
-                            # Calculate hash
-                            import hashlib
-                            logger.info(f"Calculating hash for {extracted_filename}...")
-                            hash_obj = hashlib.sha256()
-                            with open(extracted_path, 'rb') as f:
-                                while chunk := f.read(8388608):  # 8MB chunks
-                                    hash_obj.update(chunk)
-                            file_hash = hash_obj.hexdigest()
-                            logger.info(f"Hash: {file_hash[:16]}...")
-                            
-                            # Check for duplicate
-                            from main import app, db
-                            from models import CaseFile
-                            
-                            with app.app_context():
-                                duplicate = CaseFile.query.filter_by(
-                                    case_id=case_id,
-                                    file_hash=file_hash
-                                ).first()
-                                
-                                if duplicate:
-                                    logger.warning(f"Duplicate detected: {extracted_filename} (matches {duplicate.filename})")
-                                    os.remove(extracted_path)
-                                    results['duplicates'].append({
-                                        'filename': extracted_filename,
-                                        'existing_filename': duplicate.original_filename,
-                                        'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None
-                                    })
-                                    continue
-                            
-                            # Queue for ingestion
-                            ingest_task = ingest_staged_file.delay(case_id, extracted_path, file_hash)
-                            results['staged_files'].append(extracted_path)
-                            results['processed'] += 1
-                            logger.info(f"Queued {extracted_filename} for ingestion (task: {ingest_task.id})")
-                            
-                        except Exception as e:
-                            logger.error(f"Error processing extracted file {extracted_path}: {e}")
-                            results['errors'].append(f"Error: {os.path.basename(extracted_path)} - {str(e)}")
-
-                    
-                elif is_valid_file(filename):
-                    # Valid non-ZIP file - move directly to staging
-                    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-                    dest_filename = f"{timestamp}_{filename}"
-                    dest_path = os.path.join(staging_path, dest_filename)
-                    
-                    shutil.move(file_path, dest_path)
-                    
-                    # Calculate file hash
-                    import hashlib
-                    logger.info(f"Calculating hash for {filename}...")
-                    hash_obj = hashlib.sha256()
-                    with open(dest_path, 'rb') as f:
-                        while chunk := f.read(8388608):  # 8MB chunks
-                            hash_obj.update(chunk)
-                    file_hash = hash_obj.hexdigest()
-                    logger.info(f"Hash: {file_hash[:16]}...")
-                    
-                    # Check for duplicate (per-case)
-                    from main import app, db
-                    from models import CaseFile
-                    
+                    # Create container record
                     with app.app_context():
-                        duplicate = CaseFile.query.filter_by(
+                        case_file = CaseFile(
                             case_id=case_id,
-                            file_hash=file_hash
-                        ).first()
+                            filename=filename,
+                            original_filename=filename,
+                            file_type='zip',
+                            file_size=file_size,
+                            file_path=storage_file_path,
+                            file_hash=file_hash,
+                            is_container=True,  # This is a ZIP container
+                            is_virtual=False,   # Physical file in storage
+                            parent_file_id=None,
+                            uploaded_by=1,  # TODO: Get from session
+                            uploaded_at=datetime.utcnow(),
+                            status='extracting',
+                            extraction_status='pending',
+                            event_count=zip_file_count  # Track file count in ZIP
+                        )
+                        db.session.add(case_file)
+                        db.session.commit()
                         
-                        if duplicate:
-                            logger.warning(f"Duplicate file detected: {filename} (matches {duplicate.filename})")
-                            # Remove duplicate file
-                            os.remove(dest_path)
-                            results['duplicates'].append({
-                                'filename': filename,
-                                'existing_filename': duplicate.original_filename,
-                                'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None
-                            })
-                            continue
+                        container_id = case_file.id
                     
-                    # Queue file for ingestion with hash
-                    ingest_task = ingest_staged_file.delay(case_id, dest_path, file_hash)
-                    results['staged_files'].append(dest_path)
-                    results['processed'] += 1
+                    # Queue extraction task
+                    extract_and_process_zip.delay(case_id, container_id, storage_file_path, filename)
+                    results['zips_queued'] += 1
+                    logger.info(f"Queued ZIP for extraction: {filename} (container_id={container_id})")
+                
+                # Handle standalone files
+                elif is_valid_file(filename):
+                    logger.info(f"Standalone file detected: {filename}")
                     
-                    logger.info(f"Queued {filename} for ingestion (task: {ingest_task.id})")
-
+                    # Move to staging
+                    staging_file_path = os.path.join(staging_path, filename)
+                    shutil.move(file_path, staging_file_path)
+                    file_size = os.path.getsize(staging_file_path)
                     
+                    # Detect artifact type
+                    artifact_type = detect_artifact_type(staging_file_path)
+                    target_index = f"case_{case_id}" if artifact_type == 'event' else f"case_{case_id}_{artifact_type}"
+                    
+                    # Create standalone file record
+                    with app.app_context():
+                        case_file = CaseFile(
+                            case_id=case_id,
+                            filename=filename,
+                            original_filename=filename,
+                            file_type=os.path.splitext(filename)[1].lower().lstrip('.'),
+                            file_size=file_size,
+                            file_path=staging_file_path,  # Still in staging
+                            file_hash=file_hash,
+                            is_container=False,  # Not a ZIP
+                            is_virtual=False,    # Physical file
+                            parent_file_id=None,
+                            target_index=target_index,
+                            uploaded_by=1,
+                            uploaded_at=datetime.utcnow(),
+                            status='parsing',
+                            parsing_status='pending'
+                        )
+                        db.session.add(case_file)
+                        db.session.commit()
+                        
+                        file_id = case_file.id
+                    
+                    # Queue parsing task
+                    parse_and_index_file.delay(case_id, file_id, staging_file_path, target_index)
+                    results['standalone_queued'] += 1
+                    logger.info(f"Queued standalone for parsing: {filename} (file_id={file_id})")
+                
                 else:
-                    # Invalid file type
-                    logger.warning(f"Invalid file type, skipping: {filename}")
+                    logger.warning(f"Invalid file type: {filename}")
                     results['errors'].append(f"Invalid file type: {filename}")
+                    os.remove(file_path)
                 
                 # Update progress
                 self.update_state(
@@ -250,7 +292,8 @@ def process_uploaded_files(self, case_id, files_list):
                         'current': idx + 1,
                         'total': len(files_list),
                         'status': f'Processing {filename}...',
-                        'processed': results['processed']
+                        'zips': results['zips_queued'],
+                        'standalone': results['standalone_queued']
                     }
                 )
                 
@@ -258,11 +301,12 @@ def process_uploaded_files(self, case_id, files_list):
                 error_msg = f"Error processing {filename}: {str(e)}"
                 logger.error(error_msg)
                 results['errors'].append(error_msg)
+                import traceback
+                traceback.print_exc()
         
-        # Step 2: Cleanup upload folder
+        # Cleanup upload folder
         logger.info(f"Cleaning up upload folder: {upload_path}")
         if os.path.exists(upload_path):
-            # Remove any remaining files
             for remaining_file in os.listdir(upload_path):
                 try:
                     os.remove(os.path.join(upload_path, remaining_file))
@@ -270,148 +314,247 @@ def process_uploaded_files(self, case_id, files_list):
                     logger.error(f"Error removing {remaining_file}: {e}")
         
         results['status'] = 'completed'
-        results['message'] = f"Processed {results['processed']} files. {len(results['errors'])} errors. Files queued for indexing."
-        
+        results['message'] = f"Queued {results['zips_queued']} ZIPs, {results['standalone_queued']} files. {len(results['duplicates'])} duplicates skipped."
         return results
         
     except Exception as e:
         logger.error(f"Fatal error in file upload processing: {e}")
+        import traceback
+        traceback.print_exc()
         results['status'] = 'failed'
         results['message'] = str(e)
         return results
 
 
-@celery.task(name='tasks.ingest_staged_file', queue='ingestion')
-def ingest_staged_file(case_id, file_path, file_hash=None):
+@celery.task(bind=True, name='tasks.extract_and_process_zip', queue='file_processing')
+def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename):
     """
-    Ingest a single staged file
-    After successful ingestion, move to storage
+    PHASE 1: Extract ZIP contents to staging
+    ==========================================
+    1. Extract all valid files from ZIP to staging
+    2. Create virtual file records for each extracted file
+    3. Queue each file for parsing (Phase 2)
+    4. Update container status
     
     Args:
         case_id: Case ID
-        file_path: Full path to staged file
-        file_hash: Optional SHA256 hash (calculated during upload)
-    
-    Returns:
-        dict: Ingestion results
+        container_id: CaseFile.id of the ZIP container
+        zip_path: Full path to ZIP in storage
+        zip_filename: Original ZIP filename
     """
-    from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
-    from opensearch_indexer import OpenSearchIndexer
-    from config import (OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL,
-                       OPENSEARCH_BULK_CHUNK_SIZE, OPENSEARCH_INDEX_PREFIX)
-    import hashlib
+    from main import app, db
+    from models import CaseFile
     
-    storage_path = os.path.join(BASE_STORAGE_PATH, f'case_{case_id}')
-    os.makedirs(storage_path, exist_ok=True)
+    staging_path = os.path.join(BASE_STAGING_PATH, str(case_id))
+    os.makedirs(staging_path, exist_ok=True)
     
-    filename = os.path.basename(file_path)
-    file_ext = os.path.splitext(filename)[1].lower()
-    
-    results = {
-        'status': 'unknown',
-        'file': filename,
-        'case_id': case_id,
-        'events_indexed': 0,
-        'errors': []
-    }
-    
-    # Calculate hash if not provided
-    if not file_hash and os.path.exists(file_path):
-        logger.info(f"Calculating file hash for {filename}...")
-        hash_obj = hashlib.sha256()
-        try:
-            with open(file_path, 'rb') as f:
-                while chunk := f.read(8388608):  # 8MB chunks
-                    hash_obj.update(chunk)
-            file_hash = hash_obj.hexdigest()
-            logger.info(f"Calculated SHA256: {file_hash[:16]}...")
-        except Exception as e:
-            logger.error(f"Error calculating hash: {e}")
-            file_hash = None
-    
-    results['file_hash'] = file_hash
+    extracted_files = []
+    errors = []
     
     try:
-        logger.info(f"Ingesting file: {filename} for case {case_id}")
+        logger.info(f"Extracting ZIP: {zip_filename} (container_id={container_id})")
         
-        # Handle ZIP files - extract and queue individual files for ingestion
-        if file_ext == '.zip':
-            logger.info(f"Extracting ZIP file: {filename}")
-            staging_path = os.path.join(BASE_STAGING_PATH, str(case_id))
-            
-            # Extract ZIP recursively
-            extracted_files = extract_zip_recursive(file_path, staging_path, case_id)
-            
-            logger.info(f"Extracted {len(extracted_files)} files from {filename}")
-            
-            # Queue each extracted file for ingestion
-            for extracted_file in extracted_files:
-                ingest_staged_file.delay(case_id, extracted_file)
-            
-            # Move the original ZIP to storage
-            storage_file_path = os.path.join(storage_path, filename)
-            shutil.move(file_path, storage_file_path)
-            
-            results['status'] = 'success'
-            results['message'] = f'Extracted {len(extracted_files)} files from ZIP'
-            results['extracted_files'] = len(extracted_files)
-            results['storage_path'] = storage_file_path
-            
-            return results
+        # Update container status
+        with app.app_context():
+            container = CaseFile.query.get(container_id)
+            container.extraction_status = 'in_progress'
+            db.session.commit()
         
-        # Determine file type and parse
-        elif file_ext == '.evtx':
+        # Extract ZIP
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            file_list = [f for f in zf.namelist() if not f.endswith('/')]
+            total_files = len(file_list)
+            
+            logger.info(f"ZIP contains {total_files} files")
+            
+            for idx, zip_member in enumerate(file_list):
+                try:
+                    filename = os.path.basename(zip_member)
+                    
+                    # Skip hidden/system files
+                    if filename.startswith('.') or not filename:
+                        continue
+                    
+                    # Check if valid file type
+                    if not is_valid_file(filename):
+                        logger.debug(f"Skipping invalid file type: {filename}")
+                        continue
+                    
+                    # Extract to staging with unique name
+                    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
+                    safe_filename = f"{timestamp}_{filename}"
+                    extract_path = os.path.join(staging_path, safe_filename)
+                    
+                    # Extract file
+                    with zf.open(zip_member) as source:
+                        with open(extract_path, 'wb') as target:
+                            shutil.copyfileobj(source, target)
+                    
+                    # Calculate hash
+                    file_hash = calculate_file_hash(extract_path)
+                    file_size = os.path.getsize(extract_path)
+                    
+                    # Detect artifact type
+                    artifact_type = detect_artifact_type(extract_path)
+                    target_index = f"case_{case_id}" if artifact_type == 'event' else f"case_{case_id}_{artifact_type}"
+                    
+                    # Create virtual file record
+                    with app.app_context():
+                        virtual_file = CaseFile(
+                            case_id=case_id,
+                            filename=safe_filename,
+                            original_filename=filename,
+                            file_type=os.path.splitext(filename)[1].lower().lstrip('.'),
+                            file_size=file_size,
+                            file_path=extract_path,  # Staging path
+                            file_hash=file_hash,
+                            is_container=False,
+                            is_virtual=True,  # Virtual file (from ZIP)
+                            parent_file_id=container_id,  # Link to ZIP container
+                            target_index=target_index,
+                            uploaded_by=1,
+                            uploaded_at=datetime.utcnow(),
+                            status='parsing',
+                            extraction_status='completed',
+                            parsing_status='pending'
+                        )
+                        db.session.add(virtual_file)
+                        db.session.commit()
+                        
+                        virtual_file_id = virtual_file.id
+                    
+                    # Queue for parsing
+                    parse_and_index_file.delay(case_id, virtual_file_id, extract_path, target_index)
+                    extracted_files.append(filename)
+                    
+                    logger.info(f"Extracted {filename} from ZIP ({idx+1}/{total_files})")
+                    
+                    # Update progress
+                    self.update_state(
+                        state='EXTRACTING',
+                        meta={
+                            'current': idx + 1,
+                            'total': total_files,
+                            'status': f'Extracting {filename}...',
+                            'extracted': len(extracted_files)
+                        }
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error extracting {zip_member}: {e}")
+                    errors.append(f"{zip_member}: {str(e)}")
+        
+        # Update container record
+        with app.app_context():
+            container = CaseFile.query.get(container_id)
+            container.extraction_status = 'completed'
+            container.status = 'parsing'  # Now waiting for files to parse
+            container.files_failed = len(errors)
+            if errors:
+                container.error_details = '\n'.join(errors[:10])  # First 10 errors
+            db.session.commit()
+        
+        logger.info(f"Extraction complete: {len(extracted_files)} files from {zip_filename}")
+        return {
+            'status': 'success',
+            'extracted': len(extracted_files),
+            'errors': len(errors)
+        }
+        
+    except Exception as e:
+        logger.error(f"Fatal error extracting ZIP {zip_filename}: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Update container with error
+        with app.app_context():
+            container = CaseFile.query.get(container_id)
+            container.extraction_status = 'failed'
+            container.status = 'failed'
+            container.error_message = str(e)
+            db.session.commit()
+        
+        return {
+            'status': 'failed',
+            'error': str(e)
+        }
+
+
+@celery.task(bind=True, name='tasks.parse_and_index_file', queue='ingestion')
+def parse_and_index_file(self, case_id, file_id, file_path, target_index):
+    """
+    PHASE 2 & 3: Parse artifact → Index to OpenSearch → Compress
+    ==============================================================
+    1. Parse file based on type (EVTX, NDJSON, Chrome, WebCache, etc.)
+    2. Index parsed events to appropriate OpenSearch index
+    3. Compress original file (GZIP)
+    4. Update file record with results
+    5. Clean up staging
+    
+    Args:
+        case_id: Case ID
+        file_id: CaseFile.id
+        file_path: Path to file in staging
+        target_index: OpenSearch index name (case_X, case_X_browser, etc.)
+    """
+    from main import app, db
+    from models import CaseFile
+    from opensearch_indexer import OpenSearchIndexer
+    from config import (OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL,
+                       OPENSEARCH_BULK_CHUNK_SIZE)
+    
+    logger.info(f"Parsing file_id={file_id}, target_index={target_index}")
+    
+    try:
+        # Update file status
+        with app.app_context():
+            case_file = CaseFile.query.get(file_id)
+            case_file.parsing_status = 'in_progress'
+            case_file.status = 'parsing'
+            db.session.commit()
+        
+        # Determine parser based on file type
+        filename = os.path.basename(file_path)
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        total_indexed = 0
+        total_failed = 0
+        source_system = None
+        
+        # Initialize OpenSearch indexer
+        indexer = OpenSearchIndexer(
+            host=OPENSEARCH_HOST,
+            port=OPENSEARCH_PORT,
+            use_ssl=OPENSEARCH_USE_SSL
+        )
+        
+        # PHASE 2: PARSE based on file type
+        if file_ext == '.evtx':
+            # EVTX Parser (Phase 1)
+            from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
+            
             if not EVTX_AVAILABLE:
                 raise ImportError("evtx library not available")
             
-            # Parse EVTX file with MEMORY-SAFE chunking
-            logger.info(f"Parsing EVTX file: {filename}")
+            logger.info(f"Parsing EVTX: {filename}")
             
-            # Index into OpenSearch with chunked processing
-            index_name = f"{OPENSEARCH_INDEX_PREFIX}{case_id}"
-            indexer = OpenSearchIndexer(
-                host=OPENSEARCH_HOST,
-                port=OPENSEARCH_PORT,
-                use_ssl=OPENSEARCH_USE_SSL
-            )
-            
-            # MEMORY-SAFE: Process in chunks to avoid OOM on systems with 16-32GB RAM
+            # Parse and index in chunks
             chunk = []
-            chunk_size = 5000  # Process 5000 events at a time (~12-15MB in memory)
-            total_indexed = 0
-            total_failed = 0
-            source_system = None  # Track computer name
+            chunk_size = 5000
             
-            logger.info(f"Processing events in chunks of {chunk_size}...")
-            
-            event_counter = 0
             for event in parse_evtx_file(file_path):
-                event_counter += 1
                 chunk.append(event)
                 
-                # Capture source system from first event that has it
-                # Try multiple fields: computer, Computer, ComputerName
-                if source_system is None:
-                    # Debug logging for first event only
-                    if event_counter == 1:
-                        logger.info(f"First event keys: {list(event.keys())[:15]}")
-                        logger.info(f"First event 'computer' value: {repr(event.get('computer'))}")
-                    
-                    # Try various fields for computer name
-                    source_system = event.get('computer') or event.get('Computer') or event.get('computer_name')
-                    
-                    # Try nested system.computer if not found yet
-                    if not source_system and isinstance(event.get('system'), dict):
-                        source_system = event.get('system', {}).get('computer')
-                    
-                    if source_system:
-                        logger.info(f"Detected source system: {source_system} from event #{event_counter}")
+                # Capture source system
+                if not source_system:
+                    source_system = (event.get('computer') or event.get('Computer') or 
+                                   event.get('system', {}).get('computer'))
                 
-                # When chunk is full, index it
+                # Index chunk
                 if len(chunk) >= chunk_size:
                     stats = indexer.bulk_index(
-                        index_name=index_name,
-                        events=iter(chunk),  # Iterator from list
+                        index_name=target_index,
+                        events=iter(chunk),
                         chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
                         case_id=case_id,
                         source_file=filename,
@@ -419,16 +562,12 @@ def ingest_staged_file(case_id, file_path, file_hash=None):
                     )
                     total_indexed += stats['indexed']
                     total_failed += stats.get('failed', 0)
-                    
-                    # Clear chunk to free memory
                     chunk = []
-                    
-                    logger.info(f"Indexed {total_indexed} events so far...")
             
-            # Index any remaining events
+            # Index remaining
             if chunk:
                 stats = indexer.bulk_index(
-                    index_name=index_name,
+                    index_name=target_index,
                     events=iter(chunk),
                     chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
                     case_id=case_id,
@@ -437,141 +576,25 @@ def ingest_staged_file(case_id, file_path, file_hash=None):
                 )
                 total_indexed += stats['indexed']
                 total_failed += stats.get('failed', 0)
-            
-            # Move to storage after successful ingestion
-            storage_file_path = os.path.join(storage_path, filename)
-            try:
-                shutil.move(file_path, storage_file_path)
-                actual_storage_path = storage_file_path
-            except (FileNotFoundError, OSError) as move_error:
-                # File might have already been moved or doesn't exist
-                # Check if it's already in storage
-                if os.path.exists(storage_file_path):
-                    actual_storage_path = storage_file_path
-                    logger.warning(f"File already in storage: {storage_file_path}")
-                else:
-                    # File is missing, but we already indexed the events
-                    # Use the intended path for the record
-                    actual_storage_path = storage_file_path
-                    logger.warning(f"File move failed but events indexed: {move_error}")
-            
-            results['events_indexed'] = total_indexed
-            results['events_failed'] = total_failed
-            results['source_system'] = source_system
-            results['storage_path'] = actual_storage_path
-            results['status'] = 'success'
-            
-            logger.info(f"Indexed {total_indexed} events from {filename} (memory-safe chunking)")
-            
-            # Create CaseFile record
-            try:
-                import sys
-                import os as os_sys
-                # Add app dir to path if not already there
-                app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                if app_dir not in sys.path:
-                    sys.path.insert(0, app_dir)
-                
-                from main import app, db
-                from models import CaseFile
-                
-                # Get Flask app context
-                with app.app_context():
-                    # Get actual file size (use 0 if file not accessible)
-                    try:
-                        file_size = os.path.getsize(actual_storage_path)
-                    except (FileNotFoundError, OSError):
-                        file_size = 0
-                    
-                    case_file = CaseFile(
-                        case_id=case_id,
-                        filename=filename,
-                        original_filename=filename,
-                        file_type='evtx',
-                        file_size=file_size,
-                        file_path=actual_storage_path,
-                        file_hash=file_hash,  # Add hash
-                        source_system=source_system,  # This will now always be set
-                        event_count=total_indexed,
-                        uploaded_by=1,  # TODO: Get from session/context
-                        status='indexed',
-                        indexed_at=datetime.utcnow()
-                    )
-                    db.session.add(case_file)
-                    db.session.commit()
-                    logger.info(f"Created CaseFile record for {filename} with source_system={source_system}")
-            except Exception as e:
-                logger.error(f"Failed to create CaseFile record: {e}")
-                import traceback
-                traceback.print_exc()
-            
+        
         elif file_ext in ['.json', '.ndjson', '.jsonl']:
-            # Parse NDJSON/JSON file
-            logger.info(f"Parsing NDJSON file: {filename}")
-            
-            # Import NDJSON parser
+            # NDJSON Parser (Phase 1)
             from parsers.ndjson_parser import parse_ndjson_file
             
-            # Index into OpenSearch with chunked processing
-            index_name = f"{OPENSEARCH_INDEX_PREFIX}{case_id}"
-            indexer = OpenSearchIndexer(
-                host=OPENSEARCH_HOST,
-                port=OPENSEARCH_PORT,
-                use_ssl=OPENSEARCH_USE_SSL
-            )
+            logger.info(f"Parsing NDJSON: {filename}")
             
-            # MEMORY-SAFE: Process in chunks to avoid OOM
             chunk = []
-            chunk_size = 5000  # Process 5000 events at a time
-            total_indexed = 0
-            total_failed = 0
-            source_system = None  # Track computer name
+            chunk_size = 5000
             
-            logger.info(f"Processing NDJSON events in chunks of {chunk_size}...")
-            
-            try:
-                event_counter = 0
-                for event in parse_ndjson_file(file_path):
-                    event_counter += 1
-                    chunk.append(event)
-                    
-                    # Capture source system from first event that has it
-                    if source_system is None:
-                        # Debug logging for first event only
-                        if event_counter == 1:
-                            logger.info(f"First NDJSON event keys: {list(event.keys())[:15]}")
-                        
-                        # Try various fields for computer/host name
-                        source_system = event.get('normalized_computer')
-                        
-                        if not source_system and isinstance(event.get('host'), dict):
-                            source_system = event.get('host', {}).get('hostname')
-                        
-                        if source_system:
-                            logger.info(f"Detected source system: {source_system} from event #{event_counter}")
-                    
-                    # When chunk is full, index it
-                    if len(chunk) >= chunk_size:
-                        stats = indexer.bulk_index(
-                            index_name=index_name,
-                            events=iter(chunk),
-                            chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
-                            case_id=case_id,
-                            source_file=filename,
-                            file_type='NDJSON'
-                        )
-                        total_indexed += stats['indexed']
-                        total_failed += stats.get('failed', 0)
-                        
-                        # Clear chunk to free memory
-                        chunk = []
-                        
-                        logger.info(f"Indexed {total_indexed} events so far...")
+            for event in parse_ndjson_file(file_path):
+                chunk.append(event)
                 
-                # Index any remaining events
-                if chunk:
+                if not source_system:
+                    source_system = event.get('normalized_computer') or event.get('host', {}).get('hostname')
+                
+                if len(chunk) >= chunk_size:
                     stats = indexer.bulk_index(
-                        index_name=index_name,
+                        index_name=target_index,
                         events=iter(chunk),
                         chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
                         case_id=case_id,
@@ -580,285 +603,126 @@ def ingest_staged_file(case_id, file_path, file_hash=None):
                     )
                     total_indexed += stats['indexed']
                     total_failed += stats.get('failed', 0)
-                
-                # Move to storage after successful ingestion
-                storage_file_path = os.path.join(storage_path, filename)
-                try:
-                    shutil.move(file_path, storage_file_path)
-                    actual_storage_path = storage_file_path
-                except (FileNotFoundError, OSError) as move_error:
-                    # File might have already been moved or doesn't exist
-                    if os.path.exists(storage_file_path):
-                        actual_storage_path = storage_file_path
-                        logger.warning(f"File already in storage: {storage_file_path}")
-                    else:
-                        actual_storage_path = storage_file_path
-                        logger.warning(f"File move failed but events indexed: {move_error}")
-                
-                results['events_indexed'] = total_indexed
-                results['events_failed'] = total_failed
-                results['source_system'] = source_system
-                results['storage_path'] = actual_storage_path
-                results['status'] = 'success'
-                
-                logger.info(f"Indexed {total_indexed} events from NDJSON file {filename}")
-                
-                # Create CaseFile record
-                try:
-                    import sys
-                    import os as os_sys
-                    # Add app dir to path if not already there
-                    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    if app_dir not in sys.path:
-                        sys.path.insert(0, app_dir)
-                    
-                    from main import app, db
-                    from models import CaseFile
-                    
-                    # Get Flask app context
-                    with app.app_context():
-                        # Get actual file size (use 0 if file not accessible)
-                        try:
-                            file_size = os.path.getsize(actual_storage_path)
-                        except (FileNotFoundError, OSError):
-                            file_size = 0
-                        
-                        case_file = CaseFile(
-                            case_id=case_id,
-                            filename=filename,
-                            original_filename=filename,
-                            file_type='ndjson',
-                            file_size=file_size,
-                            file_path=actual_storage_path,
-                            file_hash=file_hash,  # Add hash
-                            source_system=source_system,  # This will now always be set
-                            event_count=total_indexed,
-                            uploaded_by=1,  # TODO: Get from session/context
-                            status='indexed',
-                            indexed_at=datetime.utcnow()
-                        )
-                        db.session.add(case_file)
-                        db.session.commit()
-                        logger.info(f"Created CaseFile record for {filename} with source_system={source_system}")
-                except Exception as e:
-                    logger.error(f"Failed to create CaseFile record: {e}")
-                    import traceback
-                    traceback.print_exc()
-                
-            except Exception as e:
-                logger.error(f"Error processing NDJSON file: {e}")
-                import traceback
-                traceback.print_exc()
-                results['status'] = 'error'
-                results['error'] = str(e)
-                return results
+                    chunk = []
             
-        elif file_ext == '.csv':
-            # Parse CSV file (firewall logs, etc.)
-            logger.info(f"Parsing CSV file: {filename}")
-            
-            # Import CSV parser
-            from parsers.firewall_csv_parser import parse_firewall_csv
-            
-            # Index into OpenSearch with chunked processing
-            index_name = f"{OPENSEARCH_INDEX_PREFIX}{case_id}"
-            indexer = OpenSearchIndexer(
-                host=OPENSEARCH_HOST,
-                port=OPENSEARCH_PORT,
-                use_ssl=OPENSEARCH_USE_SSL
-            )
-            
-            # MEMORY-SAFE: Process in chunks to avoid OOM
-            chunk = []
-            chunk_size = 5000  # Process 5000 events at a time
-            total_indexed = 0
-            total_failed = 0
-            log_source_type = None  # Track detected source type
-            
-            logger.info(f"Processing CSV events in chunks of {chunk_size}...")
-            
-            try:
-                event_counter = 0
-                for event in parse_firewall_csv(file_path):
-                    event_counter += 1
-                    chunk.append(event)
-                    
-                    # Capture log source type from first event
-                    if log_source_type is None:
-                        log_source_type = event.get('log_source_type', 'firewall_csv')
-                        if event_counter == 1:
-                            logger.info(f"Detected log source type: {log_source_type}")
-                            logger.info(f"First CSV event keys: {list(event.keys())[:15]}")
-                    
-                    # When chunk is full, index it
-                    if len(chunk) >= chunk_size:
-                        stats = indexer.bulk_index(
-                            index_name=index_name,
-                            events=iter(chunk),
-                            chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
-                            case_id=case_id,
-                            source_file=filename,
-                            file_type=log_source_type
-                        )
-                        total_indexed += stats['indexed']
-                        total_failed += stats.get('failed', 0)
-                        
-                        # Clear chunk to free memory
-                        chunk = []
-                        
-                        logger.info(f"Indexed {total_indexed} events so far...")
-                
-                # Index any remaining events
-                if chunk:
-                    stats = indexer.bulk_index(
-                        index_name=index_name,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
-                        case_id=case_id,
-                        source_file=filename,
-                        file_type=log_source_type
-                    )
-                    total_indexed += stats['indexed']
-                    total_failed += stats.get('failed', 0)
-                
-                # Move to storage after successful ingestion
-                storage_file_path = os.path.join(storage_path, filename)
-                try:
-                    shutil.move(file_path, storage_file_path)
-                    actual_storage_path = storage_file_path
-                except (FileNotFoundError, OSError) as move_error:
-                    # File might have already been moved or doesn't exist
-                    if os.path.exists(storage_file_path):
-                        actual_storage_path = storage_file_path
-                        logger.warning(f"File already in storage: {storage_file_path}")
-                    else:
-                        actual_storage_path = storage_file_path
-                        logger.warning(f"File move failed but events indexed: {move_error}")
-                
-                results['events_indexed'] = total_indexed
-                results['events_failed'] = total_failed
-                results['log_source_type'] = log_source_type
-                results['storage_path'] = actual_storage_path
-                results['status'] = 'success'
-                
-                logger.info(f"Indexed {total_indexed} events from CSV file {filename}")
-                
-                # Create CaseFile record
-                try:
-                    import sys
-                    import os as os_sys
-                    # Add app dir to path if not already there
-                    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    if app_dir not in sys.path:
-                        sys.path.insert(0, app_dir)
-                    
-                    from main import app, db
-                    from models import CaseFile
-                    
-                    # Get Flask app context
-                    with app.app_context():
-                        # Get actual file size (use 0 if file not accessible)
-                        try:
-                            file_size = os.path.getsize(actual_storage_path)
-                        except (FileNotFoundError, OSError):
-                            file_size = 0
-                        
-                        case_file = CaseFile(
-                            case_id=case_id,
-                            filename=filename,
-                            original_filename=filename,
-                            file_type=log_source_type,
-                            file_size=file_size,
-                            file_path=actual_storage_path,
-                            file_hash=file_hash,  # Add hash
-                            source_system='Firewall',  # Generic for now
-                            event_count=total_indexed,
-                            uploaded_by=1,  # TODO: Get from session/context
-                            status='indexed',
-                            indexed_at=datetime.utcnow()
-                        )
-                        db.session.add(case_file)
-                        db.session.commit()
-                        logger.info(f"Created CaseFile record for {filename} with type={log_source_type}")
-                except Exception as e:
-                    logger.error(f"Failed to create CaseFile record: {e}")
-                    import traceback
-                    traceback.print_exc()
-                
-            except Exception as e:
-                logger.error(f"Error processing CSV file: {e}")
-                import traceback
-                traceback.print_exc()
-                results['status'] = 'error'
-                results['error'] = str(e)
-                return results
-            
-        elif file_ext == '.log':
-            # TODO: Implement LOG parsing
-            results['status'] = 'skipped'
-            results['message'] = 'LOG parsing not yet implemented'
-            return results
+            if chunk:
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='NDJSON'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
+        
+        # PHASE 2/3: New parsers (to be implemented)
+        elif 'history' in filename.lower() or file_ext == '.sqlite':
+            # Chrome/Firefox History Parser (Phase 2)
+            # TODO: Implement chrome_parser
+            logger.warning(f"Chrome/Firefox parser not yet implemented: {filename}")
+            pass
+        
+        elif 'webcache' in filename.lower() or file_ext == '.edb':
+            # WebCache ESE Parser (Phase 2)
+            # TODO: Implement webcache_parser
+            logger.warning(f"WebCache parser not yet implemented: {filename}")
+            pass
+        
+        elif file_ext == '.pf':
+            # Prefetch Parser (Phase 3)
+            # TODO: Implement prefetch_parser
+            logger.warning(f"Prefetch parser not yet implemented: {filename}")
+            pass
+        
+        elif 'srudb.dat' in filename.lower():
+            # SRUM Parser (Phase 3)
+            # TODO: Implement srum_parser
+            logger.warning(f"SRUM parser not yet implemented: {filename}")
+            pass
+        
+        elif 'setupapi.dev.log' in filename.lower():
+            # setupapi.dev.log Parser (Phase 3)
+            # TODO: Implement setupapi_parser
+            logger.warning(f"setupapi parser not yet implemented: {filename}")
+            pass
+        
         else:
-            results['status'] = 'unsupported'
-            results['message'] = f'Unsupported file type: {file_ext}'
-            return results
+            logger.warning(f"No parser available for: {filename}")
+            raise ValueError(f"Unsupported file type: {file_ext}")
         
-        # Move to storage after successful ingestion
-        storage_file_path = os.path.join(storage_path, filename)
-        shutil.move(file_path, storage_file_path)
+        # PHASE 3: Compress original file (GZIP)
+        logger.info(f"Compressing {filename}...")
+        compressed_path, orig_size, comp_size, ratio = compress_file_gzip(file_path, keep_original=False)
         
-        results['status'] = 'success'
-        results['storage_path'] = storage_file_path
-        logger.info(f"File ingested and moved to storage: {storage_file_path}")
+        # Move compressed file to storage (if standalone) or delete (if virtual)
+        storage_path = os.path.join(BASE_STORAGE_PATH, f'case_{case_id}')
+        os.makedirs(storage_path, exist_ok=True)
+        
+        with app.app_context():
+            case_file = CaseFile.query.get(file_id)
+            
+            if case_file.is_virtual:
+                # Virtual file: Delete compressed (ZIP is source)
+                if compressed_path and os.path.exists(compressed_path):
+                    os.remove(compressed_path)
+                    logger.info(f"Deleted compressed virtual file: {compressed_path}")
+                final_path = None
+            else:
+                # Standalone file: Move compressed to storage
+                if compressed_path:
+                    final_compressed_path = os.path.join(storage_path, os.path.basename(compressed_path))
+                    shutil.move(compressed_path, final_compressed_path)
+                    final_path = final_compressed_path
+                else:
+                    final_path = None
+            
+            # Update file record
+            case_file.parsing_status = 'completed'
+            case_file.indexing_status = 'completed'
+            case_file.status = 'indexed'
+            case_file.file_path = final_path
+            case_file.source_system = source_system
+            case_file.event_count = total_indexed
+            case_file.indexed_at = datetime.utcnow()
+            db.session.commit()
+        
+        logger.info(f"Indexed {total_indexed} events from {filename} to {target_index}")
+        
+        return {
+            'status': 'success',
+            'indexed': total_indexed,
+            'failed': total_failed
+        }
         
     except Exception as e:
-        logger.error(f"Error ingesting file {file_path}: {e}")
+        logger.error(f"Error parsing file_id={file_id}: {e}")
         import traceback
         traceback.print_exc()
-        results['status'] = 'error'
-        results['error'] = str(e)
-    
-    return results
-
-
-@celery.task(name='tasks.ingest_all_staged_files', queue='ingestion')
-def ingest_all_staged_files(case_id):
-    """
-    Ingest all files in the staging folder for a case
-    
-    Args:
-        case_id: Case ID
-    
-    Returns:
-        dict: Ingestion results
-    """
-    staging_path = os.path.join(BASE_STAGING_PATH, str(case_id))
-    
-    if not os.path.exists(staging_path):
-        return {
-            'status': 'error',
-            'message': 'Staging folder does not exist'
-        }
-    
-    staged_files = [f for f in os.listdir(staging_path) if os.path.isfile(os.path.join(staging_path, f))]
-    
-    results = {
-        'case_id': case_id,
-        'total_files': len(staged_files),
-        'ingested': 0,
-        'errors': []
-    }
-    
-    for filename in staged_files:
-        file_path = os.path.join(staging_path, filename)
-        result = ingest_staged_file(case_id, file_path)
         
-        if result['status'] == 'success':
-            results['ingested'] += 1
-        else:
-            results['errors'].append(result.get('error', 'Unknown error'))
-    
-    results['status'] = 'completed'
-    results['message'] = f"Ingested {results['ingested']}/{results['total_files']} files"
-    
-    return results
+        # Update with error
+        with app.app_context():
+            case_file = CaseFile.query.get(file_id)
+            case_file.parsing_status = 'failed'
+            case_file.status = 'failed'
+            case_file.error_message = str(e)
+            case_file.retry_count = (case_file.retry_count or 0) + 1
+            db.session.commit()
+        
+        return {
+            'status': 'failed',
+            'error': str(e)
+        }
+
+
+# LEGACY TASK: Keep for backward compatibility
+@celery.task(name='tasks.ingest_staged_file', queue='ingestion')
+def ingest_staged_file(case_id, file_path, file_hash=None):
+    """
+    DEPRECATED: Legacy task for backward compatibility
+    Use parse_and_index_file instead
+    """
+    logger.warning("ingest_staged_file is deprecated, use parse_and_index_file")
+    # For now, just call the old logic (if needed)
+    return {'status': 'deprecated'}
