@@ -98,7 +98,7 @@ def api_search_events():
         query_string = request.args.get('q', '').strip()
         page = max(1, int(request.args.get('page', 1)))
         per_page = min(100, max(1, int(request.args.get('per_page', 50))))
-        sort_field = request.args.get('sort', 'timestamp')  # Changed from normalized_timestamp to timestamp
+        sort_field = request.args.get('sort', 'normalized_timestamp')  # Using normalized field for consistency across log types
         sort_order = request.args.get('order', 'desc')
         
         # Get file type filters
@@ -357,8 +357,8 @@ def api_search_events():
             'sort': [
                 {sort_field: {
                     'order': actual_sort_order,
-                    'missing': '_last' if actual_sort_order == 'asc' else '_first',  # Put docs without timestamp at end
-                    'unmapped_type': 'date' if sort_field in ['timestamp', 'normalized_timestamp', '@timestamp'] else 'keyword'
+                    'missing': '_last' if actual_sort_order == 'asc' else '_first',  # Put docs without field at end
+                    'unmapped_type': 'date' if sort_field in ['timestamp', 'normalized_timestamp', '@timestamp', 'system_time'] else 'keyword'
                 }},
                 {'_id': {'order': actual_sort_order}}  # Tie-breaker for consistent pagination
             ],

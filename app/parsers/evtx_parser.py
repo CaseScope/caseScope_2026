@@ -198,6 +198,19 @@ class EVTXParser:
                 # Store raw XML for reference
                 event['raw_xml'] = xml_data
                 
+                # Normalize fields for consistent querying across all log types
+                # This allows searching/sorting by normalized_* fields regardless of source
+                if 'timestamp' in event:
+                    event['normalized_timestamp'] = event['timestamp']
+                elif 'system_time' in event:
+                    event['normalized_timestamp'] = event['system_time']
+                
+                if 'computer' in event:
+                    event['normalized_computer'] = event['computer']
+                
+                if 'event_id' in event:
+                    event['normalized_event_id'] = event['event_id']
+                
                 # Create search blob for comprehensive searching
                 search_blob = create_search_blob(event)
                 if search_blob:
