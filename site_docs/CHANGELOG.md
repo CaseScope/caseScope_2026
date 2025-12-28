@@ -26,8 +26,15 @@ Added `exclude_fields` column to noise filter rules to specify fields that shoul
 - ✅ After: Huntress collects event → `agent.url` excluded → checks process names → NOT noise (unless process is Huntress software)
 - ✅ Multi-tool: Huntress collects ConnectWise activity → ConnectWise still caught by process name
 
+**Impact:**
+- Huntress events tagged as noise: 63,040 → 1,672 (90% reduction)
+- Total noise events: 64,676 → 6,540 (massive improvement)
+- Your investigation data is now visible!
+
 **Files Modified:**
 - `app/models.py` - Added `exclude_fields` column to NoiseFilterRule
+- `app/tasks/task_tag_noise.py` - Serialize and apply exclude_fields in noise tagging
+- `app/utils/noise_filter.py` - Respect exclude_fields in filter clauses and event matching
 - `app/utils/noise_filter.py` - Updated filter logic to respect exclusions
 - `migrations/add_exclude_fields_to_noise_rules.sql` - Database migration
 
