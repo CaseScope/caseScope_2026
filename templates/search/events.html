@@ -69,7 +69,7 @@
                 <label class="results-label">
                     Sort by:
                     <select id="sortField" class="form-select form-select-sm" onchange="applySorting()">
-                        <option value="normalized_timestamp">Timestamp</option>
+                        <option value="timestamp">Timestamp</option>
                         <option value="normalized_computer">System Name</option>
                         <option value="normalized_event_id">Event ID</option>
                     </select>
@@ -294,7 +294,7 @@ let currentPage = 1;
 let totalPages = 1;
 let totalCount = 0;
 let perPage = 50;
-let sortField = 'normalized_timestamp';
+let sortField = 'timestamp';
 let sortOrder = 'desc';
 let currentQuery = '';
 let fileTypeFilters = ['EVTX', 'NDJSON', 'IIS', 'CSV']; // All enabled by default
