@@ -150,7 +150,7 @@ def api_browser_events():
             query_body["bool"]["filter"] = []
         
         query_body["bool"]["filter"].append({
-            "term": {"browser_type": browser_filter}
+            "term": {"browser.keyword": browser_filter}
         })
     
     # Execute search
@@ -231,11 +231,14 @@ def api_browser_stats():
                     "total_visits": {
                         "value_count": {"field": "@timestamp"}
                     },
-                    "top_domains": {
-                        "terms": {"field": "domain.keyword", "size": 10}
+                    "top_urls": {
+                        "terms": {"field": "url.keyword", "size": 10}
                     },
                     "browser_types": {
-                        "terms": {"field": "browser_type.keyword", "size": 5}
+                        "terms": {"field": "browser.keyword", "size": 10}
+                    },
+                    "event_types": {
+                        "terms": {"field": "event_type.keyword", "size": 10}
                     },
                     "timeline": {
                         "date_histogram": {
@@ -249,13 +252,17 @@ def api_browser_stats():
         
         stats = {
             'total_visits': response['aggregations']['total_visits']['value'],
-            'top_domains': [
-                {'domain': bucket['key'], 'count': bucket['doc_count']}
-                for bucket in response['aggregations']['top_domains']['buckets']
+            'top_urls': [
+                {'url': bucket['key'], 'count': bucket['doc_count']}
+                for bucket in response['aggregations']['top_urls']['buckets']
             ],
             'browser_types': [
                 {'browser': bucket['key'], 'count': bucket['doc_count']}
                 for bucket in response['aggregations']['browser_types']['buckets']
+            ],
+            'event_types': [
+                {'type': bucket['key'], 'count': bucket['doc_count']}
+                for bucket in response['aggregations']['event_types']['buckets']
             ],
             'timeline': [
                 {'date': bucket['key_as_string'], 'count': bucket['doc_count']}
@@ -268,8 +275,9 @@ def api_browser_stats():
     except NotFoundError:
         return jsonify({
             'total_visits': 0,
-            'top_domains': [],
+            'top_urls': [],
             'browser_types': [],
+            'event_types': [],
             'timeline': [],
             'message': 'No browser data indexed yet.'
         })

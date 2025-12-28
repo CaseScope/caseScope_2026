@@ -60,13 +60,23 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-9">
+        <div class="col-md-5">
             <div class="card">
                 <div class="card-header">
-                    <h4>Top Domains</h4>
+                    <h4>Top URLs</h4>
+                </div>
+                <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                    <div id="topUrls">Loading...</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h4>Browsers Found</h4>
                 </div>
                 <div class="card-body">
-                    <div id="topDomains">Loading...</div>
+                    <div id="browserTypes">Loading...</div>
                 </div>
             </div>
         </div>
@@ -126,19 +136,37 @@ async function loadStats() {
             document.getElementById('statsSection').style.display = 'flex';
             document.getElementById('totalVisits').textContent = formatNumber(data.total_visits);
             
-            // Display top domains
-            if (data.top_domains && data.top_domains.length > 0) {
-                const domainsHtml = data.top_domains.map(d => 
+            // Display top URLs
+            if (data.top_urls && data.top_urls.length > 0) {
+                const urlsHtml = data.top_urls.map(u => {
+                    const displayUrl = u.url.length > 60 ? u.url.substring(0, 57) + '...' : u.url;
+                    return `<div class="d-flex justify-content-between align-items-center mb-2" style="gap: 0.5rem;">
+                        <a href="${u.url}" target="_blank" class="text-small" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${u.url}">${displayUrl}</a>
+                        <span class="badge badge-info">${formatNumber(u.count)}</span>
+                    </div>`;
+                }).join('');
+                document.getElementById('topUrls').innerHTML = urlsHtml;
+            } else {
+                document.getElementById('topUrls').innerHTML = '<p class="text-muted">No URL data available</p>';
+            }
+            
+            // Display browser types
+            if (data.browser_types && data.browser_types.length > 0) {
+                const browsersHtml = data.browser_types.map(b => 
                     `<div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="badge badge-primary">${d.domain}</span>
-                        <span class="text-small">${formatNumber(d.count)} visits</span>
+                        <span class="badge badge-primary" style="flex: 1;">${b.browser}</span>
+                        <span class="text-small">${formatNumber(b.count)} events</span>
                     </div>`
                 ).join('');
-                document.getElementById('topDomains').innerHTML = domainsHtml;
+                document.getElementById('browserTypes').innerHTML = browsersHtml;
+            } else {
+                document.getElementById('browserTypes').innerHTML = '<p class="text-muted">No browser data available</p>';
             }
         }
     } catch (error) {
         console.error('Error loading stats:', error);
+        document.getElementById('topUrls').innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+        document.getElementById('browserTypes').innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
     }
 }
 
@@ -199,26 +227,28 @@ function renderEvents(events) {
     const resultsContainer = document.getElementById('resultsContainer');
     
     let html = '<div class="table-responsive"><table class="table table-hover"><thead><tr>';
-    html += '<th>Timestamp</th><th>URL</th><th>Title</th><th>Browser</th><th>System</th>';
+    html += '<th>Timestamp</th><th>URL</th><th>Browser/Type</th><th>Source File</th>';
     html += '</tr></thead><tbody>';
     
     events.forEach(event => {
         const timestamp = formatTimestamp(event['@timestamp'] || event.timestamp);
         const url = event.url || '-';
-        const title = event.title || '-';
-        const browser = event.browser_type || event.event_type || 'Unknown';
-        const system = event.computer || event.hostname || event.source_system || '-';
+        const browser = event.browser || event.event_type || 'Unknown';
+        const source = event.source_file || event.filename || '-';
         
-        // Truncate long URLs/titles
-        const displayUrl = url.length > 80 ? url.substring(0, 77) + '...' : url;
-        const displayTitle = title.length > 50 ? title.substring(0, 47) + '...' : title;
+        // Extract filename from full path
+        const displaySource = source.includes('/') || source.includes('\\') 
+            ? source.split(/[/\\]/).pop() 
+            : source;
+        
+        // Truncate long URLs
+        const displayUrl = url.length > 100 ? url.substring(0, 97) + '...' : url;
         
         html += `<tr>
             <td><span class="text-small">${timestamp}</span></td>
             <td><a href="${url}" target="_blank" class="text-small" title="${url}">${displayUrl}</a></td>
-            <td><span class="text-small" title="${title}">${displayTitle}</span></td>
             <td><span class="badge badge-info">${browser}</span></td>
-            <td><span class="badge badge-secondary">${system}</span></td>
+            <td><span class="text-small" title="${source}">${displaySource}</span></td>
         </tr>`;
     });
     
