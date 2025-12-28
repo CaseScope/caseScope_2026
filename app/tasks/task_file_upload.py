@@ -617,12 +617,46 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                 total_indexed += stats['indexed']
                 total_failed += stats.get('failed', 0)
         
-        # PHASE 2/3: New parsers (to be implemented)
-        elif 'history' in filename.lower() or file_ext == '.sqlite':
+        # PHASE 2: Browser History Parser
+        elif 'history' in filename.lower() or (file_ext in ['.sqlite', '.db'] and ('history' in filename.lower() or 'places.sqlite' in filename.lower())):
             # Chrome/Firefox History Parser (Phase 2)
-            # TODO: Implement chrome_parser
-            logger.warning(f"Chrome/Firefox parser not yet implemented: {filename}")
-            pass
+            from parsers.browser_history_parser import parse_browser_history_file
+            
+            logger.info(f"Parsing browser history: {filename}")
+            
+            chunk = []
+            chunk_size = 5000
+            
+            for event in parse_browser_history_file(file_path):
+                chunk.append(event)
+                
+                if not source_system and 'computer' in event:
+                    source_system = event.get('computer')
+                
+                if len(chunk) >= chunk_size:
+                    stats = indexer.bulk_index(
+                        index_name=target_index,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type='BrowserHistory'
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                    chunk = []
+            
+            if chunk:
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='BrowserHistory'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
         
         elif 'webcache' in filename.lower() or file_ext == '.edb':
             # WebCache ESE Parser (Phase 2)
