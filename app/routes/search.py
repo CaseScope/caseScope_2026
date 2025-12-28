@@ -355,7 +355,11 @@ def api_search_events():
             'query': query,
             'size': per_page,
             'sort': [
-                {sort_field: {'order': actual_sort_order}},
+                {sort_field: {
+                    'order': actual_sort_order,
+                    'missing': '_last' if actual_sort_order == 'asc' else '_first',  # Put docs without timestamp at end
+                    'unmapped_type': 'date' if sort_field == 'normalized_timestamp' else 'keyword'
+                }},
                 {'_id': {'order': actual_sort_order}}  # Tie-breaker for consistent pagination
             ],
             '_source': [
