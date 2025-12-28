@@ -1,5 +1,36 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.1 - December 28, 2025
+
+### 🐛 Critical Fix: Timestamp Sorting
+
+Fixed critical issue where events were not sorted chronologically in search results.
+
+**Problem**:
+- Events displayed in completely random order (2022 → 2021 → 2020 → 2023)
+- Pagination not preserving sort order
+- Page 2 showed random events instead of continuing from page 1
+- OpenSearch documents without `normalized_timestamp` field appeared in undefined positions
+
+**Root Cause**:
+- OpenSearch sort clause lacked `missing` value handling
+- Documents without the sort field were placed randomly in results
+
+**Solution**:
+- Added `missing: '_first'/_last'` parameter to OpenSearch sort clause
+- Added `unmapped_type` for proper field type inference
+- Documents without timestamps now consistently placed at end (desc sort) or start (asc sort)
+
+**Files Modified**:
+- `app/routes/search.py` - Enhanced sort clause with missing value handling
+
+**Verification**:
+- Events now properly sorted chronologically (newest first by default)
+- Pagination maintains consistent sort order across all pages
+- All sort fields (timestamp, system name, event ID) work correctly
+
+---
+
 ## Version 1.5.0 - December 28, 2025
 
 ### 🎯 Feature: EVTX Event Description Enhancement
