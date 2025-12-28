@@ -486,6 +486,7 @@ class NoiseFilterRule(db.Model):
     pattern = db.Column(db.String(1000), nullable=False)  # The pattern to match
     match_mode = db.Column(db.String(20), default='contains')  # exact, contains, starts_with, ends_with, regex, wildcard
     is_case_sensitive = db.Column(db.Boolean, default=False)
+    exclude_fields = db.Column(db.String(500))  # Comma-separated list of field names to exclude from matching (e.g., 'agent.url,url,subdomain')
     
     # Status and metadata
     is_enabled = db.Column(db.Boolean, default=True, index=True)

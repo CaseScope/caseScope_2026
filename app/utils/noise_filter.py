@@ -62,6 +62,7 @@ def _build_filter_clause(rule):
     Supports:
     - Comma-separated patterns for OR logic: "pattern1,pattern2,pattern3"
     - AND logic using &&: "pattern1&&pattern2" (both must match)
+    - Field exclusions: Skip fields listed in rule.exclude_fields
     
     Args:
         rule: NoiseFilterRule object
@@ -131,6 +132,18 @@ def _build_filter_clause(rule):
     fields = field_mapping.get(rule.filter_type, [])
     if not fields:
         logger.warning(f"Unknown filter type: {rule.filter_type}")
+        return None
+    
+    # Filter out excluded fields if specified
+    if rule.exclude_fields:
+        excluded = [f.strip() for f in rule.exclude_fields.split(',')]
+        # Remove excluded fields and also 'search_blob' if any field is excluded
+        # (search_blob contains all field values, so it would match excluded content)
+        fields = [f for f in fields if f not in excluded and f != 'search_blob']
+        logger.debug(f"Rule '{rule.name}' excluding fields: {excluded}, remaining: {len(fields)} fields")
+    
+    if not fields:
+        logger.warning(f"Rule '{rule.name}' has no fields left after exclusions")
         return None
     
     pattern = rule.pattern
@@ -569,6 +582,20 @@ def _event_matches_rule(event_data, rule, return_fields=False):
     }
     
     target_fields = field_mapping.get(rule.filter_type, [])
+    
+    # Filter out excluded fields if specified
+    if rule.exclude_fields:
+        excluded = [f.strip() for f in rule.exclude_fields.split(',')]
+        # Remove excluded fields and also 'search_blob' if any field is excluded
+        target_fields = [f for f in target_fields if f not in excluded and f != 'search_blob']
+        logger.info(f"[NOISE_CHECK] Rule '{rule.name}' excluding fields: {excluded}, checking {len(target_fields)} remaining fields")
+    
+    if not target_fields:
+        logger.warning(f"[NOISE_CHECK] Rule '{rule.name}' has no fields left after exclusions")
+        if return_fields:
+            return {'matched': False, 'matched_fields': []}
+        return False
+    
     matched_fields = []
     
     logger.info(f"[NOISE_CHECK] Rule {rule.name} checking {len(target_fields)} fields")
