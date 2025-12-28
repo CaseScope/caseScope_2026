@@ -49,10 +49,49 @@ ARTIFACT_PATTERNS = {
     'network': ['srudb.dat', 'srum']
 }
 
-def is_valid_file(filename):
-    """Check if file has a valid extension"""
+# Browser-specific file patterns (path-based detection for extensionless files)
+BROWSER_FILE_PATTERNS = [
+    '/chrome/user data/',
+    '/google/chrome/',
+    '/mozilla/firefox/',
+    '/microsoft/edge/',
+    '/windows/webcache/',
+    'history',  # Chrome/Edge History (no extension)
+    'cookies',  # Chrome/Edge Cookies (no extension)
+    'webcachev01.dat',
+    'webcachev24.dat',
+    'places.sqlite',  # Firefox
+    'formhistory.sqlite',  # Firefox
+    'downloads.sqlite',  # Firefox
+]
+
+def is_valid_file(filename, full_path=''):
+    """
+    Check if file has a valid extension or matches browser patterns
+    
+    Args:
+        filename: The base filename
+        full_path: The full path within the ZIP (optional, for browser detection)
+    """
     ext = os.path.splitext(filename)[1].lower()
-    return ext in VALID_EXTENSIONS
+    
+    # Check standard extensions
+    if ext in VALID_EXTENSIONS:
+        return True
+    
+    # Check browser-specific patterns (for extensionless files like Chrome History)
+    filename_lower = filename.lower()
+    full_path_lower = full_path.lower() if full_path else ''
+    
+    for pattern in BROWSER_FILE_PATTERNS:
+        if pattern in filename_lower or pattern in full_path_lower:
+            # Additional validation: must be in a browser-related path
+            browser_indicators = ['/chrome/', '/firefox/', '/edge/', '/webcache/']
+            if any(indicator in full_path_lower for indicator in browser_indicators):
+                logger.debug(f"Detected browser file (no ext): {filename} in {full_path}")
+                return True
+    
+    return False
 
 def detect_artifact_type(file_path):
     """
@@ -375,9 +414,9 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                     if filename.startswith('.') or not filename:
                         continue
                     
-                    # Check if valid file type
-                    if not is_valid_file(filename):
-                        logger.debug(f"Skipping invalid file type: {filename}")
+                    # Check if valid file type (pass full path for browser detection)
+                    if not is_valid_file(filename, full_path=zip_member):
+                        logger.debug(f"Skipping invalid file type: {filename} (path: {zip_member})")
                         continue
                     
                     # Extract to staging with unique name
