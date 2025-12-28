@@ -622,6 +622,180 @@ def get_zip_contents(case_id, container_id):
         })
 
 
+@case_bp.route('/<int:case_id>/files/<int:file_id>/download', methods=['GET'])
+@login_required
+def download_file(case_id, file_id):
+    """
+    Download a file (virtual or physical)
+    
+    For virtual files: Extract from ZIP on-demand
+    For physical files: Serve directly from storage
+    
+    Hybrid approach:
+    - Files <100MB: Extract to memory, stream response
+    - Files >100MB: Extract to temp file, send_file
+    """
+    from flask import send_file, Response
+    from models import Case, CaseFile
+    import os
+    import zipfile
+    import tempfile
+    import io
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+    
+    # Get file record
+    file_record = CaseFile.query.filter_by(id=file_id, case_id=case_id).first_or_404()
+    
+    # VIRTUAL FILE: Extract from parent ZIP
+    if file_record.is_virtual:
+        # Get parent container
+        if not file_record.parent_file_id:
+            return jsonify({'error': 'Virtual file has no parent container'}), 500
+        
+        parent = CaseFile.query.get(file_record.parent_file_id)
+        if not parent or not parent.is_container:
+            return jsonify({'error': 'Parent container not found'}), 500
+        
+        zip_path = parent.file_path
+        if not os.path.exists(zip_path):
+            return jsonify({'error': 'Parent ZIP file not found on disk'}), 404
+        
+        try:
+            # Find the file in ZIP (match by original filename)
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                # Find matching file in ZIP
+                target_file = None
+                for zip_info in zf.namelist():
+                    if os.path.basename(zip_info) == file_record.original_filename:
+                        target_file = zip_info
+                        break
+                
+                if not target_file:
+                    return jsonify({'error': f'File not found in ZIP: {file_record.original_filename}'}), 404
+                
+                # Get file info
+                file_info = zf.getinfo(target_file)
+                file_size = file_info.file_size
+                
+                # Hybrid approach based on size
+                if file_size < 100 * 1024 * 1024:  # <100MB: Use memory
+                    logger.info(f"Extracting virtual file to memory: {file_record.original_filename} ({file_size} bytes)")
+                    
+                    # Extract to memory
+                    file_data = zf.read(target_file)
+                    
+                    # Create in-memory file object
+                    file_obj = io.BytesIO(file_data)
+                    file_obj.seek(0)
+                    
+                    return send_file(
+                        file_obj,
+                        as_attachment=True,
+                        download_name=file_record.original_filename,
+                        mimetype='application/octet-stream'
+                    )
+                
+                else:  # >100MB: Use temp file
+                    logger.info(f"Extracting virtual file to temp: {file_record.original_filename} ({file_size} bytes)")
+                    
+                    # Extract to temporary file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=f'_{file_record.original_filename}') as tmp_file:
+                        tmp_path = tmp_file.name
+                        with zf.open(target_file) as source:
+                            import shutil
+                            shutil.copyfileobj(source, tmp_file)
+                    
+                    # Send file and schedule cleanup
+                    def cleanup_temp_file(response):
+                        try:
+                            os.unlink(tmp_path)
+                            logger.info(f"Cleaned up temp file: {tmp_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to cleanup temp file {tmp_path}: {e}")
+                        return response
+                    
+                    response = send_file(
+                        tmp_path,
+                        as_attachment=True,
+                        download_name=file_record.original_filename,
+                        mimetype='application/octet-stream'
+                    )
+                    response.call_on_close(lambda: cleanup_temp_file(response))
+                    return response
+        
+        except Exception as e:
+            logger.error(f"Error extracting virtual file {file_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Failed to extract file: {str(e)}'}), 500
+    
+    # PHYSICAL FILE: Serve from storage
+    else:
+        file_path = file_record.file_path
+        
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({'error': 'File not found on disk'}), 404
+        
+        # Check if it's compressed (.gz)
+        if file_path.endswith('.gz'):
+            # For compressed files, decompress on the fly
+            import gzip
+            file_size = os.path.getsize(file_path)
+            
+            if file_size < 100 * 1024 * 1024:  # <100MB compressed: Decompress to memory
+                logger.info(f"Decompressing to memory: {file_record.original_filename}")
+                
+                with gzip.open(file_path, 'rb') as gz_file:
+                    file_data = gz_file.read()
+                
+                file_obj = io.BytesIO(file_data)
+                file_obj.seek(0)
+                
+                return send_file(
+                    file_obj,
+                    as_attachment=True,
+                    download_name=file_record.original_filename,
+                    mimetype='application/octet-stream'
+                )
+            else:  # >100MB compressed: Decompress to temp
+                logger.info(f"Decompressing to temp: {file_record.original_filename}")
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f'_{file_record.original_filename}') as tmp_file:
+                    tmp_path = tmp_file.name
+                    with gzip.open(file_path, 'rb') as gz_file:
+                        import shutil
+                        shutil.copyfileobj(gz_file, tmp_file)
+                
+                def cleanup_temp_file(response):
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception as e:
+                        logger.error(f"Failed to cleanup temp file: {e}")
+                    return response
+                
+                response = send_file(
+                    tmp_path,
+                    as_attachment=True,
+                    download_name=file_record.original_filename,
+                    mimetype='application/octet-stream'
+                )
+                response.call_on_close(lambda: cleanup_temp_file(response))
+                return response
+        
+        else:
+            # Uncompressed file: Serve directly
+            return send_file(
+                file_path,
+                as_attachment=True,
+                download_name=file_record.original_filename,
+                mimetype='application/octet-stream'
+            )
 
 
 @case_bp.route('/files/upload')

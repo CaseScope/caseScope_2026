@@ -119,6 +119,7 @@ function renderGroupedContents(containerId, data) {
                                 <th>Events</th>
                                 <th>Index</th>
                                 <th>Status</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -135,6 +136,11 @@ function renderGroupedContents(containerId, data) {
                     <td>${formatNumber(file.event_count || 0)}</td>
                     <td>${indexBadge}</td>
                     <td>${statusBadge}</td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="downloadFile(${file.id}, '${file.filename}')" title="Download file">
+                            ⬇️
+                        </button>
+                    </td>
                 </tr>
             `;
         }
@@ -166,6 +172,7 @@ function renderPaginatedContents(containerId, data) {
                         <th>Events</th>
                         <th>Index</th>
                         <th>Status</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -184,6 +191,11 @@ function renderPaginatedContents(containerId, data) {
                 <td>${formatNumber(file.event_count || 0)}</td>
                 <td>${indexBadge}</td>
                 <td>${statusBadge}</td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="downloadFile(${file.id}, '${file.filename}')" title="Download file">
+                        ⬇️
+                    </button>
+                </td>
             </tr>
         `;
     }
@@ -243,5 +255,18 @@ function getStatusBadge(status) {
 
 function formatNumber(num) {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function downloadFile(fileId, filename) {
+    // Trigger download of virtual or physical file
+    const url = `/case/${caseId}/files/${fileId}/download`;
+    
+    // Create temporary link and click it
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
