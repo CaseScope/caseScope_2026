@@ -1,5 +1,32 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.0 - December 28, 2025
+
+### 🎯 Feature: EVTX Event Description Enhancement
+
+Added comprehensive Windows Event Log ID database to automatically enhance EVTX event descriptions with human-readable information.
+
+**Key Features**:
+- Database of 200+ common Windows Event IDs across Security, System, Application, and specialized logs
+- Automatic lookup and enhancement of EVTX event descriptions in search results
+- Support for major log sources: Security, System, Application, Sysmon, PowerShell, Task Scheduler, Windows Defender, RDP, SMB, and more
+- Normalized channel name handling for consistent lookups
+- Fallback to original descriptions when events not in database
+
+**Files Added**:
+- `app/utils/evtx_event_database.json` - Event ID database
+- `app/utils/evtx_descriptions.py` - Lookup utility module
+
+**Files Modified**:
+- `app/routes/search.py` - Integrated event description enhancement for EVTX events
+
+**Example Enhancements**:
+- Event ID 17 (System) → "Event log cleared - An event log file was cleared or the log reached its maximum size"
+- Event ID 1097 (Azure AD) → "Azure AD - User authentication - Azure Active Directory user authentication details"
+- Event ID 4624 (Security) → "Account Logon - Successful - An account was successfully logged on"
+
+---
+
 ## Version 1.4.0 - December 28, 2025
 
 ### 🎯 Feature: Software Noise Filtering System

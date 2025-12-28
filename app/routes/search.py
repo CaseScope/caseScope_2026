@@ -498,8 +498,39 @@ def api_search_events():
                     if not description_parts:
                         description_parts.append(f"Category: {category}")
                     
+            elif file_type == 'EVTX':
+                # For EVTX events, try to use the event database for enhanced descriptions
+                from app.utils.evtx_descriptions import enhance_event_description
+                
+                channel = source.get('channel')
+                provider_name = source.get('provider_name')
+                
+                # Try to get enhanced description from database
+                enhanced_desc = enhance_event_description(
+                    event_id=event_id,
+                    channel=channel,
+                    provider_name=provider_name,
+                    original_description=None
+                )
+                
+                # Use enhanced description if available
+                if enhanced_desc:
+                    description_parts.append(enhanced_desc)
+                else:
+                    # Fallback to original logic
+                    if provider_name:
+                        description_parts.append(provider_name)
+                    if channel:
+                        description_parts.append(f"[{channel}]")
+                    if source.get('process', {}).get('name'):
+                        description_parts.append(f"Process: {source['process']['name']}")
+                    elif source.get('process', {}).get('command_line'):
+                        cmd = source['process']['command_line']
+                        if len(cmd) > 100:
+                            cmd = cmd[:100] + '...'
+                        description_parts.append(f"CMD: {cmd}")
             else:
-                # For EVTX and other types, use original logic
+                # For other file types (CSV, IIS, etc.), use original logic
                 if source.get('provider_name'):
                     description_parts.append(source['provider_name'])
                 if source.get('channel'):
