@@ -658,29 +658,144 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                 total_indexed += stats['indexed']
                 total_failed += stats.get('failed', 0)
         
-        elif 'webcache' in filename.lower() or file_ext == '.edb':
+        elif 'webcache' in filename.lower() or file_ext in ['.edb', '.dat']:
             # WebCache ESE Parser (Phase 2)
-            # TODO: Implement webcache_parser
-            logger.warning(f"WebCache parser not yet implemented: {filename}")
-            pass
+            from parsers.webcache_parser import parse_webcache_file, ESE_AVAILABLE
+            
+            if not ESE_AVAILABLE:
+                raise ImportError("pyesedb not available for WebCache parsing")
+            
+            logger.info(f"Parsing WebCache ESE: {filename}")
+            
+            chunk = []
+            chunk_size = 5000
+            
+            for event in parse_webcache_file(file_path):
+                chunk.append(event)
+                
+                if len(chunk) >= chunk_size:
+                    stats = indexer.bulk_index(
+                        index_name=target_index,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type='WebCache'
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                    chunk = []
+            
+            if chunk:
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='WebCache'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
         
         elif file_ext == '.pf':
             # Prefetch Parser (Phase 3)
-            # TODO: Implement prefetch_parser
-            logger.warning(f"Prefetch parser not yet implemented: {filename}")
-            pass
+            from parsers.prefetch_parser import parse_prefetch_file, SCCA_AVAILABLE
+            
+            if not SCCA_AVAILABLE:
+                raise ImportError("pyscca not available for Prefetch parsing")
+            
+            logger.info(f"Parsing Prefetch: {filename}")
+            
+            for event in parse_prefetch_file(file_path):
+                chunk = [event]
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='Prefetch'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
         
         elif 'srudb.dat' in filename.lower():
             # SRUM Parser (Phase 3)
-            # TODO: Implement srum_parser
-            logger.warning(f"SRUM parser not yet implemented: {filename}")
-            pass
+            from parsers.srum_parser import parse_srum_file, ESE_AVAILABLE
+            
+            if not ESE_AVAILABLE:
+                raise ImportError("pyesedb not available for SRUM parsing")
+            
+            logger.info(f"Parsing SRUM: {filename}")
+            
+            chunk = []
+            chunk_size = 5000
+            
+            for event in parse_srum_file(file_path):
+                chunk.append(event)
+                
+                if len(chunk) >= chunk_size:
+                    stats = indexer.bulk_index(
+                        index_name=target_index,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type='SRUM'
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                    chunk = []
+            
+            if chunk:
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='SRUM'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
         
         elif 'setupapi.dev.log' in filename.lower():
             # setupapi.dev.log Parser (Phase 3)
-            # TODO: Implement setupapi_parser
-            logger.warning(f"setupapi parser not yet implemented: {filename}")
-            pass
+            from parsers.setupapi_parser import parse_setupapi_file
+            
+            logger.info(f"Parsing setupapi.dev.log: {filename}")
+            
+            chunk = []
+            chunk_size = 1000
+            
+            for event in parse_setupapi_file(file_path):
+                chunk.append(event)
+                
+                if len(chunk) >= chunk_size:
+                    stats = indexer.bulk_index(
+                        index_name=target_index,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type='DeviceLog'
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                    chunk = []
+            
+            if chunk:
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='DeviceLog'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
         
         else:
             logger.warning(f"No parser available for: {filename}")
