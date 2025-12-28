@@ -11,10 +11,10 @@ This directory contains comprehensive technical documentation for the CaseScope 
 ### For New Developers
 
 1. **Read First**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Understand project structure and design principles
-2. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema and relationships
-3. **Authentication**: [USERS.MD](USERS.MD) - User management and authentication
-4. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Access control and audit logging
-5. **File System**: [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) + [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) - Upload and parse evidence files
+2. **ZIP Architecture**: [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) - NEW ZIP-centric file processing system
+3. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema and relationships
+4. **Authentication**: [USERS.MD](USERS.MD) - User management and authentication
+5. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Access control and audit logging
 6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) + [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Query and tag events
 7. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma rule hunting
 8. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
@@ -94,49 +94,20 @@ This directory contains comprehensive technical documentation for the CaseScope 
 
 ### File Upload & Processing
 
-#### [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md)
-**Purpose**: Complete file upload and processing system
+#### [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) ⭐ NEW
+**Purpose**: ZIP-centric file processing architecture (v2.0)
 
 **Contents**:
-- Three upload methods (web chunked, drag/drop, bulk folder)
-- SHA256 hash-based deduplication (per case)
-- Chunk upload mechanism (5MB chunks, 3 concurrent)
-- Memory-safe processing for large files
-- Celery task integration
-- Comprehensive troubleshooting
+- Zero-deletion policy with GZIP compression
+- ZIP as source of truth (virtual file tracking)
+- Multi-index strategy (5 specialized indexes)
+- Phase 1-3 parsers (EVTX, Browser History, Prefetch, SRUM, etc.)
+- On-demand extraction for downloads
+- Auto-tune performance system
+- Complete API reference
+- Migration guide from v1.x
 
-**Critical For**: File upload features, evidence ingestion
-
----
-
-#### [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md)
-**Purpose**: Deep dive into file parsers and event normalization
-
-**Contents**:
-- EVTX parser internals (Rust library integration)
-- NDJSON parser with ECS support
-- CSV firewall parser
-- Search blob creation algorithm
-- Source system detection logic
-- Normalization process
-- Memory-safe chunked processing
-
-**Critical For**: Understanding parsing pipeline, troubleshooting parser issues
-
----
-
-#### [FILE_MANAGEMENT_UI.md](FILE_MANAGEMENT_UI.md)
-**Purpose**: File list interface with real-time updates
-
-**Contents**:
-- File list table with metadata
-- Real-time statistics (5-second updates)
-- Processing progress indicator
-- Search & filter system
-- Hidden files feature
-- Auto-refresh during processing
-
-**Critical For**: UI features, file display
+**Critical For**: Understanding new file processing architecture
 
 ---
 
