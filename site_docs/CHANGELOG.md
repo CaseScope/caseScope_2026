@@ -1,5 +1,54 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.3 - December 28, 2025
+
+### 🔧 Fix: EVTX Parser Now Populates Normalized Fields
+
+**The Complete Solution:**
+The normalized field system was designed to provide consistent field names across all log types (EVTX, NDJSON, CSV, IIS), but the EVTX parser was never updated to populate them.
+
+**What Normalized Fields Do:**
+- `normalized_timestamp` - Consistent timestamp field across all log types
+- `normalized_computer` - Consistent hostname/computer name field
+- `normalized_event_id` - Consistent event identifier field
+
+**Why This Matters:**
+- Enables sorting by timestamp regardless of log source
+- Allows filtering by computer name consistently
+- Simplifies search queries across mixed log types
+- Provides uniform field names for analysis
+
+**What Was Fixed:**
+- ✅ EVTX parser now populates `normalized_timestamp` from `timestamp` or `system_time`
+- ✅ EVTX parser now populates `normalized_computer` from `computer` field
+- ✅ EVTX parser now populates `normalized_event_id` from `event_id` field
+- ✅ Reverted sort field back to `normalized_timestamp` (the proper fix)
+- ✅ Search display already prioritizes normalized fields with fallbacks
+
+**Parser Status:**
+- ✅ NDJSON parser - Already normalizing correctly
+- ✅ CSV parser - Already normalizing correctly
+- ✅ EVTX parser - NOW normalizing correctly (fixed!)
+
+**Impact:**
+- **NEW uploads**: Will have normalized fields populated properly
+- **Existing data**: Still missing normalized fields (requires re-indexing)
+- **Search fallback**: Gracefully handles missing fields with fallback chain
+
+**Files Modified:**
+- `app/parsers/evtx_parser.py` - Added field normalization
+- `app/routes/search.py` - Reverted to normalized_timestamp sort
+- `templates/search/events.html` - Reverted frontend to match
+
+**For Users:**
+To get normalized fields on existing events, you'll need to:
+1. Re-upload case files, OR
+2. Wait for future migration script to backfill fields
+
+New uploads from now on will work perfectly! 🎉
+
+---
+
 ## Version 1.5.2 - December 28, 2025
 
 ### 🐛 Critical Fix: Sort Field Changed to timestamp
