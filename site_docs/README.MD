@@ -1,6 +1,6 @@
 # CaseScope 2026 - Documentation Index
 
-**Last Updated**: December 27, 2025
+**Last Updated**: December 28, 2025
 
 This directory contains comprehensive technical documentation for the CaseScope 2026 Digital Forensics & Incident Response platform.
 
@@ -331,12 +331,14 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | Role-Based Access Control | ✅ Complete | [PERMISSIONS.MD](PERMISSIONS.MD) |
 | Audit Logging | ✅ Complete | [AUDIT.MD](AUDIT.MD) |
 | Case Management | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
-| File Upload & Processing | ✅ Complete | [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) |
-| EVTX Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
-| NDJSON/JSON Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
-| CSV Firewall Parsing | ✅ Complete | [FILE_PARSING_SYSTEM.md](FILE_PARSING_SYSTEM.md) |
+| File Upload & Processing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
+| EVTX Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
+| NDJSON/JSON Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
+| CSV Firewall Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
+| Browser History Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
 | Event Search System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | Event Tagging System | ✅ Complete | [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) |
+| Event IOC/SIGMA Detection Alerts | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | IOC Management | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
 | IOC Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
@@ -379,6 +381,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - `/case/<id>/files` - File management
 - `/case/<id>/upload` - File upload
 - `/search/events` - Event search
+- `/browser/history` - Browser history viewer
 - `/ioc/manage` - IOC management
 - `/hunting/dashboard` - Threat hunting
 - `/systems/manage` - Known systems
@@ -429,7 +432,7 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - Check table permissions for `casescope` user
 
 **File Processing Issues**:
-- Refer to [FILE_UPLOAD_PROCESSING.md](FILE_UPLOAD_PROCESSING.md) - Troubleshooting
+- Refer to [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) - Troubleshooting
 - Check Celery workers: `systemctl status casescope-workers`
 - Review logs: `/opt/casescope/logs/celery_worker.log`
 
@@ -445,4 +448,4 @@ For questions or issues:
 
 ---
 
-*This documentation is maintained alongside the codebase. All information verified against live code as of December 27, 2025.*
+*This documentation is maintained alongside the codebase. All information verified against live code as of December 28, 2025.*

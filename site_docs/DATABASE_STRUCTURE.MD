@@ -289,7 +289,8 @@ logon_events = EventDescription.query.filter_by(
 |--------|------|---------|
 | `id` | Integer | Primary key |
 | `type` | Enum | IOC type (56 types: ipv4, domain, md5, sha256, cve_id, etc.) |
-| `value` | Text | The actual IOC value |
+| `value` | Text | The actual IOC value (truncated to 2500 chars for indexing) |
+| `full_value` | Text | Complete, untruncated value (for long command lines, etc.) |
 | `category` | Enum | Category (network, file, host, identity, vulnerability, cloud, mobile) |
 | `confidence` | SmallInt | Confidence score (0-100) |
 | `threat_level` | Enum | Threat level (info, low, medium, high, critical) |
@@ -311,6 +312,12 @@ logon_events = EventDescription.query.filter_by(
 | `updated_by` | Integer | Foreign key to `user.id` |
 | `created_at` | Timestamp | Creation timestamp |
 | `updated_at` | Timestamp | Last update timestamp (auto-updates via trigger) |
+
+**Note on IOC Value Storage**:
+- `value` field is indexed (btree) and limited to 2500 characters to avoid PostgreSQL index size limits
+- `full_value` field stores complete, untruncated values (no index) for very long indicators like PowerShell command lines
+- When `value` is truncated, `full_value` contains the original complete value
+- Analyst notes automatically updated to reflect truncation with original length
 
 **IOC Types (56 Total)**:
 - **Network** (14): ipv4, ipv6, domain, fqdn, url, uri_path, email_address, email_subject, user_agent, ja3_hash, ja3s_hash, jarm_hash, ssl_cert_hash, ssl_cert_serial
@@ -391,10 +398,11 @@ logon_events = EventDescription.query.filter_by(
 || `id` | Integer | Primary key |
 || `case_id` | Integer | Foreign key to `case.id` (cascades on delete), indexed |
 || `opensearch_doc_id` | String(255) | OpenSearch document ID, indexed |
-|| `event_record_id` | BigInteger | Event record ID (nullable) |
-|| `event_id` | String(255) | Event ID, indexed |
+|| `source_index` | String(100) | Source OpenSearch index (e.g., `case_3`, `case_3_browser`) |
+|| `event_record_id` | BigInteger | Event record ID (nullable, EVTX only) |
+|| `event_id` | String(255) | Event ID or event_type, indexed |
 || `event_timestamp` | DateTime | Event timestamp |
-|| `computer` | String(255) | Computer/hostname |
+|| `computer` | String(255) | Computer/hostname (nullable, EVTX only) |
 || `ioc_id` | Integer | Foreign key to `iocs.id` (cascades on delete), indexed |
 || `ioc_value` | String(1000) | IOC value (denormalized) |
 || `ioc_type` | String(50) | IOC type (denormalized), indexed |
@@ -417,7 +425,8 @@ logon_events = EventDescription.query.filter_by(
 - `detector` - User who initiated hunt
 
 **Purpose**:
-- Links OpenSearch events to IOC database entries
+- Links OpenSearch events to IOC database entries across multiple indices
+- **Multi-index support**: Tracks IOC hits in both main (`case_X`) and browser (`case_X_browser`) indices
 - Powers IOC badge display in search results
 - Tracks which events contain which IOCs
 - Supports IOC hunt statistics and reporting

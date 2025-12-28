@@ -7,11 +7,11 @@
 This document explains the OpenSearch field structure used in CaseScope, including field types, normalized fields, and how different log sources map to the unified schema.
 
 **Index Structure**: Multi-index strategy (v2.0 ZIP-centric architecture)
-- **Main Events**: `case_{id}` (e.g., `case_3`) - EVTX, NDJSON
-- **Browser History**: `case_{id}_browser` - Chrome, Firefox, WebCache (IE/Edge)
-- **Execution**: `case_{id}_execution` - Prefetch files
-- **Network**: `case_{id}_network` - SRUM (network usage)
-- **Devices**: `case_{id}_devices` - setupapi.dev.log (USB devices)
+- **Main Events**: `case_{id}` (e.g., `case_3`) - EVTX, NDJSON, EDR logs
+- **Browser History**: `case_{id}_browser` - Chrome, Firefox, Edge, WebCache
+- **Execution**: `case_{id}_execution` - Prefetch files (future)
+- **Network**: `case_{id}_network` - SRUM network usage (future)
+- **Devices**: `case_{id}_devices` - USB device logs (future)
 
 **Benefits**:
 - Faster targeted searches per artifact type
@@ -170,7 +170,46 @@ Fields from firewall CSV logs (SonicWall, generic firewalls):
 
 ---
 
-### 5. Analyst Tagging Fields
+### 6. Browser Event Fields (`case_X_browser` index)
+
+Fields from Chrome, Firefox, Edge browser history databases:
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `@timestamp` | date | Event timestamp | "2020-05-19T18:44:33.481681" |
+| `event_type` | keyword | Browser event type | "browser_visit", "browser_download", "browser_url", "webcache_entry" |
+| `browser` | keyword | Browser name | "chrome", "firefox", "edge" |
+| `url` | text | Full URL visited/downloaded | "https://example.com/page" |
+| `title` | text | Page title | "Example Page - Mozilla Firefox" |
+| `visit_count` | integer | Number of visits | 5 |
+| `typed_count` | integer | Number of times typed | 2 |
+| `domain` | keyword | Extracted domain | "example.com" |
+| `file_path` | text | Download file path | "C:\\Users\\user\\Downloads\\file.exe" |
+| `start_time` | date | Download start time | "2020-05-19T18:44:33.481681" |
+| `end_time` | date | Download end time | "2020-05-19T18:44:33.866486" |
+| `received_bytes` | long | Downloaded file size | 278092 |
+| `total_bytes` | long | Total file size | 278092 |
+| `state` | integer | Download state (0=in progress, 1=complete, 2=cancelled) | 1 |
+| `danger_type` | integer | Download danger assessment (0=SAFE, 1=DANGEROUS, etc.) | 0 |
+| `interrupt_reason` | integer | Download interrupt code | 0 |
+| `mime_type` | keyword | File MIME type | "application/pdf" |
+| `source_file` | keyword | Source History/WebCache file | "History", "WebCacheV01.dat" |
+| `artifact_type` | keyword | Artifact classification | "browser_download", "browser_history" |
+| `indexed_at` | date | Indexing timestamp | "2025-12-28T13:12:33.349417+00:00" |
+| `case_id` | keyword | Case identifier | "3" |
+| `file_type` | keyword | File type for filtering | "BrowserHistory" |
+| `hostname` | keyword | Computer hostname (enriched from EVTX) | "Engineering5.JamesMFG.local" |
+
+**Notes**:
+- `event_type` distinguishes between visits, downloads, and cache entries
+- `state` and `danger_type` are Chrome-specific integer codes
+- `domain` is extracted from `url` for easier filtering
+- `hostname` is enriched from main index EVTX events during display
+- No `search_blob` field - searches use `url`, `title`, `file_path`
+
+---
+
+### 7. Analyst Tagging Fields
 
 Fields for manual event tagging:
 
@@ -395,8 +434,7 @@ High-cardinality fields (many unique values) impact performance:
 ## Related Documentation
 
 - **SEARCH_SYSTEM.md** - Search queries and interface
-- **FILE_PARSING_SYSTEM.md** - How fields are extracted
-- **FILE_UPLOAD_PROCESSING.md** - Indexing process
+- **ZIP_ARCHITECTURE.md** - File parsing and processing system
 - **THREAT_HUNTING.md** - IOC hunting queries
 - **opensearch_indexer.py** - Implementation code
 

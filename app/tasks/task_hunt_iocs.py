@@ -17,9 +17,14 @@ logger = logging.getLogger(__name__)
 from celery_app import celery
 
 
-def build_smart_ioc_query(ioc):
+def build_smart_ioc_query(ioc, index_type='main'):
     """
-    Build intelligent OpenSearch query based on IOC type
+    Build intelligent OpenSearch query based on IOC type and index
+    
+    Args:
+        ioc: IOC object to search for
+        index_type: 'main' for case_X index, 'browser' for case_X_browser index
+    
     Uses structured fields first, falls back to search_blob
     """
     ioc_value = ioc.value
@@ -27,6 +32,81 @@ def build_smart_ioc_query(ioc):
     
     queries = []
     
+    # Browser index - different field structure
+    if index_type == 'browser':
+        if ioc_type == 'domain':
+            # Domain in URL
+            queries.append({
+                'wildcard': {
+                    'url': f'*{ioc_value}*'
+                }
+            })
+            queries.append({
+                'match_phrase': {
+                    'domain': ioc_value
+                }
+            })
+        
+        elif ioc_type == 'url':
+            # URL matching
+            queries.append({
+                'wildcard': {
+                    'url': f'*{ioc_value}*'
+                }
+            })
+            queries.append({
+                'match_phrase': {
+                    'url': ioc_value
+                }
+            })
+        
+        elif ioc_type in ['md5', 'sha1', 'sha256', 'file_hash']:
+            # File hash in download path or cache
+            queries.append({
+                'match_phrase': {
+                    'file_path': ioc_value.lower()
+                }
+            })
+        
+        elif ioc_type in ['file_name', 'filename']:
+            # Filename in download path
+            queries.append({
+                'wildcard': {
+                    'file_path': f'*{ioc_value}*'
+                }
+            })
+            queries.append({
+                'match_phrase': {
+                    'title': ioc_value
+                }
+            })
+        
+        elif ioc_type in ['file_path', 'filepath']:
+            # File path in downloads
+            queries.append({
+                'match_phrase': {
+                    'file_path': ioc_value
+                }
+            })
+        
+        else:
+            # Generic - search URL and title
+            queries.append({
+                'multi_match': {
+                    'query': ioc_value,
+                    'fields': ['url', 'title', 'file_path'],
+                    'type': 'phrase'
+                }
+            })
+        
+        return {
+            'bool': {
+                'should': queries,
+                'minimum_should_match': 1
+            }
+        }
+    
+    # Main index (EVTX) - original logic
     if ioc_type == 'ipv4':
         # IP address - search specific fields (EVTX + firewall logs)
         queries.append({
@@ -223,11 +303,31 @@ def build_smart_ioc_query(ioc):
     }
 
 
-def determine_match_field(event_doc, ioc):
+def determine_match_field(event_doc, ioc, index_type='main'):
     """
     Try to determine which field contained the IOC match
+    
+    Args:
+        event_doc: The event document from OpenSearch
+        ioc: IOC object that matched
+        index_type: 'main' or 'browser'
     """
     ioc_value_lower = ioc.value.lower()
+    
+    # Browser events have a simpler structure
+    if index_type == 'browser':
+        # Check browser-specific fields
+        if 'url' in event_doc and ioc_value_lower in str(event_doc.get('url', '')).lower():
+            return 'url'
+        if 'title' in event_doc and ioc_value_lower in str(event_doc.get('title', '')).lower():
+            return 'title'
+        if 'file_path' in event_doc and ioc_value_lower in str(event_doc.get('file_path', '')).lower():
+            return 'file_path'
+        if 'domain' in event_doc and ioc_value_lower in str(event_doc.get('domain', '')).lower():
+            return 'domain'
+        return 'browser_event'
+    
+    # Main index (EVTX) - original logic
     event_data = event_doc.get('event_data_fields', event_doc.get('event_data', {})) or {}
     
     # Check common fields based on IOC type
@@ -340,10 +440,18 @@ def hunt_iocs(self, case_id, user_id, clear_previous=True):
                 timeout=30
             )
             
-            index_name = f"case_{case_id}"
+            # Determine which indices to search
+            indices_to_search = []
             
-            # Check if index exists
-            if not client.indices.exists(index=index_name):
+            main_index = f"case_{case_id}"
+            if client.indices.exists(index=main_index):
+                indices_to_search.append(('main', main_index))
+            
+            browser_index = f"case_{case_id}_browser"
+            if client.indices.exists(index=browser_index):
+                indices_to_search.append(('browser', browser_index))
+            
+            if not indices_to_search:
                 return {
                     'success': True,
                     'events_scanned': 0,
@@ -353,7 +461,9 @@ def hunt_iocs(self, case_id, user_id, clear_previous=True):
                 }
             
             # Get total event count for progress tracking
-            total_events = client.count(index=index_name)['count']
+            total_events = 0
+            for index_type, index_name in indices_to_search:
+                total_events += client.count(index=index_name)['count']
             
             self.update_state(state='PROGRESS', meta={
                 'status': f'Scanning {total_events:,} events...',
@@ -374,7 +484,7 @@ def hunt_iocs(self, case_id, user_id, clear_previous=True):
             # Track which events already have hits
             events_with_hits = set()
             
-            # Hunt each IOC
+            # Hunt each IOC across all indices
             for ioc_idx, ioc in enumerate(iocs):
                 ioc_progress = 10 + (80 * (ioc_idx / len(iocs)))
                 
@@ -388,80 +498,105 @@ def hunt_iocs(self, case_id, user_id, clear_previous=True):
                     'total_hits': stats['total_hits']
                 })
                 
-                # Build query for this IOC
-                query = build_smart_ioc_query(ioc)
-                
-                # Search with scroll for large result sets
-                search_body = {
-                    'query': query,
-                    '_source': [
-                        'event_record_id', 'event_id', 'normalized_timestamp',
-                        'normalized_computer', 'computer', 'event_data_fields', 'event_data'
-                    ]
-                }
-                
                 ioc_hit_count = 0
                 
-                try:
-                    # Use scan for efficient iteration
-                    for hit in scan(
-                        client,
-                        index=index_name,
-                        query=search_body,
-                        size=1000,
-                        scroll='5m'
-                    ):
-                        doc_id = hit['_id']
-                        event_doc = hit['_source']
-                        
-                        stats['events_scanned'] += 1
-                        
-                        # Check if this event-IOC pair already exists
-                        existing = EventIOCHit.query.filter_by(
-                            opensearch_doc_id=doc_id,
-                            ioc_id=ioc.id
-                        ).first()
-                        
-                        if existing:
-                            # Count existing hit
-                            ioc_hit_count += 1
-                            events_with_hits.add(doc_id)
-                            stats['by_threat_level'][ioc.threat_level] += 1
-                        else:
-                            # Create new hit record
-                            hit_record = EventIOCHit(
-                                case_id=case_id,
+                # Search each index (main and browser)
+                for index_type, index_name in indices_to_search:
+                    # Build query for this IOC and index type
+                    query = build_smart_ioc_query(ioc, index_type=index_type)
+                    
+                    # Search with scroll for large result sets
+                    if index_type == 'browser':
+                        # Browser events have different fields
+                        search_body = {
+                            'query': query,
+                            '_source': [
+                                '@timestamp', 'event_type', 'url', 'title',
+                                'browser', 'file_path', 'domain', 'source_file'
+                            ]
+                        }
+                    else:
+                        # Main index (EVTX) fields
+                        search_body = {
+                            'query': query,
+                            '_source': [
+                                'event_record_id', 'event_id', 'normalized_timestamp',
+                                'normalized_computer', 'computer', 'event_data_fields', 'event_data'
+                            ]
+                        }
+                    
+                    try:
+                        # Use scan for efficient iteration
+                        for hit in scan(
+                            client,
+                            index=index_name,
+                            query=search_body,
+                            size=1000,
+                            scroll='5m'
+                        ):
+                            doc_id = hit['_id']
+                            event_doc = hit['_source']
+                            
+                            stats['events_scanned'] += 1
+                            
+                            # Check if this event-IOC pair already exists
+                            existing = EventIOCHit.query.filter_by(
                                 opensearch_doc_id=doc_id,
-                                event_record_id=event_doc.get('event_record_id'),
-                                event_id=event_doc.get('event_id', event_doc.get('normalized_event_id')),
-                                event_timestamp=event_doc.get('normalized_timestamp', event_doc.get('timestamp')),
-                                computer=event_doc.get('normalized_computer', event_doc.get('computer')),
                                 ioc_id=ioc.id,
-                                ioc_value=ioc.value,
-                                ioc_type=ioc.type,
-                                ioc_category=ioc.category,
-                                threat_level=ioc.threat_level,
-                                matched_in_field=determine_match_field(event_doc, ioc),
-                                detected_by=user_id
-                            )
-                            db.session.add(hit_record)
+                                source_index=index_name
+                            ).first()
                             
-                            ioc_hit_count += 1
-                            events_with_hits.add(doc_id)
-                            stats['by_threat_level'][ioc.threat_level] += 1
+                            if existing:
+                                # Count existing hit
+                                ioc_hit_count += 1
+                                events_with_hits.add(f"{index_name}:{doc_id}")
+                                stats['by_threat_level'][ioc.threat_level] += 1
+                            else:
+                                # Create new hit record
+                                # Extract timestamp and computer based on index type
+                                if index_type == 'browser':
+                                    timestamp = event_doc.get('@timestamp')
+                                    computer = None  # Browser events don't have computer directly
+                                    event_id_val = event_doc.get('event_type')
+                                else:
+                                    timestamp = event_doc.get('normalized_timestamp', event_doc.get('timestamp'))
+                                    computer = event_doc.get('normalized_computer', event_doc.get('computer'))
+                                    event_id_val = event_doc.get('event_id', event_doc.get('normalized_event_id'))
+                                
+                                hit_record = EventIOCHit(
+                                    case_id=case_id,
+                                    opensearch_doc_id=doc_id,
+                                    source_index=index_name,
+                                    event_record_id=event_doc.get('event_record_id') if index_type == 'main' else None,
+                                    event_id=event_id_val,
+                                    event_timestamp=timestamp,
+                                    computer=computer,
+                                    ioc_id=ioc.id,
+                                    ioc_value=ioc.value,
+                                    ioc_type=ioc.type,
+                                    ioc_category=ioc.category,
+                                    threat_level=ioc.threat_level,
+                                    matched_in_field=determine_match_field(event_doc, ioc, index_type=index_type),
+                                    detected_by=user_id
+                                )
+                                db.session.add(hit_record)
+                                
+                                ioc_hit_count += 1
+                                events_with_hits.add(f"{index_name}:{doc_id}")
+                                stats['by_threat_level'][ioc.threat_level] += 1
+                                
+                                # Commit every 100 records to avoid memory issues
+                                if stats['total_hits'] % 100 == 0:
+                                    db.session.commit()
                             
-                            # Commit every 100 records to avoid memory issues
-                            if stats['total_hits'] % 100 == 0:
-                                db.session.commit()
+                            # Count total hits (new + existing)
+                            stats['total_hits'] += 1
                         
-                        # Count total hits (new + existing)
-                        stats['total_hits'] += 1
-                    
-                    stats['by_ioc'][ioc.value] = ioc_hit_count
-                    
-                except Exception as e:
-                    logger.error(f"Error hunting IOC {ioc.value}: {e}")
-                    continue
+                    except Exception as e:
+                        logger.error(f"Error hunting IOC {ioc.value} in {index_name}: {e}")
+                        continue
+                
+                stats['by_ioc'][ioc.value] = ioc_hit_count
             
             # Final commit
             db.session.commit()

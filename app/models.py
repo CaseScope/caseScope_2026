@@ -217,7 +217,8 @@ class IOC(db.Model):
     
     # Core IOC Data
     type = db.Column(db.String(50), nullable=False, index=True)  # ipv4, domain, md5, etc.
-    value = db.Column(db.Text, nullable=False, index=True)
+    value = db.Column(db.Text, nullable=False, index=True)  # Truncated for index (max 2500 chars)
+    full_value = db.Column(db.Text)  # Complete value for long command lines, base64, etc. (no index, unlimited)
     category = db.Column(db.String(50), nullable=False, index=True)  # network, file, host, etc.
     
     # Classification
@@ -350,6 +351,7 @@ class EventIOCHit(db.Model):
     
     # Event identification
     opensearch_doc_id = db.Column(db.String(255), nullable=False, index=True)
+    source_index = db.Column(db.String(100))  # e.g., 'case_3', 'case_3_browser'
     event_record_id = db.Column(db.BigInteger)
     event_id = db.Column(db.String(255), index=True)
     event_timestamp = db.Column(db.DateTime)

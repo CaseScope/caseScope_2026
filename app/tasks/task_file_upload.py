@@ -177,7 +177,7 @@ def compress_file_gzip(source_path, keep_original=False):
 
 
 @celery.task(bind=True, name='tasks.process_uploaded_files', queue='file_processing')
-def process_uploaded_files(self, case_id, files_list):
+def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
     """
     NEW ZIP-CENTRIC WORKFLOW
     ========================
@@ -189,12 +189,20 @@ def process_uploaded_files(self, case_id, files_list):
     
     Args:
         case_id: Case ID
-        files_list: List of filenames in bulk_upload/case_X/
+        files_list: List of filenames
+        source_dir: Source directory name ('bulk_upload' for SFTP, 'staging' for web uploads)
     
     Returns:
         dict: Processing results
     """
-    upload_path = os.path.join(BASE_UPLOAD_PATH, str(case_id))
+    # Determine source path based on source_dir parameter
+    if source_dir == 'bulk_upload':
+        upload_path = os.path.join(BASE_UPLOAD_PATH, str(case_id))
+    elif source_dir == 'staging':
+        upload_path = os.path.join(BASE_STAGING_PATH, str(case_id))
+    else:
+        upload_path = os.path.join(BASE_UPLOAD_PATH, str(case_id))  # Default to bulk_upload
+    
     storage_path = os.path.join(BASE_STORAGE_PATH, f'case_{case_id}')
     staging_path = os.path.join(BASE_STAGING_PATH, str(case_id))
     
@@ -264,8 +272,18 @@ def process_uploaded_files(self, case_id, files_list):
                 if filename.lower().endswith('.zip'):
                     logger.info(f"ZIP file detected: {filename}")
                     
-                    # Move ZIP to storage immediately
+                    # Move ZIP to storage immediately (with collision protection)
                     storage_file_path = os.path.join(storage_path, filename)
+                    
+                    # If file already exists in storage, add timestamp to avoid collision
+                    if os.path.exists(storage_file_path):
+                        base_name = os.path.splitext(filename)[0]
+                        ext = os.path.splitext(filename)[1]
+                        timestamp_suffix = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
+                        filename = f"{base_name}_{timestamp_suffix}{ext}"
+                        storage_file_path = os.path.join(storage_path, filename)
+                        logger.warning(f"File exists in storage, renamed to: {filename}")
+                    
                     shutil.move(file_path, storage_file_path)
                     file_size = os.path.getsize(storage_file_path)
                     
@@ -310,9 +328,24 @@ def process_uploaded_files(self, case_id, files_list):
                 elif is_valid_file(filename):
                     logger.info(f"Standalone file detected: {filename}")
                     
-                    # Move to staging
-                    staging_file_path = os.path.join(staging_path, filename)
-                    shutil.move(file_path, staging_file_path)
+                    # Move to staging (only if not already there)
+                    if source_dir == 'staging':
+                        # Already in staging, no move needed
+                        staging_file_path = file_path
+                    else:
+                        # Move from bulk_upload to staging (with collision protection)
+                        staging_file_path = os.path.join(staging_path, filename)
+                        
+                        # If file already exists in staging, add timestamp to avoid collision
+                        if os.path.exists(staging_file_path):
+                            base_name = os.path.splitext(filename)[0]
+                            ext = os.path.splitext(filename)[1]
+                            timestamp_suffix = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
+                            new_filename = f"{base_name}_{timestamp_suffix}{ext}"
+                            staging_file_path = os.path.join(staging_path, new_filename)
+                            logger.warning(f"File exists in staging, renamed to: {new_filename}")
+                        
+                        shutil.move(file_path, staging_file_path)
                     file_size = os.path.getsize(staging_file_path)
                     
                     # Detect artifact type
@@ -372,14 +405,18 @@ def process_uploaded_files(self, case_id, files_list):
                 import traceback
                 traceback.print_exc()
         
-        # Cleanup upload folder
-        logger.info(f"Cleaning up upload folder: {upload_path}")
-        if os.path.exists(upload_path):
-            for remaining_file in os.listdir(upload_path):
-                try:
-                    os.remove(os.path.join(upload_path, remaining_file))
-                except Exception as e:
-                    logger.error(f"Error removing {remaining_file}: {e}")
+        # Cleanup upload folder (but NOT if source is staging, as files are still being parsed there)
+        if source_dir != 'staging':
+            logger.info(f"Cleaning up upload folder: {upload_path}")
+            if os.path.exists(upload_path):
+                for remaining_file in os.listdir(upload_path):
+                    try:
+                        os.remove(os.path.join(upload_path, remaining_file))
+                    except Exception as e:
+                        logger.error(f"Error removing {remaining_file}: {e}")
+        else:
+            logger.info(f"Skipping cleanup of staging directory (files still being parsed)")
+
         
         results['status'] = 'completed'
         results['message'] = f"Queued {results['zips_queued']} ZIPs, {results['standalone_queued']} files. {len(results['duplicates'])} duplicates skipped."
@@ -413,7 +450,8 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
     from main import app, db
     from models import CaseFile
     
-    staging_path = os.path.join(BASE_STAGING_PATH, str(case_id))
+    # Create unique extraction directory using container_id to avoid multi-user collisions
+    staging_path = os.path.join(BASE_STAGING_PATH, str(case_id), f'extract_{container_id}')
     os.makedirs(staging_path, exist_ok=True)
     
     extracted_files = []

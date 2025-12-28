@@ -221,8 +221,8 @@ def complete_upload(case_id):
         
         # Queue file for processing (ZIP-centric architecture)
         from tasks.task_file_upload import process_uploaded_files
-        # process_uploaded_files expects: (case_id, files_list) where files_list is list of filenames in staging
-        task = process_uploaded_files.delay(case_id, [final_filename])
+        # Web uploads are in staging, pass source_dir parameter
+        task = process_uploaded_files.delay(case_id, [final_filename], source_dir='staging')
         
         # Log action
         from audit_logger import log_action

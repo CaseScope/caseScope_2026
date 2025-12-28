@@ -22,32 +22,35 @@
             <h3>🌐 Browser History - {{ case.title }}</h3>
         </div>
         <div class="card-body">
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <div class="form-group">
-                        <input type="text" 
-                               id="searchInput" 
-                               class="form-input" 
-                               placeholder="Search URLs, titles, or domains..."
-                               onkeypress="if(event.key === 'Enter') performSearch()">
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <select id="userFilter" class="form-select">
+            <!-- Search Input (full width) -->
+            <div class="mb-3">
+                <input type="text" 
+                       id="searchInput" 
+                       class="form-input" 
+                       placeholder="Search URLs, titles, or domains..."
+                       onkeypress="if(event.key === 'Enter') performSearch()">
+            </div>
+            
+            <!-- Filters and Search Button (inline) -->
+            <div class="d-flex gap-3 align-items-center">
+                <div style="flex: 0 0 auto;">
+                    <label class="form-label">User</label>
+                    <select id="userFilter" class="form-select" style="width: 200px;">
                         <option value="">All Users</option>
                         <!-- Users loaded dynamically -->
                     </select>
                 </div>
-                <div class="col-md-2">
-                    <select id="browserFilter" class="form-select" onchange="performSearch()">
+                <div style="flex: 0 0 auto;">
+                    <label class="form-label">Browser</label>
+                    <select id="browserFilter" class="form-select" style="width: 200px;">
                         <option value="">All Browsers</option>
                         <option value="chrome">Chrome</option>
                         <option value="edge">Edge/IE</option>
                         <option value="firefox">Firefox</option>
                     </select>
                 </div>
-                <div class="col-md-2">
-                    <button onclick="performSearch()" class="btn btn-primary btn-block">
+                <div style="flex: 0 0 auto; align-self: flex-end;">
+                    <button onclick="performSearch()" class="btn btn-primary" style="width: 150px;">
                         🔍 Search
                     </button>
                 </div>
@@ -56,34 +59,19 @@
     </div>
 
     <!-- Statistics Section -->
-    <div class="row mb-4 hidden" id="statsSection">
-        <div class="col-md-3">
-            <div class="stat-card">
-                <div class="stat-icon">📊</div>
-                <div class="stat-info">
-                    <div class="stat-label">Total Visits</div>
-                    <div class="stat-value" id="totalVisits">-</div>
-                </div>
-            </div>
+    <div class="hidden" id="statsSection">
+        <!-- Statistics Grid -->
+        <div class="grid mb-4" id="statsGrid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+            <!-- Stats added dynamically by JavaScript -->
         </div>
-        <div class="col-md-5">
-            <div class="card">
-                <div class="card-header">
-                    <h4>Top URLs</h4>
-                </div>
-                <div class="card-body browser-urls-scroll">
-                    <div id="topUrls">Loading...</div>
-                </div>
+        
+        <!-- Top URLs Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>Top URLs <span id="topUrlsContext" class="text-muted"></span></h4>
             </div>
-        </div>
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h4>Browsers Found</h4>
-                </div>
-                <div class="card-body">
-                    <div id="browserTypes">Loading...</div>
-                </div>
+            <div class="card-body browser-urls-scroll">
+                <div id="topUrls">Loading...</div>
             </div>
         </div>
     </div>
@@ -117,6 +105,26 @@
     </div>
     
     {% endif %}
+</div>
+
+<!-- Browser Event Details Modal -->
+<div id="eventDetailsModal" class="modal-overlay" style="display: none;" onclick="closeEventModal()">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🌐 Browser Event Details</h2>
+            <button class="modal-close" onclick="closeEventModal()">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <div id="eventDetailsContent">
+                <!-- Details will be populated here -->
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeEventModal()">Close</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -159,19 +167,83 @@ async function loadUsers() {
 
 async function loadStats() {
     try {
-        const response = await fetch('/browser/api/stats');
+        // Build params based on current filters
+        const params = new URLSearchParams();
+        if (currentUser) params.append('user', currentUser);
+        if (currentBrowser) params.append('browser', currentBrowser);
+        
+        const response = await fetch(`/browser/api/stats?${params}`);
         if (!response.ok) throw new Error('Failed to load stats');
         
         const data = await response.json();
         
         if (data.total_visits > 0) {
             document.getElementById('statsSection').classList.remove('hidden');
-            document.getElementById('totalVisits').textContent = formatNumber(data.total_visits);
+            
+            // Build all stat cards in one grid
+            const statsGrid = document.getElementById('statsGrid');
+            let statsHtml = '';
+            
+            // 1. Total Events
+            statsHtml += `
+                <div class="stat-card">
+                    <div class="stat-label">Total Events</div>
+                    <div class="stat-value stat-value-primary">${formatNumber(data.total_visits)}</div>
+                </div>
+            `;
+            
+            // 2. Browser Type Stats (show all browser types)
+            if (data.browser_types && data.browser_types.length > 0) {
+                data.browser_types.forEach(b => {
+                    statsHtml += `
+                        <div class="stat-card">
+                            <div class="stat-label">${b.browser}</div>
+                            <div class="stat-value stat-value-info">${formatNumber(b.count)}</div>
+                        </div>
+                    `;
+                });
+            }
+            
+            // 3. User-specific Stats (if user is selected)
+            if (currentUser && data.user_stats) {
+                statsHtml += `
+                    <div class="stat-card">
+                        <div class="stat-label">${currentUser} Events</div>
+                        <div class="stat-value stat-value-success">${formatNumber(data.user_stats.total_events)}</div>
+                    </div>
+                `;
+                
+                // Add browser breakdown for this user
+                if (data.user_stats.browsers && data.user_stats.browsers.length > 0) {
+                    data.user_stats.browsers.forEach(b => {
+                        statsHtml += `
+                            <div class="stat-card">
+                                <div class="stat-label">${currentUser} - ${b.browser}</div>
+                                <div class="stat-value stat-value-warning">${formatNumber(b.count)}</div>
+                            </div>
+                        `;
+                    });
+                }
+            }
+            
+            statsGrid.innerHTML = statsHtml;
+            
+            // Update top URLs context
+            const contextEl = document.getElementById('topUrlsContext');
+            if (currentUser && currentBrowser) {
+                contextEl.textContent = `(${currentUser} - ${currentBrowser})`;
+            } else if (currentUser) {
+                contextEl.textContent = `(${currentUser})`;
+            } else if (currentBrowser) {
+                contextEl.textContent = `(${currentBrowser})`;
+            } else {
+                contextEl.textContent = '';
+            }
             
             // Display top URLs
             if (data.top_urls && data.top_urls.length > 0) {
                 const urlsHtml = data.top_urls.map(u => {
-                    const displayUrl = u.url.length > 60 ? u.url.substring(0, 57) + '...' : u.url;
+                    const displayUrl = u.url.length > 80 ? u.url.substring(0, 77) + '...' : u.url;
                     return `<div class="d-flex justify-content-between align-items-center mb-2 gap-2">
                         <a href="${u.url}" target="_blank" class="text-small browser-url-link" title="${u.url}">${displayUrl}</a>
                         <span class="badge badge-info">${formatNumber(u.count)}</span>
@@ -181,25 +253,19 @@ async function loadStats() {
             } else {
                 document.getElementById('topUrls').innerHTML = '<p class="text-muted">No URL data available</p>';
             }
-            
-            // Display browser types
-            if (data.browser_types && data.browser_types.length > 0) {
-                const browsersHtml = data.browser_types.map(b => 
-                    `<div class="d-flex justify-content-between align-items-center mb-2 gap-2">
-                        <span class="badge badge-primary browser-type-badge">${b.browser}</span>
-                        <span class="text-small">${formatNumber(b.count)} events</span>
-                    </div>`
-                ).join('');
-                document.getElementById('browserTypes').innerHTML = browsersHtml;
-            } else {
-                document.getElementById('browserTypes').innerHTML = '<p class="text-muted">No browser data available</p>';
-            }
         }
     } catch (error) {
         console.error('Error loading stats:', error);
         document.getElementById('topUrls').innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
-        document.getElementById('browserTypes').innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
     }
+}
+
+function getBrowserIcon(browser) {
+    const b = browser.toLowerCase();
+    if (b.includes('chrome')) return '🌐';
+    if (b.includes('edge') || b.includes('ie')) return '🔷';
+    if (b.includes('firefox')) return '🦊';
+    return '🌍';
 }
 
 async function performSearch() {
@@ -207,6 +273,11 @@ async function performSearch() {
     currentBrowser = document.getElementById('browserFilter').value;
     currentUser = document.getElementById('userFilter').value;
     currentPage = 1;
+    
+    // Reload stats with new filters
+    await loadStats();
+    
+    // Load events
     await loadEvents();
 }
 
@@ -277,9 +348,12 @@ function renderEvents(events) {
         // Truncate long URLs
         const displayUrl = url.length > 100 ? url.substring(0, 97) + '...' : url;
         
-        html += `<tr>
+        // Store the full event data in data attribute for modal
+        const eventJson = encodeURIComponent(JSON.stringify(event));
+        
+        html += `<tr onclick="showEventDetails(this)" data-event="${eventJson}" style="cursor: pointer;">
             <td><span class="text-small">${timestamp}</span></td>
-            <td><a href="${url}" target="_blank" class="text-small" title="${url}">${displayUrl}</a></td>
+            <td><a href="${url}" target="_blank" class="text-small" title="${url}" onclick="event.stopPropagation();">${displayUrl}</a></td>
             <td><span class="badge badge-info">${browser}</span></td>
             <td><span class="text-small" title="${source}">${displaySource}</span></td>
         </tr>`;
@@ -287,6 +361,223 @@ function renderEvents(events) {
     
     html += '</tbody></table></div>';
     resultsContainer.innerHTML = html;
+}
+
+function showEventDetails(row) {
+    try {
+        const eventJson = decodeURIComponent(row.getAttribute('data-event'));
+        const event = JSON.parse(eventJson);
+        
+        const content = document.getElementById('eventDetailsContent');
+        
+        // Determine event type for display
+        const eventType = event.event_type || 'Unknown';
+        const isDownload = eventType === 'browser_download';
+        const isVisit = eventType === 'browser_visit';
+        const isUrl = eventType === 'browser_url';
+        const isWebCache = eventType === 'webcache_entry';
+        
+        let html = '<div class="grid grid-2 gap-3">';
+        
+        // Always show timestamp
+        html += `
+            <div>
+                <strong>Timestamp:</strong><br>
+                <span class="text-secondary">${formatTimestamp(event['@timestamp'])}</span>
+            </div>
+        `;
+        
+        // Event type
+        html += `
+            <div>
+                <strong>Event Type:</strong><br>
+                <span class="badge badge-primary">${eventType}</span>
+            </div>
+        `;
+        
+        // Browser
+        if (event.browser) {
+            html += `
+                <div>
+                    <strong>Browser:</strong><br>
+                    <span class="badge badge-info">${event.browser}</span>
+                </div>
+            `;
+        }
+        
+        // Source file
+        if (event.source_file) {
+            html += `
+                <div>
+                    <strong>Source File:</strong><br>
+                    <code class="text-small">${event.source_file}</code>
+                </div>
+            `;
+        }
+        
+        // URL (for most event types)
+        if (event.url) {
+            html += `
+                <div style="grid-column: 1 / -1;">
+                    <strong>URL:</strong><br>
+                    <div style="padding: 8px; background: var(--color-bg-secondary); border-radius: 4px; word-break: break-all;">
+                        <a href="${event.url}" target="_blank" rel="noopener noreferrer" class="text-primary">${event.url}</a>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Title
+        if (event.title) {
+            html += `
+                <div style="grid-column: 1 / -1;">
+                    <strong>Page Title:</strong><br>
+                    <span class="text-secondary">${event.title || 'N/A'}</span>
+                </div>
+            `;
+        }
+        
+        // Visit-specific fields
+        if (isVisit && event.visit_count) {
+            html += `
+                <div>
+                    <strong>Visit Count:</strong><br>
+                    <span class="text-secondary">${event.visit_count}</span>
+                </div>
+            `;
+        }
+        
+        if (event.typed_count !== undefined) {
+            html += `
+                <div>
+                    <strong>Typed Count:</strong><br>
+                    <span class="text-secondary">${event.typed_count}</span>
+                </div>
+            `;
+        }
+        
+        // Download-specific fields
+        if (isDownload) {
+            if (event.file_path) {
+                html += `
+                    <div style="grid-column: 1 / -1;">
+                        <strong>Downloaded File Path:</strong><br>
+                        <code class="text-small">${event.file_path}</code>
+                    </div>
+                `;
+            }
+            
+            if (event.received_bytes !== undefined) {
+                html += `
+                    <div>
+                        <strong>File Size:</strong><br>
+                        <span class="text-secondary">${formatFileSize(event.received_bytes)} / ${formatFileSize(event.total_bytes)}</span>
+                    </div>
+                `;
+            }
+            
+            if (event.mime_type) {
+                html += `
+                    <div>
+                        <strong>MIME Type:</strong><br>
+                        <code class="text-small">${event.mime_type}</code>
+                    </div>
+                `;
+            }
+            
+            if (event.state !== undefined) {
+                const stateMap = {0: 'In Progress', 1: 'Complete', 2: 'Cancelled', 3: 'Interrupted', 4: 'Interrupted'};
+                const state = stateMap[event.state] || `Code ${event.state}`;
+                html += `
+                    <div>
+                        <strong>Download State:</strong><br>
+                        <span class="badge ${event.state === 1 ? 'badge-success' : 'badge-warning'}">${state}</span>
+                    </div>
+                `;
+            }
+            
+            if (event.danger_type !== undefined) {
+                const dangerMap = {0: 'SAFE', 1: 'DANGEROUS', 2: 'UNCOMMON', 3: 'DANGEROUS_HOST', 4: 'POTENTIALLY_UNWANTED'};
+                const danger = dangerMap[event.danger_type] || `Code ${event.danger_type}`;
+                html += `
+                    <div>
+                        <strong>Danger Type:</strong><br>
+                        <span class="badge ${event.danger_type === 0 ? 'badge-success' : 'badge-error'}">${danger}</span>
+                    </div>
+                `;
+            }
+        }
+        
+        // WebCache-specific fields
+        if (isWebCache) {
+            if (event.cache_id) {
+                html += `
+                    <div>
+                        <strong>Cache ID:</strong><br>
+                        <code>${event.cache_id}</code>
+                    </div>
+                `;
+            }
+            
+            if (event.response_code) {
+                html += `
+                    <div>
+                        <strong>Response Code:</strong><br>
+                        <span class="badge ${event.response_code === 200 ? 'badge-success' : 'badge-warning'}">${event.response_code}</span>
+                    </div>
+                `;
+            }
+        }
+        
+        // Additional metadata
+        if (event.case_id) {
+            html += `
+                <div>
+                    <strong>Case ID:</strong><br>
+                    <code>${event.case_id}</code>
+                </div>
+            `;
+        }
+        
+        if (event.indexed_at) {
+            html += `
+                <div>
+                    <strong>Indexed At:</strong><br>
+                    <span class="text-small text-secondary">${formatTimestamp(event.indexed_at)}</span>
+                </div>
+            `;
+        }
+        
+        html += '</div>';
+        
+        // Show raw JSON in collapsible section
+        html += `
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-border);">
+                <details>
+                    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 10px;">🔍 Raw Event Data (JSON)</summary>
+                    <pre style="background: var(--color-bg-secondary); padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 0.85rem;"><code>${JSON.stringify(event, null, 2)}</code></pre>
+                </details>
+            </div>
+        `;
+        
+        content.innerHTML = html;
+        document.getElementById('eventDetailsModal').style.display = 'flex';
+    } catch (error) {
+        console.error('Error showing event details:', error);
+        alert('Error displaying event details: ' + error.message);
+    }
+}
+
+function closeEventModal() {
+    document.getElementById('eventDetailsModal').style.display = 'none';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 function updatePagination(data) {

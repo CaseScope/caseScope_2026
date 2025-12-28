@@ -326,6 +326,16 @@ def api_extract_edr_iocs():
         
         report_text = reports[report_index]
         
+        # Create logs directory for IOC extraction debugging
+        import os
+        from datetime import datetime
+        log_dir = '/opt/casescope/logs/ioc_extraction'
+        os.makedirs(log_dir, exist_ok=True)
+        
+        # Generate log filename
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        log_file = os.path.join(log_dir, f'case_{case_id}_report_{report_index + 1}_{timestamp}.log')
+        
         # Load IOC extraction prompt
         import os
         prompt_path = os.path.join(os.path.dirname(__file__), '../ai/ai_prompts/ioc_extraction.md')
@@ -335,45 +345,143 @@ def api_extract_edr_iocs():
         # Create the extraction prompt
         prompt = f"""You are a DFIR analyst extracting IOCs from incident reports.
 
-EXAMPLE OUTPUT FORMAT (use this exact JSON structure):
+YOU MUST USE THIS EXACT JSON STRUCTURE - DO NOT DEVIATE:
+
 {example_output}
 
-IMPORTANT RULES:
-1. Return ONLY valid JSON matching the structure above
-2. Extract ALL relevant IOCs from the report
-3. Categorize IOCs correctly (network, file, host, identity, threat_intel)
-4. Include MITRE ATT&CK techniques if identifiable
-5. Create a timeline of key events if timestamps are present
-6. Add extraction notes about the incident nature
-7. For command_lines, capture full commands with parameters
-8. For file_paths, include full paths
-9. For usernames, include both with and without domain if present
+CRITICAL: Your response must have these exact top-level keys:
+- extraction_summary
+- network (with keys: ip_v4, ip_v6, domains, urls, emails, user_agents)
+- file (with keys: md5, sha1, sha256, sha512, ssdeep, imphash, file_names, file_paths)
+- host (with keys: hostnames, registry_keys, registry_values, command_lines, process_names, service_names, scheduled_tasks, mutexes, named_pipes)
+- identity (with keys: usernames, sids, compromised_accounts)
+- threat_intel (with keys: cves, mitre_attack, malware_families, threat_actors, yara_rules, sigma_rules)
+- cryptocurrency (with keys: btc_addresses, eth_addresses, xmr_addresses)
+- timeline
+
+DO NOT create your own structure. DO NOT use "ioCs", "executables", "processes" or any other keys.
+USE THE EXACT STRUCTURE SHOWN ABOVE.
+
+EXTRACTION RULES:
+1. Extract ALL IOCs that are EXPLICITLY in the text
+2. Put them in the CORRECT fields (file_names not executables, command_lines not commands)
+3. Include IP addresses, usernames, file paths, URLs, domains
+4. Extract the full command line if present
+5. DO NOT infer hostnames not explicitly stated
 
 NOW EXTRACT IOCS FROM THIS EDR REPORT:
 
 {report_text}
 
-Return ONLY the JSON object. No explanations, no markdown, just the JSON."""
+Return ONLY valid JSON matching the EXACT structure above."""
 
         # Query AI model with fallback to regex extraction
         from config import LLM_MODEL_CHAT
         extraction = None
         used_fallback = False
+        extraction_method = 'unknown'
+        
+        # Start building debug log
+        debug_log = []
+        debug_log.append("="*80)
+        debug_log.append(f"IOC EXTRACTION - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        debug_log.append(f"Case ID: {case_id}")
+        debug_log.append(f"Case Name: {case.name}")
+        debug_log.append(f"Report Index: {report_index + 1}")
+        debug_log.append(f"Report Length: {len(report_text)} characters")
+        debug_log.append("="*80)
+        debug_log.append("")
         
         try:
+            debug_log.append(f"AI Model: {LLM_MODEL_CHAT}")
+            debug_log.append("Attempting AI extraction...")
+            debug_log.append("")
+            
             response = ollama.chat(
                 model=LLM_MODEL_CHAT,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a precise IOC extraction tool. Extract ONLY information that is explicitly present in the text. Never infer, guess, or hallucinate data. If you're unsure, omit it."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
                 format="json",
-                options={"temperature": 0}
+                options={
+                    "temperature": 0,
+                    "top_p": 0.1,
+                    "repeat_penalty": 1.0
+                }
             )
             
             extraction = json.loads(response['message']['content'])
+            
+            # Normalize field names - AI sometimes returns singular instead of plural
+            # This ensures consistency with the expected format
+            if 'file' in extraction:
+                if 'file_name' in extraction['file'] and 'file_names' not in extraction['file']:
+                    extraction['file']['file_names'] = extraction['file'].pop('file_name')
+                if 'file_path' in extraction['file'] and 'file_paths' not in extraction['file']:
+                    extraction['file']['file_paths'] = extraction['file'].pop('file_path')
+            
+            if 'host' in extraction:
+                if 'hostname' in extraction['host'] and 'hostnames' not in extraction['host']:
+                    extraction['host']['hostnames'] = extraction['host'].pop('hostname')
+                if 'command_line' in extraction['host'] and 'command_lines' not in extraction['host']:
+                    extraction['host']['command_lines'] = extraction['host'].pop('command_line')
+                if 'process_name' in extraction['host'] and 'process_names' not in extraction['host']:
+                    extraction['host']['process_names'] = extraction['host'].pop('process_name')
+                if 'registry_key' in extraction['host'] and 'registry_keys' not in extraction['host']:
+                    extraction['host']['registry_keys'] = extraction['host'].pop('registry_key')
+                if 'registry_value' in extraction['host'] and 'registry_values' not in extraction['host']:
+                    extraction['host']['registry_values'] = extraction['host'].pop('registry_value')
+                if 'service_name' in extraction['host'] and 'service_names' not in extraction['host']:
+                    extraction['host']['service_names'] = extraction['host'].pop('service_name')
+                if 'scheduled_task' in extraction['host'] and 'scheduled_tasks' not in extraction['host']:
+                    extraction['host']['scheduled_tasks'] = extraction['host'].pop('scheduled_task')
+                if 'mutex' in extraction['host'] and 'mutexes' not in extraction['host']:
+                    extraction['host']['mutexes'] = extraction['host'].pop('mutex')
+                if 'named_pipe' in extraction['host'] and 'named_pipes' not in extraction['host']:
+                    extraction['host']['named_pipes'] = extraction['host'].pop('named_pipe')
+            
+            if 'identity' in extraction:
+                if 'username' in extraction['identity'] and 'usernames' not in extraction['identity']:
+                    extraction['identity']['usernames'] = extraction['identity'].pop('username')
+                if 'sid' in extraction['identity'] and 'sids' not in extraction['identity']:
+                    extraction['identity']['sids'] = extraction['identity'].pop('sid')
+            
+            if 'network' in extraction:
+                if 'domain' in extraction['network'] and 'domains' not in extraction['network']:
+                    extraction['network']['domains'] = extraction['network'].pop('domain')
+                if 'url' in extraction['network'] and 'urls' not in extraction['network']:
+                    extraction['network']['urls'] = extraction['network'].pop('url')
+                if 'email' in extraction['network'] and 'emails' not in extraction['network']:
+                    extraction['network']['emails'] = extraction['network'].pop('email')
+                if 'user_agent' in extraction['network'] and 'user_agents' not in extraction['network']:
+                    extraction['network']['user_agents'] = extraction['network'].pop('user_agent')
+            
             logger.info("Successfully extracted IOCs using AI")
+            extraction_method = 'AI'
+            debug_log.append("✓ AI extraction successful")
+            debug_log.append("")
+            debug_log.append("RAW AI RESPONSE (JSON):")
+            debug_log.append("-"*80)
+            import json as json_module
+            debug_log.append(json_module.dumps(extraction, indent=2))
+            debug_log.append("-"*80)
+            debug_log.append("")
             
         except Exception as ai_error:
             logger.warning(f"AI extraction failed: {ai_error}. Falling back to regex extraction.")
             used_fallback = True
+            extraction_method = 'REGEX_FALLBACK'
+            
+            debug_log.append(f"✗ AI extraction failed: {ai_error}")
+            debug_log.append("Falling back to regex extraction...")
+            debug_log.append("")
             
             # Use regex fallback
             extraction = regex_extract_iocs(report_text)
@@ -382,9 +490,57 @@ Return ONLY the JSON object. No explanations, no markdown, just the JSON."""
             if 'extraction_summary' in extraction:
                 extraction['extraction_summary']['extraction_method'] = 'regex_fallback'
                 extraction['extraction_summary']['extraction_notes'] = f"AI unavailable - used regex extraction. Original error: {str(ai_error)}"
+            
+            debug_log.append("✓ Regex extraction completed")
+            debug_log.append("")
         
         if not extraction:
+            debug_log.append("✗ CRITICAL: Extraction returned None/empty")
+            debug_log.append("")
+            # Write debug log even on failure
+            with open(log_file, 'w') as f:
+                f.write('\n'.join(debug_log))
             return jsonify({'success': False, 'error': 'Failed to extract IOCs'}), 500
+        
+        # Log extraction results
+        debug_log.append("-"*80)
+        debug_log.append(f"EXTRACTION METHOD: {extraction_method}")
+        debug_log.append("-"*80)
+        debug_log.append("")
+        
+        # Log extraction summary
+        if 'extraction_summary' in extraction:
+            debug_log.append("EXTRACTION SUMMARY:")
+            for key, value in extraction['extraction_summary'].items():
+                debug_log.append(f"  {key}: {value}")
+            debug_log.append("")
+        
+        # Log all IOCs found by category
+        debug_log.append("IOCS FOUND BY CATEGORY:")
+        debug_log.append("")
+        
+        total_iocs_found = 0
+        for category in ['network', 'file', 'host', 'identity', 'threat_intel', 'cryptocurrency']:
+            if category not in extraction:
+                continue
+            
+            debug_log.append(f"[{category.upper()}]")
+            category_count = 0
+            
+            for field_name, values in extraction[category].items():
+                if values and isinstance(values, list) and len(values) > 0:
+                    debug_log.append(f"  {field_name}: ({len(values)} items)")
+                    for val in values:
+                        debug_log.append(f"    - {val}")
+                    category_count += len(values)
+                    total_iocs_found += len(values)
+            
+            if category_count == 0:
+                debug_log.append("  (none)")
+            debug_log.append("")
+        
+        debug_log.append(f"TOTAL IOCs EXTRACTED: {total_iocs_found}")
+        debug_log.append("")
         
         # Process extracted IOCs and check for duplicates
         iocs_to_import = []
@@ -608,6 +764,44 @@ Return ONLY the JSON object. No explanations, no markdown, just the JSON."""
                 'updated_users': [{'username': u['message'].split(': ')[1], 'id': u['user_id']} for u in users_updated]
             }
         )
+        
+        # Complete debug log with deduplication results
+        debug_log.append("-"*80)
+        debug_log.append("DEDUPLICATION RESULTS:")
+        debug_log.append("-"*80)
+        debug_log.append(f"Total IOCs after deduplication: {len(iocs_to_import)}")
+        debug_log.append(f"New IOCs to import: {len([ioc for ioc in iocs_to_import if not ioc.get('is_duplicate', False)])}")
+        debug_log.append(f"Duplicates found: {len([ioc for ioc in iocs_to_import if ioc.get('is_duplicate', False)])}")
+        debug_log.append("")
+        
+        debug_log.append("IOCs TO IMPORT (excluding duplicates):")
+        for ioc in iocs_to_import:
+            if not ioc.get('is_duplicate', False):
+                debug_log.append(f"  [{ioc['category']}] {ioc['type']}: {ioc['value']}")
+        debug_log.append("")
+        
+        debug_log.append("-"*80)
+        debug_log.append("KNOWN SYSTEMS/USERS PROCESSING:")
+        debug_log.append("-"*80)
+        debug_log.append(f"Systems processed: {len(known_systems_results)}")
+        debug_log.append(f"Systems created: {len(systems_created)}")
+        debug_log.append(f"Systems updated: {len(systems_updated)}")
+        debug_log.append(f"Users processed: {len(known_users_results)}")
+        debug_log.append(f"Users created: {len(users_created)}")
+        debug_log.append(f"Users updated: {len(users_updated)}")
+        debug_log.append("")
+        
+        debug_log.append("="*80)
+        debug_log.append("END OF EXTRACTION LOG")
+        debug_log.append("="*80)
+        
+        # Write debug log to file
+        try:
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(debug_log))
+            logger.info(f"IOC extraction debug log written to: {log_file}")
+        except Exception as log_error:
+            logger.error(f"Failed to write debug log: {log_error}")
         
         return jsonify({
             'success': True,
@@ -1041,9 +1235,26 @@ def api_save_extracted_iocs():
                     updated_count += 1
             else:
                 # Create new IOC
+                # Store full value separately, truncate indexed value if needed
+                ioc_value = ioc_data['value']
+                ioc_full_value = None
+                MAX_IOC_VALUE_LENGTH = 2500  # Safe limit for PostgreSQL btree index
+                
+                if len(ioc_value) > MAX_IOC_VALUE_LENGTH:
+                    logger.warning(f"Long IOC detected ({len(ioc_value)} chars) - storing full value separately")
+                    ioc_full_value = ioc_value  # Store complete value
+                    ioc_value = ioc_value[:MAX_IOC_VALUE_LENGTH] + "... [TRUNCATED - see full_value]"
+                    # Add note about truncation
+                    truncation_note = f"Full value stored separately ({len(ioc_data['value'])} characters)"
+                    if ioc_data.get('analyst_notes'):
+                        ioc_data['analyst_notes'] += f"\n{truncation_note}"
+                    else:
+                        ioc_data['analyst_notes'] = truncation_note
+                
                 ioc = IOC(
                     type=ioc_data['type'],
-                    value=ioc_data['value'],
+                    value=ioc_value,  # Truncated for index
+                    full_value=ioc_full_value,  # Complete value (no index limit)
                     category=ioc_data['category'],
                     threat_level=ioc_data.get('threat_level', 'medium'),
                     confidence=ioc_data.get('confidence', 100),

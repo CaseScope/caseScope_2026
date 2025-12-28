@@ -1,6 +1,6 @@
 # Threat Hunting System - IOC & SIGMA
 
-**Last Updated**: 2025-12-26  
+**Last Updated**: 2025-12-28  
 **Status**: ✅ Production Ready  
 **Location**: `/hunting/dashboard`
 
@@ -9,6 +9,8 @@
 ## Overview
 
 The Threat Hunting System provides comprehensive automated threat detection using both IOC (Indicators of Compromise) matching and SIGMA rule detection. Events matching IOCs or Sigma rules are automatically tagged and displayed with color-coded badges in search results.
+
+**New in 2.0**: Browser event IOC hunting across `case_X_browser` index.
 
 ---
 
@@ -20,14 +22,20 @@ The Threat Hunting System provides comprehensive automated threat detection usin
 
 **Purpose**: Automatically scan all events in a case for known IOCs and tag matching events.
 
+**Indices Searched**:
+- `case_X` - Windows Event Logs (EVTX), NDJSON, EDR logs
+- `case_X_browser` - Browser history, downloads, webcache entries
+
 #### Features
 - Multi-strategy search based on IOC type (IPs, hashes, domains, files, URLs, emails, commands)
+- **Browser-specific IOC matching** for URLs, domains, file downloads
 - Prioritizes structured fields over search_blob
 - Uses OpenSearch scroll API for efficient iteration through large datasets
 - Real-time progress updates (0-100%)
 - Batch commits (every 100 records) to prevent memory issues
 - Handles duplicate detection
 - Clear/re-scan option to remove outdated detections
+- **Source index tracking** to distinguish EVTX from browser events
 
 #### How It Works
 
@@ -36,20 +44,23 @@ The Threat Hunting System provides comprehensive automated threat detection usin
 3. Background task starts (`task_hunt_iocs.py`):
    - Clears old detections (if requested)
    - Gets all active IOCs for the case
-   - For each IOC type, constructs optimized OpenSearch query
+   - **Detects available indices**: `case_X` (main) and `case_X_browser` (if exists)
+   - For each IOC type, constructs index-specific OpenSearch query:
+     - **Main index**: Searches EVTX event_data_fields, search_blob
+     - **Browser index**: Searches url, title, file_path, domain fields
    - Scans events using scroll API (1000 events per batch)
    - Matches IOCs to events and determines matched field
-   - Creates `EventIOCHit` records in database
+   - Creates `EventIOCHit` records with `source_index` field
    - Updates progress: `xxx,xxx events scanned (zzz%)`
 4. Results displayed in modal:
-   - Events scanned / Events tagged
+   - Events scanned / Events tagged (across both indices)
    - Total IOC hits
    - Hits by threat level (Critical, High, Medium, Low, Info)
    - Hits by IOC table (sorted by hit count)
 
 #### Smart Search Strategies
 
-**By IOC Type**:
+**Main Index (EVTX/NDJSON) By IOC Type**:
 1. **IPv4**: Searches IpAddress, SourceAddress, DestAddress, ClientIPAddress (EVTX), src_ip, dst_ip, extracted_ips (firewall CSV), normalized_source_ip, normalized_dest_ip (normalized fields)
 2. **File Hashes**: Searches Hashes, Hash, MD5, SHA1, SHA256 fields (case-insensitive)
 3. **Domain**: Searches DestinationHostname, QueryName, TargetServerName fields
@@ -59,6 +70,14 @@ The Threat Hunting System provides comprehensive automated threat detection usin
 7. **Email**: Searches EmailAddress, Sender, Recipient fields
 8. **Command**: Searches CommandLine, ProcessCommandLine fields
 9. **Generic**: Falls back to search_blob for unknown types
+
+**Browser Index (Browser History) By IOC Type**:
+1. **Domain**: Searches `url` (wildcard), `domain` (exact match)
+2. **URL**: Searches `url` field with exact phrase + wildcard matching
+3. **File Hash**: Searches `file_path` in download events
+4. **Filename**: Searches `file_path` (downloads), `title` fields
+5. **Filepath**: Searches `file_path` for download locations
+6. **Generic**: Searches `url`, `title`, `file_path` fields
 
 #### IOC Badges in Search Results
 

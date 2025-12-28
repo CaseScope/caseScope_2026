@@ -602,7 +602,7 @@ def api_get_event(event_id):
     """
     Get full event details by ID
     
-    Returns complete event data including all nested fields
+    Returns complete event data including all nested fields, IOC hits, and Sigma hits
     """
     try:
         # Get case ID from session
@@ -628,6 +628,56 @@ def api_get_event(event_id):
             response = client.get(index=index_name, id=event_id)
             event = response['_source']
             
+            # Query database for IOC hits for this event
+            from models import EventIOCHit, EventSigmaHit
+            from main import db
+            
+            ioc_hits = db.session.query(EventIOCHit).filter(
+                EventIOCHit.opensearch_doc_id == event_id,
+                EventIOCHit.case_id == case_id
+            ).all()
+            
+            # Convert IOC hits to dict format
+            ioc_hits_data = []
+            for hit in ioc_hits:
+                ioc_hits_data.append({
+                    'id': hit.id,
+                    'ioc_value': hit.ioc_value,
+                    'value': hit.ioc_value,  # Alias for frontend compatibility
+                    'ioc_type': hit.ioc_type,
+                    'ioc_category': hit.ioc_category,
+                    'threat_level': hit.threat_level,
+                    'field_name': hit.matched_in_field,  # Frontend expects field_name
+                    'matched_in_field': hit.matched_in_field,
+                    'match_context': hit.match_context,
+                    'confidence': hit.confidence,
+                    'detected_at': hit.detected_at.isoformat() if hit.detected_at else None
+                })
+            
+            # Query database for Sigma hits for this event
+            sigma_hits = db.session.query(EventSigmaHit).filter(
+                EventSigmaHit.opensearch_doc_id == event_id,
+                EventSigmaHit.case_id == case_id
+            ).all()
+            
+            # Convert Sigma hits to dict format
+            sigma_hits_data = []
+            for hit in sigma_hits:
+                sigma_hits_data.append({
+                    'id': hit.id,
+                    'sigma_rule_id': hit.sigma_rule_id,
+                    'rule_title': hit.rule_title,
+                    'rule_level': hit.rule_level,
+                    'mitre_tags': hit.mitre_tags,
+                    'matched_field': hit.matched_field,
+                    'confidence': hit.confidence,
+                    'detected_at': hit.detected_at.isoformat() if hit.detected_at else None
+                })
+            
+            # Add IOC and Sigma hits to the event data
+            event['ioc_hits'] = ioc_hits_data
+            event['sigma_hits'] = sigma_hits_data
+            
             return jsonify({
                 'id': event_id,
                 'event': event
@@ -637,6 +687,8 @@ def api_get_event(event_id):
         
     except Exception as e:
         logger.error(f"Error fetching event: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

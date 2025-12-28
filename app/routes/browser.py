@@ -206,7 +206,8 @@ def api_browser_events():
                 "from": from_offset,
                 "size": per_page,
                 "sort": [{sort_field: {"order": sort_order}}],
-                "_source": True
+                "_source": True,
+                "track_total_hits": True  # Get accurate total beyond 10K
             }
         )
         
@@ -241,11 +242,15 @@ def api_browser_events():
         return jsonify({'error': f'Search failed: {str(e)}'}), 500
 
 
-@browser_bp.route('/api/stats')
+@browser_bp.route('/api/downloads')
 @login_required
-def api_browser_stats():
+def api_downloads():
     """
-    Get browser statistics (top domains, browsers, timeline)
+    Get list of file downloads from browser history
+    
+    Query Parameters:
+    - page: Page number (default: 1)
+    - per_page: Results per page (default: 50, max: 100)
     """
     case_id = session.get('selected_case_id')
     
@@ -262,33 +267,186 @@ def api_browser_stats():
         if case.id != current_user.case_assigned:
             return jsonify({'error': 'Access denied'}), 403
     
+    # Get query parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)
+    
+    # Calculate offset
+    from_offset = (page - 1) * per_page
+    
     index_name = f"case_{case_id}_browser"
     client = get_opensearch_client()
     
     try:
+        # Check if browser index exists
+        if not client.indices.exists(index=index_name):
+            return jsonify({
+                'downloads': [],
+                'total': 0,
+                'page': page,
+                'per_page': per_page,
+                'total_pages': 0,
+                'has_next': False,
+                'has_prev': False,
+                'message': 'No browser data indexed yet for this case.'
+            })
+        
+        # Search for download events
+        response = client.search(
+            index=index_name,
+            body={
+                "query": {
+                    "term": {"event_type.keyword": "browser_download"}
+                },
+                "from": from_offset,
+                "size": per_page,
+                "sort": [{"@timestamp": {"order": "desc"}}],
+                "_source": True,
+                "track_total_hits": True
+            }
+        )
+        
+        total = response['hits']['total']['value']
+        downloads_raw = [hit['_source'] for hit in response['hits']['hits']]
+        
+        # Get hostname from main case index (EVTX events have 'computer' field)
+        main_index = f"case_{case_id}"
+        hostname = 'Unknown'
+        
+        try:
+            # Query main index for a sample event to get computer name
+            hostname_query = client.search(
+                index=main_index,
+                body={
+                    "size": 1,
+                    "query": {
+                        "exists": {"field": "computer"}
+                    },
+                    "_source": ["computer"]
+                }
+            )
+            
+            if hostname_query['hits']['total']['value'] > 0:
+                hostname = hostname_query['hits']['hits'][0]['_source'].get('computer', 'Unknown')
+        except Exception as e:
+            logger.warning(f"Could not retrieve hostname from main index: {e}")
+        
+        # Enrich downloads with hostname and CaseFile metadata
+        from models import CaseFile
+        from main import db
+        
+        downloads = []
+        for download in downloads_raw:
+            source_file = download.get('source_file')
+            
+            # Add hostname to every download
+            download['hostname'] = hostname
+            
+            # Look up CaseFile to get source_user (already in file path, but this is cleaner)
+            if source_file:
+                case_file = CaseFile.query.filter_by(
+                    case_id=case_id,
+                    filename=source_file
+                ).first()
+                
+                if case_file and case_file.source_user:
+                    download['case_file_source_user'] = case_file.source_user
+            
+            downloads.append(download)
+        
+        total_pages = (total + per_page - 1) // per_page
+        
+        return jsonify({
+            'downloads': downloads,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages,
+            'has_next': page < total_pages,
+            'has_prev': page > 1
+        })
+        
+    except NotFoundError:
+        return jsonify({
+            'downloads': [],
+            'total': 0,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': 0,
+            'has_next': False,
+            'has_prev': False,
+            'message': 'Browser index not found.'
+        })
+    except Exception as e:
+        logger.error(f"Error fetching downloads: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to fetch downloads: {str(e)}'}), 500
+
+
+@browser_bp.route('/api/stats')
+@login_required
+def api_browser_stats():
+    """
+    Get browser statistics (top domains, browsers, timeline)
+    Supports filtering by user and browser type
+    
+    Query Parameters:
+    - user: Filter by source_user
+    - browser: Filter by browser type
+    """
+    case_id = session.get('selected_case_id')
+    
+    if not case_id:
+        return jsonify({'error': 'No case selected'}), 400
+    
+    # Verify access
+    from models import Case
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+    
+    # Get filter parameters
+    user_filter = request.args.get('user', '').strip()
+    browser_filter = request.args.get('browser', '').strip().lower()
+    
+    index_name = f"case_{case_id}_browser"
+    client = get_opensearch_client()
+    
+    try:
+        # Build query with filters
+        query_filters = []
+        if user_filter:
+            query_filters.append({"term": {"source_user.keyword": user_filter}})
+        if browser_filter:
+            query_filters.append({"term": {"browser.keyword": browser_filter}})
+        
+        query_body = {"match_all": {}}
+        if query_filters:
+            query_body = {
+                "bool": {
+                    "filter": query_filters
+                }
+            }
+        
         # Get aggregations for stats
         response = client.search(
             index=index_name,
             body={
+                "query": query_body,
                 "size": 0,
+                "track_total_hits": True,  # Get accurate count beyond 10K
                 "aggs": {
                     "total_visits": {
                         "value_count": {"field": "@timestamp"}
                     },
                     "top_urls": {
-                        "terms": {"field": "url.keyword", "size": 10}
+                        "terms": {"field": "url.keyword", "size": 15}
                     },
                     "browser_types": {
                         "terms": {"field": "browser.keyword", "size": 10}
-                    },
-                    "event_types": {
-                        "terms": {"field": "event_type.keyword", "size": 10}
-                    },
-                    "timeline": {
-                        "date_histogram": {
-                            "field": "@timestamp",
-                            "calendar_interval": "day"
-                        }
                     }
                 }
             }
@@ -303,16 +461,41 @@ def api_browser_stats():
             'browser_types': [
                 {'browser': bucket['key'], 'count': bucket['doc_count']}
                 for bucket in response['aggregations']['browser_types']['buckets']
-            ],
-            'event_types': [
-                {'type': bucket['key'], 'count': bucket['doc_count']}
-                for bucket in response['aggregations']['event_types']['buckets']
-            ],
-            'timeline': [
-                {'date': bucket['key_as_string'], 'count': bucket['doc_count']}
-                for bucket in response['aggregations']['timeline']['buckets']
             ]
         }
+        
+        # If user is selected, add user-specific stats
+        if user_filter:
+            # Get browser breakdown for this user
+            user_stats_response = client.search(
+                index=index_name,
+                body={
+                    "query": {
+                        "bool": {
+                            "filter": [{"term": {"source_user.keyword": user_filter}}]
+                        }
+                    },
+                    "size": 0,
+                    "track_total_hits": True,  # Get accurate count beyond 10K
+                    "aggs": {
+                        "total_events": {
+                            "value_count": {"field": "@timestamp"}
+                        },
+                        "browsers": {
+                            "terms": {"field": "browser.keyword", "size": 10}
+                        }
+                    }
+                }
+            )
+            
+            stats['user_stats'] = {
+                'username': user_filter,
+                'total_events': user_stats_response['aggregations']['total_events']['value'],
+                'browsers': [
+                    {'browser': bucket['key'], 'count': bucket['doc_count']}
+                    for bucket in user_stats_response['aggregations']['browsers']['buckets']
+                ]
+            }
         
         return jsonify(stats)
         
@@ -321,8 +504,6 @@ def api_browser_stats():
             'total_visits': 0,
             'top_urls': [],
             'browser_types': [],
-            'event_types': [],
-            'timeline': [],
             'message': 'No browser data indexed yet.'
         })
     except Exception as e:

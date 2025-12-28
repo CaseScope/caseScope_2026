@@ -66,7 +66,13 @@
                 🎭 Hunt SIGMA Rules
             </button>
             
+            <!-- Found Downloads -->
+            <button class="btn btn-primary" id="btnFoundDownloads" onclick="showDownloadsModal()" title="View file downloads from browser history">
+                📥 Found Downloads
+            </button>
+            
             <!-- Placeholder buttons - will be populated as functionality is added -->
+            <button class="btn btn-secondary" disabled>
                 🕵️ MITRE ATT&CK
                 <span class="text-small" style="display: block; font-weight: normal; opacity: 0.7;">Coming Soon</span>
             </button>
@@ -174,78 +180,6 @@
             <button class="btn btn-secondary" onclick="closeExtractionModal(event)">Cancel</button>
             <button class="btn btn-warning" id="btnSkipReport" style="display: none;" onclick="skipCurrentReport()">Skip</button>
             <button class="btn btn-primary" id="btnSaveIOCs" style="display: none;" onclick="saveExtractedIOCs()">Save</button>
-        </div>
-    </div>
-    </div>
-</div>
-
-<!-- Login Events Modal -->
-<div id="loginEventsModal" class="modal-overlay" style="display: none;" onclick="closeLoginModal(event)">
-    <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
-        <div class="modal-header">
-            <h2 class="modal-title" id="loginModalTitle">🔑 Login Events</h2>
-            <button class="modal-close" onclick="closeLoginModal(event)">×</button>
-        </div>
-        
-        <div class="modal-body">
-            <!-- Controls Section -->
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <div class="d-flex gap-3 align-items-center">
-                    <label style="font-weight: 500;">Sort:</label>
-                    <select id="loginSort" class="form-select-sm" onchange="sortLoginEvents()">
-                        <option value="desc">Newest First</option>
-                        <option value="asc">Oldest First</option>
-                    </select>
-                </div>
-                
-                <div class="d-flex gap-2 align-items-center" style="flex: 1; max-width: 400px;">
-                    <input type="text" id="loginSearch" class="form-control-sm" placeholder="Search results..." 
-                           oninput="filterLoginEvents()" style="flex: 1;">
-                    <button class="btn btn-sm btn-secondary" onclick="document.getElementById('loginSearch').value=''; filterLoginEvents();">Clear</button>
-                </div>
-                
-                <div>
-                    <span id="loginCount" class="badge badge-info">0 events</span>
-                </div>
-            </div>
-            
-            <!-- Loading Indicator -->
-            <div id="loginLoading" class="loading-indicator" style="display: none;">
-                <div class="spinner-border text-primary"></div>
-                <p>Loading login events...</p>
-            </div>
-            
-            <!-- Results Table -->
-            <div id="loginResults" style="display: none;">
-                <div class="table-container" style="max-height: 60vh; overflow-y: auto;">
-                    <table class="table table-hover">
-                        <thead style="position: sticky; top: 0; background: var(--color-bg-tertiary); z-index: 10;">
-                            <tr>
-                                <th style="width: 180px;">Date/Time</th>
-                                <th style="width: 150px;">Username</th>
-                                <th style="width: 150px;">Source IP</th>
-                                <th style="width: 150px;">Source Hostname</th>
-                                <th style="width: 150px;">Target System</th>
-                                <th style="width: 120px;">Target IP</th>
-                            </tr>
-                        </thead>
-                        <tbody id="loginEventsTable">
-                            <!-- Populated by JavaScript -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <!-- No Results -->
-            <div id="loginNoResults" style="display: none;" class="placeholder-content">
-                <div class="placeholder-icon">🔍</div>
-                <h3>No Login Events Found</h3>
-                <p id="noResultsMessage">No matching events found in the current case</p>
-            </div>
-        </div>
-        
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeLoginModal(event)">Close</button>
         </div>
     </div>
 </div>
@@ -552,6 +486,79 @@
         
         <div class="modal-footer">
             <button id="sigmaHuntCloseBtn" class="btn btn-primary" onclick="closeSigmaHuntModal()" style="display: none;">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Downloads List Modal -->
+<div id="downloadsModal" class="modal-overlay" style="display: none;" onclick="closeDownloadsModal()">
+    <div class="modal-container modal-container-large" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">📥 Found Downloads</h2>
+            <button class="modal-close" onclick="closeDownloadsModal()">×</button>
+        </div>
+        
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+            <div id="downloadsLoading" style="text-align: center; padding: 48px;">
+                <div class="spinner" style="margin: 0 auto 16px;"></div>
+                <p class="text-secondary">Loading downloads...</p>
+            </div>
+            
+            <div id="downloadsContent" style="display: none;">
+                <div id="downloadsStats" class="mb-3" style="padding: 16px; background: var(--color-bg-secondary); border-radius: 8px;">
+                    <strong>Total Downloads Found: <span id="totalDownloads">0</span></strong>
+                </div>
+                
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th style="width: 180px;">Timestamp</th>
+                            <th style="width: 120px;">Hostname</th>
+                            <th style="width: 120px;">User</th>
+                            <th style="width: 250px;">URL</th>
+                            <th>Filename</th>
+                        </tr>
+                    </thead>
+                    <tbody id="downloadsList">
+                        <!-- Downloads will be populated here -->
+                    </tbody>
+                </table>
+                
+                <!-- Pagination -->
+                <div id="downloadsPagination" class="d-flex justify-content-between align-items-center mt-3">
+                    <button id="downloadsPrevBtn" class="btn btn-secondary" onclick="loadDownloadsPage(currentDownloadPage - 1)" disabled>← Previous</button>
+                    <span id="downloadsPaginationInfo">Page 1 of 1</span>
+                    <button id="downloadsNextBtn" class="btn btn-secondary" onclick="loadDownloadsPage(currentDownloadPage + 1)" disabled>Next →</button>
+                </div>
+            </div>
+            
+            <div id="downloadsError" style="display: none; text-align: center; padding: 48px;">
+                <p class="text-error" id="downloadsErrorMessage"></p>
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDownloadsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Download Details Modal -->
+<div id="downloadDetailsModal" class="modal-overlay" style="display: none;" onclick="closeDownloadDetailsModal()">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">📄 Download Details</h2>
+            <button class="modal-close" onclick="closeDownloadDetailsModal()">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <div id="downloadDetailsContent">
+                <!-- Details will be populated here -->
+            </div>
+        </div>
+        
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDownloadDetailsModal()">Close</button>
         </div>
     </div>
 </div>
@@ -1360,6 +1367,242 @@ function closeSigmaHuntModal() {
     clearInterval(sigmaHuntProgressInterval);
     sigmaHuntProgressInterval = null;
     sigmaHuntTaskId = null;
+}
+
+// ===== Downloads Modal Functions =====
+let currentDownloadPage = 1;
+let currentDownloadData = null;
+
+function showDownloadsModal() {
+    document.getElementById('downloadsModal').style.display = 'flex';
+    currentDownloadPage = 1;
+    loadDownloadsPage(1);
+}
+
+function closeDownloadsModal() {
+    document.getElementById('downloadsModal').style.display = 'none';
+    currentDownloadData = null;
+}
+
+function loadDownloadsPage(page) {
+    currentDownloadPage = page;
+    
+    // Show loading
+    document.getElementById('downloadsLoading').style.display = 'block';
+    document.getElementById('downloadsContent').style.display = 'none';
+    document.getElementById('downloadsError').style.display = 'none';
+    
+    fetch(`/browser/api/downloads?page=${page}&per_page=50`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showDownloadsError(data.error);
+                return;
+            }
+            
+            if (data.total === 0) {
+                showDownloadsError('No downloads found in browser history.');
+                return;
+            }
+            
+            // Hide loading, show content
+            document.getElementById('downloadsLoading').style.display = 'none';
+            document.getElementById('downloadsContent').style.display = 'block';
+            
+            // Update stats
+            document.getElementById('totalDownloads').textContent = formatNumber(data.total);
+            
+            // Populate table
+            const tbody = document.getElementById('downloadsList');
+            tbody.innerHTML = '';
+            
+            data.downloads.forEach(download => {
+                const row = document.createElement('tr');
+                row.style.cursor = 'pointer';
+                row.onclick = () => showDownloadDetails(download);
+                row.onmouseover = () => row.style.background = 'var(--color-bg-hover)';
+                row.onmouseout = () => row.style.background = '';
+                
+                // Format timestamp
+                const timestamp = new Date(download['@timestamp']).toLocaleString();
+                
+                // Get hostname (added by API)
+                const hostname = download.hostname || 'Unknown';
+                
+                // Extract username from file_path (e.g., C:\Users\dave\Downloads\file.exe)
+                const filePath = download.file_path || '';
+                const pathMatch = filePath.match(/\\Users\\([^\\]+)\\/);
+                const username = pathMatch ? pathMatch[1] : 'Unknown';
+                
+                // Note: Chrome download history doesn't store the source URL
+                const url = 'Not available in Chrome history';
+                
+                // Extract filename from file_path
+                const filename = filePath.split('\\').pop().split('/').pop() || 'Unknown';
+                
+                row.innerHTML = `
+                    <td><small>${escapeHtml(timestamp)}</small></td>
+                    <td><code class="text-small">${escapeHtml(hostname.split('.')[0])}</code></td>
+                    <td><code class="text-small">${escapeHtml(username)}</code></td>
+                    <td><span class="text-secondary" style="font-style: italic;">${escapeHtml(url)}</span></td>
+                    <td><strong>${escapeHtml(filename)}</strong></td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            // Update pagination
+            document.getElementById('downloadsPaginationInfo').textContent = `Page ${data.page} of ${data.total_pages}`;
+            document.getElementById('downloadsPrevBtn').disabled = !data.has_prev;
+            document.getElementById('downloadsNextBtn').disabled = !data.has_next;
+        })
+        .catch(error => {
+            console.error('Error loading downloads:', error);
+            showDownloadsError('Failed to load downloads: ' + error);
+        });
+}
+
+function showDownloadsError(message) {
+    document.getElementById('downloadsLoading').style.display = 'none';
+    document.getElementById('downloadsContent').style.display = 'none';
+    document.getElementById('downloadsError').style.display = 'block';
+    document.getElementById('downloadsErrorMessage').textContent = message;
+}
+
+function showDownloadDetails(download) {
+    // Populate details modal
+    const content = document.getElementById('downloadDetailsContent');
+    
+    const timestamp = new Date(download['@timestamp']).toLocaleString();
+    const filePath = download.file_path || '';
+    const filename = filePath.split('\\').pop().split('/').pop() || 'Unknown';
+    
+    // Extract username from file path
+    const pathMatch = filePath.match(/\\Users\\([^\\]+)\\/);
+    const username = pathMatch ? pathMatch[1] : 'Unknown';
+    
+    // File size from received_bytes
+    const fileSize = download.received_bytes ? formatFileSize(download.received_bytes) : 'Unknown';
+    const totalBytes = download.total_bytes ? formatFileSize(download.total_bytes) : 'Unknown';
+    
+    // MIME type
+    const mimeType = download.mime_type || 'Unknown';
+    
+    // Decode state (1 = complete, 4 = interrupted, etc.)
+    const stateCode = download.state || 0;
+    const stateMap = {
+        0: 'In Progress',
+        1: 'Complete',
+        2: 'Cancelled',
+        3: 'Interrupted',
+        4: 'Interrupted'
+    };
+    const state = stateMap[stateCode] || `Unknown (${stateCode})`;
+    
+    // Decode danger_type (0 = safe, other values = various threat levels)
+    const dangerCode = download.danger_type || 0;
+    const dangerMap = {
+        0: 'SAFE',
+        1: 'DANGEROUS',
+        2: 'UNCOMMON',
+        3: 'DANGEROUS_HOST',
+        4: 'POTENTIALLY_UNWANTED',
+        5: 'DANGEROUS_FILE',
+        6: 'DANGEROUS_URL',
+        7: 'DANGEROUS_CONTENT',
+        8: 'DANGEROUS_ACCOUNT_COMPROMISE'
+    };
+    const dangerType = dangerMap[dangerCode] || `Unknown (${dangerCode})`;
+    
+    // Interrupt reason
+    const interruptCode = download.interrupt_reason || 0;
+    const interruptReason = interruptCode === 0 ? 'None' : `Code ${interruptCode}`;
+    
+    // Start and end times
+    const startTime = download.start_time ? new Date(download.start_time).toLocaleString() : 'Unknown';
+    const endTime = download.end_time ? new Date(download.end_time).toLocaleString() : 'Unknown';
+    
+    content.innerHTML = `
+        <div class="grid grid-2 gap-3">
+            <div>
+                <strong>Hostname:</strong><br>
+                <code>${escapeHtml(download.hostname || 'Unknown')}</code>
+            </div>
+            <div>
+                <strong>Timestamp:</strong><br>
+                <span class="text-secondary">${escapeHtml(timestamp)}</span>
+            </div>
+            <div>
+                <strong>User:</strong><br>
+                <code>${escapeHtml(username)}</code>
+            </div>
+            <div>
+                <strong>Browser:</strong><br>
+                <span class="badge badge-info">${escapeHtml(download.browser || 'Unknown')}</span>
+            </div>
+            <div>
+                <strong>Download State:</strong><br>
+                <span class="badge ${stateCode === 1 ? 'badge-success' : 'badge-warning'}">${escapeHtml(state)}</span>
+            </div>
+            <div>
+                <strong>File Size:</strong><br>
+                <span class="text-secondary">${escapeHtml(fileSize)} / ${escapeHtml(totalBytes)}</span>
+            </div>
+            <div>
+                <strong>MIME Type:</strong><br>
+                <code class="text-small">${escapeHtml(mimeType)}</code>
+            </div>
+            <div>
+                <strong>Danger Type:</strong><br>
+                <span class="badge ${dangerCode === 0 ? 'badge-success' : 'badge-error'}">${escapeHtml(dangerType)}</span>
+            </div>
+            <div>
+                <strong>Interrupt Reason:</strong><br>
+                <span class="text-secondary">${escapeHtml(interruptReason)}</span>
+            </div>
+            <div>
+                <strong>Start Time:</strong><br>
+                <span class="text-secondary text-small">${escapeHtml(startTime)}</span>
+            </div>
+            <div>
+                <strong>End Time:</strong><br>
+                <span class="text-secondary text-small">${escapeHtml(endTime)}</span>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <strong>Filename:</strong><br>
+                <code>${escapeHtml(filename)}</code>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <strong>Full Path:</strong><br>
+                <code class="text-small">${escapeHtml(filePath)}</code>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <strong>Source File:</strong><br>
+                <code class="text-small">${escapeHtml(download.source_file || 'N/A')}</code>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <div class="alert alert-info" style="margin: 0;">
+                    <strong>Note:</strong> Chrome's download history does not store the source URL where files were downloaded from. 
+                    To find the source URL, you would need to cross-reference the download timestamp with browser history visits.
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Show details modal
+    document.getElementById('downloadDetailsModal').style.display = 'flex';
+}
+
+function closeDownloadDetailsModal() {
+    document.getElementById('downloadDetailsModal').style.display = 'none';
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 {% endif %}

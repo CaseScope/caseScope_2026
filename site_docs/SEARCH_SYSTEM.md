@@ -319,6 +319,45 @@ if page > total_pages / 2:
    - Pretty-printed JSON
    - Copy button
 
+### IOC and SIGMA Detection Banners
+
+**Purpose:** Alert analysts when viewing events that contain IOCs or match Sigma rules
+
+**Banner Display** (top of modal):
+- **Red Banner** (`alert-danger`) - "⚠️ IOC DETECTED" 
+  - Shows when event contains known Indicators of Compromise
+  - Lists all IOCs found with type, value, and matched field
+  - Example: "ipv4: 192.168.1.32 (in search_blob)"
+- **Purple Banner** (`alert-purple`) - "🎭 SIGMA Rule Violation Detected"
+  - Shows when event matches Sigma detection rules  
+  - Lists matched rule titles with severity levels
+  - Example: "Suspicious PowerShell Command Line (high)"
+
+**Field Highlighting**:
+- Fields containing IOC values highlighted with:
+  - Light red background (`rgba(255, 0, 0, 0.1)`)
+  - Red border and text (`var(--color-danger)`)
+  - Bold font weight
+  - Applies to both field keys and string values
+
+**Implementation**:
+```javascript
+// Backend enriches event data with IOC/Sigma hits
+fetch(`/search/api/event/${eventId}`)
+  .then(data => {
+    // data.event.ioc_hits - Array of IOC matches
+    // data.event.sigma_hits - Array of Sigma matches
+    renderAlertBanners(hasIOCs, hasSigma, iocHits, sigmaHits);
+    renderEventTree(data.event, iocHits);  // Highlight matching values
+  });
+```
+
+**Detection Logic**:
+- Queries `event_ioc_hits` table for IOC matches
+- Queries `event_sigma_hits` table for Sigma matches
+- Substring matching: Highlights any field value containing an IOC value
+- Case-insensitive matching for reliability
+
 ### Process Tree Tab
 
 **Purpose:** Visualize process execution chain for NDJSON events
@@ -891,6 +930,13 @@ def test_event_detail():
 
 ## Recent Updates
 
+### Version 1.2.0 (2025-12-28)
+- ✅ Added IOC and SIGMA detection banners to event detail modal
+- ✅ Implemented field highlighting for values containing IOCs
+- ✅ Backend enrichment of events with `ioc_hits` and `sigma_hits` arrays
+- ✅ Substring matching for IOC detection across all field values
+- ✅ Dark theme compatible highlighting with semi-transparent colors
+
 ### Version 1.1.0 (2025-12-23)
 - ✅ Added file type filtering (EVTX, NDJSON, IIS, CSV)
 - ✅ Fixed event ID display for EVTX events
@@ -901,7 +947,7 @@ def test_event_detail():
 ---
 
 ## Version
-- **Document Version:** 1.1.0
-- **Last Updated:** 2025-12-23
+- **Document Version:** 1.2.0
+- **Last Updated:** 2025-12-28
 - **CaseScope Version:** 2026
 

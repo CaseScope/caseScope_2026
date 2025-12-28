@@ -233,6 +233,9 @@
             <button class="modal-close" onclick="closeEventModal(event)">×</button>
         </div>
         
+        <!-- IOC and SIGMA Alert Banners -->
+        <div id="eventAlertBanners"></div>
+        
         <!-- Tabs -->
         <div class="modal-tabs" id="modalTabs">
             <button class="modal-tab" id="tabProcessTree" style="display: none;" onclick="switchTab('process')">Process Tree</button>
@@ -662,6 +665,7 @@ function showEventDetail(eventId) {
         </div>
     `;
     document.getElementById('eventRaw').textContent = '';
+    document.getElementById('eventAlertBanners').innerHTML = ''; // Clear banners
     
     // Fetch event details
     fetch(`/search/api/event/${eventId}`)
@@ -673,6 +677,13 @@ function showEventDetail(eventId) {
         })
         .then(data => {
             currentEventData = data;
+            
+            // Check for IOC hits and SIGMA violations
+            const hasIOCHits = data.event.ioc_hits && Array.isArray(data.event.ioc_hits) && data.event.ioc_hits.length > 0;
+            const hasSigmaHits = data.event.sigma_hits && Array.isArray(data.event.sigma_hits) && data.event.sigma_hits.length > 0;
+            
+            // Render alert banners
+            renderAlertBanners(hasIOCHits, hasSigmaHits, data.event.ioc_hits || [], data.event.sigma_hits || []);
             
             // Check if this is an NDJSON event (has process hierarchy)
             const isNDJSON = detectNDJSON(data.event);
@@ -688,7 +699,7 @@ function showEventDetail(eventId) {
                 switchTab('tree');
             }
             
-            renderEventTree(data.event);
+            renderEventTree(data.event, hasIOCHits ? data.event.ioc_hits : null);
             renderEventRaw(data.event);
         })
         .catch(error => {
@@ -706,6 +717,61 @@ function detectNDJSON(event) {
     return event.process && typeof event.process === 'object' && 
            (event.process.parent || event.process.command_line || event.event);
 }
+
+function renderAlertBanners(hasIOCs, hasSigma, iocHits, sigmaHits) {
+    const container = document.getElementById('eventAlertBanners');
+    let html = '';
+    
+    if (hasIOCs) {
+        const iocCount = iocHits.length;
+        const iocList = iocHits.map(hit => {
+            const iocType = hit.ioc_type || 'unknown';
+            const iocValue = hit.ioc_value || hit.value || 'N/A';
+            const fieldName = hit.field_name || 'unknown field';
+            return `<li><strong>${iocType}</strong>: ${escapeHtml(iocValue)} (in <code>${fieldName}</code>)</li>`;
+        }).join('');
+        
+        html += `
+            <div class="alert alert-danger" style="margin: 16px 16px 0 16px; border-left: 4px solid #dc3545;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <span style="font-size: 24px;">⚠️</span>
+                    <strong style="font-size: 16px;">IOC DETECTED</strong>
+                    <span class="badge badge-danger">${iocCount} IOC${iocCount > 1 ? 's' : ''}</span>
+                </div>
+                <p style="margin: 8px 0 8px 36px; font-size: 14px;">This event contains known Indicators of Compromise:</p>
+                <ul style="margin: 4px 0 0 52px; font-size: 13px;">
+                    ${iocList}
+                </ul>
+            </div>
+        `;
+    }
+    
+    if (hasSigma) {
+        const sigmaCount = sigmaHits.length;
+        const sigmaList = sigmaHits.map(hit => {
+            const ruleName = hit.rule_name || hit.title || 'Unknown Rule';
+            const ruleLevel = hit.level || 'unknown';
+            return `<li><strong>${escapeHtml(ruleName)}</strong> (${ruleLevel})</li>`;
+        }).join('');
+        
+        html += `
+            <div class="alert" style="margin: ${hasIOCs ? '8px' : '16px'} 16px 0 16px; background: #f3e5f5; border-left: 4px solid #9c27b0; color: #4a148c;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <span style="font-size: 24px;">🛡️</span>
+                    <strong style="font-size: 16px;">SIGMA RULE VIOLATION</strong>
+                    <span class="badge" style="background: #9c27b0; color: white;">${sigmaCount} Rule${sigmaCount > 1 ? 's' : ''}</span>
+                </div>
+                <p style="margin: 8px 0 8px 36px; font-size: 14px;">This event triggered SIGMA detection rules:</p>
+                <ul style="margin: 4px 0 0 52px; font-size: 13px;">
+                    ${sigmaList}
+                </ul>
+            </div>
+        `;
+    }
+    
+    container.innerHTML = html;
+}
+
 
 function renderProcessTree(event) {
     const container = document.getElementById('eventProcessTree');
@@ -857,9 +923,27 @@ function switchTab(tabName) {
     currentActiveTab = tabName;
 }
 
-function renderEventTree(evt) {
+function renderEventTree(evt, iocHits = null) {
     const container = document.getElementById('eventTree');
     container.innerHTML = '';
+    
+    // Build IOC values list for substring matching (like old site)
+    const iocValues = [];
+    if (iocHits && Array.isArray(iocHits)) {
+        iocHits.forEach(hit => {
+            const iocValue = hit.ioc_value || hit.value;
+            if (iocValue) {
+                iocValues.push(String(iocValue).toLowerCase());
+            }
+        });
+    }
+    
+    // Helper function to check if a value contains an IOC
+    function containsIOC(value) {
+        if (!value || iocValues.length === 0) return false;
+        const valueStr = String(value).toLowerCase();
+        return iocValues.some(ioc => valueStr.includes(ioc));
+    }
     
     function createTreeNode(key, value, level = 0, path = '') {
         const item = document.createElement('div');
@@ -867,10 +951,11 @@ function renderEventTree(evt) {
         item.style.marginLeft = `${level * 20}px`;
         
         const currentPath = path ? `${path}.${key}` : key;
+        const hasIOC = containsIOC(value);
         
         if (value === null) {
             item.innerHTML = `
-                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-key${hasIOC ? ' ioc-field' : ''}">${escapeHtml(key)}:</span> 
                 <span class="json-tree-value-null">null</span>
             `;
         } else if (typeof value === 'object' && !Array.isArray(value)) {
@@ -879,7 +964,7 @@ function renderEventTree(evt) {
             
             item.innerHTML = `
                 <span class="json-tree-toggle" id="${toggleId}" onclick="toggleTreeNode('${toggleId}', '${toggleId}-children')">▼</span>
-                <span class="json-tree-key">${escapeHtml(key)}:</span> 
+                <span class="json-tree-key${hasIOC ? ' ioc-field' : ''}">${escapeHtml(key)}:</span> 
                 <span class="json-tree-count">{${count} ${count === 1 ? 'field' : 'fields'}}</span>
             `;
             
@@ -913,25 +998,27 @@ function renderEventTree(evt) {
         } else if (typeof value === 'string') {
             const valueStr = escapeHtml(value);
             const actionId = `action-${Math.random().toString(36).substr(2, 9)}`;
+            const iocMarker = hasIOC ? `<span class="badge badge-danger" style="margin-left: 8px; font-size: 10px;">⚠️ IOC</span>` : '';
             item.innerHTML = `
                 <span class="json-tree-field-actions">
                     <span class="field-action-icon" data-action="copy" data-value-id="${actionId}" title="Copy value">📋</span>
                     <span class="field-action-icon" data-action="search" data-value-id="${actionId}" title="Search for this value">🔍</span>
                 </span>
-                <span class="json-tree-key">${escapeHtml(key)}:</span> 
-                <span class="json-tree-value-string">"${valueStr}"</span>
+                <span class="json-tree-key${hasIOC ? ' ioc-field' : ''}">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value-string${hasIOC ? ' ioc-value' : ''}">"${valueStr}"</span>${iocMarker}
             `;
             // Store the actual value in a data map
             item.dataset.fieldValue = value;
         } else if (typeof value === 'number') {
             const actionId = `action-${Math.random().toString(36).substr(2, 9)}`;
+            const iocMarker = hasIOC ? `<span class="badge badge-danger" style="margin-left: 8px; font-size: 10px;">⚠️ IOC</span>` : '';
             item.innerHTML = `
                 <span class="json-tree-field-actions">
                     <span class="field-action-icon" data-action="copy" data-value-id="${actionId}" title="Copy value">📋</span>
                     <span class="field-action-icon" data-action="search" data-value-id="${actionId}" title="Search for this value">🔍</span>
                 </span>
-                <span class="json-tree-key">${escapeHtml(key)}:</span> 
-                <span class="json-tree-value-number">${value}</span>
+                <span class="json-tree-key${hasIOC ? ' ioc-field' : ''}">${escapeHtml(key)}:</span> 
+                <span class="json-tree-value-number${hasIOC ? ' ioc-value' : ''}">${value}</span>${iocMarker}
             `;
             item.dataset.fieldValue = String(value);
         } else if (typeof value === 'boolean') {
@@ -1092,6 +1179,22 @@ document.addEventListener('keydown', function(evt) {
     flex-direction: column;
     gap: 16px;
 }
+
+/* IOC and SIGMA highlighting */
+.ioc-field {
+    color: #ff6b6b !important;
+    font-weight: 600;
+}
+
+.ioc-value {
+    background: rgba(220, 53, 69, 0.15) !important;
+    border: 1px solid rgba(220, 53, 69, 0.5) !important;
+    padding: 2px 6px !important;
+    border-radius: 3px;
+    color: #ff6b6b !important;
+    font-weight: 500;
+}
+
 
 .search-input-wrapper {
     display: flex;
