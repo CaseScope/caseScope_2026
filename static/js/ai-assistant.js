@@ -255,8 +255,7 @@ async function executeNLQuery() {
     
     // Easter egg check - case insensitive and punctuation insensitive
     const normalizedQuestion = question.toLowerCase().replace(/[^\w\s]/g, '');
-    if (normalizedQuestion === 'what is the airspeed of an unladen swallow' || 
-        normalizedQuestion === 'what is the airspeed of an unlaiden swallow') {
+    if (normalizedQuestion.includes('airspeed') && normalizedQuestion.includes('unladen') && normalizedQuestion.includes('swallow')) {
         showSwallowEasterEgg();
         return;
     }
@@ -543,7 +542,7 @@ function showSwallowEasterEgg() {
                 </div>
                 <div class="modal-body">
                     <p style="font-size: 20px; text-align: center; margin: 24px 0; line-height: 1.6; font-weight: 500;">
-                        African or European?
+                        What do you mean? African or European?
                     </p>
                 </div>
                 <div class="modal-footer">

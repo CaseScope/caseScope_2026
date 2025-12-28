@@ -2,6 +2,12 @@
 
 {% block title %}Event Search - CaseScope 2026{% endblock %}
 
+{% block head %}
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+{% endblock %}
+
 {% block content %}
 <div class="content-header">
     <div>
@@ -203,7 +209,7 @@
 <div id="easterEggModal" class="modal-overlay" style="display: none;" onclick="closeEasterEggModal(event)">
     <div class="modal-container" onclick="event.stopPropagation()" style="max-width: 500px;">
         <div class="modal-header">
-            <h2 class="modal-title">🏰 Monty Python Reference Detected</h2>
+            <h2 class="modal-title">🏰 French Taunter</h2>
             <button class="modal-close" onclick="closeEasterEggModal(event)">×</button>
         </div>
         <div class="modal-body">
@@ -289,7 +295,7 @@ function performSearch() {
     
     // Easter egg check - case insensitive and punctuation insensitive
     const normalizedQuery = currentQuery.toLowerCase().replace(/[^\w\s]/g, '');
-    if (normalizedQuery === 'now look here my good man') {
+    if (normalizedQuery.includes('now') && normalizedQuery.includes('look') && normalizedQuery.includes('here') && normalizedQuery.includes('good') && normalizedQuery.includes('man')) {
         showEasterEggModal();
         return;
     }

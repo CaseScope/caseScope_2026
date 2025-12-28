@@ -156,6 +156,12 @@
             <main class="content">
                 {% block content %}{% endblock %}
             </main>
+            
+            <!-- Footer -->
+            <footer class="app-footer">
+                <p>©opyright 2026 <a href="mailto:casescope@thedubes.net" class="footer-link">Justin Dube</a>. All Rights Reserved.</p>
+                <p class="footer-credit">Designed by 21 Mexican Jumping Llamas</p>
+            </footer>
         </div>
     </div>
     
@@ -167,7 +173,7 @@
     <!-- Core JavaScript -->
     <script src="/static/js/main.js"></script>
     {% if config.AI_ENABLED %}
-    <script src="/static/js/ai-assistant.js"></script>
+    <script src="/static/js/ai-assistant.js?v=20251227"></script>
     {% endif %}
     {% block scripts %}{% endblock %}
 </body>
