@@ -43,10 +43,10 @@ BASE_STORAGE_PATH = '/opt/casescope/storage'
 
 # Artifact type detection patterns (for multi-index routing)
 ARTIFACT_PATTERNS = {
-    'browser': ['History', 'WebCacheV01.dat', 'WebCacheV24.dat', 'places.sqlite', 'Cookies'],
-    'devices': ['setupapi.dev.log'],
-    'execution': ['.pf', 'Prefetch'],
-    'network': ['SRUDB.dat']
+    'browser': ['history', 'webcachev01.dat', 'webcachev24.dat', 'places.sqlite', 'cookies', 'downloads', 'formhistory'],
+    'devices': ['setupapi.dev.log', 'setupapi'],
+    'execution': ['.pf', 'prefetch', 'amcache', 'shimcache'],
+    'network': ['srudb.dat', 'srum']
 }
 
 def is_valid_file(filename):
