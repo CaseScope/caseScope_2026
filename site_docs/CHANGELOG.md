@@ -1,5 +1,78 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.4 - December 28, 2025
+
+### 🐛 Critical Fix: EDR/RMM Agent URLs Causing False Noise Positives
+
+**The Bug You Found:**
+Huntress EDR (and other EDR/RMM tools) were marking ALL collected events as noise because the agent URL (`https://tabinc.huntress.io/org/150377/agents/3222729`) appeared in event metadata. This caused legitimate investigation events to be hidden!
+
+**Why It Happened:**
+- Noise filter pattern: `huntress.io` (intended to catch Huntress software activity)
+- Matched fields included: `agent.url`, `url`, `subdomain`, and `search_blob`
+- **Every** Huntress-collected event has the agent URL in metadata
+- Result: ALL events from Huntress were marked as "Huntress EDR" noise
+
+**The Solution:**
+Added `exclude_fields` column to noise filter rules to specify fields that should NOT be checked for pattern matches.
+
+**How It Works:**
+1. **Exclude agent metadata fields**: `agent.url`, `agent.id`, `url`, `subdomain`, `agent.type`, `agent.version`
+2. **Still check relevant fields**: `process.name`, `process.executable`, `command_line`, `file.path`
+3. **Remove `search_blob`** when exclusions are present (it contains all fields, including excluded ones)
+
+**Example:**
+- ❌ Before: Huntress collects event → matches `huntress.io` in `agent.url` → marked as noise
+- ✅ After: Huntress collects event → `agent.url` excluded → checks process names → NOT noise (unless process is Huntress software)
+- ✅ Multi-tool: Huntress collects ConnectWise activity → ConnectWise still caught by process name
+
+**Files Modified:**
+- `app/models.py` - Added `exclude_fields` column to NoiseFilterRule
+- `app/utils/noise_filter.py` - Updated filter logic to respect exclusions
+- `migrations/add_exclude_fields_to_noise_rules.sql` - Database migration
+
+**Manual Migration Required:**
+Run this SQL to apply the fix (replace with your MySQL credentials):
+
+```sql
+-- Add column
+ALTER TABLE noise_filter_rules 
+ADD COLUMN IF NOT EXISTS exclude_fields VARCHAR(500) DEFAULT NULL;
+
+-- Update RMM/EDR rules
+UPDATE noise_filter_rules 
+SET exclude_fields = 'agent.url,agent.id,url,subdomain,agent.type,agent.version'
+WHERE name LIKE '%Huntress%' 
+   OR name LIKE '%ConnectWise%' 
+   OR name LIKE '%Datto%'
+   OR name LIKE '%Kaseya%'
+   OR name LIKE '%N-able%'
+   OR name LIKE '%SolarWinds%'
+   OR name LIKE '%Atera%'
+   OR name LIKE '%NinjaOne%'
+   OR name LIKE '%ManageEngine%'
+   OR name LIKE '%CrowdStrike%'
+   OR name LIKE '%SentinelOne%'
+   OR name LIKE '%Carbon Black%'
+   OR name LIKE '%Defender%'
+   OR name LIKE '%Cortex%'
+   OR name LIKE '%Sophos%'
+   OR name LIKE '%Trend Micro%'
+   OR name LIKE '%McAfee%'
+   OR name LIKE '%Symantec%'
+   OR name LIKE '%ESET%'
+   OR name LIKE '%Bitdefender%'
+   OR name LIKE '%Malwarebytes%'
+   OR name LIKE '%Webroot%';
+```
+
+**After Migration:**
+- Restart Flask: `sudo systemctl restart casescope-new`
+- Restart Workers: `sudo systemctl restart casescope-workers`
+- Re-run noise tagging task to fix existing events
+
+---
+
 ## Version 1.5.3 - December 28, 2025
 
 ### 🔧 Fix: EVTX Parser Now Populates Normalized Fields
