@@ -438,14 +438,23 @@ def case_files(case_id=None):
         'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
     }
     
-    # Get file list from database based on filter
+    # Get file list from database (ONLY physical files, not virtual)
+    # Virtual files are shown within ZIP expansion
+    query = CaseFile.query.filter_by(case_id=case_id, is_virtual=False)
+    
     if only_hidden:
-        files = CaseFile.query.filter_by(case_id=case_id, is_hidden=True).order_by(CaseFile.uploaded_at.desc()).all()
-    elif show_hidden:
-        files = CaseFile.query.filter_by(case_id=case_id).order_by(CaseFile.uploaded_at.desc()).all()
-    else:
-        # Default: hide hidden files
-        files = CaseFile.query.filter_by(case_id=case_id, is_hidden=False).order_by(CaseFile.uploaded_at.desc()).all()
+        query = query.filter_by(is_hidden=True)
+    elif not show_hidden:
+        query = query.filter_by(is_hidden=False)
+    
+    files = query.order_by(CaseFile.uploaded_at.desc()).all()
+    
+    # For each container (ZIP), get child count
+    for file in files:
+        if file.is_container:
+            file.child_count = CaseFile.query.filter_by(parent_file_id=file.id).count()
+        else:
+            file.child_count = 0
     
     return render_template('case/files.html', case=case, stats=stats, files=files, show_hidden=show_hidden, only_hidden=only_hidden)
 
@@ -501,37 +510,118 @@ def case_files_stats(case_id):
     indexed_count = CaseFile.query.filter_by(case_id=case_id, status='indexed').count()
     failed_count = CaseFile.query.filter_by(case_id=case_id, status='failed').count()
     
-    # Get recently updated files (last 10)
-    recent_files = CaseFile.query.filter_by(case_id=case_id)\
-        .order_by(CaseFile.uploaded_at.desc())\
-        .limit(10)\
-        .all()
+    stats = {
+        'total_files': total_files,
+        'total_events': total_events,
+        'indexed_files': indexed_count,
+        'pending_files': pending_files,
+        'processing_files': processing_count,
+        'failed_files': failed_count,
+        'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
+    }
     
-    files_data = []
-    for f in recent_files:
-        files_data.append({
-            'id': f.id,
-            'filename': f.filename,
-            'source_system': f.source_system,
-            'event_count': f.event_count,
-            'status': f.status,
-            'uploaded_at': f.uploaded_at.isoformat() if f.uploaded_at else None,
-            'uploader': f.uploader.username if f.uploader else 'Unknown'
+    return jsonify({'stats': stats})
+
+
+@case_bp.route('/<int:case_id>/files/<int:container_id>/contents', methods=['GET'])
+@login_required
+def get_zip_contents(case_id, container_id):
+    """
+    API endpoint to fetch contents of a ZIP container
+    Supports pagination for large ZIPs
+    
+    Query params:
+    - page: Page number (default 1)
+    - per_page: Items per page (default 50, max 100)
+    - group_by: 'system' to group by source_system
+    """
+    from models import Case, CaseFile
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+    
+    # Get container
+    container = CaseFile.query.filter_by(id=container_id, case_id=case_id, is_container=True).first_or_404()
+    
+    # Pagination params
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)
+    group_by = request.args.get('group_by', None)
+    
+    # Get virtual files for this container
+    query = CaseFile.query.filter_by(parent_file_id=container_id, is_virtual=True)
+    
+    # Group by system if requested
+    if group_by == 'system':
+        # Get all files grouped by source_system
+        all_files = query.order_by(CaseFile.source_system, CaseFile.original_filename).all()
+        
+        # Group files
+        grouped = {}
+        for file in all_files:
+            system = file.source_system or 'Unknown'
+            if system not in grouped:
+                grouped[system] = []
+            grouped[system].append({
+                'id': file.id,
+                'filename': file.original_filename,
+                'file_type': file.file_type,
+                'file_size': file.file_size,
+                'event_count': file.event_count,
+                'status': file.status,
+                'target_index': file.target_index,
+                'error_message': file.error_message
+            })
+        
+        return jsonify({
+            'container_id': container_id,
+            'container_name': container.original_filename,
+            'total_files': len(all_files),
+            'grouped': True,
+            'systems': [{
+                'system': system,
+                'file_count': len(files),
+                'files': files
+            } for system, files in grouped.items()]
         })
     
-    return jsonify({
-        'stats': {
-            'total_files': total_files,
-            'total_events': total_events,
-            'indexed_files': indexed_count,
-            'pending_files': pending_files,
-            'processing_files': processing_count,
-            'failed_files': failed_count,
-            'total_size_gb': round(total_size / (1024**3), 2) if total_size > 0 else 0
-        },
-        'recent_files': files_data,
-        'timestamp': datetime.utcnow().isoformat()
-    })
+    else:
+        # Paginated flat list
+        pagination = query.order_by(CaseFile.original_filename).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        files_data = [{
+            'id': file.id,
+            'filename': file.original_filename,
+            'file_type': file.file_type,
+            'file_size': file.file_size,
+            'event_count': file.event_count,
+            'status': file.status,
+            'source_system': file.source_system,
+            'target_index': file.target_index,
+            'error_message': file.error_message,
+            'parsing_status': file.parsing_status,
+            'indexing_status': file.indexing_status
+        } for file in pagination.items]
+        
+        return jsonify({
+            'container_id': container_id,
+            'container_name': container.original_filename,
+            'page': page,
+            'per_page': per_page,
+            'total_files': pagination.total,
+            'total_pages': pagination.pages,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev,
+            'files': files_data
+        })
+
+
 
 
 @case_bp.route('/files/upload')

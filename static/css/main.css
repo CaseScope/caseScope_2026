@@ -1796,3 +1796,110 @@ tbody tr {
     color: var(--color-text-muted);
     font-style: italic;
 }
+
+/* ZIP EXPANSION STYLES */
+.zip-container {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.zip-container:hover {
+    background-color: rgba(59, 130, 246, 0.05);
+}
+
+.zip-container.expanded {
+    background-color: rgba(59, 130, 246, 0.1);
+    border-bottom: 2px solid #3b82f6;
+}
+
+.zip-toggle {
+    display: inline-block;
+    margin-right: 0.5rem;
+    font-size: 0.8em;
+    transition: transform 0.15s ease;
+}
+
+.zip-container.expanded .zip-toggle {
+    transform: rotate(90deg);
+}
+
+.zip-details-row {
+    background-color: #f8f9fa;
+}
+
+.zip-details-cell {
+    padding: 0 !important;
+}
+
+.zip-details-container {
+    padding: 1.5rem;
+    border-left: 3px solid #3b82f6;
+}
+
+.zip-details-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.zip-details-header h4 {
+    margin: 0;
+}
+
+.zip-details-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.zip-contents {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.system-group {
+    margin-bottom: 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.system-group-header {
+    padding: 0.75rem 1rem;
+    background-color: #e9ecef;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: background-color 0.15s ease;
+}
+
+.system-group-header:hover {
+    background-color: #dee2e6;
+}
+
+.system-toggle {
+    font-size: 0.8em;
+    display: inline-block;
+    width: 1em;
+    transition: transform 0.15s ease;
+}
+
+.system-group-content {
+    padding: 1rem;
+}
+
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.pagination-info {
+    font-size: 0.875rem;
+    color: #6c757d;
+}

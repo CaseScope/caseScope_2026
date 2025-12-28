@@ -113,9 +113,19 @@
                 </thead>
                 <tbody id="filesTableBody">
                     {% for file in files %}
-                    <tr class="file-row" data-filename="{{ file.filename.lower() }}" data-hidden="{{ 'true' if file.is_hidden else 'false' }}">
+                    <tr class="file-row{% if file.is_container %} zip-container{% endif %}" 
+                        data-filename="{{ file.filename.lower() }}" 
+                        data-hidden="{{ 'true' if file.is_hidden else 'false' }}"
+                        data-container-id="{{ file.id if file.is_container else '' }}"
+                        {% if file.is_container %}onclick="toggleZipExpansion({{ file.id }}, '{{ file.original_filename }}', {{ file.child_count }})"{% endif %}>
                         <td>
+                            {% if file.is_container %}
+                            <span class="zip-toggle">▶</span>
+                            <span class="fw-bold">📦 {{ file.filename }}</span>
+                            <span class="badge badge-info ml-2">{{ file.child_count }} files</span>
+                            {% else %}
                             <span class="fw-bold">{{ file.filename }}</span>
+                            {% endif %}
                             <div class="text-small text-muted">
                                 {{ "%.2f"|format(file.file_size / 1024 / 1024) }} MB
                             </div>
@@ -188,6 +198,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/zip-expansion.js"></script>
 <script>
 const caseId = {{ case.id }};
 let updateInterval = null;
