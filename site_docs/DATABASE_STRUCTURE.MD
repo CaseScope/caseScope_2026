@@ -144,30 +144,63 @@ Details: Unusual RDP session from compromised account...
 | `case_id` | Integer | Foreign key to `case.id`, indexed |
 | `filename` | String(500) | Filename in storage |
 | `original_filename` | String(500) | Original uploaded filename |
-| `file_type` | String(50) | File type (evtx, json, csv, ndjson, etc.) |
+| `file_type` | String(50) | File type (evtx, json, csv, ndjson, zip, pf, etc.) |
 | `file_size` | BigInteger | File size in bytes |
 | `file_path` | String(1000) | Full storage path |
-| `file_hash` | String(64), indexed | SHA256 hash for file deduplication (per case) |
+| `file_hash` | String(64), indexed | SHA256 hash for file deduplication (per case, ZIP-level) |
+| **ZIP-Centric Fields** |||
+| `is_container` | Boolean | True for ZIP files (default: False) |
+| `is_virtual` | Boolean | True for files extracted from ZIP (default: False) |
+| `parent_file_id` | Integer | Foreign key to parent ZIP container (NULL for standalone/containers) |
+| `target_index` | String(100) | Target OpenSearch index (case_X, case_X_browser, case_X_execution, etc.) |
+| **Processing Status** |||
+| `extraction_status` | String(50) | ZIP extraction status (pending, in_progress, completed, failed) |
+| `parsing_status` | String(50) | File parsing status (pending, in_progress, completed, failed) |
+| `indexing_status` | String(50) | OpenSearch indexing status (pending, in_progress, completed, failed) |
+| **Metadata** |||
 | `source_system` | String(200) | Computer name extracted from events |
 | `event_count` | Integer | Number of events parsed (default: 0) |
 | `sigma_violations` | Integer | Number of Sigma rule matches (default: 0) |
 | `ioc_count` | Integer | Number of IOC matches (default: 0) |
+| **Error Handling** |||
+| `error_message` | Text | Error details if processing failed |
+| `error_details` | Text | Detailed error messages for container processing |
+| `files_failed` | Integer | Count of failed files in ZIP container (default: 0) |
+| `retry_count` | Integer | Number of retry attempts (default: 0) |
+| **Tracking** |||
 | `uploaded_by` | Integer | Foreign key to `user.id` |
 | `uploaded_at` | DateTime | Upload timestamp, indexed |
-| `status` | String(50) | Processing status (default: 'pending') |
-| `error_message` | Text | Error details if processing failed |
 | `indexed_at` | DateTime | When file was successfully indexed |
+| `status` | String(50) | Overall processing status (default: 'pending') |
 | `is_hidden` | Boolean | Hide from file list (default: False) |
 
 **Status Values**:
 - `pending` - Awaiting processing
 - `processing` - Currently being parsed/indexed
+- `parsing` - Currently parsing artifact
+- `extracting` - Extracting ZIP contents
 - `indexed` - Successfully indexed to OpenSearch
 - `failed` - Processing failed (see error_message)
+- `error` - Error occurred (see error_details)
+
+**Foreign Keys**:
+- `parent_file_id` → `case_file.id` (CASCADE on delete)
+
+**Indexes**:
+- `idx_case_file_parent` on `parent_file_id`
+- `idx_case_file_virtual` on `is_virtual` WHERE `is_virtual = true`
 
 **Relationships**:
 - `case` - Relationship to `Case` this file belongs to
 - `uploader` - Relationship to `User` who uploaded the file
+- `parent` - Relationship to parent ZIP container (if virtual)
+- `children` - Backref to virtual files extracted from this ZIP (if container)
+
+**ZIP-Centric Architecture**:
+- **Container files** (`is_container=True`): ZIP files stored in `storage/case_X/`, tracked but not indexed
+- **Virtual files** (`is_virtual=True`): Files extracted from ZIP, temporarily in staging, deleted after indexing
+- **Standalone files**: Regular uploaded files, compressed with GZIP after indexing
+- **Multi-index routing**: `target_index` determines OpenSearch index (case_X, case_X_browser, etc.)
 
 **Purpose**: Track all uploaded files with metadata, processing status, and extracted statistics for display in file management UI.
 

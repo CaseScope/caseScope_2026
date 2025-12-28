@@ -39,24 +39,37 @@ All services are running and ready to process background tasks!
 
 ### 3. Background Tasks (`app/tasks/task_file_upload.py`)
 
-**Three tasks implemented:**
+**Three main tasks implemented (ZIP-centric architecture):**
 
 1. **`process_uploaded_files`** (queue: `file_processing`)
-   - Scans bulk upload folder
-   - Extracts ZIP files recursively
-   - Validates file types
-   - Stages files for ingestion
-   - Cleans up upload folder
+   - Entry point for uploaded files
+   - ZIP files: Move to storage, create container record, queue extraction
+   - Standalone files: Move to staging, create file record, queue parsing
+   - SHA256 deduplication (ZIP-level)
+   - Cleanup upload folder
 
-2. **`ingest_staged_file`** (queue: `ingestion`)
-   - Ingests single file
-   - Parses EVTX, JSON, CSV, etc.
-   - Indexes to OpenSearch
-   - Moves to storage after success
+2. **`extract_and_process_zip`** (queue: `file_processing`)
+   - Extract ZIP contents to staging (temporary)
+   - Create virtual file records (is_virtual=True, parent_file_id=container.id)
+   - Auto-detect artifact type → route to appropriate index
+   - Queue each extracted file for parsing
+   - Update container status
+   - Files failed count tracking
 
-3. **`ingest_all_staged_files`** (queue: `ingestion`)
-   - Batch ingestion
-   - Tracks success/failure
+3. **`parse_and_index_file`** (queue: `ingestion`)
+   - Parse artifact based on type (EVTX, NDJSON, Chrome History, WebCache, etc.)
+   - Index to appropriate OpenSearch index (case_X, case_X_browser, etc.)
+   - GZIP compress original file
+   - Move compressed to storage (standalone) or delete (virtual)
+   - Update file record with results
+   - Error tracking & retry support
+
+**Multi-Index Routing:**
+- case_X: EVTX, NDJSON (main events)
+- case_X_browser: Chrome/Firefox History, WebCache ESE
+- case_X_execution: Prefetch (.pf)
+- case_X_network: SRUM (SRUDB.dat)
+- case_X_devices: setupapi.dev.log
 
 ### 4. Systemd Service (`casescope-workers`)
 
@@ -92,21 +105,24 @@ REDIS_PASSWORD = None          # Set password or None if no auth
 ### Worker Settings
 
 ```python
-CELERY_WORKERS = 8             # Number of concurrent workers (2, 4, 6, or 8) - adjustable via Settings page
-CELERY_MAX_TASKS_PER_CHILD = 100  # Restart worker after N tasks (prevents memory leaks)
+CELERY_WORKERS = 12            # Number of concurrent workers (auto-tuned, see autotune_workers.py)
+CELERY_MAX_TASKS_PER_CHILD = 1000  # Restart worker after N tasks (prevents memory leaks)
 CELERY_TASK_TIME_LIMIT = None     # No timeout - user can cancel via UI
 CELERY_TASK_SOFT_TIME_LIMIT = None
+CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # Prefetch 2 tasks per worker
+CELERY_TASK_ACKS_LATE = True           # Prevent task loss on crash
 ```
 
-**Note:** Worker count can be adjusted via the Settings page (Admin only) - see "Dynamic Worker Configuration" section below.
+**Note:** Worker count auto-tuned based on system resources (CPU/RAM).
 
-**Current System Configuration**: 8 workers (from config.py)
+**Current System Configuration**: 12 workers (optimized for 16 CPU cores, 62.9GB RAM)
 
-**Production Settings (Battle-tested):**
-- `CELERY_WORKERS = 2` - Most systems
-- `MAX_TASKS_PER_CHILD = 100` - Aggressive cleanup (was 1000, reduced for stability)
-- `TASK_TIME_LIMIT = None` - No arbitrary timeout (prevents failures on large files)
-- `RESULT_EXPIRES = 86400` - 24hr expiration prevents Redis bloat
+**Auto-Tune Script**: `/opt/casescope/autotune_workers.py`
+- Formula: min(16, max(4, CPU_cores * 0.75))
+- RAM constraint check (750MB per worker)
+- Auto-updates config.py with optimal value
+- Target: <5 minutes for 3GB ZIP (~1000 files)
+- Estimated throughput: ~72 files/minute
 
 ### Result Backend
 
