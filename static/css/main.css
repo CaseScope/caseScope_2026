@@ -1824,7 +1824,7 @@ tbody tr {
 }
 
 .zip-details-row {
-    background-color: #f8f9fa;
+    background-color: var(--color-bg-secondary);
 }
 
 .zip-details-cell {
@@ -1833,7 +1833,8 @@ tbody tr {
 
 .zip-details-container {
     padding: 1.5rem;
-    border-left: 3px solid #3b82f6;
+    border-left: 3px solid var(--color-primary);
+    background-color: var(--color-bg-primary);
 }
 
 .zip-details-header {
@@ -1842,7 +1843,8 @@ tbody tr {
     align-items: center;
     margin-bottom: 1rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid #dee2e6;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-primary);
 }
 
 .zip-details-header h4 {
