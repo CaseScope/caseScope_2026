@@ -798,6 +798,126 @@ def download_file(case_id, file_id):
             )
 
 
+@case_bp.route('/<int:case_id>/files/<int:file_id>/retry', methods=['POST'])
+@login_required
+def retry_file_processing(case_id, file_id):
+    """
+    Retry processing of a failed file
+    Resets status and re-queues for parsing
+    """
+    from models import Case, CaseFile
+    from main import db
+    from tasks.task_file_upload import parse_and_index_file
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    file_record = CaseFile.query.filter_by(id=file_id, case_id=case_id).first_or_404()
+    
+    # Only retry failed files
+    if file_record.status not in ['failed', 'error']:
+        return jsonify({'error': 'File is not in failed state'}), 400
+    
+    # Increment retry count
+    file_record.retry_count = (file_record.retry_count or 0) + 1
+    
+    # Reset statuses
+    file_record.status = 'parsing'
+    file_record.parsing_status = 'pending'
+    file_record.indexing_status = None
+    file_record.error_message = None
+    
+    db.session.commit()
+    
+    logger.info(f"Retrying file {file_id}: {file_record.original_filename} (attempt #{file_record.retry_count})")
+    
+    # Re-queue for processing
+    # For virtual files, use staging path; for physical, check file_path
+    file_path = file_record.file_path
+    target_index = file_record.target_index or f"case_{case_id}"
+    
+    if file_path and os.path.exists(file_path):
+        parse_and_index_file.delay(case_id, file_id, file_path, target_index)
+        return jsonify({
+            'success': True,
+            'message': f'File re-queued for processing (attempt #{file_record.retry_count})'
+        })
+    else:
+        file_record.status = 'failed'
+        file_record.error_message = 'File not found on disk for retry'
+        db.session.commit()
+        return jsonify({'error': 'File not found on disk'}), 404
+
+
+@case_bp.route('/<int:case_id>/files/<int:container_id>/retry-failed', methods=['POST'])
+@login_required
+def retry_failed_in_container(case_id, container_id):
+    """
+    Retry all failed files in a ZIP container
+    Batch retry for convenience
+    """
+    from models import Case, CaseFile
+    from main import db
+    from tasks.task_file_upload import parse_and_index_file
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    # Get container
+    container = CaseFile.query.filter_by(id=container_id, case_id=case_id, is_container=True).first_or_404()
+    
+    # Get failed files in this container
+    failed_files = CaseFile.query.filter_by(
+        parent_file_id=container_id,
+        is_virtual=True
+    ).filter(CaseFile.status.in_(['failed', 'error'])).all()
+    
+    if not failed_files:
+        return jsonify({'error': 'No failed files to retry'}), 400
+    
+    retried = 0
+    errors = []
+    
+    for file_record in failed_files:
+        try:
+            # Increment retry count
+            file_record.retry_count = (file_record.retry_count or 0) + 1
+            
+            # Reset statuses
+            file_record.status = 'parsing'
+            file_record.parsing_status = 'pending'
+            file_record.indexing_status = None
+            file_record.error_message = None
+            
+            db.session.commit()
+            
+            # Re-queue
+            file_path = file_record.file_path
+            target_index = file_record.target_index or f"case_{case_id}"
+            
+            if file_path and os.path.exists(file_path):
+                parse_and_index_file.delay(case_id, file_record.id, file_path, target_index)
+                retried += 1
+            else:
+                errors.append(f"{file_record.original_filename}: File not found")
+        
+        except Exception as e:
+            errors.append(f"{file_record.original_filename}: {str(e)}")
+    
+    return jsonify({
+        'success': True,
+        'retried': retried,
+        'errors': errors,
+        'message': f'Retried {retried} failed files from {container.original_filename}'
+    })
+
+
 @case_bp.route('/files/upload')
 @case_bp.route('/<int:case_id>/files/upload')
 @login_required

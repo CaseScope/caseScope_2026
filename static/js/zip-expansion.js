@@ -128,6 +128,7 @@ function renderGroupedContents(containerId, data) {
         for (const file of system.files) {
             const statusBadge = getStatusBadge(file.status);
             const indexBadge = file.target_index ? `<span class="badge badge-secondary">${file.target_index}</span>` : '-';
+            const actionButtons = getActionButtons(file);
             
             html += `
                 <tr>
@@ -136,11 +137,7 @@ function renderGroupedContents(containerId, data) {
                     <td>${formatNumber(file.event_count || 0)}</td>
                     <td>${indexBadge}</td>
                     <td>${statusBadge}</td>
-                    <td>
-                        <button class="btn btn-sm btn-secondary" onclick="downloadFile(${file.id}, '${file.filename}')" title="Download file">
-                            ⬇️
-                        </button>
-                    </td>
+                    <td>${actionButtons}</td>
                 </tr>
             `;
         }
@@ -182,6 +179,7 @@ function renderPaginatedContents(containerId, data) {
         const statusBadge = getStatusBadge(file.status);
         const indexBadge = file.target_index ? `<span class="badge badge-secondary">${file.target_index}</span>` : '-';
         const system = file.source_system || '-';
+        const actionButtons = getActionButtons(file);
         
         html += `
             <tr>
@@ -191,11 +189,7 @@ function renderPaginatedContents(containerId, data) {
                 <td>${formatNumber(file.event_count || 0)}</td>
                 <td>${indexBadge}</td>
                 <td>${statusBadge}</td>
-                <td>
-                    <button class="btn btn-sm btn-secondary" onclick="downloadFile(${file.id}, '${file.filename}')" title="Download file">
-                        ⬇️
-                    </button>
-                </td>
+                <td>${actionButtons}</td>
             </tr>
         `;
     }
@@ -248,9 +242,21 @@ function getStatusBadge(status) {
         'parsing': '<span class="badge badge-info">Parsing...</span>',
         'pending': '<span class="badge badge-secondary">Pending</span>',
         'failed': '<span class="badge badge-error">Failed</span>',
+        'error': '<span class="badge badge-error">Error</span>',
         'extracting': '<span class="badge badge-info">Extracting...</span>'
     };
     return badges[status] || `<span class="badge badge-secondary">${status}</span>`;
+}
+
+function getActionButtons(file) {
+    let buttons = `<button class="btn btn-sm btn-secondary" onclick="downloadFile(${file.id}, '${file.filename}')" title="Download file">⬇️</button>`;
+    
+    // Add retry button for failed files
+    if (file.status === 'failed' || file.status === 'error') {
+        buttons += ` <button class="btn btn-sm btn-warning" onclick="retryFile(${file.id}, '${file.filename}')" title="Retry processing">🔄</button>`;
+    }
+    
+    return buttons;
 }
 
 function formatNumber(num) {
@@ -268,5 +274,42 @@ function downloadFile(fileId, filename) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
+
+async function retryFile(fileId, filename) {
+    if (!confirm(`Retry processing for ${filename}?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/case/${caseId}/files/${fileId}/retry`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            alert(`Retry failed: ${error.error || 'Unknown error'}`);
+            return;
+        }
+        
+        const data = await response.json();
+        alert(data.message);
+        
+        // Reload the ZIP contents to show updated status
+        const expandedZips = Object.keys(zipExpansionState);
+        if (expandedZips.length > 0) {
+            const containerId = parseInt(expandedZips[0]);
+            const state = zipExpansionState[containerId];
+            if (state) {
+                await loadZipContents(containerId, state.page, state.grouped);
+            }
+        }
+    } catch (error) {
+        console.error('Error retrying file:', error);
+        alert(`Retry failed: ${error.message}`);
+    }
 }
 
