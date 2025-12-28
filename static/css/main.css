@@ -1932,3 +1932,60 @@ tbody tr {
     font-size: 0.875rem;
     color: #6c757d;
 }
+
+/* ============================================================================
+   BROWSER HISTORY PAGE
+   ============================================================================ */
+
+/* Stats section - initially hidden */
+.browser-stats-section {
+    display: none;
+}
+
+.browser-stats-section.visible {
+    display: flex;
+}
+
+/* Scrollable top URLs container */
+.browser-urls-scroll {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* URL list item */
+.browser-url-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.browser-url-link {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Browser type item */
+.browser-type-item {
+    display: flex;
+    justify-content: between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.browser-type-badge {
+    flex: 1;
+}
+
+/* Pagination container - initially hidden */
+.browser-pagination {
+    display: none;
+}
+
+.browser-pagination.visible {
+    display: block;
+}
