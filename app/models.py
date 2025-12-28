@@ -75,6 +75,7 @@ class Case(db.Model):
 class CaseFile(db.Model):
     """
     Track uploaded files and their metadata
+    ZIP-centric architecture: Containers (ZIPs) and Virtual files (extracted from ZIPs)
     """
     __tablename__ = 'case_file'
     
@@ -82,12 +83,38 @@ class CaseFile(db.Model):
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
     filename = db.Column(db.String(500), nullable=False)
     original_filename = db.Column(db.String(500))
-    file_type = db.Column(db.String(50))  # evtx, json, csv, etc.
+    file_type = db.Column(db.String(50))  # evtx, json, csv, zip, pf, etc.
     file_size = db.Column(db.BigInteger)  # bytes
     file_path = db.Column(db.String(1000))  # storage path
     
     # File identification
-    file_hash = db.Column(db.String(64), index=True)  # SHA256 hash for deduplication
+    file_hash = db.Column(db.String(64), index=True)  # SHA256 hash for deduplication (ZIP-level)
+    
+    # ZIP-centric fields
+    is_container = db.Column(db.Boolean, default=False)  # True for ZIP files
+    is_virtual = db.Column(db.Boolean, default=False, index=True)  # True for files extracted from ZIP
+    parent_file_id = db.Column(db.Integer, db.ForeignKey('case_file.id', ondelete='CASCADE'), nullable=True, index=True)
+    target_index = db.Column(db.String(100))  # Target OpenSearch index (case_X, case_X_browser, etc.)
+    
+    # Processing status fields
+    extraction_status = db.Column(db.String(50))  # For ZIP containers
+    parsing_status = db.Column(db.String(50))  # For artifacts
+    indexing_status = db.Column(db.String(50))  # For NDJSON
+    
+    # Parsed file paths
+    parsed_file_path = db.Column(db.String(1000))  # Path to compressed NDJSON in staging
+    parsed_at = db.Column(db.DateTime)
+    
+    # Compression details
+    original_size = db.Column(db.BigInteger)  # Original size before processing
+    compressed_size = db.Column(db.BigInteger)  # Size after GZIP compression
+    compression_ratio = db.Column(db.Float)  # (1 - compressed/original) * 100
+    
+    # Artifact state tracking
+    artifact_state = db.Column(db.String(50))  # raw, compressed, deleted
+    ndjson_state = db.Column(db.String(50))  # pending, compressed, deleted
+    artifact_compressed_path = db.Column(db.String(1000))  # Path to compressed artifact
+    ndjson_compressed_path = db.Column(db.String(1000))  # Path to compressed NDJSON
     
     # Parsed metadata
     source_system = db.Column(db.String(200))  # Computer name from events
@@ -100,8 +127,11 @@ class CaseFile(db.Model):
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     
     # Processing status
-    status = db.Column(db.String(50), default='pending')  # pending, processing, indexed, failed
+    status = db.Column(db.String(50), default='pending')  # pending, processing, indexed, failed, extracting, parsing
     error_message = db.Column(db.Text)
+    error_details = db.Column(db.Text)  # Detailed error messages for container processing
+    files_failed = db.Column(db.Integer, default=0)  # Count of failed files in ZIP
+    retry_count = db.Column(db.Integer, default=0)  # Number of retry attempts
     indexed_at = db.Column(db.DateTime)
     
     # Visibility flag - hide empty files by default
@@ -110,6 +140,7 @@ class CaseFile(db.Model):
     # Relationships
     case = db.relationship('Case', backref='files')
     uploader = db.relationship('User', backref='uploaded_files')
+    parent_file = db.relationship('CaseFile', remote_side=[id], backref='child_files', foreign_keys=[parent_file_id])
     
     def __repr__(self):
         return f'<CaseFile {self.filename}>'
