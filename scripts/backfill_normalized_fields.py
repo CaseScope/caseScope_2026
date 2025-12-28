@@ -117,7 +117,7 @@ def main():
     client = get_opensearch_client()
     
     # Get all indices matching case_* pattern
-    indices = client.indices.get("case_*")
+    indices = client.indices.get(index="case_*")
     
     total_cases = 0
     total_docs = 0

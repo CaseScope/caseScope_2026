@@ -140,9 +140,9 @@ def _build_filter_clause(rule):
     # Filter out excluded fields if specified
     if rule.exclude_fields:
         excluded = [f.strip() for f in rule.exclude_fields.split(',')]
-        # Remove excluded fields and also 'search_blob' if any field is excluded
-        # (search_blob contains all field values, so it would match excluded content)
-        fields = [f for f in fields if f not in excluded and f != 'search_blob']
+        # Remove excluded fields from checking (but keep search_blob for broad matching)
+        # The event-level matcher will handle search_blob exclusion intelligently
+        fields = [f for f in fields if f not in excluded]
         logger.debug(f"Rule '{rule.name}' excluding fields: {excluded}, remaining: {len(fields)} fields")
     
     if not fields:
@@ -592,9 +592,17 @@ def _event_matches_rule(event_data, rule, return_fields=False):
     # Filter out excluded fields if specified
     if rule.exclude_fields:
         excluded = [f.strip() for f in rule.exclude_fields.split(',')]
-        # Remove excluded fields and also 'search_blob' if any field is excluded
-        target_fields = [f for f in target_fields if f not in excluded and f != 'search_blob']
-        logger.info(f"[NOISE_CHECK] Rule '{rule.name}' excluding fields: {excluded}, checking {len(target_fields)} remaining fields")
+        # Remove excluded fields from target list
+        target_fields = [f for f in target_fields if f not in excluded]
+        
+        # For search_blob: only exclude if event has agent/metadata fields
+        # (EVTX files don't have agent fields, so search_blob is safe)
+        # (NDJSON from EDR has agent.url that pollutes search_blob)
+        if 'search_blob' in target_fields and event_data.get('agent'):
+            target_fields.remove('search_blob')
+            logger.info(f"[NOISE_CHECK] Rule '{rule.name}' removed search_blob (event has agent metadata)")
+        else:
+            logger.info(f"[NOISE_CHECK] Rule '{rule.name}' excluding fields: {excluded}, checking {len(target_fields)} remaining fields")
     
     if not target_fields:
         logger.warning(f"[NOISE_CHECK] Rule '{rule.name}' has no fields left after exclusions")

@@ -727,6 +727,53 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                 total_indexed += stats['indexed']
                 total_failed += stats.get('failed', 0)
         
+        elif file_ext == '.csv':
+            # CSV/Firewall Parser (Phase 1)
+            from parsers.firewall_csv_parser import parse_firewall_csv
+            
+            logger.info(f"Parsing CSV/Firewall: {filename}")
+            
+            chunk = []
+            chunk_size = 5000
+            
+            for event in parse_firewall_csv(file_path):
+                chunk.append(event)
+                
+                # Try to extract source system from normalized fields or geo data
+                if not source_system:
+                    source_system = (
+                        event.get('normalized_computer') or 
+                        event.get('src_name') or 
+                        event.get('dst_name') or
+                        'Firewall'
+                    )
+                
+                if len(chunk) >= chunk_size:
+                    stats = indexer.bulk_index(
+                        index_name=target_index,
+                        events=iter(chunk),
+                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                        case_id=case_id,
+                        source_file=filename,
+                        file_type='CSV'
+                    )
+                    total_indexed += stats['indexed']
+                    total_failed += stats.get('failed', 0)
+                    chunk = []
+            
+            # Index remaining chunk
+            if chunk:
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='CSV'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
+        
         # PHASE 2: Browser History Parser
         elif 'history' in filename.lower() or (file_ext in ['.sqlite', '.db'] and ('history' in filename.lower() or 'places.sqlite' in filename.lower())):
             # Chrome/Firefox History Parser (Phase 2)

@@ -144,67 +144,48 @@ def tag_noise_events(self, case_id, user_id, clear_previous=True):
                 matched_rules = []
                 
                 for rule in rules:
-                    # Get fields to check based on filter type
-                    field_mapping = {
-                        'process_name': [
-                            'event_data.Image', 'event_data.ProcessName', 'event_data.ParentImage',
-                            'process.name', 'process.executable', 'process.parent.name',
-                            'process.parent.executable', 'process.pe.original_file_name',
-                            'process.parent.pe.original_file_name', 'search_blob'
-                        ],
-                        'file_path': [
-                            'event_data.Image', 'event_data.TargetFilename', 'file.path', 'file.name',
-                            'process.executable', 'process.pe.path', 'search_blob'
-                        ],
-                        'command_line': [
-                            'event_data.CommandLine', 'event_data.ParentCommandLine',
-                            'process.command_line', 'process.parent.command_line',
-                            'process.args', 'search_blob'
-                        ],
-                        'hash': [
-                            'event_data.Hashes', 'file.hash.sha256', 'file.hash.md5',
-                            'process.hash.sha256', 'process.hash.md5', 'search_blob'
-                        ],
-                        'guid': [
-                            'event_data.ProcessGuid', 'event_data.SessionId',
-                            'process.entity_id', 'session.id', 'search_blob'
-                        ],
-                        'network_connection': [
-                            'event_data.DestinationIp', 'event_data.SourceIp',
-                            'destination.ip', 'source.ip', 'network.destination.ip',
-                            'network.source.ip', 'search_blob'
-                        ]
-                    }
+                    # Simple approach: Check search_blob first (contains everything)
+                    search_blob = event_data.get('search_blob', '')
                     
-                    target_fields = field_mapping.get(rule['filter_type'], [])
+                    if not search_blob:
+                        continue  # Skip if no search_blob
                     
-                    # Apply field exclusions if specified
+                    # Check if pattern matches in search_blob
+                    if not _value_matches_pattern(search_blob, rule['pattern'], rule['match_mode'], rule['is_case_sensitive']):
+                        continue  # Pattern doesn't match at all
+                    
+                    # Pattern matched! Now check if it's ONLY because of excluded field values
+                    is_excluded_match = False
+                    
                     if rule.get('exclude_fields'):
-                        excluded = [f.strip() for f in rule['exclude_fields'].split(',')]
-                        # Remove excluded fields and also 'search_blob' if any field is excluded
-                        # (search_blob contains all field values including agent URLs)
-                        target_fields = [f for f in target_fields if f not in excluded and f != 'search_blob']
-                        logger.debug(f"Rule '{rule['name']}' excluding fields: {excluded}, checking {len(target_fields)} remaining fields")
-                    
-                    matched_fields = []
-                    
-                    for field_path in target_fields:
-                        field_value = _get_nested_field(event_data, field_path)
+                        excluded_fields = [f.strip() for f in rule['exclude_fields'].split(',')]
                         
-                        if field_value is None:
-                            continue
+                        # Get values of excluded fields
+                        excluded_values = []
+                        for exc_field in excluded_fields:
+                            exc_value = _get_nested_field(event_data, exc_field)
+                            if exc_value:
+                                excluded_values.append(str(exc_value))
                         
-                        if _value_matches_pattern(field_value, rule['pattern'], rule['match_mode'], rule['is_case_sensitive']):
-                            matched_fields.append(field_path)
-                            break  # Found a match for this rule
+                        # Check if pattern matches ONLY in excluded field values
+                        # If search_blob without excluded values still matches, it's real noise
+                        search_blob_clean = search_blob
+                        for exc_val in excluded_values:
+                            search_blob_clean = search_blob_clean.replace(exc_val, '')
+                        
+                        # Re-check pattern against cleaned search_blob
+                        if not _value_matches_pattern(search_blob_clean, rule['pattern'], rule['match_mode'], rule['is_case_sensitive']):
+                            # Pattern only matched in excluded field values, skip this match
+                            is_excluded_match = True
                     
-                    if matched_fields:
+                    if not is_excluded_match:
+                        # Real noise match!
                         matched_rules.append({
                             'rule_name': rule['name'],
                             'category': rule['category_name'],
                             'pattern': rule['pattern'],
                             'filter_type': rule['filter_type'],
-                            'matched_fields': matched_fields,
+                            'matched_fields': ['search_blob'],
                             'priority': rule['priority']
                         })
                 

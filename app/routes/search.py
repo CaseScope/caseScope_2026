@@ -98,7 +98,8 @@ def api_search_events():
         query_string = request.args.get('q', '').strip()
         page = max(1, int(request.args.get('page', 1)))
         per_page = min(100, max(1, int(request.args.get('per_page', 50))))
-        sort_field = request.args.get('sort', 'normalized_timestamp')  # Using normalized field for consistency across log types
+        # Use normalized fields for sorting (backfill script populates these for all events)
+        sort_field = request.args.get('sort', 'normalized_timestamp')
         sort_order = request.args.get('order', 'desc')
         
         # Get file type filters
