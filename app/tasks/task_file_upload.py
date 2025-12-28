@@ -108,6 +108,35 @@ def detect_artifact_type(file_path):
     # Default: main event index
     return 'event'
 
+def extract_username_from_path(file_path):
+    """
+    Extract Windows username from file path
+    Examples:
+      C/Users/jdoe/... → jdoe
+      C:\\Users\\jdoe\\... → jdoe
+      /Users/jdoe/... → jdoe (macOS)
+    Returns: username or None
+    """
+    if not file_path:
+        return None
+    
+    # Normalize path separators
+    normalized_path = file_path.replace('\\', '/')
+    
+    # Windows paths
+    if '/Users/' in normalized_path:
+        parts = normalized_path.split('/Users/')
+        if len(parts) > 1:
+            username = parts[1].split('/')[0]
+            if username and username not in ['Public', 'Default', 'All Users']:
+                return username
+    
+    # Windows system profile
+    if '/systemprofile/' in normalized_path or '/config/systemprofile/' in normalized_path:
+        return 'SYSTEM'
+    
+    return None
+
 def calculate_file_hash(file_path):
     """Calculate SHA256 hash of a file"""
     hash_obj = hashlib.sha256()
@@ -419,6 +448,9 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                         logger.debug(f"Skipping invalid file type: {filename} (path: {zip_member})")
                         continue
                     
+                    # Extract username from full path
+                    source_user = extract_username_from_path(zip_member)
+                    
                     # Extract to staging with unique name
                     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
                     safe_filename = f"{timestamp}_{filename}"
@@ -442,7 +474,7 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                         virtual_file = CaseFile(
                             case_id=case_id,
                             filename=safe_filename,
-                            original_filename=filename,
+                            original_filename=zip_member,  # Store FULL path from ZIP
                             file_type=os.path.splitext(filename)[1].lower().lstrip('.'),
                             file_size=file_size,
                             file_path=extract_path,  # Staging path
@@ -451,6 +483,7 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                             is_virtual=True,  # Virtual file (from ZIP)
                             parent_file_id=container_id,  # Link to ZIP container
                             target_index=target_index,
+                            source_user=source_user,  # Store extracted username
                             uploaded_by=1,
                             uploaded_at=datetime.utcnow(),
                             status='parsing',

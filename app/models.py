@@ -118,6 +118,7 @@ class CaseFile(db.Model):
     
     # Parsed metadata
     source_system = db.Column(db.String(200))  # Computer name from events
+    source_user = db.Column(db.String(255))  # Username extracted from file path (e.g., C/Users/username/)
     event_count = db.Column(db.Integer, default=0)
     sigma_violations = db.Column(db.Integer, default=0)
     ioc_count = db.Column(db.Integer, default=0)
