@@ -219,9 +219,10 @@ def complete_upload(case_id):
         except Exception as e:
             logger.warning(f"Failed to clean up chunks: {e}")
         
-        # Queue file for processing (pass hash to ingest task)
-        from tasks.task_file_upload import ingest_staged_file
-        task = ingest_staged_file.delay(case_id, final_path, file_hash)
+        # Queue file for processing (ZIP-centric architecture)
+        from tasks.task_file_upload import process_uploaded_files
+        # process_uploaded_files expects: (case_id, files_list) where files_list is list of filenames in staging
+        task = process_uploaded_files.delay(case_id, [final_filename])
         
         # Log action
         from audit_logger import log_action
