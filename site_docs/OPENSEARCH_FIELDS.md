@@ -1,15 +1,23 @@
 # OpenSearch Field Structure & Mappings
 
-**Last Updated**: December 25, 2025
+**Last Updated**: December 28, 2025
 
 ## Overview
 
 This document explains the OpenSearch field structure used in CaseScope, including field types, normalized fields, and how different log sources map to the unified schema.
 
-**Index Structure**: Case-level indexes (one index per case)
-- Format: `case_{id}` (e.g., `case_2`, `case_123`)
-- All events for a case stored in a single index
-- Enables cross-file searching and correlation
+**Index Structure**: Multi-index strategy (v2.0 ZIP-centric architecture)
+- **Main Events**: `case_{id}` (e.g., `case_3`) - EVTX, NDJSON
+- **Browser History**: `case_{id}_browser` - Chrome, Firefox, WebCache (IE/Edge)
+- **Execution**: `case_{id}_execution` - Prefetch files
+- **Network**: `case_{id}_network` - SRUM (network usage)
+- **Devices**: `case_{id}_devices` - setupapi.dev.log (USB devices)
+
+**Benefits**:
+- Faster targeted searches per artifact type
+- Better performance on large datasets
+- Clear separation of concerns
+- Independent retention policies per index
 
 ---
 

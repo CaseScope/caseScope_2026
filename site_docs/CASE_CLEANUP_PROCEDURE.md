@@ -17,13 +17,15 @@ The case files page shows the following statistics and their data sources:
 
 | Statistic | Value Example | Data Source |
 |-----------|---------------|-------------|
-| **Total Files** | 1067 | Filesystem: Count of files in `/opt/casescope/storage/case_{case_id}/` |
-| **Total Events** | 619,474 | OpenSearch: `curl http://localhost:9200/case_{case_id}/_count` |
-| **Indexed Files** | 745 | PostgreSQL: `SELECT COUNT(*) FROM case_file WHERE case_id = X AND status = 'indexed'` |
-| **Pending Files** | 107 | Filesystem: Count of files in `/opt/casescope/staging/{case_id}/` |
-| **Total Size** | 2.52 GB | Filesystem: Sum of file sizes in `/opt/casescope/storage/case_{case_id}/` |
+| **Total Files** | 353 | PostgreSQL: `SELECT COUNT(*) FROM case_file WHERE case_id = X AND is_virtual = false` (physical files only) |
+| **Total Events** | 420,608 | OpenSearch: Sum across all case indexes (`case_X`, `case_X_browser`, etc.) |
+| **Indexed Files** | 352 | PostgreSQL: `SELECT COUNT(*) FROM case_file WHERE case_id = X AND status = 'indexed'` |
+| **Pending Files** | 37 | Filesystem: Count of files in `/opt/casescope/staging/{case_id}/` |
+| **Total Size** | 0.68 GB | PostgreSQL: `SELECT SUM(file_size) FROM case_file WHERE case_id = X AND is_virtual = false` |
 
-**Code Reference:** `/opt/casescope/app/routes/case.py` → `case_files_stats()` (lines 431-510)
+**Code Reference:** `/opt/casescope/app/routes/case.py` → `case_files_stats()`
+
+**Note:** ZIP-centric architecture means virtual files (extracted from ZIPs) are not counted in total files, only container ZIPs and standalone files.
 
 ---
 
@@ -32,27 +34,33 @@ The case files page shows the following statistics and their data sources:
 ### 1. PostgreSQL Database (`casescope` database)
 
 #### `case_file` Table
-**Purpose:** Tracks metadata for all uploaded files
+**Purpose:** Tracks metadata for all uploaded files (ZIP containers, virtual files, standalone files)
 
-**Columns:**
+**Columns (ZIP-Centric Architecture):**
 ```sql
-id                 -- Primary key
-case_id            -- Foreign key to case.id
-filename           -- File name
-original_filename  -- Original upload name
-file_type          -- evtx, json, csv, etc.
-file_size          -- Size in bytes
-file_path          -- Full storage path
-source_system      -- Computer/hostname extracted from events
-event_count        -- Number of events in this file
-sigma_violations   -- SIGMA rule match count
-ioc_count          -- IOC match count
-uploaded_by        -- Foreign key to user.id
-uploaded_at        -- Timestamp
-status             -- pending, processing, indexed, failed
-error_message      -- Error details if failed
-indexed_at         -- When indexing completed
-is_hidden          -- True for files with 0 events
+-- Core fields
+id, case_id, filename, original_filename, file_type, file_size, file_path, file_hash
+
+-- ZIP-centric fields
+is_container          -- True for ZIP files
+is_virtual            -- True for files extracted from ZIP
+parent_file_id        -- References parent ZIP (if virtual)
+target_index          -- OpenSearch index (case_X, case_X_browser, case_X_execution, etc.)
+
+-- Processing status
+extraction_status, parsing_status, indexing_status
+status                -- Overall: pending, processing, indexed, failed, extracting, parsing
+
+-- Metadata
+source_system, event_count, sigma_violations, ioc_count
+uploaded_by, uploaded_at, indexed_at, is_hidden
+
+-- Error tracking
+error_message, error_details, files_failed, retry_count
+
+-- Compression tracking
+parsed_file_path, parsed_at, original_size, compressed_size, compression_ratio
+artifact_state, ndjson_state, artifact_compressed_path, ndjson_compressed_path
 ```
 
 **To Clean:**
@@ -61,7 +69,8 @@ DELETE FROM case_file WHERE case_id = {CASE_ID};
 ```
 
 **Effects:**
-- Removes all file tracking records
+- Removes all file tracking records (containers, virtual files, standalone)
+- Cascades to delete virtual files when parent ZIP deleted
 - Resets "Indexed Files" count to 0
 - Clears upload history for the case
 
@@ -70,34 +79,46 @@ DELETE FROM case_file WHERE case_id = {CASE_ID};
 ### 2. Filesystem Storage
 
 #### A. `/opt/casescope/storage/case_{case_id}/`
-**Purpose:** Permanent storage for processed files
+**Purpose:** Permanent storage for processed files (ZIP-centric)
 
 **Contains:**
-- Original uploaded files (EVTX, JSON, CSV, etc.)
-- Files that have been indexed into OpenSearch
-- Files remain here even after indexing
+- ZIP files (containers) - kept permanently
+- Standalone files - compressed with GZIP after indexing
+- Virtual files (from ZIPs) - NOT stored here, only in database as references
 
 **To Clean:**
 ```bash
-rm -rf /opt/casescope/storage/case_{CASE_ID}/
-# Or to preserve directory:
-rm -f /opt/casescope/storage/case_{CASE_ID}/*
+sudo rm -rf /opt/casescope/storage/case_{CASE_ID}
+sudo mkdir -p /opt/casescope/storage/case_{CASE_ID}
+sudo chown casescope:casescope /opt/casescope/storage/case_{CASE_ID}
 ```
 
 **Effects:**
-- Removes all stored files
+- Removes all stored files (ZIPs and standalone files)
+- Virtual files are already deleted after indexing
 - Resets "Total Files" count to 0
 - Resets "Total Size" to 0 GB
 - Files CANNOT be re-indexed without re-uploading
 
 #### B. `/opt/casescope/staging/{case_id}/`
-**Purpose:** Temporary staging area for validated files waiting to be processed
+**Purpose:** Temporary staging area for files during processing
 
 **Contains:**
-- Files that passed validation but haven't been ingested yet
-- Files waiting for Celery workers to process them
+- Extracted artifacts from ZIPs (temporary, deleted after indexing)
+- Standalone files before compression and moving to storage
+- NDJSON files (compressed, deleted after indexing)
 
 **To Clean:**
+```bash
+sudo rm -rf /opt/casescope/staging/{CASE_ID}
+sudo mkdir -p /opt/casescope/staging/{CASE_ID}
+sudo chown casescope:casescope /opt/casescope/staging/{CASE_ID}
+```
+
+**Effects:**
+- Removes pending/in-process files
+- Resets "Pending Files" count to 0
+- May interrupt active processing (stop Celery workers first)
 ```bash
 rm -rf /opt/casescope/staging/{CASE_ID}/
 # Or to preserve directory:
