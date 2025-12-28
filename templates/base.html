@@ -69,6 +69,11 @@
                     <span>Hunt Events</span>
                 </a>
                 
+                <a href="/browser" class="sidebar-nav-item {% if request.path.startswith('/browser') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🌐</span>
+                    <span>Browser History</span>
+                </a>
+                
                 <a href="/systems" class="sidebar-nav-item {% if request.path.startswith('/systems') %}active{% endif %}">
                     <span class="sidebar-nav-icon">💻</span>
                     <span>Known Systems</span>

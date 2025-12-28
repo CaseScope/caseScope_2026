@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+
+{% block head %}
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+{% endblock %}
+
+{% block header_title %}Browser History{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    {% if error %}
+    <div class="alert alert-error">
+        <strong>Error:</strong> {{ error }}
+    </div>
+    {% else %}
+    
+    <!-- Search and Filter Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h3>🌐 Browser History - {{ case.title }}</h3>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-8">
+                    <div class="form-group">
+                        <input type="text" 
+                               id="searchInput" 
+                               class="form-input" 
+                               placeholder="Search URLs, titles, or domains..."
+                               onkeypress="if(event.key === 'Enter') performSearch()">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <select id="browserFilter" class="form-select" onchange="performSearch()">
+                        <option value="">All Browsers</option>
+                        <option value="chrome">Chrome</option>
+                        <option value="edge">Edge/IE</option>
+                        <option value="firefox">Firefox</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button onclick="performSearch()" class="btn btn-primary btn-block">
+                        🔍 Search
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Section -->
+    <div class="row mb-4" id="statsSection" style="display: none;">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-info">
+                    <div class="stat-label">Total Visits</div>
+                    <div class="stat-value" id="totalVisits">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-9">
+            <div class="card">
+                <div class="card-header">
+                    <h4>Top Domains</h4>
+                </div>
+                <div class="card-body">
+                    <div id="topDomains">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4>Browser Events</h4>
+            <div id="resultsInfo" class="text-muted"></div>
+        </div>
+        <div class="card-body">
+            <div id="resultsContainer">
+                <div class="text-center p-4 text-muted">
+                    <p>Enter a search query or click Search to view all browser history</p>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            <div id="paginationContainer" style="display: none;">
+                <div class="pagination-controls mt-3">
+                    <button id="prevButton" class="btn btn-secondary" onclick="changePage(-1)" disabled>
+                        ← Previous
+                    </button>
+                    <span id="pageInfo" class="pagination-info">Page 1 of 1</span>
+                    <button id="nextButton" class="btn btn-secondary" onclick="changePage(1)" disabled>
+                        Next →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% endif %}
+</div>
+
+<script>
+const caseId = {{ case_id|tojson }};
+let currentPage = 1;
+let currentQuery = '';
+let currentBrowser = '';
+let totalPages = 1;
+
+// Load stats on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+});
+
+async function loadStats() {
+    try {
+        const response = await fetch('/browser/api/stats');
+        if (!response.ok) throw new Error('Failed to load stats');
+        
+        const data = await response.json();
+        
+        if (data.total_visits > 0) {
+            document.getElementById('statsSection').style.display = 'flex';
+            document.getElementById('totalVisits').textContent = formatNumber(data.total_visits);
+            
+            // Display top domains
+            if (data.top_domains && data.top_domains.length > 0) {
+                const domainsHtml = data.top_domains.map(d => 
+                    `<div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="badge badge-primary">${d.domain}</span>
+                        <span class="text-small">${formatNumber(d.count)} visits</span>
+                    </div>`
+                ).join('');
+                document.getElementById('topDomains').innerHTML = domainsHtml;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading stats:', error);
+    }
+}
+
+async function performSearch() {
+    currentQuery = document.getElementById('searchInput').value.trim();
+    currentBrowser = document.getElementById('browserFilter').value;
+    currentPage = 1;
+    await loadEvents();
+}
+
+async function loadEvents() {
+    const resultsContainer = document.getElementById('resultsContainer');
+    resultsContainer.innerHTML = '<div class="text-center p-4"><div class="spinner-border" role="status"></div><p class="mt-2">Loading browser history...</p></div>';
+    
+    try {
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: 50,
+            sort: '@timestamp',
+            order: 'desc'
+        });
+        
+        if (currentQuery) params.append('q', currentQuery);
+        if (currentBrowser) params.append('browser', currentBrowser);
+        
+        const response = await fetch(`/browser/api/events?${params}`);
+        if (!response.ok) throw new Error('Search failed');
+        
+        const data = await response.json();
+        
+        if (data.events && data.events.length > 0) {
+            renderEvents(data.events);
+            updatePagination(data);
+        } else {
+            resultsContainer.innerHTML = `
+                <div class="alert alert-info">
+                    <strong>No browser history found.</strong><br>
+                    ${data.message || 'Try adjusting your search criteria.'}
+                </div>
+            `;
+            document.getElementById('paginationContainer').style.display = 'none';
+        }
+        
+        document.getElementById('resultsInfo').textContent = 
+            `Showing ${data.events.length} of ${formatNumber(data.total)} events`;
+        
+    } catch (error) {
+        console.error('Error loading events:', error);
+        resultsContainer.innerHTML = `
+            <div class="alert alert-error">
+                <strong>Error loading browser history:</strong> ${error.message}
+            </div>
+        `;
+    }
+}
+
+function renderEvents(events) {
+    const resultsContainer = document.getElementById('resultsContainer');
+    
+    let html = '<div class="table-responsive"><table class="table table-hover"><thead><tr>';
+    html += '<th>Timestamp</th><th>URL</th><th>Title</th><th>Browser</th><th>System</th>';
+    html += '</tr></thead><tbody>';
+    
+    events.forEach(event => {
+        const timestamp = formatTimestamp(event['@timestamp'] || event.timestamp);
+        const url = event.url || '-';
+        const title = event.title || '-';
+        const browser = event.browser_type || event.event_type || 'Unknown';
+        const system = event.computer || event.hostname || event.source_system || '-';
+        
+        // Truncate long URLs/titles
+        const displayUrl = url.length > 80 ? url.substring(0, 77) + '...' : url;
+        const displayTitle = title.length > 50 ? title.substring(0, 47) + '...' : title;
+        
+        html += `<tr>
+            <td><span class="text-small">${timestamp}</span></td>
+            <td><a href="${url}" target="_blank" class="text-small" title="${url}">${displayUrl}</a></td>
+            <td><span class="text-small" title="${title}">${displayTitle}</span></td>
+            <td><span class="badge badge-info">${browser}</span></td>
+            <td><span class="badge badge-secondary">${system}</span></td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table></div>';
+    resultsContainer.innerHTML = html;
+}
+
+function updatePagination(data) {
+    totalPages = data.total_pages;
+    
+    document.getElementById('paginationContainer').style.display = totalPages > 1 ? 'block' : 'none';
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+    document.getElementById('prevButton').disabled = !data.has_prev;
+    document.getElementById('nextButton').disabled = !data.has_next;
+}
+
+function changePage(delta) {
+    currentPage += delta;
+    loadEvents();
+}
+
+function formatNumber(num) {
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function formatTimestamp(ts) {
+    if (!ts) return '-';
+    try {
+        const date = new Date(ts);
+        return date.toLocaleString();
+    } catch (e) {
+        return ts;
+    }
+}
+</script>
+{% endblock %}
+
