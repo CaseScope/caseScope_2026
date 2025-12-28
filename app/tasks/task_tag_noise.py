@@ -130,7 +130,8 @@ def tag_noise_events(self, case_id, user_id, clear_previous=True):
                 'match_mode': r.match_mode,
                 'is_case_sensitive': r.is_case_sensitive,
                 'category_name': r.category.name,
-                'priority': r.priority
+                'priority': r.priority,
+                'exclude_fields': r.exclude_fields  # Include exclusion list
             } for r in enabled_rules]
             
             logger.info(f"Prepared {len(rules_data)} rules for noise checking")
@@ -176,6 +177,15 @@ def tag_noise_events(self, case_id, user_id, clear_previous=True):
                     }
                     
                     target_fields = field_mapping.get(rule['filter_type'], [])
+                    
+                    # Apply field exclusions if specified
+                    if rule.get('exclude_fields'):
+                        excluded = [f.strip() for f in rule['exclude_fields'].split(',')]
+                        # Remove excluded fields and also 'search_blob' if any field is excluded
+                        # (search_blob contains all field values including agent URLs)
+                        target_fields = [f for f in target_fields if f not in excluded and f != 'search_blob']
+                        logger.debug(f"Rule '{rule['name']}' excluding fields: {excluded}, checking {len(target_fields)} remaining fields")
+                    
                     matched_fields = []
                     
                     for field_path in target_fields:

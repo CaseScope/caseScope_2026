@@ -134,6 +134,9 @@ def _build_filter_clause(rule):
         logger.warning(f"Unknown filter type: {rule.filter_type}")
         return None
     
+    # DEBUG: Log rule exclusions
+    logger.info(f"[DEBUG] Rule '{rule.name}': exclude_fields = {repr(rule.exclude_fields)}")
+    
     # Filter out excluded fields if specified
     if rule.exclude_fields:
         excluded = [f.strip() for f in rule.exclude_fields.split(',')]
@@ -582,6 +585,9 @@ def _event_matches_rule(event_data, rule, return_fields=False):
     }
     
     target_fields = field_mapping.get(rule.filter_type, [])
+    
+    # DEBUG: Log rule exclusions
+    logger.info(f"[DEBUG] Rule '{rule.name}': exclude_fields = {repr(rule.exclude_fields)}")
     
     # Filter out excluded fields if specified
     if rule.exclude_fields:
