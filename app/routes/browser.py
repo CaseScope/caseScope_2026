@@ -62,6 +62,50 @@ def history():
                          case_id=case_id)
 
 
+@browser_bp.route('/api/users')
+@login_required
+def api_get_users():
+    """
+    Get list of users who have browser data
+    """
+    case_id = session.get('selected_case_id')
+    
+    if not case_id:
+        return jsonify({'error': 'No case selected'}), 400
+    
+    from models import Case, CaseFile
+    from main import db
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+    
+    # Get distinct users from browser files
+    users = db.session.query(
+        CaseFile.source_user,
+        db.func.count(CaseFile.id).label('file_count')
+    ).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.target_index.like('%browser%'),
+        CaseFile.source_user.isnot(None)
+    ).group_by(
+        CaseFile.source_user
+    ).order_by(
+        db.func.count(CaseFile.id).desc()
+    ).all()
+    
+    user_list = [
+        {'username': user.source_user, 'file_count': user.file_count}
+        for user in users
+    ]
+    
+    return jsonify({'users': user_list})
+
+
 @browser_bp.route('/api/events')
 @login_required
 def api_browser_events():
