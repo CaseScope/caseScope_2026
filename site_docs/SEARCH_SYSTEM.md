@@ -9,12 +9,15 @@ The CaseScope search system provides a powerful, Google-like search interface fo
 - ✅ Parenthetical grouping for complex queries
 - ✅ Full-text search across all event fields
 - ✅ File type filtering (EVTX, NDJSON, IIS, CSV)
+- ✅ Event tag filtering (Other, Tagged, IOC, SIGMA)
+- ✅ **Noise filtering** ⭐ NEW (RMM, EDR/MDR, Remote Access)
 - ✅ Sorted pagination (newest first by default)
 - ✅ Deep pagination support (100K+ events)
 - ✅ Event detail modal with expandable JSON tree
 - ✅ Process tree visualization for NDJSON events
 - ✅ Field-level copy and search actions
 - ✅ Special character handling in search values
+- ✅ Manual event tagging (star/unstar events)
 
 ---
 
@@ -131,6 +134,8 @@ process_name:"[System Process]"
 | `sort_field` | string | "normalized_timestamp" | Field to sort by |
 | `sort_order` | string | "desc" | Sort direction (asc/desc) |
 | `file_types` | string | "" | Comma-separated file types (EVTX,NDJSON,IIS,CSV) |
+| `event_tags` | string | "" | Comma-separated event tags (other,tagged,ioc,sigma) |
+| `noise_categories` | string | "" | Comma-separated noise categories to show |
 
 **Response:**
 ```json
@@ -495,11 +500,29 @@ Examples:
 7. **IOCs** - IOC type badges (color-coded by threat level)
 8. **SIGMA Detections** - Sigma rule badges (color-coded by severity)
 
-**File Type Filters:**
-- Checkboxes above results table
-- Filter by: EVTX Files, NDJSON Files, IIS Files, CSV Files
-- All types enabled by default
-- Filters work with search queries
+**Filter Panel** (three-column layout):
+
+**Column 1: File Types** (check to show events)
+- ✅ EVTX Files
+- ✅ NDJSON Files
+- ✅ IIS Files
+- ✅ CSV Files
+
+**Column 2: Event Tags** (check to show events)
+- ✅ 📄 Other Events (no tags/IOCs/Sigma)
+- ✅ ⭐ Tagged Events (analyst-tagged)
+- ✅ 🔴 IOC Events (contains IOCs)
+- ✅ 🟣 SIGMA Events (matches Sigma rules)
+
+**Column 3: Noise Filters** ⭐ NEW (check to show events)
+- ☐ 🔧 RMM Tools (unchecked by default)
+- ☐ 🛡️ EDR/MDR Platforms (unchecked by default)
+- ☐ 🖥️ Remote Access Tools (unchecked by default)
+
+**Filter Behavior**:
+- File Types & Event Tags: Checked by default, uncheck to hide
+- Noise Filters: Unchecked by default (hides noise), check to show specific noise categories
+- All filters work together cumulatively
 
 **Event ID Extraction:**
 The system extracts event IDs with proper fallback logic:
@@ -915,16 +938,185 @@ def test_event_detail():
 
 ---
 
+## Event Tagging System
+
+### Overview
+
+Analysts can manually tag events of interest during investigation. Tags are stored at the OpenSearch level for optimal performance.
+
+### Storage: OpenSearch (Not Database)
+
+Tags stored in OpenSearch for:
+1. **Performance**: No database joins needed
+2. **Scalability**: Handles millions of events
+3. **Simplicity**: Tags stored with event data
+4. **Query Efficiency**: Native OpenSearch boolean filters
+
+### OpenSearch Fields
+
+```python
+'analyst_tagged': {'type': 'boolean'},
+'analyst_tagged_by': {'type': 'keyword'},
+'analyst_tagged_at': {'type': 'date'}
+```
+
+### UI Features
+
+**Star Column** (first column in event table):
+- **☆** = Not tagged (click to tag)
+- **⭐** = Tagged (click to untag)
+- **⏳** = Loading state during API call
+
+**Tag/Untag Actions**:
+- Click star icon next to any event
+- Immediate visual feedback
+- Saved to OpenSearch within 200ms
+- All tag operations audited automatically
+
+### API Endpoints
+
+**Tag Event**: `POST /search/api/event/<event_id>/tag`
+**Untag Event**: `POST /search/api/event/<event_id>/untag`
+**Count Tagged**: `GET /search/api/tagged_events/count`
+**Get All Tagged**: `GET /search/api/tagged_events` (max 10,000)
+
+### Event Tag Filters
+
+Four filter types (all checked by default):
+
+1. **📄 Other Events** - Events without tags, IOCs, or Sigma hits
+2. **⭐ Tagged Events** - Analyst-tagged events
+3. **🔴 IOC Events** - Events with IOC hits
+4. **🟣 SIGMA Events** - Events matching Sigma rules
+
+**Filter Behavior**: 
+- Checked = Include those events
+- Unchecked = Exclude those events
+- Works exactly like File Type filters using exclusion logic
+
+### Event Classification Logic
+
+- **Other**: `analyst_tagged != true` AND `NOT IN ioc_event_ids` AND `NOT IN sigma_event_ids`
+- **Tagged**: `analyst_tagged == true`
+- **IOC**: `opensearch_doc_id IN ioc_event_ids` (from `event_ioc_hits` table)
+- **SIGMA**: `opensearch_doc_id IN sigma_event_ids` (from `event_sigma_hits` table)
+
+**Note**: Events can overlap (e.g., tagged + IOC + Sigma)
+
+### Combining Filters
+
+File Type, Event Tag, and Noise filters work together (AND logic):
+
+```
+EVTX ✓ + Tagged ✓ = Tagged EVTX events only
+NDJSON ✓ + IOC ✓ = NDJSON events with IOCs
+All ✓ + RMM Tools ✓ = All events + RMM noise events
+EVTX ✓ + Other ✓ (IOC ✗) = EVTX events without IOCs
+```
+
+### Permissions
+
+| Role | Tag/Untag | View Tagged |
+|------|-----------|-------------|
+| Admin | ✓ | ✓ |
+| Analyst | ✓ | ✓ |
+| Read-only | ✗ | ✓ |
+
+### Performance
+
+- **Tag operation**: < 200ms (OpenSearch update)
+- **Query tagged**: < 50ms (boolean filter)
+- **Count tagged**: < 10ms (count API)
+- **No database overhead**
+- **Scales linearly**
+
+## Noise Filter Integration
+
+### Overview
+
+The noise filter system allows showing/hiding events from known good software based on enabled noise filter rules.
+
+### Noise Categories
+
+Displayed in third filter column (unchecked by default):
+
+- 🔧 **RMM Tools** - Remote Monitoring and Management
+- 🛡️ **EDR/MDR Platforms** - Endpoint Detection platforms
+- 🖥️ **Remote Access Tools** - Legitimate remote access software
+
+**Note**: Only categories with tagged events appear (requires noise tagging task to be run first)
+
+### Filter Behavior
+
+**Default (all unchecked)**: Hides all noise events
+- Shows: 418,662 non-noise events
+- Hides: 64,676 noise events
+
+**Check "RMM Tools"**: Adds RMM noise events to results
+- Shows: 418,662 + 16,724 = 435,386 events (cumulative)
+
+**Check multiple**: Cumulative addition
+- RMM + EDR/MDR checked → Shows non-noise + RMM + EDR events
+
+### Implementation
+
+**OpenSearch Query Logic**:
+```python
+# Build should clauses for what to include
+should_clauses = []
+
+# Always include non-noise events
+should_clauses.append({
+    'bool': {
+        'must_not': [{'exists': {'field': 'noise_matched'}}]
+    }
+})
+
+# If noise categories checked, also include those
+if noise_category_filters:
+    should_clauses.append({
+        'bool': {
+            'must': [
+                {'term': {'noise_matched': True}},
+                {'terms': {'noise_categories.keyword': noise_category_filters}}
+            ]
+        }
+    })
+
+# Apply as must clause
+must_clauses.append({
+    'bool': {
+        'should': should_clauses,
+        'minimum_should_match': 1
+    }
+})
+```
+
+### Noise Event Fields
+
+Events tagged as noise have:
+```json
+{
+  "noise_matched": true,
+  "noise_rules": ["ConnectWise Automate", "Huntress EDR"],
+  "noise_categories": ["RMM Tools", "EDR/MDR Platforms"]
+}
+```
+
+See [NOISE_FILTERS.md](NOISE_FILTERS.md) for complete noise system documentation.
+
 ## Future Enhancements
 
 1. **Saved Searches** - Save common queries
 2. **Search History** - Recent searches
 3. **Export Results** - CSV/JSON export
-4. **Tag Events** - Star/flag important events
-5. **Advanced Filters** - Date range, severity level
-6. **Regex Support** - Pattern matching
-7. **Fuzzy Search** - Typo tolerance
-8. **Search Suggestions** - Auto-complete based on indexed fields
+4. **Advanced Filters** - Date range, severity level
+5. **Regex Support** - Pattern matching
+6. **Fuzzy Search** - Typo tolerance
+7. **Search Suggestions** - Auto-complete based on indexed fields
+8. **Tag categories** - Critical, suspicious, etc.
+9. **Tag comments** - Notes on tagged events
+10. **Bulk tagging** - Tag multiple events at once
 
 ---
 

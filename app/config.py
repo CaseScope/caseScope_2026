@@ -121,10 +121,16 @@ RABBITMQ_PASSWORD = 'casescope'
 RABBITMQ_VHOST = 'casescope'
 
 # Celery worker settings
-CELERY_WORKERS = 12  # Number of concurrent workers (auto-tuned on startup, default: 8)
+CELERY_WORKERS = 8  # Number of concurrent workers (auto-tuned on startup, default: 8)
 CELERY_MAX_TASKS_PER_CHILD = 1000  # Restart worker after N tasks (prevents memory leaks)
 CELERY_TASK_TIME_LIMIT = None  # Task hard timeout in seconds (None = no limit, user can cancel via UI)
 CELERY_TASK_SOFT_TIME_LIMIT = None  # Task soft timeout in seconds (None = no limit)
+
+# Parallel processing within tasks (uses OpenSearch slice scrolling)
+# Each long-running task (IOC hunt, SIGMA hunt, noise tagging) uses multiple threads internally
+TASK_PARALLEL_PERCENTAGE = 50  # Use 50% of CELERY_WORKERS for internal parallelism
+TASK_PARALLEL_MIN = 2          # Minimum parallel slices (even on small systems)
+TASK_PARALLEL_MAX = 8          # Maximum parallel slices (prevents over-threading)
 
 # Performance tuning for large files
 CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # How many tasks to prefetch per worker

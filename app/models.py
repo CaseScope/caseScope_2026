@@ -449,3 +449,130 @@ class EventSigmaHit(db.Model):
     def __repr__(self):
         return f'<EventSigmaHit Rule:{self.sigma_rule_id} in Event:{self.opensearch_doc_id}>'
 
+
+class NoiseFilterCategory(db.Model):
+    """
+    Categories for organizing noise filter rules
+    """
+    __tablename__ = 'noise_filter_categories'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True, index=True)
+    description = db.Column(db.Text)
+    is_enabled = db.Column(db.Boolean, default=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    rules = db.relationship('NoiseFilterRule', backref='category', cascade='all, delete-orphan', lazy='dynamic')
+    
+    def __repr__(self):
+        return f'<NoiseFilterCategory {self.name}>'
+
+
+class NoiseFilterRule(db.Model):
+    """
+    Noise filter rules for hiding known good software/tools
+    """
+    __tablename__ = 'noise_filter_rules'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('noise_filter_categories.id', ondelete='CASCADE'), index=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    
+    # Filter configuration
+    filter_type = db.Column(db.String(50), nullable=False, index=True)  # process_name, file_path, command_line, hash, guid, network_connection
+    pattern = db.Column(db.String(1000), nullable=False)  # The pattern to match
+    match_mode = db.Column(db.String(20), default='contains')  # exact, contains, starts_with, ends_with, regex, wildcard
+    is_case_sensitive = db.Column(db.Boolean, default=False)
+    
+    # Status and metadata
+    is_enabled = db.Column(db.Boolean, default=True, index=True)
+    is_system_default = db.Column(db.Boolean, default=False, index=True)  # True for built-in defaults
+    priority = db.Column(db.Integer, default=100, index=True)  # Lower number = higher priority
+    
+    # Audit
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'))
+    updated_by = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    creator = db.relationship('User', foreign_keys=[created_by], backref='noise_rules_created')
+    updater = db.relationship('User', foreign_keys=[updated_by], backref='noise_rules_updated')
+    
+    def __repr__(self):
+        return f'<NoiseFilterRule {self.name}>'
+
+
+class NoiseFilterStats(db.Model):
+    """
+    Track how many events were filtered by each rule
+    """
+    __tablename__ = 'noise_filter_stats'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    rule_id = db.Column(db.Integer, db.ForeignKey('noise_filter_rules.id', ondelete='CASCADE'), index=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id', ondelete='CASCADE'), index=True)
+    events_filtered = db.Column(db.Integer, default=0)
+    last_matched = db.Column(db.DateTime, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    rule = db.relationship('NoiseFilterRule', backref='stats')
+    case = db.relationship('Case', backref='noise_filter_stats')
+    
+    def __repr__(self):
+        return f'<NoiseFilterStats Rule:{self.rule_id} Case:{self.case_id}>'
+
+
+class ActiveTask(db.Model):
+    """
+    Track active Celery tasks for reconnection and progress monitoring
+    Allows users to reconnect to running tasks after page refresh or navigation
+    """
+    __tablename__ = 'active_tasks'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id', ondelete='CASCADE'), nullable=False, index=True)
+    task_type = db.Column(db.String(50), nullable=False, index=True)  # 'ioc_hunt', 'sigma_hunt', 'noise_tagging'
+    task_id = db.Column(db.String(255), nullable=False, unique=True, index=True)  # Celery task UUID
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Task status and progress
+    status = db.Column(db.String(20), default='running', index=True)  # running, completed, failed, cancelled
+    progress_percent = db.Column(db.Integer, default=0)
+    progress_message = db.Column(db.String(500))
+    
+    # Timing
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = db.Column(db.DateTime)
+    
+    # Results (stored as JSON)
+    result_data = db.Column(db.JSON)
+    error_message = db.Column(db.Text)
+    
+    # Relationships
+    case = db.relationship('Case', backref='active_tasks')
+    user = db.relationship('User', backref='tasks_initiated')
+    
+    def __repr__(self):
+        return f'<ActiveTask {self.task_type} case:{self.case_id} status:{self.status}>'
+    
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'task_type': self.task_type,
+            'task_id': self.task_id,
+            'user_id': self.user_id,
+            'status': self.status,
+            'progress_percent': self.progress_percent,
+            'progress_message': self.progress_message,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'result_data': self.result_data,
+            'error_message': self.error_message
+        }

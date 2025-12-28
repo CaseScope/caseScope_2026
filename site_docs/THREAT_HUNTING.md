@@ -1,4 +1,4 @@
-# Threat Hunting System - IOC & SIGMA
+# Threat Hunting System - IOC, SIGMA & Noise Filtering
 
 **Last Updated**: 2025-12-28  
 **Status**: ✅ Production Ready  
@@ -8,13 +8,133 @@
 
 ## Overview
 
-The Threat Hunting System provides comprehensive automated threat detection using both IOC (Indicators of Compromise) matching and SIGMA rule detection. Events matching IOCs or Sigma rules are automatically tagged and displayed with color-coded badges in search results.
+The Threat Hunting System provides comprehensive automated threat detection and noise reduction using:
+1. **IOC Hunting** - Match known Indicators of Compromise
+2. **SIGMA Rule Hunting** - Detect suspicious patterns with 3,652 rules
+3. **Software Noise Tagging** - ⭐ NEW: Identify and filter known good software
 
-**New in 2.0**: Browser event IOC hunting across `case_X_browser` index.
+Events matching IOCs, Sigma rules, or noise filters are automatically tagged and displayed with color-coded badges in search results.
+
+**New in 2.0**: 
+- Browser event IOC hunting across `case_X_browser` index
+- Software noise filtering system with 29 default rules across 6 categories
+- Dynamic parallel processing for faster tagging operations
+
+---
+
+## Hunting Dashboard Layout
+
+**Location**: `/hunting/dashboard`
+
+### Three-Tile Layout (100% width tiles, stacked vertically)
+
+**Tile 1: AI / Regex Hunting**
+- IOC Extract
+- MITRE
+- Behavioral
+- Network
+
+**Tile 2: Event Hunting**
+- Failed Logins
+- Success Logins
+- Hunt IOCs
+- Hunt SIGMA
+- Found Downloads
+
+**Tile 3: Event Tagging** ⭐ NEW
+- **Software Noise** button - Apply noise filter rules to identify and tag known good software
 
 ---
 
 ## Core Components
+
+### 0. Software Noise Tagging ⭐ NEW
+
+**Database Tables**:
+- `noise_filter_categories` - Category definitions (6 categories)
+- `noise_filter_rules` - Filter rules (29 default patterns)
+- `noise_filter_stats` - Per-case filtering statistics
+- `active_tasks` - Task persistence for UI reconnection
+
+**Purpose**: Identify and tag events from known good software (RMM tools, EDR platforms, backup software, etc.) to reduce noise in investigations.
+
+**Categories**:
+1. 🔧 **RMM Tools** - Remote Monitoring and Management (ConnectWise, Datto, etc.)
+2. 🛡️ **EDR/MDR Platforms** - Endpoint Detection platforms (Huntress, SentinelOne, etc.)
+3. 🖥️ **Remote Access Tools** - Legitimate remote access (ScreenConnect, TeamViewer, etc.)
+4. 💾 **Backup Software** - Backup solutions (Veeam, StorageCraft, etc.)
+5. ⚙️ **System Software** - Known good system utilities
+6. 📊 **Monitoring Tools** - System monitoring software
+
+#### How It Works
+
+1. User clicks **"Software Noise"** button in Hunting Dashboard
+2. Modal displays with clear/re-scan option (default: checked)
+3. Background task starts (`task_tag_noise.py`):
+   - Gets enabled rules from enabled categories
+   - Uses **dynamic parallel processing** (configurable via `TASK_PARALLEL_PERCENTAGE`)
+   - Scans events using OpenSearch slice scrolling across multiple threads
+   - Matches patterns against event data (supports EVTX `event_data` and raw `search_blob`)
+   - Tags matching events in OpenSearch with:
+     - `noise_matched=true`
+     - `noise_rules=[list of matched rule names]`
+     - `noise_categories=[list of categories]`
+   - Updates progress: `xxx,xxx events scanned (zzz%)`
+4. Results displayed in modal:
+   - Events scanned
+   - Events tagged
+   - Total matches
+   - Rules matched count
+   - Top rules matched table (rule name, category, match count)
+
+#### Pattern Matching
+
+**Supports Multiple Formats**:
+- **OR Logic**: `labtech,ltsvc,lttray` (comma-separated)
+- **AND Logic**: `screenconnect&&session_id` (must have both)
+- **Combined**: `veeam,backup&&server` (veeam OR (backup AND server))
+
+**Field Matching** (for `process_name` filter type):
+- EVTX: `event_data.Image`, `event_data.ProcessName`, `event_data.ParentImage`
+- NDJSON: `process.name`, `process.executable`, `process.parent.name`
+- **Fallback**: `search_blob` (critical for unparsed events)
+
+#### Performance
+
+- **Parallel Processing**: Uses configurable percentage of Celery workers (default: 50%)
+  - 8 workers × 50% = 4 parallel slices
+  - Each slice processes independently using OpenSearch slice scrolling
+- **Typical Performance**: ~7,000 events/second
+  - Example: 483,000 events tagged in 70 seconds
+- **Thread-Safe**: Progress aggregated from all slices without context errors
+- **Scalable**: Automatically adjusts parallelism based on worker configuration
+
+#### Noise Event Storage
+
+Tagged events in OpenSearch:
+```json
+{
+  "noise_matched": true,
+  "noise_rules": ["ConnectWise Automate", "Huntress EDR"],
+  "noise_categories": ["RMM Tools", "EDR/MDR Platforms"]
+}
+```
+
+#### Noise Filters in Event Search
+
+**Location**: `/search/events` - Third filter column (right of Event Tags)
+
+**Filter Options**:
+- 🔧 RMM Tools
+- 🛡️ EDR/MDR Platforms
+- 🖥️ Remote Access Tools
+
+**Behavior**:
+- **Default (unchecked)**: Hides all noise events
+- **Checked**: Adds that noise category to displayed events (cumulative)
+- **Example**: 418,662 non-noise events + check "RMM Tools" → adds 16,724 RMM events
+
+---
 
 ### 1. IOC Hunting
 
@@ -196,6 +316,52 @@ Matching prioritizes:
 ---
 
 ## API Endpoints
+
+### Software Noise Tagging
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/hunting/api/tag_noise` | POST | Start noise tagging task |
+| `/hunting/api/tag_noise/status/<task_id>` | GET | Check tagging progress |
+
+**Start Tagging Request**:
+```json
+{
+  "clear_previous": true
+}
+```
+
+**Status Response**:
+```json
+{
+  "state": "PROGRESS",
+  "progress": 62,
+  "status": "Processing events: 303000/483338",
+  "events_scanned": 303000,
+  "total_events": 483338,
+  "events_tagged": 15234,
+  "rules_matched": 4
+}
+```
+
+**Completion Response**:
+```json
+{
+  "state": "SUCCESS",
+  "progress": 100,
+  "events_scanned": 483200,
+  "events_tagged": 64676,
+  "total_matches": 81094,
+  "rules_matched": 4,
+  "rules_matched_detail": {
+    "Huntress EDR": {"count": 63040, "category": "EDR/MDR Platforms"},
+    "ConnectWise Automate": {"count": 16181, "category": "RMM Tools"},
+    "SentinelOne": {"count": 1330, "category": "EDR/MDR Platforms"},
+    "ConnectWise Control": {"count": 543, "category": "Remote Access Tools"}
+  },
+  "parallel_slices_used": 4
+}
+```
 
 ### IOC Hunting
 
@@ -407,7 +573,7 @@ Both IOC and Sigma hunts integrate with the event tagging system:
 3. **🔴 IOC Events** - Events with IOC hits
 4. **🟣 SIGMA Events** - Events matching Sigma rules
 
-See [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) for details.
+See "Event Tagging System" section in [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) for details.
 
 ---
 
@@ -521,7 +687,7 @@ sudo -u postgres psql casescope -c "SELECT source_folder, COUNT(*), SUM(CASE WHE
 ## Related Documentation
 
 - [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - IOC database and management
-- [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Event filtering
+- [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event search and tagging
 - [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Event search interface
 - [AUDIT.MD](AUDIT.MD) - Audit logging
 - [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Background task system

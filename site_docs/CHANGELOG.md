@@ -1,5 +1,216 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.4.0 - December 28, 2025
+
+### 🎯 Feature: Software Noise Filtering System
+
+Added comprehensive noise filtering system to identify and filter known good software from investigations, reducing noise by up to 13% in typical cases.
+
+---
+
+### ✨ New Features
+
+#### 1. Noise Filter Management
+**File**: `app/routes/noise_filters.py`, `templates/admin/noise_filters.html`
+
+**Settings Interface** (`/settings/noise-filters`):
+- Manage 6 noise filter categories (RMM Tools, EDR/MDR Platforms, Remote Access Tools, Backup Software, System Software, Monitoring Tools)
+- Configure 29 default filter rules
+- Add custom rules for organization-specific tools
+- Enable/disable categories and individual rules
+- Search and filter rules by category, status, type
+- Statistics view showing rule usage
+
+**Pattern Syntax**:
+- OR logic: `pattern1,pattern2,pattern3` (comma-separated)
+- AND logic: `pattern1&&pattern2` (both must match)
+- Six match modes: exact, contains, starts_with, ends_with, wildcard, regex
+- Case-sensitive/insensitive options
+
+#### 2. Software Noise Tagging
+**File**: `app/tasks/task_tag_noise.py`, `app/utils/noise_filter.py`
+
+**Hunting Dashboard Integration**:
+- New "Software Noise" button in Event Tagging tile
+- Background Celery task with real-time progress tracking
+- **Dynamic parallel processing** using OpenSearch slice scrolling
+- Configurable parallelism via `TASK_PARALLEL_PERCENTAGE` (default: 50% of workers)
+- Thread-safe progress aggregation
+
+**Performance**:
+- ~7,000 events/second tagging speed
+- Example: 483,000 events tagged in 70 seconds using 4 parallel slices
+- Typical noise reduction: 64,676 events (~13%) in test case
+
+**Event Storage**:
+Tagged events in OpenSearch receive:
+```json
+{
+  "noise_matched": true,
+  "noise_rules": ["ConnectWise Automate", "Huntress EDR"],
+  "noise_categories": ["RMM Tools", "EDR/MDR Platforms"]
+}
+```
+
+#### 3. Noise Filters in Event Search
+**File**: `templates/search/events.html`, `app/routes/search.py`
+
+**UI Layout**:
+- Three-column filter panel (File Types | Event Tags | Noise Filters)
+- Noise filters unchecked by default (hides all noise events)
+- Cumulative behavior: checking adds those noise events to results
+
+**Filter Options**:
+- 🔧 RMM Tools
+- 🛡️ EDR/MDR Platforms  
+- 🖥️ Remote Access Tools
+
+**Query Integration**:
+- `noise_categories` URL parameter
+- OpenSearch `should` clause logic
+- Combines with file type and event tag filters
+
+#### 4. Parallel Task Processing
+**Files**: `app/config.py`, `app/utils/parallel_config.py`
+
+**New Configuration Settings**:
+```python
+TASK_PARALLEL_PERCENTAGE = 50  # Use 50% of workers for internal parallelism
+TASK_PARALLEL_MIN = 2          # Minimum parallel slices
+TASK_PARALLEL_MAX = 8          # Maximum parallel slices
+```
+
+**Settings Page UI**:
+- Slider to adjust parallelism percentage (25%-75%)
+- Live preview showing:
+  - Slices per task (e.g., 4 slices with 8 workers at 50%)
+  - Concurrent tasks at full speed (e.g., 2 tasks)
+  - Estimated speedup (e.g., ~4x)
+- Validates and restarts services automatically
+
+**Implementation**:
+- `get_parallel_slice_count()` - Calculate slices based on config
+- `get_parallel_config_info()` - UI display data
+- OpenSearch slice scrolling for parallel index access
+- `ThreadPoolExecutor` for parallel slice processing
+- Main thread aggregates progress (avoids Celery context errors)
+
+#### 5. Active Task Persistence
+**File**: `app/models.py`
+
+**New Table**: `active_tasks`
+- Tracks running Celery tasks (ioc_hunt, sigma_hunt, noise_tagging)
+- Enables UI reconnection after page refresh
+- Stores task ID, progress metadata, results
+- Automatic cleanup on task completion
+
+---
+
+### 🐛 Bug Fixes
+
+**Noise Tagging Context Errors**:
+- Fixed "Working outside of application context" error
+- Rules now pre-loaded in main thread before spawning workers
+- Thread-safe event checking without database queries
+
+**search_blob Field Matching**:
+- Added `search_blob` to all filter type field mappings
+- Critical for events without structured `event_data` (unparsed/raw events)
+- Enables matching in legacy data formats
+
+---
+
+### 📚 Documentation Updates
+
+1. **NOISE_FILTERS.md** - NEW comprehensive guide
+   - Filter categories and rules
+   - Pattern syntax (OR/AND logic)
+   - Integration points
+   - Performance characteristics
+   - API endpoints
+   - Troubleshooting
+
+2. **DATABASE_STRUCTURE.MD**
+   - Added `noise_filter_categories` table
+   - Added `noise_filter_rules` table
+   - Added `noise_filter_stats` table
+   - Added `active_tasks` table
+   - Updated complete table list
+
+3. **THREAT_HUNTING.md**
+   - Added Software Noise Tagging section
+   - Updated hunting dashboard layout (3 tiles)
+   - Documented noise tagging API endpoints
+   - Performance metrics
+
+4. **CELERY_SYSTEM.md**
+   - Added parallel processing configuration
+   - Documented dynamic worker allocation
+   - Updated task list with noise tagging
+   - Settings page integration
+
+5. **SEARCH_SYSTEM.md**
+   - Consolidated EVENT_TAGGING_SYSTEM.md content
+   - Added noise filter integration
+   - Updated filter panel documentation
+   - Query building examples
+
+6. **README.MD**
+   - Updated feature status table
+   - Added NOISE_FILTERS.md to index
+   - Removed EVENT_TAGGING_SYSTEM.md reference (consolidated)
+   - Updated related documentation links
+
+7. **EVENT_TAGGING_SYSTEM.md**
+   - Removed (consolidated into SEARCH_SYSTEM.md)
+
+---
+
+### 🔄 Database Migrations
+
+**Migration**: `/opt/casescope/migrations/add_noise_filters.sql`
+- Creates `noise_filter_categories` table
+- Creates `noise_filter_rules` table with 29 default rules
+- Creates `noise_filter_stats` table
+- All rules disabled by default
+
+**Migration**: `/opt/casescope/migrations/add_active_tasks.sql`
+- Creates `active_tasks` table for task persistence
+- Indexes for efficient task queries
+
+---
+
+### 📊 Performance Impact
+
+**Noise Tagging**:
+- Processing: ~7,000 events/second
+- Memory: Minimal (streaming with scroll API)
+- CPU: Scales with parallel slice count
+- Network: Bulk updates reduce OpenSearch load
+
+**Event Search with Noise Filters**:
+- Query overhead: <5ms (boolean filter)
+- No database joins required
+- Scales linearly with event count
+
+---
+
+### 🚀 Deployment
+
+**Services Restarted**:
+```bash
+sudo systemctl restart casescope-new      # Flask app
+sudo systemctl restart casescope-workers  # Celery workers
+```
+
+**Migrations Applied**:
+```bash
+sudo -u postgres psql casescope -f /opt/casescope/migrations/add_noise_filters.sql
+sudo -u postgres psql casescope -f /opt/casescope/migrations/add_active_tasks.sql
+```
+
+---
+
 ## Version 1.3.0 - December 28, 2025
 
 ### 🎯 Feature: Event Detail IOC/SIGMA Detection Alerts & Highlighting

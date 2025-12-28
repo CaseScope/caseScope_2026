@@ -673,6 +673,98 @@ source venv/bin/activate
 python3 app/init_db.py
 ```
 
+## Noise Filtering System
+
+### Noise Filter Categories Table (`noise_filter_categories`)
+|| Column | Type | Details |
+|||--------|------|---------|
+||| `id` | Integer | Primary key |
+||| `name` | String(100) | Category name (e.g., "RMM Tools"), unique, indexed |
+||| `description` | Text | Category description |
+||| `icon` | String(50) | Emoji/icon for UI display |
+||| `is_system_default` | Boolean | System-provided category (cannot be deleted), default: False |
+||| `is_enabled` | Boolean | Category enabled/disabled, default: False, indexed |
+||| `created_at` | DateTime | Creation timestamp |
+||| `updated_at` | DateTime | Last update timestamp |
+
+**Relationships**:
+- `rules` - One-to-many to `NoiseFilterRule`
+
+**Purpose**: Organize noise filter rules into logical categories (RMM Tools, EDR/MDR Platforms, Remote Access Tools, Backup Software, System Software, Monitoring Tools)
+
+### Noise Filter Rules Table (`noise_filter_rules`)
+|| Column | Type | Details |
+|||--------|------|---------|
+||| `id` | Integer | Primary key |
+||| `category_id` | Integer | Foreign key to `noise_filter_categories.id` (cascades), indexed |
+||| `name` | String(200) | Rule name (e.g., "ConnectWise Automate"), indexed |
+||| `description` | Text | Rule description |
+||| `filter_type` | String(50) | Filter type (process_name, file_path, command_line, hash, guid, network_connection), indexed |
+||| `pattern` | String(500) | Pattern to match (supports OR with commas, AND with &&) |
+||| `match_mode` | String(50) | Match mode (exact, contains, starts_with, ends_with, wildcard, regex), default: 'contains' |
+||| `is_case_sensitive` | Boolean | Case-sensitive matching, default: False |
+||| `priority` | Integer | Execution order (lower = higher priority), default: 100 |
+||| `is_system_default` | Boolean | System-provided rule (cannot be deleted), default: False |
+||| `is_enabled` | Boolean | Rule enabled/disabled, default: False, indexed |
+||| `created_at` | DateTime | Creation timestamp |
+||| `updated_at` | DateTime | Last update timestamp |
+
+**Indexes**:
+- category_id, name, filter_type, is_enabled
+- Composite index on (category_id, is_enabled) for efficient rule queries
+
+**Relationships**:
+- `category` - Many-to-one to `NoiseFilterCategory`
+- `stats` - One-to-many to `NoiseFilterStats`
+
+**Purpose**: Define patterns that identify known good software in events
+
+**Pattern Syntax**:
+- OR logic: `pattern1,pattern2,pattern3` (comma-separated)
+- AND logic: `pattern1&&pattern2` (both must match)
+- Combined: `veeam,backup&&server123` (veeam OR (backup AND server123))
+
+### Noise Filter Stats Table (`noise_filter_stats`)
+|| Column | Type | Details |
+|||--------|------|---------|
+||| `id` | Integer | Primary key |
+||| `rule_id` | Integer | Foreign key to `noise_filter_rules.id` (cascades), indexed |
+||| `case_id` | Integer | Foreign key to `case.id` (cascades), indexed |
+||| `events_filtered` | Integer | Count of events filtered, default: 0 |
+||| `last_matched` | DateTime | Most recent match timestamp, indexed |
+||| `created_at` | DateTime | Creation timestamp |
+||| `updated_at` | DateTime | Last update timestamp |
+
+**Indexes**:
+- rule_id, case_id, last_matched
+- Unique constraint on (rule_id, case_id)
+
+**Purpose**: Track how many events each rule has filtered per case
+
+### Active Tasks Table (`active_tasks`)
+|| Column | Type | Details |
+|||--------|------|---------|
+||| `id` | Integer | Primary key |
+||| `case_id` | Integer | Foreign key to `case.id` (cascades), indexed |
+||| `task_type` | String(50) | Task type (ioc_hunt, sigma_hunt, noise_tagging), indexed |
+||| `task_id` | String(255) | Celery task UUID, unique, indexed |
+||| `user_id` | Integer | Foreign key to `user.id` (set null on delete), indexed |
+||| `status` | String(50) | Task status (running, completed, failed, cancelled), default: 'running' |
+||| `progress_meta` | JSONB | Latest progress metadata from Celery |
+||| `started_at` | DateTime | Task start timestamp, default: now |
+||| `completed_at` | DateTime | Task completion timestamp |
+||| `result` | JSONB | Final result or error info |
+
+**Indexes**:
+- case_id, task_type, task_id, user_id
+- Composite index on (case_id, task_type, status) for active task queries
+
+**Relationships**:
+- `case` - Belongs to case
+- `user` - User who started the task
+
+**Purpose**: Track long-running Celery tasks for UI persistence and reconnection
+
 ## Complete Table List
 
 | Table Name | Owner | Purpose |
@@ -688,8 +780,13 @@ python3 app/init_db.py
 | `ioc_enrichment` | casescope | External threat intel enrichment log |
 | `event_ioc_hits` | casescope | Event-to-IOC linkage tracking |
 | `event_sigma_hits` | casescope | Event-to-Sigma rule linkage tracking |
+| `sigma_rules` | casescope | Sigma rule management (3,652 rules) |
 | `known_systems` | casescope | Known systems and devices tracking |
 | `known_users` | casescope | Known users and identities tracking |
+| `noise_filter_categories` | casescope | Noise filter category definitions (6 categories) |
+| `noise_filter_rules` | casescope | Noise filter rule patterns (29 default rules) |
+| `noise_filter_stats` | casescope | Noise filtering statistics per case |
+| `active_tasks` | casescope | Active Celery task tracking for UI persistence |
 | `pattern_embeddings` | postgres | AI embeddings for Sigma rules & MITRE ATT&CK |
 
 ## Schema Changes & Migrations

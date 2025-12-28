@@ -125,6 +125,136 @@ def should_exclude_username(username):
     return False
 
 
+@hunting_bp.route('/api/event_stats')
+@login_required
+def get_event_stats():
+    """
+    Get event statistics for the current case
+    Returns counts for file types, detections, and noise categories
+    """
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'error': 'No case selected'}), 400
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'error': 'Case not found'}), 404
+        
+        # Verify access
+        if current_user.role == 'read-only' and case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+        
+        from opensearchpy import OpenSearch
+        from config import Config
+        from models import EventIOCHit, EventSigmaHit
+        
+        # Initialize OpenSearch client
+        client = OpenSearch(
+            hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}],
+            use_ssl=Config.OPENSEARCH_USE_SSL,
+            verify_certs=False,
+            ssl_show_warn=False,
+            timeout=30
+        )
+        
+        index_name = f"case_{case_id}"
+        
+        if not client.indices.exists(index=index_name):
+            return jsonify({
+                'total_events': 0,
+                'evtx_events': 0,
+                'edr_events': 0,
+                'firewall_events': 0,
+                'sigma_events': 0,
+                'ioc_events': 0,
+                'noise_categories': []
+            })
+        
+        # Get total event count
+        total_count = client.count(index=index_name, body={"query": {"match_all": {}}})['count']
+        
+        # Get EVTX events count
+        evtx_count = client.count(
+            index=index_name,
+            body={"query": {"wildcard": {"source_file": "*.evtx"}}}
+        )['count']
+        
+        # Get EDR events count (NDJSON files)
+        edr_count = client.count(
+            index=index_name,
+            body={
+                "query": {
+                    "bool": {
+                        "should": [
+                            {"wildcard": {"source_file": "*.ndjson"}},
+                            {"wildcard": {"source_file": "*.json"}},
+                            {"wildcard": {"source_file": "*.jsonl"}}
+                        ]
+                    }
+                }
+            }
+        )['count']
+        
+        # Get Firewall events count (CSV files)
+        firewall_count = client.count(
+            index=index_name,
+            body={"query": {"wildcard": {"source_file": "*.csv"}}}
+        )['count']
+        
+        # Get events with SIGMA violations (from database)
+        sigma_event_count = db.session.query(EventSigmaHit.opensearch_doc_id).filter_by(
+            case_id=case_id
+        ).distinct().count()
+        
+        # Get events with IOCs (from database)
+        ioc_event_count = db.session.query(EventIOCHit.opensearch_doc_id).filter_by(
+            case_id=case_id
+        ).distinct().count()
+        
+        # Get noise category counts (from OpenSearch aggregation)
+        noise_categories = []
+        try:
+            agg_result = client.search(
+                index=index_name,
+                body={
+                    "size": 0,
+                    "query": {"term": {"noise_matched": True}},
+                    "aggs": {
+                        "categories": {
+                            "terms": {
+                                "field": "noise_categories.keyword",
+                                "size": 10
+                            }
+                        }
+                    }
+                }
+            )
+            
+            if 'aggregations' in agg_result and 'categories' in agg_result['aggregations']:
+                for bucket in agg_result['aggregations']['categories']['buckets']:
+                    noise_categories.append({
+                        'category': bucket['key'],
+                        'count': bucket['doc_count']
+                    })
+        except Exception as e:
+            logger.warning(f"Could not get noise category stats: {e}")
+        
+        return jsonify({
+            'total_events': total_count,
+            'evtx_events': evtx_count,
+            'edr_events': edr_count,
+            'firewall_events': firewall_count,
+            'sigma_events': sigma_event_count,
+            'ioc_events': ioc_event_count,
+            'noise_categories': noise_categories
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting event stats: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @hunting_bp.route('/')
 @hunting_bp.route('/dashboard')
 @login_required
@@ -1603,3 +1733,84 @@ def api_hunt_sigma_status(task_id):
     except Exception as e:
         logger.error(f"Error checking Sigma hunt status: {e}", exc_info=True)
         return jsonify({'state': 'FAILURE', 'error': str(e)}), 500
+
+
+# ============================================================================
+# NOISE TAGGING
+# ============================================================================
+
+@hunting_bp.route('/api/tag_noise', methods=['POST'])
+@login_required
+def tag_noise():
+    """Start noise tagging task"""
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'success': False, 'error': 'No case selected'}), 400
+        
+        # Check permissions
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Read-only users cannot tag
+        if current_user.role == 'readonly':
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        data = request.get_json() or {}
+        clear_previous = data.get('clear_previous', True)
+        
+        # Import the task
+        from tasks.task_tag_noise import tag_noise_events
+        
+        # Start async task
+        task = tag_noise_events.delay(case_id, current_user.id, clear_previous)
+        
+        log_action('start_noise_tagging', resource_type='case', resource_id=case_id,
+                   details={'clear_previous': clear_previous, 'task_id': task.id})
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Noise tagging started'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting noise tagging: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@hunting_bp.route('/api/tag_noise/status/<task_id>')
+@login_required
+def tag_noise_status(task_id):
+    """Get status of noise tagging task"""
+    try:
+        from celery.result import AsyncResult
+        from tasks.task_tag_noise import tag_noise_events
+        
+        task = AsyncResult(task_id, app=tag_noise_events.app)
+        
+        response = {
+            'state': task.state,
+            'status': 'Unknown'
+        }
+        
+        if task.state == 'PENDING':
+            response['status'] = 'Task is pending...'
+            response['progress'] = 0
+            response['events_scanned'] = 0
+            response['total_events'] = 0
+            response['events_tagged'] = 0
+            response['rules_matched'] = 0
+        elif task.state == 'PROGRESS':
+            response.update(task.info or {})
+        elif task.state == 'SUCCESS':
+            response.update(task.info or {})
+        elif task.state == 'FAILURE':
+            response['error'] = str(task.info)
+            
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking noise tagging status: {e}")
+        return jsonify({'error': str(e), 'state': 'FAILURE'}), 500

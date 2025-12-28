@@ -15,13 +15,14 @@ This directory contains comprehensive technical documentation for the CaseScope 
 3. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema and relationships
 4. **Authentication**: [USERS.MD](USERS.MD) - User management and authentication
 5. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Access control and audit logging
-6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) + [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) - Query and tag events
-7. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC and Sigma rule hunting
-8. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
-9. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
-10. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
-11. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing
-12. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
+6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Query, filter, and tag events
+7. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC, Sigma, and noise filtering
+8. **Noise Filters**: [NOISE_FILTERS.md](NOISE_FILTERS.md) - Filter known good software
+9. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
+10. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
+11. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
+12. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing with parallel task support
+13. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
 
 ### For System Administrators
 
@@ -84,11 +85,13 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - Celery configuration (Redis, workers, queues)
 - Production-proven settings
 - Memory-safe task design
+- **Dynamic parallel processing** - Tasks use percentage of workers internally
+- Worker configuration via Settings page (2, 4, 6, or 8 workers)
+- Task parallelism percentage (25%-75%, default: 50%)
 - Service management commands
 - Troubleshooting guide
-- Dynamic worker configuration via Settings page
 
-**Critical For**: Async operations, file processing
+**Critical For**: Async operations, file processing, parallel task execution
 
 ---
 
@@ -120,25 +123,30 @@ This directory contains comprehensive technical documentation for the CaseScope 
 - Boolean search operators (AND, OR, NOT)
 - Parenthetical grouping
 - File type filtering (EVTX, NDJSON, CSV, IIS)
+- Event tag filtering (Other, Tagged, IOC, SIGMA)
+- Noise filtering (RMM, EDR/MDR, Remote Access)
+- Manual event tagging (star/unstar)
 - Deep pagination (100K+ events)
 - Event detail modal with JSON tree
 - Process tree visualization
 - Performance optimization
 
-**Critical For**: Event querying and analysis
+**Critical For**: Event querying, filtering, and analysis
 
 ---
 
-#### [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md)
-**Purpose**: Manual event tagging system
+#### [NOISE_FILTERS.md](NOISE_FILTERS.md) ⭐ NEW
+**Purpose**: Software noise filtering system
 
 **Contents**:
-- Tag/untag events
-- Four filter types (Other, Tagged, IOC, SIGMA)
-- OpenSearch-based storage
-- Performance considerations
+- 29 default rules across 6 categories
+- Pattern matching with OR/AND logic
+- Event tagging with parallel processing
+- Integration with event search
+- Settings management interface
+- Performance: ~7,000 events/second
 
-**Use For**: Event triage and filtering
+**Use For**: Reducing noise from known good software
 
 ---
 
@@ -162,14 +170,16 @@ This directory contains comprehensive technical documentation for the CaseScope 
 **Purpose**: Automated IOC and SIGMA rule hunting system
 
 **Contents**:
-- IOC hunting implementation
+- IOC hunting implementation (main + browser indices)
 - SIGMA rule hunting with Chainsaw (3,652 rules)
+- Software noise tagging (29 default rules, 6 categories)
 - Event matching algorithms
-- Background processing
+- Background processing with parallel slicing
 - Badge system with severity colors
 - Rule management interface
+- Three-tile hunting dashboard layout
 
-**Critical For**: Automated threat detection
+**Critical For**: Automated threat detection and noise reduction
 
 ---
 
@@ -337,9 +347,13 @@ This directory contains comprehensive technical documentation for the CaseScope 
 | CSV Firewall Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
 | Browser History Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
 | Event Search System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
-| Event Tagging System | ✅ Complete | [EVENT_TAGGING_SYSTEM.md](EVENT_TAGGING_SYSTEM.md) |
+| Event Tagging System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | Event IOC/SIGMA Detection Alerts | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
 | File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
+| Event Tag Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
+| Noise Filtering System | ✅ Complete | [NOISE_FILTERS.md](NOISE_FILTERS.md) |
+| Software Noise Tagging | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
+| Parallel Task Processing | ✅ Complete | [CELERY_SYSTEM.md](CELERY_SYSTEM.md) |
 | IOC Management | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
 | IOC Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
 | IOC Extraction (AI + Regex) | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |

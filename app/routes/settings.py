@@ -49,10 +49,15 @@ def settings_page():
     cpu_count = psutil.cpu_count(logical=True)
     max_workers = int((cpu_count * 2) / 3)  # 2/3 of CPU cores
     
+    # Get parallel processing config
+    from utils.parallel_config import get_parallel_config_info
+    parallel_config = get_parallel_config_info()
+    
     return render_template('admin/settings.html',
                          current_workers=current_workers,
                          cpu_count=cpu_count,
                          max_workers=max_workers,
+                         parallel_config=parallel_config,
                          config=config_module)
 
 
@@ -73,8 +78,9 @@ def update_workers():
     current_workers = config_module.CELERY_WORKERS
     
     try:
-        # Get requested worker count
-        requested_workers = int(request.json.get('workers', 0))
+        # Get requested worker count and parallel percentage
+        requested_workers = int(request.json.get('worker_count', 0))
+        parallel_percentage = request.json.get('parallel_percentage')
         
         # Validate worker count options
         if requested_workers not in [2, 4, 6, 8]:
@@ -82,6 +88,15 @@ def update_workers():
                 'success': False,
                 'error': 'Invalid worker count. Must be 2, 4, 6, or 8.'
             }), 400
+        
+        # Validate parallel percentage if provided
+        if parallel_percentage is not None:
+            parallel_percentage = int(parallel_percentage)
+            if not (25 <= parallel_percentage <= 75):
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid parallel percentage. Must be between 25 and 75.'
+                }), 400
         
         # Check CPU limit (2/3 of cores)
         cpu_count = psutil.cpu_count(logical=True)
@@ -93,7 +108,7 @@ def update_workers():
                 'error': f'Cannot set {requested_workers} workers. Your system has {cpu_count} CPU cores. Maximum allowed: {max_workers} workers (2/3 of cores).'
             }), 400
         
-        if requested_workers == current_workers:
+        if requested_workers == current_workers and parallel_percentage is None:
             return jsonify({
                 'success': True,
                 'message': f'Worker count is already set to {requested_workers}.',
@@ -110,8 +125,13 @@ def update_workers():
         import re
         pattern = r'CELERY_WORKERS\s*=\s*\d+'
         replacement = f'CELERY_WORKERS = {requested_workers}'
-        
         new_content = re.sub(pattern, replacement, config_content)
+        
+        # Replace TASK_PARALLEL_PERCENTAGE if provided
+        if parallel_percentage is not None:
+            pattern = r'TASK_PARALLEL_PERCENTAGE\s*=\s*\d+'
+            replacement = f'TASK_PARALLEL_PERCENTAGE = {parallel_percentage}'
+            new_content = re.sub(pattern, replacement, new_content)
         
         # Write back to file
         with open(config_path, 'w') as f:

@@ -51,7 +51,7 @@
                 <form id="workerForm">
                     <div class="form-group">
                         <label for="workerCount" class="form-label">Number of Workers</label>
-                        <select id="workerCount" class="form-control">
+                        <select id="workerCount" class="form-control" onchange="updateParallelPreview()">
                             <option value="2" {% if current_workers == 2 %}selected{% endif %}>2 Workers</option>
                             <option value="4" {% if current_workers == 4 %}selected{% endif %} {% if 4 > max_workers %}disabled{% endif %}>4 Workers{% if 4 > max_workers %} (Exceeds limit){% endif %}</option>
                             <option value="6" {% if current_workers == 6 %}selected{% endif %} {% if 6 > max_workers %}disabled{% endif %}>6 Workers{% if 6 > max_workers %} (Exceeds limit){% endif %}</option>
@@ -60,7 +60,35 @@
                         <small class="form-text text-muted">Options exceeding 2/3 of CPU cores are disabled</small>
                     </div>
                     
-                    <button type="button" class="btn btn-primary" onclick="updateWorkers()" id="updateBtn">
+                    <div class="form-group mt-4">
+                        <label for="parallelPercentage" class="form-label">
+                            Task Parallelism
+                            <span class="badge bg-secondary" id="parallelBadge">{{ parallel_config.parallel_percentage }}%</span>
+                        </label>
+                        <input type="range" class="form-range" id="parallelPercentage" 
+                               min="25" max="75" step="5" value="{{ parallel_config.parallel_percentage }}"
+                               oninput="updateParallelPreview()">
+                        <div class="d-flex justify-content-between text-small text-muted mt-1">
+                            <span>25%</span>
+                            <span>50%</span>
+                            <span>75%</span>
+                        </div>
+                        <small class="form-text text-muted">
+                            Percentage of workers allocated for parallel processing within each task
+                        </small>
+                        
+                        <!-- Preview -->
+                        <div class="mt-3 p-3 bg-light rounded" id="parallelPreview">
+                            <strong>Configuration Preview:</strong>
+                            <ul class="mb-0 mt-2 text-small">
+                                <li><span id="previewSlices">{{ parallel_config.parallel_slices }}</span> parallel slices per task</li>
+                                <li>Can run <span id="previewConcurrent">{{ parallel_config.concurrent_tasks_estimate }}</span> tasks simultaneously</li>
+                                <li>Speed boost: <span id="previewSpeedup">{{ parallel_config.speedup_estimate }}</span> per task</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary btn-lg" onclick="updateWorkers()" id="updateBtn">
                         Apply Changes
                     </button>
                 </form>
@@ -142,6 +170,63 @@
                     <button type="button" class="btn btn-success mt-2" onclick="restartService()" id="restartServiceBtn" style="display: none;">
                         🔄 Restart Service to Apply Changes
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Noise Filters -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔇 Noise Filters</h2>
+    </div>
+    <div class="card-body">
+        <p style="color: var(--color-text-secondary); margin-bottom: var(--spacing-lg);">Filter out known good software to reduce noise in investigations</p>
+        
+        <div id="noiseFilterStats" class="mb-3">
+            <div class="text-center p-lg">
+                <div class="spinner"></div>
+                <p class="mt-2" style="color: var(--color-text-secondary); font-size: 0.875rem;">Loading filter statistics...</p>
+            </div>
+        </div>
+        
+        <div class="grid grid-2">
+            <div class="setting-tile">
+                <h4 class="mb-2">Filter Categories</h4>
+                <p style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
+                    <span id="activeCategoriesCount">—</span> active categories including RMM Tools, EDR/MDR Platforms, and Remote Access Tools
+                </p>
+                <a href="{{ url_for('noise_filters.noise_filters_page') }}" class="btn btn-primary">
+                    <i class="fas fa-cog"></i> Manage Noise Filters
+                </a>
+            </div>
+            
+            <div class="setting-tile">
+                <h4 class="mb-2">Filter Rules</h4>
+                <p style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-md);">
+                    <span id="activeRulesCount">—</span> enabled rules filtering events from known good applications
+                </p>
+                <button class="btn btn-secondary" onclick="loadNoiseFilterStats()">
+                    <i class="fas fa-sync"></i> Refresh Statistics
+                </button>
+            </div>
+        </div>
+        
+        <div class="mt-3 pt-3" style="border-top: 1px solid var(--color-border);">
+            <h4 class="mb-2">Quick Info</h4>
+            <div class="grid grid-3">
+                <div class="stat-card">
+                    <div class="stat-label">System Defaults</div>
+                    <div class="stat-value" id="systemRulesCount">—</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Custom Rules</div>
+                    <div class="stat-value" id="customRulesCount">—</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Filter Types</div>
+                    <div class="stat-value" id="filterTypesCount">—</div>
                 </div>
             </div>
         </div>
@@ -275,8 +360,26 @@
 // ============================================================================
 // Celery Workers Management
 // ============================================================================
+
+function updateParallelPreview() {
+    const workers = parseInt(document.getElementById('workerCount').value);
+    const percentage = parseInt(document.getElementById('parallelPercentage').value);
+    
+    // Calculate slices (with min=2, max=8)
+    const calculated = Math.floor(workers * (percentage / 100));
+    const slices = Math.max(2, Math.min(8, calculated));
+    const concurrent = Math.floor(workers / slices);
+    
+    // Update display
+    document.getElementById('parallelBadge').textContent = percentage + '%';
+    document.getElementById('previewSlices').textContent = slices;
+    document.getElementById('previewConcurrent').textContent = concurrent;
+    document.getElementById('previewSpeedup').textContent = '~' + slices + 'x';
+}
+
 async function updateWorkers() {
     const workerCount = parseInt(document.getElementById('workerCount').value);
+    const parallelPercentage = parseInt(document.getElementById('parallelPercentage').value);
     const btn = document.getElementById('updateBtn');
     const resultDiv = document.getElementById('updateResult');
     const alertDiv = document.getElementById('updateAlert');
@@ -285,10 +388,13 @@ async function updateWorkers() {
     btn.textContent = 'Updating...';
     
     try {
-        const response = await fetch('/settings/api/update-workers', {
+        const response = await fetch('/settings/workers/update', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({worker_count: workerCount})
+            body: JSON.stringify({
+                worker_count: workerCount,
+                parallel_percentage: parallelPercentage
+            })
         });
         
         const data = await response.json();
@@ -529,10 +635,104 @@ function viewAPIDocumentation() {
     window.open('/static/docs/AI_API_DOCUMENTATION.md', '_blank');
 }
 
-// Load AI status on page load if element exists
+// ============================================================================
+// Noise Filter Statistics
+// ============================================================================
+async function loadNoiseFilterStats() {
+    const statsDiv = document.getElementById('noiseFilterStats');
+    
+    try {
+        const response = await fetch('/settings/noise-filters/api/stats');
+        const data = await response.json();
+        
+        // Update counts in the UI
+        document.getElementById('activeCategoriesCount').textContent = data.total_rules ? 
+            data.category_stats.filter(c => c.enabled > 0).length : 0;
+        document.getElementById('activeRulesCount').textContent = data.enabled_rules || 0;
+        document.getElementById('systemRulesCount').textContent = 
+            data.category_stats.filter(c => c.category.includes('Default')).reduce((sum, c) => sum + c.total, 0) || 
+            Math.floor(data.total_rules * 0.7); // Approximate system rules
+        document.getElementById('customRulesCount').textContent = 
+            data.total_rules - Math.floor(data.total_rules * 0.7) || 0; // Approximate custom rules
+        document.getElementById('filterTypesCount').textContent = data.type_stats ? data.type_stats.length : 6;
+        
+        // Create visual stats display
+        let statsHTML = '<div class="grid grid-2">';
+        
+        // Category breakdown
+        if (data.category_stats && data.category_stats.length > 0) {
+            statsHTML += '<div class="card">';
+            statsHTML += '<div class="card-body"><h4 class="mb-2">Rules by Category</h4>';
+            statsHTML += '<div class="stats-list">';
+            data.category_stats.forEach(cat => {
+                statsHTML += `
+                    <div class="stats-row">
+                        <span class="stats-name">${cat.category}</span>
+                        <span class="stats-count">
+                            <span style="color: var(--color-success); font-weight: 600;">${cat.enabled}</span>/${cat.total}
+                        </span>
+                    </div>
+                `;
+            });
+            statsHTML += '</div></div></div>';
+        }
+        
+        // Type breakdown
+        if (data.type_stats && data.type_stats.length > 0) {
+            statsHTML += '<div class="card">';
+            statsHTML += '<div class="card-body"><h4 class="mb-2">Rules by Filter Type</h4>';
+            statsHTML += '<div class="stats-list">';
+            data.type_stats.forEach(type => {
+                statsHTML += `
+                    <div class="stats-row">
+                        <span class="stats-name"><code>${type.type}</code></span>
+                        <span class="stats-count">
+                            <span style="color: var(--color-success); font-weight: 600;">${type.enabled}</span>/${type.total}
+                        </span>
+                    </div>
+                `;
+            });
+            statsHTML += '</div></div></div>';
+        }
+        
+        statsHTML += '</div>';
+        
+        // Overall summary
+        const enabledPercentage = data.total_rules > 0 ? 
+            Math.round((data.enabled_rules / data.total_rules) * 100) : 0;
+        
+        statsHTML += `
+            <div class="alert alert-info mt-3">
+                <strong>Summary:</strong> ${data.enabled_rules} of ${data.total_rules} rules active (${enabledPercentage}%)
+            </div>
+        `;
+        
+        statsDiv.innerHTML = statsHTML;
+        
+    } catch (error) {
+        statsDiv.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i> Unable to load filter statistics. 
+                <button class="btn btn-sm btn-secondary ml-2" onclick="loadNoiseFilterStats()">Retry</button>
+            </div>
+        `;
+        // Set default values
+        document.getElementById('activeCategoriesCount').textContent = '—';
+        document.getElementById('activeRulesCount').textContent = '—';
+        document.getElementById('systemRulesCount').textContent = '—';
+        document.getElementById('customRulesCount').textContent = '—';
+        document.getElementById('filterTypesCount').textContent = '6';
+        console.error('Error loading noise filter stats:', error);
+    }
+}
+
+// Load AI status and noise filter stats on page load
 document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('aiStatusCard')) {
         loadAIStatus();
+    }
+    if (document.getElementById('noiseFilterStats')) {
+        loadNoiseFilterStats();
     }
 });
 </script>

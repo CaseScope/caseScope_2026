@@ -409,3 +409,77 @@
     border-left-color: var(--color-info);
     color: var(--color-text-primary);
 }
+
+/* ============================================================================
+   SETTING TILES
+   ============================================================================ */
+
+.setting-tile {
+    padding: var(--spacing-lg);
+    background: var(--color-bg-primary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+}
+
+/* ============================================================================
+   STATS LISTS
+   ============================================================================ */
+
+.stats-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.stats-row:last-child {
+    border-bottom: none;
+}
+
+.stats-name {
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
+.stats-count {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* ============================================================================
+   INFO TABLE
+   ============================================================================ */
+
+.info-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.info-table tr {
+    border-bottom: 1px solid var(--color-border);
+}
+
+.info-table tr:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    padding: var(--spacing-sm) 0;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    width: 50%;
+}
+
+.info-value {
+    padding: var(--spacing-sm) 0;
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    font-weight: 500;
+}

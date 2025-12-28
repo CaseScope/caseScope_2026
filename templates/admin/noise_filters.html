@@ -1,0 +1,555 @@
+{% extends "base.html" %}
+
+{% block title %}Noise Filters - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🔇 Noise Filters</h1>
+        <p class="content-subtitle">Manage filters for known good software and tools</p>
+    </div>
+    <div>
+        <button class="btn btn-primary" onclick="showAddRuleModal()">
+            Add Filter Rule
+        </button>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="grid grid-4 mb-4">
+    <div class="stat-card">
+        <div class="stat-label">Total Categories</div>
+        <div class="stat-value">{{ total_categories }}</div>
+        <div class="stat-label mt-1">{{ enabled_categories }} active</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Total Rules</div>
+        <div class="stat-value stat-value-success">{{ total_rules }}</div>
+        <div class="stat-label mt-1">{{ enabled_rules }} enabled</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">System Defaults</div>
+        <div class="stat-value stat-value-primary">{{ system_rules }}</div>
+        <div class="stat-label mt-sm">Built-in rules</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Custom Rules</div>
+        <div class="stat-value stat-value-warning">{{ custom_rules }}</div>
+        <div class="stat-label mt-sm">User-defined</div>
+    </div>
+</div>
+
+<!-- Categories Overview -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Filter Categories</h2>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th>Total Rules</th>
+                        <th>Enabled Rules</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for category, rule_count, enabled_count in categories %}
+                    <tr>
+                        <td><strong>{{ category.name }}</strong></td>
+                        <td>{{ category.description }}</td>
+                        <td>{{ rule_count or 0 }}</td>
+                        <td>{{ enabled_count or 0 }}</td>
+                        <td>
+                            {% if category.is_enabled %}
+                                <span class="badge badge-success">Active</span>
+                            {% else %}
+                                <span class="badge badge-error">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="toggleCategory({{ category.id }}, {{ 'false' if category.is_enabled else 'true' }})" style="min-width: 85px;">
+                                {% if category.is_enabled %}
+                                    Disable
+                                {% else %}
+                                    Enable
+                                {% endif %}
+                            </button>
+                            <button class="btn btn-sm btn-primary" onclick="viewCategoryRules({{ category.id }})" style="min-width: 100px;">
+                                View Rules
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Rules -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Filter Rules</h2>
+        <div class="card-header-actions">
+            <input type="text" id="ruleSearch" class="form-input" placeholder="Search rules..." onkeyup="searchRules()" style="width: 200px; margin-right: var(--spacing-sm);">
+            <select id="categoryFilter" class="form-select" style="width: 200px; margin-right: var(--spacing-sm);" onchange="filterRules()">
+                <option value="">All Categories</option>
+                {% for category, rule_count, enabled_count in categories %}
+                <option value="{{ category.id }}">{{ category.name }}</option>
+                {% endfor %}
+            </select>
+            <select id="statusFilter" class="form-select" style="width: 150px; margin-right: var(--spacing-sm);" onchange="filterRules()">
+                <option value="">All Status</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+                <option value="system">System Defaults</option>
+                <option value="custom">Custom Rules</option>
+            </select>
+            <select id="typeFilter" class="form-select" style="width: 180px;" onchange="filterRules()">
+                <option value="">All Types</option>
+                <option value="process_name">Process Name</option>
+                <option value="file_path">File Path</option>
+                <option value="command_line">Command Line</option>
+                <option value="hash">Hash</option>
+                <option value="guid">GUID/Session ID</option>
+                <option value="network_connection">Network Connection</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div id="rulesContainer">
+            <div class="text-center p-lg">
+                <div class="spinner"></div>
+                <p class="mt-md" style="color: var(--color-text-secondary);">Loading rules...</p>
+            </div>
+        </div>
+        
+        <!-- Pagination -->
+        <div id="rulesPagination" class="mt-lg" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span id="rulesInfo" style="color: var(--color-text-secondary);"></span>
+                </div>
+                <div id="rulesPaginationButtons"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Rule Modal -->
+<div class="modal-overlay" id="ruleModal" style="display: none;">
+    <div class="modal-container" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="ruleModalTitle">Add Filter Rule</h3>
+            <button class="modal-close" onclick="closeModal('ruleModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="ruleForm">
+                <input type="hidden" id="ruleId">
+                
+                <div class="form-group">
+                    <label class="form-label">Category *</label>
+                    <select id="ruleCategoryId" class="form-select" required>
+                        <option value="">Select a category...</option>
+                        {% for category, rule_count, enabled_count in categories %}
+                        <option value="{{ category.id }}">{{ category.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Rule Name *</label>
+                    <input type="text" id="ruleName" class="form-input" placeholder="e.g., ConnectWise Automate" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="ruleDescription" class="form-textarea" rows="2" placeholder="Optional description of what this rule filters"></textarea>
+                </div>
+                
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Filter Type *</label>
+                        <select id="ruleFilterType" class="form-select" required>
+                            <option value="process_name">Process Name</option>
+                            <option value="file_path">File Path</option>
+                            <option value="command_line">Command Line</option>
+                            <option value="hash">Hash (SHA256)</option>
+                            <option value="guid">GUID/Session ID</option>
+                            <option value="network_connection">Network Connection</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Match Mode *</label>
+                        <select id="ruleMatchMode" class="form-select" required>
+                            <option value="contains">Contains</option>
+                            <option value="exact">Exact Match</option>
+                            <option value="starts_with">Starts With</option>
+                            <option value="ends_with">Ends With</option>
+                            <option value="wildcard">Wildcard (* and ?)</option>
+                            <option value="regex">Regular Expression</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Pattern *</label>
+                    <input type="text" id="rulePattern" class="form-input" placeholder="e.g., screenconnect,control or veeam&&backup123" required>
+                    <small style="color: var(--color-text-secondary); font-size: 0.813rem;">
+                        Use <strong>commas</strong> for OR (any match): "rmm,agent,service"<br>
+                        Use <strong>&&</strong> for AND (all must match): "screenconnect&&123456" to filter only when both are present
+                    </small>
+                </div>
+                
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Priority</label>
+                        <input type="number" id="rulePriority" class="form-input" value="100" min="1" max="1000">
+                        <small style="color: var(--color-text-secondary); font-size: 0.813rem;">Lower number = higher priority</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="mt-md">
+                            <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                                <input type="checkbox" id="ruleCaseSensitive">
+                                <span>Case Sensitive</span>
+                            </label>
+                        </div>
+                        <div class="mt-sm">
+                            <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                                <input type="checkbox" id="ruleEnabled" checked>
+                                <span>Enabled</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('ruleModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveRule()">
+                Save Rule
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPage = 1;
+let currentFilters = {
+    search: '',
+    category: '',
+    status: '',
+    type: ''
+};
+
+// Load rules on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadRules();
+});
+
+function loadRules(page = 1) {
+    currentPage = page;
+    const params = new URLSearchParams({
+        page: page,
+        per_page: 50,
+        q: currentFilters.search,
+        category: currentFilters.category,
+        status: currentFilters.status,
+        filter_type: currentFilters.type
+    });
+    
+    fetch(`/settings/noise-filters/api/rules?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            displayRules(data);
+        })
+        .catch(error => {
+            console.error('Error loading rules:', error);
+            document.getElementById('rulesContainer').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i> Error loading rules: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function displayRules(data) {
+    const container = document.getElementById('rulesContainer');
+    
+    if (data.rules.length === 0) {
+        container.innerHTML = `
+            <div class="text-center p-lg">
+                <i class="fas fa-inbox" style="font-size: 3rem; color: var(--color-text-secondary);"></i>
+                <p class="mt-md" style="color: var(--color-text-secondary);">No rules found</p>
+            </div>
+        `;
+        document.getElementById('rulesPagination').style.display = 'none';
+        return;
+    }
+    
+    let html = '<div class="table-container"><table class="table"><thead><tr>';
+    html += '<th>Name</th><th>Category</th><th>Type</th><th>Pattern</th><th>Status</th><th>Actions</th>';
+    html += '</tr></thead><tbody>';
+    
+    data.rules.forEach(rule => {
+        const statusBadge = rule.is_enabled 
+            ? '<span class="badge badge-success">Enabled</span>'
+            : '<span class="badge badge-error">Disabled</span>';
+        const systemBadge = rule.is_system_default 
+            ? '<span class="badge badge-primary">System</span>'
+            : '<span class="badge badge-warning">Custom</span>';
+        
+        html += `<tr>
+            <td>
+                <strong>${rule.name}</strong>
+                ${rule.description ? `<br><small style="color: var(--color-text-secondary);">${rule.description}</small>` : ''}
+            </td>
+            <td><span class="badge badge-primary">${rule.category_name || 'N/A'}</span></td>
+            <td><span class="badge badge-primary">${rule.filter_type}</span></td>
+            <td><code>${rule.pattern}</code><br><small style="color: var(--color-text-secondary);">${rule.match_mode}</small></td>
+            <td>${statusBadge} ${systemBadge}</td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="toggleRule(${rule.id}, ${!rule.is_enabled})" title="${rule.is_enabled ? 'Disable' : 'Enable'}" style="min-width: 75px;">
+                    ${rule.is_enabled ? 'Disable' : 'Enable'}
+                </button>
+                <button class="btn btn-sm btn-primary" onclick="editRule(${rule.id})" title="Edit" style="min-width: 60px;">
+                    Edit
+                </button>
+                ${!rule.is_system_default ? `
+                <button class="btn btn-sm btn-danger" onclick="deleteRule(${rule.id}, '${rule.name}')" title="Delete" style="min-width: 70px;">
+                    Delete
+                </button>
+                ` : ''}
+            </td>
+            </td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+    
+    // Update pagination
+    displayPagination(data);
+}
+
+function displayPagination(data) {
+    const info = document.getElementById('rulesInfo');
+    const buttons = document.getElementById('rulesPaginationButtons');
+    const pagination = document.getElementById('rulesPagination');
+    
+    if (data.total_pages <= 1) {
+        pagination.style.display = 'none';
+        return;
+    }
+    
+    pagination.style.display = 'flex';
+    info.textContent = `Showing page ${data.page} of ${data.total_pages} (${data.total} total rules)`;
+    
+    let html = '<div style="display: flex; gap: var(--spacing-sm);">';
+    
+    // Previous button
+    html += `<button class="btn btn-sm btn-secondary" onclick="loadRules(${data.page - 1})" ${data.page <= 1 ? 'disabled' : ''}>
+        <i class="fas fa-chevron-left"></i> Previous
+    </button>`;
+    
+    // Page numbers
+    for (let i = Math.max(1, data.page - 2); i <= Math.min(data.total_pages, data.page + 2); i++) {
+        html += `<button class="btn btn-sm ${i === data.page ? 'btn-primary' : 'btn-secondary'}" onclick="loadRules(${i})">
+            ${i}
+        </button>`;
+    }
+    
+    // Next button
+    html += `<button class="btn btn-sm btn-secondary" onclick="loadRules(${data.page + 1})" ${data.page >= data.total_pages ? 'disabled' : ''}>
+        Next <i class="fas fa-chevron-right"></i>
+    </button>`;
+    
+    html += '</div>';
+    buttons.innerHTML = html;
+}
+
+function searchRules() {
+    currentFilters.search = document.getElementById('ruleSearch').value;
+    loadRules(1);
+}
+
+function filterRules() {
+    currentFilters.category = document.getElementById('categoryFilter').value;
+    currentFilters.status = document.getElementById('statusFilter').value;
+    currentFilters.type = document.getElementById('typeFilter').value;
+    loadRules(1);
+}
+
+function viewCategoryRules(categoryId) {
+    document.getElementById('categoryFilter').value = categoryId;
+    filterRules();
+}
+
+function showAddRuleModal() {
+    document.getElementById('ruleModalTitle').textContent = 'Add Filter Rule';
+    document.getElementById('ruleForm').reset();
+    document.getElementById('ruleId').value = '';
+    document.getElementById('ruleEnabled').checked = true;
+    document.getElementById('rulePriority').value = 100;
+    document.getElementById('ruleModal').style.display = 'flex';
+}
+
+function editRule(ruleId) {
+    // Fetch rule details and populate form
+    fetch(`/settings/noise-filters/api/rules?page=1&per_page=1000`)
+        .then(response => response.json())
+        .then(data => {
+            const rule = data.rules.find(r => r.id === ruleId);
+            if (rule) {
+                document.getElementById('ruleModalTitle').textContent = 'Edit Filter Rule';
+                document.getElementById('ruleId').value = rule.id;
+                document.getElementById('ruleCategoryId').value = rule.category_id;
+                document.getElementById('ruleName').value = rule.name;
+                document.getElementById('ruleDescription').value = rule.description || '';
+                document.getElementById('ruleFilterType').value = rule.filter_type;
+                document.getElementById('ruleMatchMode').value = rule.match_mode;
+                document.getElementById('rulePattern').value = rule.pattern;
+                document.getElementById('rulePriority').value = rule.priority;
+                document.getElementById('ruleCaseSensitive').checked = rule.is_case_sensitive;
+                document.getElementById('ruleEnabled').checked = rule.is_enabled;
+                document.getElementById('ruleModal').style.display = 'flex';
+            }
+        });
+}
+
+function saveRule() {
+    const ruleId = document.getElementById('ruleId').value;
+    const isEdit = ruleId !== '';
+    
+    const data = {
+        category_id: parseInt(document.getElementById('ruleCategoryId').value),
+        name: document.getElementById('ruleName').value,
+        description: document.getElementById('ruleDescription').value,
+        filter_type: document.getElementById('ruleFilterType').value,
+        match_mode: document.getElementById('ruleMatchMode').value,
+        pattern: document.getElementById('rulePattern').value,
+        priority: parseInt(document.getElementById('rulePriority').value),
+        is_case_sensitive: document.getElementById('ruleCaseSensitive').checked,
+        is_enabled: document.getElementById('ruleEnabled').checked
+    };
+    
+    const url = isEdit 
+        ? `/settings/noise-filters/api/rules/${ruleId}/edit`
+        : '/settings/noise-filters/api/rules/add';
+    
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            closeModal('ruleModal');
+            showNotification(`Rule ${isEdit ? 'updated' : 'created'} successfully`, 'success');
+            loadRules(currentPage);
+        } else {
+            showNotification(result.error || 'Failed to save rule', 'error');
+        }
+    })
+    .catch(error => {
+        showNotification('Error: ' + error.message, 'error');
+    });
+}
+
+function toggleRule(ruleId, isEnabled) {
+    fetch(`/settings/noise-filters/api/rules/${ruleId}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: isEnabled })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showNotification(`Rule ${isEnabled ? 'enabled' : 'disabled'}`, 'success');
+            loadRules(currentPage);
+        } else {
+            showNotification(result.error || 'Failed to toggle rule', 'error');
+        }
+    });
+}
+
+function deleteRule(ruleId, ruleName) {
+    if (!confirm(`Are you sure you want to delete the rule "${ruleName}"?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    fetch(`/settings/noise-filters/api/rules/${ruleId}/delete`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showNotification('Rule deleted successfully', 'success');
+            loadRules(currentPage);
+        } else {
+            showNotification(result.error || 'Failed to delete rule', 'error');
+        }
+    });
+}
+
+function toggleCategory(categoryId, isEnabled) {
+    fetch(`/settings/noise-filters/api/categories/${categoryId}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: isEnabled })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showNotification(`Category ${isEnabled ? 'enabled' : 'disabled'}`, 'success');
+            location.reload();
+        } else {
+            showNotification(result.error || 'Failed to toggle category', 'error');
+        }
+    });
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).style.display = 'none';
+}
+
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `flash-message flash-${type}`;
+    notification.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i><span>${message}</span>`;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 4000);
+}
+</script>
+
+<style>
+/* Card header actions */
+.card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+}
+
+/* Form control inline styles - will be moved to central CSS later */
+.form-control {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}

@@ -81,4 +81,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_sigma_management: {e}")
 
+try:
+    from tasks import task_tag_noise
+    logger.info("✓ Registered noise tagging tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_tag_noise: {e}")
+
 logger.info("✓ Celery tasks registered")

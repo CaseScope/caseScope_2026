@@ -109,7 +109,11 @@ def api_search_events():
         event_tags_param = request.args.get('event_tags', '')
         event_tag_filters = [tag.strip().lower() for tag in event_tags_param.split(',') if tag.strip()]
         
-        logger.info(f"Search request - query: '{query_string}', file_types: {file_type_filters}, event_tags: {event_tag_filters}")
+        # Get noise category filters (checked = show those noise categories)
+        noise_categories_param = request.args.get('noise_categories', '')
+        noise_category_filters = [cat.strip() for cat in noise_categories_param.split(',') if cat.strip()]
+        
+        logger.info(f"Search request - query: '{query_string}', file_types: {file_type_filters}, event_tags: {event_tag_filters}, noise_categories: {noise_category_filters}")
         
         # Build OpenSearch query
         index_name = f"case_{case_id}"
@@ -258,6 +262,43 @@ def api_search_events():
                             'must_not': clause
                         }
                     })
+        
+        # Add noise category filters
+        # Logic: By default (no categories checked), HIDE all noise events
+        #        When categories ARE checked, ADD those noise categories to results (cumulative with other filters)
+        # Noise events have: noise_matched=True and noise_categories=[list]
+        
+        # Build should clauses for what to include
+        should_clauses = []
+        
+        # Always include non-noise events (events without noise_matched=True)
+        should_clauses.append({
+            'bool': {
+                'must_not': [
+                    {'exists': {'field': 'noise_matched'}}
+                ]
+            }
+        })
+        
+        # If noise categories are checked, also include those specific noise events
+        if noise_category_filters:
+            should_clauses.append({
+                'bool': {
+                    'must': [
+                        {'term': {'noise_matched': True}},
+                        {'terms': {'noise_categories.keyword': noise_category_filters}}
+                    ]
+                }
+            })
+        
+        # Add the noise filter as a must clause (at least one should match)
+        if should_clauses:
+            must_clauses.append({
+                'bool': {
+                    'should': should_clauses,
+                    'minimum_should_match': 1
+                }
+            })
         
         # Build final query
         if must_clauses:

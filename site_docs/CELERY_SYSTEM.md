@@ -37,9 +37,9 @@ All services are running and ready to process background tasks!
 - Proper connection retry logic
 - Comprehensive error handling
 
-### 3. Background Tasks (`app/tasks/task_file_upload.py`)
+### 3. Background Tasks
 
-**Three main tasks implemented (ZIP-centric architecture):**
+**File Processing Tasks** (ZIP-centric architecture):
 
 1. **`process_uploaded_files`** (queue: `file_processing`)
    - Entry point for uploaded files
@@ -63,6 +63,36 @@ All services are running and ready to process background tasks!
    - Move compressed to storage (standalone) or delete (virtual)
    - Update file record with results
    - Error tracking & retry support
+
+**Hunting Tasks** (with parallel processing):
+
+4. **`hunt_iocs`** (queue: `celery`)
+   - Single-threaded IOC hunting (does not use parallel processing)
+   - Searches all case events for active IOCs
+   - Creates `event_ioc_hits` records for matches
+   - Supports both main and browser indices
+
+5. **`hunt_sigma`** (queue: `celery`)
+   - Runs Chainsaw against EVTX files
+   - Uses enabled Sigma rules only
+   - Creates `event_sigma_hits` records for matches
+
+6. **`tag_noise_events`** ⭐ NEW (queue: `celery`)
+   - **Uses parallel processing**: Configured via `TASK_PARALLEL_PERCENTAGE`
+   - OpenSearch slice scrolling for concurrent event processing
+   - Tags events matching noise filter rules
+   - Updates events in OpenSearch (not database)
+   - Thread-safe progress aggregation
+
+**System Discovery Tasks**:
+
+7. **`discover_systems_from_logs`** (queue: `celery`)
+   - Scans events for system hostnames
+   - Creates `known_systems` entries
+
+8. **`discover_users_from_logs`** (queue: `celery`)
+   - Scans events for usernames
+   - Creates `known_users` entries
 
 **Multi-Index Routing:**
 - case_X: EVTX, NDJSON (main events)
@@ -105,7 +135,7 @@ REDIS_PASSWORD = None          # Set password or None if no auth
 ### Worker Settings
 
 ```python
-CELERY_WORKERS = 12            # Number of concurrent workers (auto-tuned, see autotune_workers.py)
+CELERY_WORKERS = 8             # Number of concurrent workers (configurable via Settings page: 2, 4, 6, or 8)
 CELERY_MAX_TASKS_PER_CHILD = 1000  # Restart worker after N tasks (prevents memory leaks)
 CELERY_TASK_TIME_LIMIT = None     # No timeout - user can cancel via UI
 CELERY_TASK_SOFT_TIME_LIMIT = None
@@ -113,16 +143,37 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # Prefetch 2 tasks per worker
 CELERY_TASK_ACKS_LATE = True           # Prevent task loss on crash
 ```
 
-**Note:** Worker count auto-tuned based on system resources (CPU/RAM).
+### Parallel Processing Within Tasks ⭐ NEW
 
-**Current System Configuration**: 12 workers (optimized for 16 CPU cores, 62.9GB RAM)
+**Dynamic Worker Allocation**:
+```python
+TASK_PARALLEL_PERCENTAGE = 50  # Use 50% of CELERY_WORKERS for internal task parallelism
+TASK_PARALLEL_MIN = 2          # Minimum parallel slices
+TASK_PARALLEL_MAX = 8          # Maximum parallel slices
+```
 
-**Auto-Tune Script**: `/opt/casescope/autotune_workers.py`
-- Formula: min(16, max(4, CPU_cores * 0.75))
-- RAM constraint check (750MB per worker)
-- Auto-updates config.py with optimal value
-- Target: <5 minutes for 3GB ZIP (~1000 files)
-- Estimated throughput: ~72 files/minute
+**How It Works**:
+- Long-running tasks (IOC hunt, Sigma hunt, noise tagging) can use **multiple workers internally**
+- Calculated dynamically: `num_slices = CELERY_WORKERS × (TASK_PARALLEL_PERCENTAGE / 100)`
+- Bounded by min/max limits
+- Example: 8 workers × 50% = 4 parallel slices
+- **Benefit**: Single task ID, simplified progress tracking, faster processing
+
+**Performance Impact**:
+- **Before**: 1 worker per task, slower processing
+- **After**: 4 workers per task (with 8 total), ~4x faster
+- **Trade-off**: Fewer tasks can run simultaneously (8 workers ÷ 4 slices = 2 concurrent tasks at full speed)
+
+**Configuration via Settings Page**:
+- Navigate to Settings → Celery Workers
+- Adjust "Worker Count" (2, 4, 6, or 8)
+- Adjust "Task Parallelism Percentage" slider (25%-75%)
+- Live preview shows:
+  - Parallel slices per task
+  - Estimated concurrent tasks at full speed
+  - Speedup estimate
+- System validates against CPU limit (2/3 of cores)
+- Services restart automatically on apply
 
 ### Result Backend
 
