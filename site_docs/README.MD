@@ -1,465 +1,170 @@
-# CaseScope 2026 - Documentation Index
+# CaseScope 2026 - Technical Documentation
 
-**Last Updated**: December 28, 2025
+**Last Updated**: December 29, 2025
 
-This directory contains comprehensive technical documentation for the CaseScope 2026 Digital Forensics & Incident Response platform.
+## Quick Navigation
 
----
+### 🎯 Essential Reading
+1. **[SITE_LAYOUT.MD](SITE_LAYOUT.MD)** - Project structure, file organization, design principles
+2. **[DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)** - Complete schema reference
+3. **[ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md)** - File processing system (v2.0)
 
-## 🚀 START HERE
+### 🔍 Features & Systems
+- **[SEARCH_SYSTEM.md](SEARCH_SYSTEM.md)** - Event search with boolean operators, filtering, tagging
+- **[THREAT_HUNTING.md](THREAT_HUNTING.md)** - IOC hunting, SIGMA rules, noise filtering
+- **[IOC-MANAGEMENT.md](IOC-MANAGEMENT.md)** - Threat intelligence database (56 types, AI extraction)
+- **[NOISE_FILTERS.md](NOISE_FILTERS.md)** - Software noise reduction (29 rules, 6 categories)
+- **[OPENSEARCH_FIELDS.md](OPENSEARCH_FIELDS.md)** - Field structure and normalization
 
-### For New Developers
+### 👥 Asset Tracking
+- **[ASSET_TRACKING.md](ASSET_TRACKING.md)** - Known systems and users (auto-discovery, CSV import, bulk ops)
 
-1. **Read First**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Understand project structure and design principles
-2. **ZIP Architecture**: [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) - NEW ZIP-centric file processing system
-3. **Database Setup**: [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Learn schema and relationships
-4. **Authentication**: [USERS.MD](USERS.MD) - User management and authentication
-5. **Security**: [PERMISSIONS.MD](PERMISSIONS.MD) + [AUDIT.MD](AUDIT.MD) - Access control and audit logging
-6. **Search System**: [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) - Query, filter, and tag events
-7. **Threat Hunting**: [THREAT_HUNTING.md](THREAT_HUNTING.md) - IOC, Sigma, and noise filtering
-8. **Noise Filters**: [NOISE_FILTERS.md](NOISE_FILTERS.md) - Filter known good software
-9. **IOC Management**: [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) - Threat intelligence database
-10. **Known Assets**: [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) + [KNOWN_USERS.md](KNOWN_USERS.md) - Track systems and user accounts
-11. **AI System**: [AI_SYSTEM.MD](AI_SYSTEM.MD) + [RAG_SYSTEM.MD](RAG_SYSTEM.MD) - AI-powered analysis
-12. **Background Tasks**: [CELERY_SYSTEM.md](CELERY_SYSTEM.md) - Async processing with parallel task support
-13. **Data Cleanup**: [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) - Reset case data
+### 🔐 Security & Administration
+- **[USERS.MD](USERS.MD)** - User authentication and account management
+- **[PERMISSIONS.MD](PERMISSIONS.MD)** - Role-based access control (RBAC)
+- **[AUDIT.MD](AUDIT.MD)** - Comprehensive audit logging
 
-### For System Administrators
+### 🤖 Advanced Features
+- **[AI_SYSTEM.MD](AI_SYSTEM.MD)** - AI-powered analysis (Ollama, Qwen2.5)
+- **[RAG_SYSTEM.MD](RAG_SYSTEM.MD)** - Retrieval Augmented Generation for threat intelligence
+- **[CELERY_SYSTEM.md](CELERY_SYSTEM.md)** - Background task processing with parallel execution
 
-1. **Installation**: Follow main project README
-2. **User Management**: [USERS.MD](USERS.MD) - Create/manage accounts
-3. **Permissions**: [PERMISSIONS.MD](PERMISSIONS.MD) - Role capabilities
-4. **Settings**: Settings page for system configuration
-5. **Audit Log**: [AUDIT.MD](AUDIT.MD) - Monitor system activity
-6. **Server Config**: [SITE_LAYOUT.MD](SITE_LAYOUT.MD) - Gunicorn, SSL, systemd
-
-### For Security Auditors
-
-1. **Audit System**: [AUDIT.MD](AUDIT.MD) - Complete audit trail
-2. **Access Control**: [PERMISSIONS.MD](PERMISSIONS.MD) - RBAC implementation
-3. **User Lifecycle**: [USERS.MD](USERS.MD) - Account management
-4. **Case Operations**: [PERMISSIONS.MD](PERMISSIONS.MD) - Case-specific controls
+### 🛠️ Operations
+- **[CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md)** - Data cleanup and reset procedures
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and feature additions
 
 ---
 
-## 📚 Documentation Files
+## System Architecture
 
-### Core Architecture & Systems
+**Tech Stack**:
+- **Backend**: Python 3.12, Flask, SQLAlchemy
+- **Database**: PostgreSQL 14+ with pgvector
+- **Search**: OpenSearch (multi-index strategy)
+- **Tasks**: Celery with Redis broker
+- **AI/ML**: Ollama (Qwen2.5, Mistral)
 
-#### [SITE_LAYOUT.MD](SITE_LAYOUT.MD)
-**Purpose**: Project structure, file organization, and design principles
+**Services** (`systemctl status`):
+- `casescope-new.service` - Flask web application (Gunicorn, 4 workers, HTTPS)
+- `casescope-workers.service` - Celery background workers (8 concurrent, configurable)
 
-**Contents**:
-- File naming conventions
-- Directory structure
-- Flask blueprints and auto-loading
-- CSS architecture (centralized, no inline styles)
-- Server configuration (Gunicorn, HTTPS, systemd)
-- Key design principles
-
-**Read First**: Essential for understanding project organization
-
----
-
-#### [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
-**Purpose**: Complete database schema and field definitions
-
-**Contents**:
-- User table (authentication, roles)
-- Case table (investigations, network config, EDR reports)
-- CaseFile table (uploaded files tracking)
-- IOC tables (indicators of compromise)
-- Event tracking tables (ioc_hits, sigma_hits)
-- Known assets tables (systems, users)
-- Audit log table (security trail)
-- Field types and relationships
-
-**Critical For**: Backend development, database migrations
+**File Processing**:
+- ZIP-centric architecture (v2.0)
+- Virtual file tracking
+- Multi-index routing (5 specialized indexes)
+- GZIP compression
+- Zero deletion policy
 
 ---
 
-#### [CELERY_SYSTEM.md](CELERY_SYSTEM.md)
-**Purpose**: Complete guide to background task processing
+## Key Features
 
-**Contents**:
-- Celery configuration (Redis, workers, queues)
-- Production-proven settings
-- Memory-safe task design
-- **Dynamic parallel processing** - Tasks use percentage of workers internally
-- Worker configuration via Settings page (2, 4, 6, or 8 workers)
-- Task parallelism percentage (25%-75%, default: 50%)
-- Service management commands
-- Troubleshooting guide
+### File Processing
+- ✅ Chunked web upload (5MB chunks, 500ms delay)
+- ✅ Bulk upload folder monitoring
+- ✅ ZIP auto-extraction with virtual file tracking
+- ✅ Multi-index routing (events, browser, execution, network, devices)
+- ✅ Real-time progress tracking with active file display
+- ✅ Automatic GZIP compression
 
-**Critical For**: Async operations, file processing, parallel task execution
+### Event Analysis
+- ✅ Boolean search (AND, OR, NOT, parentheses)
+- ✅ File type filtering (EVTX, NDJSON, CSV, IIS)
+- ✅ Event tagging (manual star/unstar)
+- ✅ IOC/SIGMA detection badges
+- ✅ Noise filtering (show/hide by category)
+- ✅ Deep pagination (100K+ events)
+- ✅ Computer name normalization (15+ field path checking)
 
----
+### Threat Hunting
+- ✅ IOC database (56 types, 7 categories)
+- ✅ AI-powered IOC extraction from EDR reports
+- ✅ SIGMA rule hunting (3,652 rules via Chainsaw)
+- ✅ Software noise tagging (29 rules, parallel processing)
+- ✅ Related process correlation (entity_id tracking)
 
-### File Upload & Processing
+### Asset Tracking
+- ✅ Auto-discover systems from logs
+- ✅ Auto-discover users from logs  
+- ✅ CSV import/export
+- ✅ Bulk operations (edit, delete)
+- ✅ 50+ excluded noise usernames/patterns
+- ✅ Alphabetical sorting
 
-#### [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) ⭐ NEW
-**Purpose**: ZIP-centric file processing architecture (v2.0)
-
-**Contents**:
-- Zero-deletion policy with GZIP compression
-- ZIP as source of truth (virtual file tracking)
-- Multi-index strategy (5 specialized indexes)
-- Phase 1-3 parsers (EVTX, Browser History, Prefetch, SRUM, etc.)
-- On-demand extraction for downloads
-- Auto-tune performance system
-- Complete API reference
-- Migration guide from v1.x
-
-**Critical For**: Understanding new file processing architecture
-
----
-
-### Search & Analysis
-
-#### [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md)
-**Purpose**: Event search system with boolean operators
-
-**Contents**:
-- Boolean search operators (AND, OR, NOT)
-- Parenthetical grouping
-- File type filtering (EVTX, NDJSON, CSV, IIS)
-- Event tag filtering (Other, Tagged, IOC, SIGMA)
-- Noise filtering (RMM, EDR/MDR, Remote Access)
-- Manual event tagging (star/unstar)
-- Deep pagination (100K+ events)
-- Event detail modal with JSON tree
-- Process tree visualization
-- Performance optimization
-
-**Critical For**: Event querying, filtering, and analysis
+### Security
+- ✅ Three-tier RBAC (administrator, analyst, read-only)
+- ✅ Comprehensive audit logging
+- ✅ Session management (8-hour timeout)
+- ✅ HTTPS with certificate management
+- ✅ Password security (Werkzeug hashing)
 
 ---
 
-#### [NOISE_FILTERS.md](NOISE_FILTERS.md) ⭐ NEW
-**Purpose**: Software noise filtering system
+## Quick Commands
 
-**Contents**:
-- 29 default rules across 6 categories
-- Pattern matching with OR/AND logic
-- Event tagging with parallel processing
-- Integration with event search
-- Settings management interface
-- Performance: ~7,000 events/second
+### Service Management
+```bash
+sudo systemctl status casescope-new casescope-workers
+sudo systemctl restart casescope-new casescope-workers
+```
 
-**Use For**: Reducing noise from known good software
+### Database Access
+```bash
+sudo -u casescope psql casescope
+```
 
----
+### View Logs
+```bash
+sudo tail -f /opt/casescope/logs/celery_worker.log
+sudo tail -f /opt/casescope/logs/error.log
+```
 
-#### [OPENSEARCH_FIELDS.md](OPENSEARCH_FIELDS.md)
-**Purpose**: OpenSearch field structure and mappings
+### Bulk Upload
+```bash
+# Copy files to monitored folder
+cp /path/to/files/*.zip /opt/casescope/bulk_upload/3/
 
-**Contents**:
-- Core field categories (EVTX, normalized, CSV)
-- Field type mapping
-- Index structure (case-level)
-- Query examples
-- Performance considerations
-
-**Critical For**: Understanding indexed data
-
----
-
-### Threat Hunting & Intelligence
-
-#### [THREAT_HUNTING.md](THREAT_HUNTING.md)
-**Purpose**: Automated IOC and SIGMA rule hunting system
-
-**Contents**:
-- IOC hunting implementation (main + browser indices)
-- SIGMA rule hunting with Chainsaw (3,652 rules)
-- Software noise tagging (29 default rules, 6 categories)
-- Event matching algorithms
-- Background processing with parallel slicing
-- Badge system with severity colors
-- Rule management interface
-- Three-tile hunting dashboard layout
-
-**Critical For**: Automated threat detection and noise reduction
+# Files auto-process (no web upload needed)
+```
 
 ---
 
-#### [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md)
-**Purpose**: Comprehensive IOC management system
+## Default Credentials
 
-**Contents**:
-- IOC database model (56 types, 7 categories)
-- Manual IOC creation, editing, deletion
-- Automated IOC extraction from EDR reports (AI + regex fallback)
-- Intelligent duplicate detection and merging
-- Manual deduplication with tree view
-- Search, filtering, pagination
-- CSV export/import
+**Username**: `admin`  
+**Password**: `admin`
 
-**Critical For**: Threat intelligence database
+**⚠️ Change immediately after first login!**
 
 ---
 
-#### [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md)
-**Purpose**: Track systems and devices in investigations
+## File Locations
 
-**Contents**:
-- System tracking database
-- Manual entry and auto-discovery from logs
-- CSV import/export
-- System type detection
-- FQDN handling and deduplication
-
-**Use For**: Asset tracking, system identification
-
----
-
-#### [KNOWN_USERS.md](KNOWN_USERS.md)
-**Purpose**: Track user accounts and identities
-
-**Contents**:
-- User tracking database
-- Manual entry and auto-discovery from logs
-- CSV import/export
-- Cross-variant deduplication (user, DOMAIN\user, user@domain)
-- System account filtering (50+ exclusions)
-
-**Use For**: Account tracking, identity management
+| Data Type | Location |
+|-----------|----------|
+| Uploaded ZIPs (permanent) | `/opt/casescope/storage/case_{id}/` |
+| Compressed files (.gz) | `/opt/casescope/storage/case_{id}/` |
+| Temp extraction | `/opt/casescope/staging/{id}/` |
+| Bulk upload | `/opt/casescope/bulk_upload/{case_id}/` |
+| Logs | `/opt/casescope/logs/` |
+| Database | PostgreSQL `casescope` database |
+| Search indexes | OpenSearch `case_{id}*` indices |
 
 ---
 
-### User Management & Security
+## Recent Updates (v1.5.7 - Dec 29, 2025)
 
-#### [USERS.MD](USERS.MD)
-**Purpose**: User authentication and account management
+### Major Fixes
+- ✅ Computer name normalization (no more "Unknown")
+- ✅ ZIP container status auto-updates
+- ✅ Active file tracking (see what's indexing in real-time)
+- ✅ ZIP breakdown modal with file type descriptions
+- ✅ Chunked upload improvements (500ms delay, better error logging)
+- ✅ Known systems/users alphabetical sorting
+- ✅ Search display logic fixed
 
-**Contents**:
-- User model and database schema
-- Authentication flow (login/logout)
-- Session management (8-hour timeout)
-- Password security (Werkzeug hashing)
-- User roles (administrator, analyst, read-only)
-- User interface components
-- Default admin account (`admin`/`admin`)
-
-**Use For**: Implementing user features, debugging auth issues
+See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ---
 
-#### [PERMISSIONS.MD](PERMISSIONS.MD)
-**Purpose**: Role-based access control (RBAC) system
-
-**Contents**:
-- Complete permission matrices by role
-- Route decorators (`@admin_required`, etc.)
-- Server-side enforcement patterns
-- Client-side UI control
-- Access control examples for all features
-
-**Critical For**: Security features, access control implementation
-
----
-
-#### [AUDIT.MD](AUDIT.MD)
-**Purpose**: Comprehensive audit logging system
-
-**Contents**:
-- What gets audited (login, user management, case operations)
-- Audit log schema and fields
-- `audit_logger.py` module usage
-- Viewing audit logs (web interface)
-- Query examples
-- Compliance readiness (SOC 2, HIPAA, PCI-DSS, GDPR)
-
-**Use For**: Compliance, security monitoring, forensic investigation
-
----
-
-### AI & Advanced Features
-
-#### [AI_SYSTEM.MD](AI_SYSTEM.MD)
-**Purpose**: AI-powered analysis system
-
-**Contents**:
-- Architecture and components
-- LLM integration (Ollama, Qwen2.5)
-- Natural language queries
-- Event analysis
-- IOC extraction
-- Setup and configuration
-
-**Use For**: AI feature implementation
-
----
-
-#### [RAG_SYSTEM.MD](RAG_SYSTEM.MD)
-**Purpose**: Retrieval Augmented Generation for threat intelligence
-
-**Contents**:
-- RAG architecture
-- Vector database (pgvector)
-- Sigma rules and MITRE ATT&CK embeddings
-- Semantic search
-- Performance considerations
-
-**Use For**: AI context enhancement
-
----
-
-### Maintenance & Operations
-
-#### [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md)
-**Purpose**: Reset case data procedures
-
-**Contents**:
-- Data storage locations
-- Cleanup procedures for each storage type
-- Statistics recalculation
-- Full reset vs selective cleanup
-
-**Use For**: Case maintenance, testing, data cleanup
-
----
-
-#### [CHANGELOG.md](CHANGELOG.md)
-**Purpose**: Version history and feature additions
-
-**Contents**:
-- Version-by-version changes
-- New features
-- Bug fixes
-- Breaking changes
-
-**Use For**: Tracking system evolution
-
----
-
-## 📋 Feature Status
-
-| Feature | Status | Documentation |
-|---------|--------|---------------|
-| User Authentication | ✅ Complete | [USERS.MD](USERS.MD) |
-| Role-Based Access Control | ✅ Complete | [PERMISSIONS.MD](PERMISSIONS.MD) |
-| Audit Logging | ✅ Complete | [AUDIT.MD](AUDIT.MD) |
-| Case Management | ✅ Complete | [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) |
-| File Upload & Processing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
-| EVTX Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
-| NDJSON/JSON Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
-| CSV Firewall Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
-| Browser History Parsing | ✅ Complete | [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) |
-| Event Search System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
-| Event Tagging System | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
-| Event IOC/SIGMA Detection Alerts | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
-| File Type Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
-| Event Tag Filtering | ✅ Complete | [SEARCH_SYSTEM.md](SEARCH_SYSTEM.md) |
-| Noise Filtering System | ✅ Complete | [NOISE_FILTERS.md](NOISE_FILTERS.md) |
-| Software Noise Tagging | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
-| Parallel Task Processing | ✅ Complete | [CELERY_SYSTEM.md](CELERY_SYSTEM.md) |
-| IOC Management | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
-| IOC Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
-| IOC Extraction (AI + Regex) | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
-| IOC Deduplication | ✅ Complete | [IOC-MANAGEMENT.md](IOC-MANAGEMENT.md) |
-| SIGMA Rule Hunting | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
-| SIGMA Rule Management | ✅ Complete | [THREAT_HUNTING.md](THREAT_HUNTING.md) |
-| Known Systems Tracking | ✅ Complete | [KNOWN_SYSTEMS.md](KNOWN_SYSTEMS.md) |
-| Known Users Tracking | ✅ Complete | [KNOWN_USERS.md](KNOWN_USERS.md) |
-| AI System | ✅ Complete | [AI_SYSTEM.MD](AI_SYSTEM.MD) |
-| RAG System | ✅ Complete | [RAG_SYSTEM.MD](RAG_SYSTEM.MD) |
-| Case Cleanup | ✅ Complete | [CASE_CLEANUP_PROCEDURE.md](CASE_CLEANUP_PROCEDURE.md) |
-| Celery Worker Configuration | ✅ Complete | [CELERY_SYSTEM.md](CELERY_SYSTEM.md) |
-| SSL Certificate Upload | ✅ Complete | Settings page |
-
----
-
-## 🔐 Security Features
-
-- **Authentication**: Session-based with configurable timeout
-- **Password Security**: Werkzeug hashing (bcrypt-compatible)
-- **RBAC**: Three-tier role system (administrator, analyst, read-only)
-- **Audit Trail**: Immutable log of all security-sensitive actions
-- **Access Control**: Multi-layer enforcement (route, template, JavaScript)
-- **HTTPS**: SSL/TLS support with certificate management
-- **Session Management**: Server-side sessions, secure cookies
-
----
-
-## 📊 Current Routes
-
-### Public Routes
-- `/login` - User authentication
-- `/health` - Health check endpoint
-
-### Protected Routes (Authenticated)
-- `/` - Dashboard (system stats)
-- `/case/select` - Case selection
-- `/case/dashboard/<id>` - Case dashboard
-- `/case/<id>/files` - File management
-- `/case/<id>/upload` - File upload
-- `/search/events` - Event search
-- `/browser/history` - Browser history viewer
-- `/ioc/manage` - IOC management
-- `/hunting/dashboard` - Threat hunting
-- `/systems/manage` - Known systems
-- `/users/manage` - Known users
-- `/ai/assistant` - AI assistant
-
-### Admin Routes (Administrator Only)
-- `/admin/users` - User management
-- `/admin/audit-log` - Audit trail viewer
-- `/settings` - System settings
-- `/settings/evtx-descriptions` - EVTX event descriptions
-- `/settings/sigma-rules` - SIGMA rule management
-
----
-
-## 📝 Conventions
-
-### File Naming
-- Routes: `{section}.py` (e.g., `admin.py`, `case.py`)
-- Models: `models.py`
-- Tasks: `task_{operation}.py` (e.g., `task_file_upload.py`)
-
-### Code Style
-- Python: PEP 8 compliance
-- SQL: PostgreSQL 14+ syntax
-- JavaScript: ES6+ features
-- CSS: BEM-like methodology with utility classes
-
----
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-**Cannot Login**:
-- Check [USERS.MD](USERS.MD) - User troubleshooting section
-- Verify password hash in database
-- Check session configuration
-
-**Access Denied Errors**:
-- Review [PERMISSIONS.MD](PERMISSIONS.MD) - Permission matrices
-- Verify user role in database
-- Check audit log for failed access attempts
-
-**Database Errors**:
-- See [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD) - Migration section
-- Verify PostgreSQL connection
-- Check table permissions for `casescope` user
-
-**File Processing Issues**:
-- Refer to [ZIP_ARCHITECTURE.md](ZIP_ARCHITECTURE.md) - Troubleshooting
-- Check Celery workers: `systemctl status casescope-workers`
-- Review logs: `/opt/casescope/logs/celery_worker.log`
-
----
-
-## 📞 Support
-
-For questions or issues:
-1. **Check Documentation**: Start with relevant .MD file above
-2. **Review Audit Log**: `/admin/audit-log` for security issues
-3. **Check Server Logs**: `/opt/casescope/logs/` for errors
-4. **Database Queries**: Use examples in [DATABASE_STRUCTURE.MD](DATABASE_STRUCTURE.MD)
-
----
-
-*This documentation is maintained alongside the codebase. All information verified against live code as of December 28, 2025.*
+*For detailed information on any topic, refer to the specific documentation file above.*

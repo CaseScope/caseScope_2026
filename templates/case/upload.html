@@ -354,6 +354,9 @@ async function uploadFileChunked(file, onProgress) {
         }
         
         // Complete upload (assemble chunks)
+        // Log for debugging size mismatch issues
+        console.log(`Completing upload: ${file.name}, Size: ${file.size}, Chunks: ${totalChunks}`);
+        
         const completeResponse = await fetch(`/upload/complete/${caseId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -421,7 +424,7 @@ async function startUpload() {
         let failCount = 0;
         const results = [];
         
-        // Upload files one at a time
+        // Upload files one at a time with delay to prevent SSL handshake issues
         for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i];
             const row = filesList.children[i];
@@ -458,6 +461,12 @@ async function startUpload() {
                     results.push({ file: file.name, success: false, error: error.message });
                 }
                 failCount++;
+            }
+            
+            // Add 500ms delay between files to allow SSL connection pool to reset
+            // This prevents "SSL: SSLV3_ALERT_CERTIFICATE_UNKNOWN" errors during bulk uploads
+            if (i < selectedFiles.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
         }
         

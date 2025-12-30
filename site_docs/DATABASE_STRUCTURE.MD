@@ -176,12 +176,11 @@ Details: Unusual RDP session from compromised account...
 
 **Status Values**:
 - `pending` - Awaiting processing
-- `processing` - Currently being parsed/indexed
-- `parsing` - Currently parsing artifact
 - `extracting` - Extracting ZIP contents
-- `indexed` - Successfully indexed to OpenSearch
+- `parsing` - Files being parsed/indexed (for containers: waiting for children)
+- `indexed` - Successfully indexed to OpenSearch (for containers: all children succeeded)
+- `partial` - Container with some successful, some failed children (v1.5.7+)
 - `failed` - Processing failed (see error_message)
-- `error` - Error occurred (see error_details)
 
 **Foreign Keys**:
 - `parent_file_id` → `case_file.id` (CASCADE on delete)
@@ -703,6 +702,7 @@ python3 app/init_db.py
 ||| `pattern` | String(500) | Pattern to match (supports OR with commas, AND with &&) |
 ||| `match_mode` | String(50) | Match mode (exact, contains, starts_with, ends_with, wildcard, regex), default: 'contains' |
 ||| `is_case_sensitive` | Boolean | Case-sensitive matching, default: False |
+||| `exclude_fields` | String(500) | ⭐ NEW: Comma-separated list of field names to exclude from pattern matching (e.g., 'agent.url,url,subdomain') |
 ||| `priority` | Integer | Execution order (lower = higher priority), default: 100 |
 ||| `is_system_default` | Boolean | System-provided rule (cannot be deleted), default: False |
 ||| `is_enabled` | Boolean | Rule enabled/disabled, default: False, indexed |

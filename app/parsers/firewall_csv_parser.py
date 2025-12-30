@@ -10,6 +10,12 @@ from datetime import datetime
 from typing import Iterator, Dict, Any, Optional, List
 from pathlib import Path
 
+# Import normalization - handle both Flask and Celery contexts
+try:
+    from app.utils.event_normalization import normalize_event
+except ImportError:
+    from utils.event_normalization import normalize_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -337,11 +343,10 @@ def normalize_firewall_event(event: Dict[str, Any], log_source_type: str) -> Dic
     event['log_source_type'] = log_source_type
     event['file_type'] = log_source_type
     
-    # Normalize timestamp
-    time_field = event.get('time')
-    if time_field:
-        event['normalized_timestamp'] = parse_timestamp(time_field)
+    # Use comprehensive normalization (handles timestamp, computer, event_id)
+    event = normalize_event(event)
     
+    # Firewall-specific normalizations
     # Normalize source/dest IPs
     src_ip = event.get('src_ip')
     if src_ip:
@@ -350,11 +355,6 @@ def normalize_firewall_event(event: Dict[str, Any], log_source_type: str) -> Dic
     dst_ip = event.get('dst_ip')
     if dst_ip:
         event['normalized_dest_ip'] = dst_ip
-    
-    # Normalize event ID
-    event_id = event.get('id')
-    if event_id:
-        event['normalized_event_id'] = str(event_id)
     
     # Extract all IPs for IOC hunting
     extracted_ips = extract_ips_from_event(event)

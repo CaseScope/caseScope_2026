@@ -54,15 +54,35 @@ Fields extracted from Windows EVTX files:
 
 Universal fields that work across EVTX, NDJSON, and CSV:
 
-| Field | Type | Description | Sources |
-|-------|------|-------------|---------|
-| `normalized_timestamp` | date | Standardized timestamp | All |
-| `normalized_computer` | keyword | Computer/hostname | EVTX, NDJSON |
-| `normalized_event_id` | keyword | Event identifier | EVTX, NDJSON |
-| `normalized_source_ip` | ip | Source IP address | All |
-| `normalized_dest_ip` | ip | Destination IP address | All |
+| Field | Type | Description | Sources | Populated By |
+|-------|------|-------------|---------|--------------|
+| `normalized_timestamp` | date | Standardized timestamp | All | Parsers + Backfill |
+| `normalized_computer` | keyword | Computer/hostname | EVTX, NDJSON | Parsers + Backfill |
+| `normalized_event_id` | keyword | Event identifier | EVTX, NDJSON | Parsers + Backfill |
+| `normalized_source_ip` | ip | Source IP address | CSV, Firewall | CSV Parser |
+| `normalized_dest_ip` | ip | Destination IP address | CSV, Firewall | CSV Parser |
 
-**Purpose**: Enable unified queries across different log formats
+**Purpose**: Enable unified queries, sorting, and display across different log formats
+
+**How Populated**:
+- **All parsers** use comprehensive `event_normalization.py` module (v1.5.7+)
+- **Normalization Module** (`app/utils/event_normalization.py`):
+  - `normalize_event_computer()`: Checks 15+ field paths including nested structures
+  - `normalize_event_timestamp()`: Handles all timestamp formats (ISO, Unix, CSV)
+  - `normalize_event_id()`: Extracts event IDs from any log structure
+- **Field Path Priority for Computer Names**:
+  1. `System.Computer` (standard EVTX)
+  2. `Event.System.Computer` (exported EVTX - CRITICAL for ZIPs!)
+  3. `computer`, `Computer`, `computer_name`, `ComputerName`
+  4. `hostname`, `Hostname`, `host_name`, etc. (15+ variants)
+  5. `host.hostname`, `host.name` (NDJSON/EDR)
+  6. Firewall device names for CSV logs
+- **Existing events**: Backfill script (`scripts/backfill_normalized_fields.py`) for historical data
+
+**Sorting & Display**:
+- Search results default sort: `normalized_timestamp` (newest first)
+- Ensures chronological ordering across mixed log types (EVTX + NDJSON + CSV)
+- Computer name display prioritizes `normalized_computer` with fallback to `computer`
 
 **Example Query**:
 ```json

@@ -79,12 +79,15 @@ def upload_chunk(case_id):
         chunk_path = os.path.join(chunk_dir, f'chunk_{chunk_index}')
         chunk.save(chunk_path)
         
-        logger.info(f"Saved chunk {chunk_index + 1}/{total_chunks} for {file_name}")
+        # Log chunk size for debugging 1-byte mismatch issue
+        chunk_size_actual = os.path.getsize(chunk_path)
+        logger.info(f"Saved chunk {chunk_index + 1}/{total_chunks} for {file_name} ({chunk_size_actual} bytes)")
         
         return jsonify({
             'success': True,
             'chunkIndex': chunk_index,
             'totalChunks': total_chunks,
+            'chunkSize': chunk_size_actual,
             'message': f'Chunk {chunk_index + 1}/{total_chunks} uploaded'
         })
         
@@ -157,12 +160,39 @@ def complete_upload(case_id):
                 with open(chunk_path, 'rb') as chunk_file:
                     outfile.write(chunk_file.read())
         
-        # Verify file size
+        # Verify file size - must be exact (corruption detection)
         actual_size = os.path.getsize(final_path)
-        if actual_size != file_size:
+        size_diff = abs(actual_size - file_size)
+        
+        if size_diff != 0:
+            # Log detailed chunk information for debugging
+            chunk_sizes = []
+            total_chunk_bytes = 0
+            for i in range(total_chunks):
+                chunk_path = os.path.join(chunk_dir, f'chunk_{i}')
+                if os.path.exists(chunk_path):
+                    chunk_size = os.path.getsize(chunk_path)
+                    chunk_sizes.append(chunk_size)
+                    total_chunk_bytes += chunk_size
+            
+            logger.error(f"Size mismatch for {file_name}:")
+            logger.error(f"  Expected: {file_size}")
+            logger.error(f"  Assembled: {actual_size}")
+            logger.error(f"  Difference: {size_diff}")
+            logger.error(f"  Total chunks: {total_chunks}")
+            logger.error(f"  Sum of chunk sizes: {total_chunk_bytes}")
+            logger.error(f"  First 5 chunk sizes: {chunk_sizes[:5]}")
+            logger.error(f"  Last 5 chunk sizes: {chunk_sizes[-5:]}")
+            
             os.remove(final_path)
             return jsonify({
-                'error': f'File size mismatch. Expected: {file_size}, Got: {actual_size}'
+                'error': f'File size mismatch. Expected: {file_size}, Got: {actual_size} (diff: {size_diff} bytes). File may be corrupt.',
+                'expected_size': file_size,
+                'actual_size': actual_size,
+                'chunk_analysis': {
+                    'total_chunks': total_chunks,
+                    'chunk_sizes': chunk_sizes
+                }
             }), 500
         
         # Calculate file hash after assembly (memory-safe streaming)

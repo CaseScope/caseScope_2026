@@ -99,8 +99,8 @@ def api_list():
         if source:
             query = query.filter(KnownSystem.source == source)
         
-        # Order by most recent first
-        query = query.order_by(KnownSystem.created_at.desc())
+        # Order alphabetically by hostname
+        query = query.order_by(KnownSystem.hostname)
         
         # Get total count
         total = query.count()
@@ -883,8 +883,8 @@ def api_export_csv():
         if source:
             query = query.filter(KnownSystem.source == source)
         
-        # Order by most recent first
-        query = query.order_by(KnownSystem.created_at.desc())
+        # Order alphabetically by hostname
+        query = query.order_by(KnownSystem.hostname)
         
         # Get all systems (no pagination for export)
         systems = query.all()

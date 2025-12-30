@@ -45,8 +45,51 @@ Each rule specifies:
   - `wildcard`: Use * and ? wildcards
   - `regex`: Regular expression matching
 - **Case Sensitive**: Whether matching is case-sensitive
+- **Exclude Fields**: ⭐ NEW: Fields to exclude from pattern matching (see below)
 - **Priority**: Execution order (lower number = higher priority)
 - **Status**: Enabled/Disabled
+
+### Field Exclusion Feature (v1.5.4+)
+
+**Problem Solved**: EDR/RMM agent URLs were causing false positives by matching in metadata fields.
+
+**Example Issue**:
+- Huntress agent URL: `https://tabinc.huntress.io/org/150377/agents/3222729`
+- Pattern: `huntress.io`
+- Matched in: `agent.url` field (metadata)
+- Result: ALL Huntress-collected events marked as noise ❌
+
+**Solution**: `exclude_fields` column allows specifying fields to ignore during pattern matching.
+
+**How It Works**:
+1. Pattern matches in `search_blob`
+2. Extract values of excluded fields (e.g., `agent.url`)
+3. Remove those values from `search_blob`
+4. Re-check if pattern still matches
+5. If match only came from excluded field → Ignore
+6. If match from other fields → Real noise ✓
+
+**Example Configuration**:
+```
+Rule: Huntress EDR
+Pattern: huntress,huntressagent
+Exclude Fields: agent.url,agent.id,url,subdomain,agent.type,agent.version
+```
+
+**Result**:
+- Huntress NDJSON with agent.url → Agent URL excluded → NOT noise ✓
+- EVTX with huntressagent.exe process → No agent field → Noise ✓
+- NDJSON with huntressagent process → Noise ✓
+
+**Default Exclusions** (applied to all EDR/RMM rules):
+- `agent.url` - EDR agent management URLs
+- `agent.id` - Agent identifiers
+- `url` - Generic URL fields
+- `subdomain` - Subdomain fields
+- `agent.type` - Agent type metadata
+- `agent.version` - Agent version strings
+
+**Impact**: Reduced Huntress false positives from 63,040 → 1,672 events (97% reduction)
 
 ### 3. System Defaults vs Custom Rules
 

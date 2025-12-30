@@ -392,6 +392,88 @@ Current Process:
 - Highlighted command lines
 - Fallback for missing fields: "N/A"
 
+### Related Processes Feature ⭐ NEW (v1.5.5+)
+
+**Purpose**: Find siblings, children, parent, and grandparent processes by entity ID correlation to reconstruct full process trees even when parent information is incomplete.
+
+**Location**: Process Tree tab → "🔗 Find Related Processes" button
+
+**How It Works**:
+1. Click "Find Related Processes" button on any NDJSON event
+2. API correlates processes by `process.entity_id` and `process.parent.entity_id`
+3. Modal displays:
+   - **Grandparent**: Process matching parent's parent entity_id
+   - **Parent**: Process matching current process's parent entity_id (or UNKNOWN if not collected)
+   - **Siblings**: All processes with same parent.entity_id (processes spawned together)
+   - **Children**: All processes where current process is the parent
+4. Analysis includes:
+   - Sibling count and time span
+   - Pattern detection (multiple diagnostic tools = RMM activity)
+   - Parent availability status
+
+**Entity ID Correlation**:
+- Uses `process.entity_id` (globally unique GUID per process instance)
+- Solves PID reuse problem (PIDs can be recycled, entity IDs cannot)
+- Matches across same computer using `normalized_computer`
+- Uses `match_phrase` query for exact GUID matching
+
+**Interactive Navigation**:
+- Click 🔗 button on ANY process (parent, sibling, child) to find ITS related processes
+- Modal stays open and updates with new tree
+- Enables hunting through process chains
+
+**Bulk Tagging Actions**:
+- **Tag Siblings Only**: Tag all processes at same level (e.g., diagnostic tools spawned together)
+- **Tag Entire Tree**: Tag grandparent + parent + all siblings + all children
+- Uses existing analyst tagging API (`/search/api/event/<id>/tag`)
+- Async bulk operation with progress display
+
+**Use Cases**:
+1. **Investigation**: See what else was running when suspicious process spawned
+2. **Pattern Recognition**: Multiple diagnostic tools spawned within milliseconds = RMM
+3. **Attack Chain Reconstruction**: Trace malware → cmd → powershell → lateral movement
+4. **Noise Reduction**: Bulk tag RMM tool chains as noise
+
+**Example Output**:
+```
+👴 GRANDPARENT: Explorer.EXE (PID 32708)
+  └─ 👨 PARENT: cmd.exe (PID 34040)
+      └─ 🔵 SIBLING PROCESSES (21)
+          ├─ ⭐ svhost.exe (PID 36116) [CURRENT]
+          ├─ svhost.exe (PID 32136)
+          ├─ svhost.exe (PID 32476)
+          └─ ... (18 more)
+      
+Analysis:
+• 21 processes spawned within 1340ms
+• Pattern: Multiple diagnostic tools spawned together
+• Likely automated RMM/EDR activity
+```
+
+**API Endpoint**: `GET /search/api/related_processes/<event_id>`
+
+**Response Structure**:
+```json
+{
+  "success": true,
+  "data": {
+    "current_process": {...},
+    "siblings": [...],
+    "children": [...],
+    "parent": {...} or null,
+    "grandparent": {...} or null,
+    "analysis": {
+      "sibling_count": 21,
+      "children_count": 0,
+      "sibling_time_span_ms": 1340,
+      "patterns": ["Multiple diagnostic tools spawned together", "Likely automated RMM/EDR activity"],
+      "has_parent": false,
+      "has_grandparent": true
+    }
+  }
+}
+```
+
 ### Tree View
 
 **Expandable JSON Tree:**

@@ -56,23 +56,18 @@
             </div>
             <div class="flex-grow-1">
                 <strong>Processing files...</strong>
-                <div class="text-small text-muted" id="progress-percentage">
-                    File <span id="current-file">0</span> of <span id="total-files-processing">0</span> - 0% complete
+                <div class="text-small text-muted">
+                    <span id="pending-count">0</span> files remaining
                 </div>
             </div>
             <div class="text-muted text-small" id="last-update">
                 Updated: just now
             </div>
         </div>
-        <!-- Progress Bar -->
-        <div class="progress processing-progress">
-            <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                 role="progressbar" 
-                 id="processing-progress-bar"
-                 aria-valuenow="0" 
-                 aria-valuemin="0" 
-                 aria-valuemax="100">
-            </div>
+        
+        <!-- Active Files List (replaces progress bar) -->
+        <div id="activeFilesList" class="mt-3" style="font-size: 0.875rem; line-height: 1.6; color: var(--color-text-secondary);">
+            <div class="text-muted">Loading active files...</div>
         </div>
     </div>
 </div>
@@ -122,7 +117,12 @@
                             {% if file.is_container %}
                             <span class="zip-toggle">▶</span>
                             <span class="fw-bold">📦 {{ file.filename }}</span>
-                            <span class="badge badge-info ml-2">{{ file.child_count }} files</span>
+                            <span class="badge badge-info ml-2" 
+                                  onclick="event.stopPropagation(); showZipBreakdown({{ file.id }}, '{{ file.filename }}');" 
+                                  style="cursor: pointer;" 
+                                  title="Click for detailed breakdown">
+                                {{ file.child_count }} files
+                            </span>
                             {% else %}
                             <span class="fw-bold">{{ file.filename }}</span>
                             {% endif %}
@@ -195,6 +195,29 @@
         {% endif %}
     </div>
 </div>
+
+<!-- ZIP Breakdown Modal -->
+<div id="zipBreakdownModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="zipBreakdownTitle">ZIP File Breakdown</h3>
+            <button class="modal-close" onclick="closeZipBreakdown()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="zipBreakdownContent">
+                <div style="text-align: center; padding: 2rem;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="text-muted mt-2">Loading breakdown...</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeZipBreakdown()">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -230,19 +253,11 @@ async function updateStats() {
         if (stats.processing_files > 0 || stats.pending_files > 0) {
             indicator.classList.add('active');
             
-            // Update progress - ONLY count files still being processed/pending
-            const totalInProgress = stats.processing_files + stats.pending_files;
-            const completed = stats.processing_files;  // Currently processing counts as in-progress
-            const remaining = stats.pending_files;
-            const percentage = totalInProgress > 0 ? Math.round((completed / totalInProgress) * 100) : 0;
+            // Update pending count
+            document.getElementById('pending-count').textContent = stats.pending_files;
             
-            document.getElementById('current-file').textContent = completed;
-            document.getElementById('total-files-processing').textContent = totalInProgress;
-            document.getElementById('progress-percentage').innerHTML = `File <span id="current-file">${completed}</span> of <span id="total-files-processing">${totalInProgress}</span> - ${percentage}% complete`;
-            
-            const progressBar = document.getElementById('processing-progress-bar');
-            progressBar.style.width = percentage + '%';
-            progressBar.setAttribute('aria-valuenow', percentage);
+            // Update active files list
+            await updateActiveFiles();
         } else {
             indicator.classList.remove('active');
         }
@@ -389,6 +404,200 @@ document.addEventListener('DOMContentLoaded', () => {
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
     stopAutoRefresh();
+});
+
+// File type descriptions for analyst reference
+const fileTypeDescriptions = {
+    'evtx': 'Windows Event Log files - System, Security, Application logs',
+    'ndjson': 'Newline Delimited JSON - Typically EDR/SIEM logs (CrowdStrike, SentinelOne, etc.)',
+    'json': 'JSON log files - Structured data from various sources',
+    'jsonl': 'JSON Lines - Streaming log format',
+    'csv': 'Comma-Separated Values - Firewall logs, network data, exports',
+    'log': 'Plain text log files - IIS, Apache, application logs',
+    'dat': 'Data files - Often WebCache (browser cache), ESE databases',
+    'db': 'SQLite databases - Thumbnails, application data, browser artifacts',
+    '': 'Browser artifacts - History, Cookies, Download records (SQLite)',
+    'unknown': 'Unrecognized file type - Check file extension',
+    'prefetch': 'Windows Prefetch files - Program execution artifacts',
+    'txt': 'Text files - Various logs and data exports'
+};
+
+function getFileTypeDescription(fileType) {
+    return fileTypeDescriptions[fileType] || 'Unknown file type';
+}
+
+// Update active files being processed
+async function updateActiveFiles() {
+    try {
+        const response = await fetch(`/case/${caseId}/files/active-tasks`);
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        const listDiv = document.getElementById('activeFilesList');
+        
+        if (data.active_files && data.active_files.length > 0) {
+            let html = '<div style="line-height: 1.8;">';
+            html += '<strong class="text-muted" style="font-size: 0.8rem;">Currently indexing:</strong><br>';
+            
+            data.active_files.forEach(file => {
+                if (file.parent_zip) {
+                    // File from ZIP - show ZIP / filename
+                    const displayName = file.original_filename || file.filename;
+                    html += `📦 <span style="color: var(--color-primary);">${file.parent_zip}</span> / ${displayName}<br>`;
+                } else {
+                    // Standalone file - indent without ZIP icon
+                    html += `&nbsp;&nbsp;&nbsp;${file.filename}<br>`;
+                }
+            });
+            
+            html += '</div>';
+            listDiv.innerHTML = html;
+        } else {
+            listDiv.innerHTML = '<div class="text-muted" style="font-size: 0.875rem;">No files actively indexing...</div>';
+        }
+    } catch (error) {
+        console.error('Error fetching active files:', error);
+        // Don't show error to user, just keep previous content
+    }
+}
+
+// ZIP Breakdown Modal Functions
+async function showZipBreakdown(containerId, filename) {
+    const modal = document.getElementById('zipBreakdownModal');
+    const title = document.getElementById('zipBreakdownTitle');
+    const content = document.getElementById('zipBreakdownContent');
+    
+    // Show modal with loading state
+    modal.style.display = 'flex';
+    title.textContent = `${filename} - File Breakdown`;
+    content.innerHTML = `
+        <div style="text-align: center; padding: 2rem;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="text-muted mt-2">Loading breakdown...</p>
+        </div>
+    `;
+    
+    try {
+        const response = await fetch(`/case/${caseId}/files/${containerId}/breakdown`);
+        if (!response.ok) throw new Error('Failed to load breakdown');
+        
+        const data = await response.json();
+        
+        // Build breakdown HTML
+        let html = '<div class="breakdown-stats">';
+        
+        // Summary stats
+        html += '<div class="stat-grid mb-4" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">';
+        html += `
+            <div class="stat-card">
+                <div class="stat-label">Total Files</div>
+                <div class="stat-value stat-value-primary">${data.total_files}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Successfully Indexed</div>
+                <div class="stat-value stat-value-success">${data.indexed_files}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Failed</div>
+                <div class="stat-value stat-value-error">${data.failed_files}</div>
+            </div>
+        `;
+        html += '</div>';
+        
+        html += '<div class="stat-grid mb-4" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">';
+        html += `
+            <div class="stat-card">
+                <div class="stat-label">Total Events Indexed</div>
+                <div class="stat-value stat-value-info">${formatNumber(data.total_events)}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Container Status</div>
+                <div class="stat-value">${data.container_status}</div>
+            </div>
+        `;
+        html += '</div>';
+        
+        // File type breakdown - Indexed
+        if (data.indexed_by_type && Object.keys(data.indexed_by_type).length > 0) {
+            html += '<h4 class="mb-3">Indexed Files by Type</h4>';
+            html += '<div class="table-container mb-4">';
+            html += '<table class="table table-sm">';
+            html += '<thead><tr><th>File Type</th><th>Description</th><th>Count</th><th>Events</th></tr></thead>';
+            html += '<tbody>';
+            
+            for (const [type, info] of Object.entries(data.indexed_by_type)) {
+                const description = getFileTypeDescription(type);
+                const displayType = type || 'browser';
+                html += `
+                    <tr>
+                        <td><span class="badge badge-success">${displayType}</span></td>
+                        <td class="text-small text-muted">${description}</td>
+                        <td>${info.count}</td>
+                        <td>${formatNumber(info.events)}</td>
+                    </tr>
+                `;
+            }
+            
+            html += '</tbody></table></div>';
+        }
+        
+        // File type breakdown - Failed
+        if (data.failed_by_type && Object.keys(data.failed_by_type).length > 0) {
+            html += '<h4 class="mb-3">Failed Files by Type</h4>';
+            html += '<div class="table-container mb-4">';
+            html += '<table class="table table-sm">';
+            html += '<thead><tr><th>File Type</th><th>Description</th><th>Count</th><th>Common Error</th></tr></thead>';
+            html += '<tbody>';
+            
+            for (const [type, info] of Object.entries(data.failed_by_type)) {
+                const description = getFileTypeDescription(type);
+                const errorPreview = info.sample_error ? info.sample_error.substring(0, 40) + '...' : 'Unknown error';
+                const displayType = type || 'unknown';
+                html += `
+                    <tr>
+                        <td><span class="badge badge-error">${displayType}</span></td>
+                        <td class="text-small text-muted">${description}</td>
+                        <td>${info.count}</td>
+                        <td class="text-small text-muted" title="${info.sample_error || ''}">${errorPreview}</td>
+                    </tr>
+                `;
+            }
+            
+            html += '</tbody></table></div>';
+        }
+        
+        html += '</div>';
+        content.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading breakdown:', error);
+        content.innerHTML = `
+            <div class="alert alert-error">
+                <strong>Error:</strong> Failed to load breakdown data. ${error.message}
+            </div>
+        `;
+    }
+}
+
+function closeZipBreakdown() {
+    document.getElementById('zipBreakdownModal').style.display = 'none';
+}
+
+// Close modal on background click
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('zipBreakdownModal');
+    if (e.target === modal) {
+        closeZipBreakdown();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeZipBreakdown();
+    }
 });
 </script>
 {% endblock %}

@@ -337,6 +337,50 @@
     </div>
 </div>
 
+<!-- User Discovery Modal -->
+<div id="userDiscoveryModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🔍 Discovering Users from Logs</h2>
+        </div>
+        <div class="modal-body">
+            <div class="progress-container" style="margin-bottom: 16px;">
+                <div class="progress">
+                    <div class="progress-bar" id="userDiscoveryProgressBar" style="width: 0%"></div>
+                </div>
+                <div class="progress-text" id="userDiscoveryProgressText" style="text-align: center; margin-top: 8px; color: var(--color-text-secondary);">
+                    Initializing...
+                </div>
+            </div>
+            
+            <div id="userDiscoveryStatus" style="padding: 16px; background: var(--color-bg-secondary); border-radius: var(--radius-md); margin-bottom: 16px;">
+                <p style="margin: 0; color: var(--color-text-secondary);">
+                    Scanning OpenSearch events for usernames...
+                </p>
+            </div>
+            
+            <div id="userDiscoveryResults" style="display: none;">
+                <div class="alert alert-success">
+                    <h4 style="margin-top: 0;">✅ Discovery Complete!</h4>
+                    <p id="userDiscoveryResultsText"></p>
+                </div>
+            </div>
+            
+            <div id="userDiscoveryError" style="display: none;">
+                <div class="alert alert-danger">
+                    <h4 style="margin-top: 0;">❌ Discovery Failed</h4>
+                    <p id="userDiscoveryErrorText"></p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" id="userDiscoveryCloseBtn" onclick="closeUserDiscoveryModal()" disabled>
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Import CSV Modal -->
 <div id="importCSVModal" class="modal-overlay" style="display: none;" onclick="closeImportCSVModal(event)">
     <div class="modal-container" onclick="event.stopPropagation()">
@@ -1019,29 +1063,17 @@ function startUserDiscovery() {
         return;
     }
     
-    // Show progress modal
-    const modalHtml = `
-        <div id="discoveryModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-            <div class="card" style="width: 500px; max-width: 90%;">
-                <div class="card-header">
-                    <h3 class="card-title mb-0">🔍 Discovering Users from Logs</h3>
-                </div>
-                <div class="card-body">
-                    <div class="progress-bar-container" style="margin-bottom: 1rem;">
-                        <div class="progress-bar" id="discoveryProgress" style="width: 0%; background: var(--primary-color); height: 20px; border-radius: 4px; transition: width 0.3s;"></div>
-                    </div>
-                    <p id="discoveryStatus">Starting...</p>
-                    <div id="discoveryResult" style="margin-top: 1rem; display: none;">
-                        <h4>Discovery Complete!</h4>
-                        <p id="discoveryResultText"></p>
-                        <button class="btn btn-primary mt-2" onclick="closeDiscoveryModal()">Close</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+    // Show the pre-defined modal
+    const modal = document.getElementById('userDiscoveryModal');
+    modal.style.display = 'flex';
     
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    // Reset modal state
+    document.getElementById('userDiscoveryProgressBar').style.width = '0%';
+    document.getElementById('userDiscoveryProgressText').textContent = 'Initializing...';
+    document.getElementById('userDiscoveryStatus').style.display = 'block';
+    document.getElementById('userDiscoveryResults').style.display = 'none';
+    document.getElementById('userDiscoveryError').style.display = 'none';
+    document.getElementById('userDiscoveryCloseBtn').disabled = true;
     
     // Start discovery
     fetch('/users/api/discover_from_logs', {
@@ -1055,66 +1087,73 @@ function startUserDiscovery() {
         }
         
         // Poll for status
-        pollDiscoveryStatus(data.task_id);
+        pollUserDiscoveryStatus(data.task_id);
     })
     .catch(error => {
-        alert('Error: ' + error.message);
-        closeDiscoveryModal();
+        document.getElementById('userDiscoveryError').style.display = 'block';
+        document.getElementById('userDiscoveryErrorText').textContent = error.message;
+        document.getElementById('userDiscoveryStatus').style.display = 'none';
+        document.getElementById('userDiscoveryCloseBtn').disabled = false;
     });
 }
 
-function pollDiscoveryStatus(taskId) {
+function pollUserDiscoveryStatus(taskId) {
     fetch(`/users/api/discovery_status/${taskId}`)
     .then(response => response.json())
     .then(data => {
-        const statusEl = document.getElementById('discoveryStatus');
-        const progressEl = document.getElementById('discoveryProgress');
-        const resultEl = document.getElementById('discoveryResult');
-        const resultTextEl = document.getElementById('discoveryResultText');
+        const statusEl = document.getElementById('userDiscoveryStatus');
+        const progressBar = document.getElementById('userDiscoveryProgressBar');
+        const progressText = document.getElementById('userDiscoveryProgressText');
+        const resultsEl = document.getElementById('userDiscoveryResults');
+        const resultsText = document.getElementById('userDiscoveryResultsText');
+        const errorEl = document.getElementById('userDiscoveryError');
+        const errorText = document.getElementById('userDiscoveryErrorText');
+        const closeBtn = document.getElementById('userDiscoveryCloseBtn');
         
         if (data.state === 'PROGRESS') {
-            statusEl.textContent = data.status;
-            progressEl.style.width = data.progress + '%';
+            progressBar.style.width = data.progress + '%';
+            progressText.textContent = data.status || 'Processing...';
             
             // Continue polling
-            setTimeout(() => pollDiscoveryStatus(taskId), 1000);
+            setTimeout(() => pollUserDiscoveryStatus(taskId), 1000);
         } else if (data.state === 'SUCCESS') {
-            progressEl.style.width = '100%';
+            progressBar.style.width = '100%';
+            progressText.textContent = 'Complete!';
             statusEl.style.display = 'none';
             
             const result = data.result;
-            resultTextEl.innerHTML = `
+            resultsText.innerHTML = `
                 <strong>Users Found:</strong> ${result.users_found}<br>
                 <strong>New Users Created:</strong> ${result.users_created}<br>
                 <strong>Existing Users Updated:</strong> ${result.users_updated}<br>
                 <strong>Events Scanned:</strong> ${result.events_processed.toLocaleString()}
             `;
-            resultEl.style.display = 'block';
+            resultsEl.style.display = 'block';
+            closeBtn.disabled = false;
             
             // Reload users list
             loadUsers(currentPage);
             loadStats();
         } else if (data.state === 'FAILURE') {
-            statusEl.textContent = 'Error: ' + data.status;
-            statusEl.style.color = 'var(--error-color)';
-            
-            setTimeout(() => closeDiscoveryModal(), 3000);
+            statusEl.style.display = 'none';
+            errorEl.style.display = 'block';
+            errorText.textContent = data.status || 'Discovery failed';
+            closeBtn.disabled = false;
         } else {
             // Continue polling for other states
-            setTimeout(() => pollDiscoveryStatus(taskId), 1000);
+            setTimeout(() => pollUserDiscoveryStatus(taskId), 1000);
         }
     })
     .catch(error => {
-        alert('Error checking status: ' + error.message);
-        closeDiscoveryModal();
+        document.getElementById('userDiscoveryStatus').style.display = 'none';
+        document.getElementById('userDiscoveryError').style.display = 'block';
+        document.getElementById('userDiscoveryErrorText').textContent = error.message;
+        document.getElementById('userDiscoveryCloseBtn').disabled = false;
     });
 }
 
-function closeDiscoveryModal() {
-    const modal = document.getElementById('discoveryModal');
-    if (modal) {
-        modal.remove();
-    }
+function closeUserDiscoveryModal() {
+    document.getElementById('userDiscoveryModal').style.display = 'none';
 }
 
 // Utility functions

@@ -9,6 +9,12 @@ from datetime import datetime
 from typing import Iterator, Dict, Any
 from pathlib import Path
 
+# Import normalization - handle both Flask and Celery contexts
+try:
+    from app.utils.event_normalization import normalize_event
+except ImportError:
+    from utils.event_normalization import normalize_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,93 +117,9 @@ def normalize_ndjson_event(event: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Normalized event with search blob
     """
-    # Extract timestamp (try multiple common fields)
-    timestamp = None
-    timestamp_fields = [
-        '@timestamp', 'timestamp', 'event.ingested', 
-        'event.created', 'time', 'datetime'
-    ]
-    for field in timestamp_fields:
-        if '.' in field:
-            # Nested field (e.g., event.ingested)
-            parts = field.split('.')
-            value = event
-            for part in parts:
-                if isinstance(value, dict):
-                    value = value.get(part)
-                else:
-                    value = None
-                    break
-            if value:
-                timestamp = value
-                break
-        else:
-            # Top-level field
-            timestamp = event.get(field)
-            if timestamp:
-                break
-    
-    if timestamp:
-        event['normalized_timestamp'] = timestamp
-    
-    # Extract computer/hostname (try multiple common fields)
-    computer = None
-    computer_fields = [
-        'host.hostname', 'host.name', 'computer', 'hostname',
-        'Computer', 'ComputerName', 'agent.name'
-    ]
-    for field in computer_fields:
-        if '.' in field:
-            # Nested field
-            parts = field.split('.')
-            value = event
-            for part in parts:
-                if isinstance(value, dict):
-                    value = value.get(part)
-                else:
-                    value = None
-                    break
-            if value:
-                computer = value
-                break
-        else:
-            # Top-level field
-            computer = event.get(field)
-            if computer:
-                break
-    
-    if computer:
-        event['normalized_computer'] = computer
-    
-    # Extract event ID (try multiple common fields)
-    event_id = None
-    event_id_fields = [
-        'event.code', 'event_id', 'EventID', 'event.id',
-        'event.type', 'event_type'
-    ]
-    for field in event_id_fields:
-        if '.' in field:
-            # Nested field
-            parts = field.split('.')
-            value = event
-            for part in parts:
-                if isinstance(value, dict):
-                    value = value.get(part)
-                else:
-                    value = None
-                    break
-            if value:
-                event_id = str(value)
-                break
-        else:
-            # Top-level field
-            value = event.get(field)
-            if value:
-                event_id = str(value)
-                break
-    
-    if event_id:
-        event['normalized_event_id'] = event_id
+    # Use comprehensive normalization from event_normalization module
+    # This ensures consistent field extraction across ALL file types
+    event = normalize_event(event)
     
     # Create search blob for comprehensive searching
     search_blob = create_search_blob(event)

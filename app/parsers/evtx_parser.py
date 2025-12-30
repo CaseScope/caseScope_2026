@@ -9,6 +9,12 @@ from datetime import datetime
 from typing import Iterator, Dict, Any
 from pathlib import Path
 
+# Import normalization - handle both Flask and Celery contexts
+try:
+    from app.utils.event_normalization import normalize_event
+except ImportError:
+    from utils.event_normalization import normalize_event
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -198,18 +204,9 @@ class EVTXParser:
                 # Store raw XML for reference
                 event['raw_xml'] = xml_data
                 
-                # Normalize fields for consistent querying across all log types
-                # This allows searching/sorting by normalized_* fields regardless of source
-                if 'timestamp' in event:
-                    event['normalized_timestamp'] = event['timestamp']
-                elif 'system_time' in event:
-                    event['normalized_timestamp'] = event['system_time']
-                
-                if 'computer' in event:
-                    event['normalized_computer'] = event['computer']
-                
-                if 'event_id' in event:
-                    event['normalized_event_id'] = event['event_id']
+                # COMPREHENSIVE NORMALIZATION - handles all EVTX structures including ZIP exports
+                # This replaces the simple normalization and fixes "Unknown" computer names
+                event = normalize_event(event)
                 
                 # Create search blob for comprehensive searching
                 search_blob = create_search_blob(event)

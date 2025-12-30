@@ -24,15 +24,18 @@ All route blueprints are automatically discovered and registered by `main.py`.
 **Current Routes**:
 - `auth.py` - Login/logout authentication routes
 - `admin.py` - Administrator and analyst user management, audit log viewer
-- `case.py` - Case management (create, edit, delete, select, dashboard)
+- `case.py` - Case management (create, edit, delete, select, dashboard, file management)
 - `dashboard.py` - Main dashboard with system stats and metrics API
 - `search.py` - Event search system with boolean operators and file type filtering
-- `upload.py` - File upload system (chunk-based upload, drag & drop)
+- `browser.py` - Browser history viewing and analysis (Chrome, Edge, Firefox, WebCache)
+- `upload.py` - File upload system (chunk-based upload, drag & drop, bulk folder)
 - `settings.py` - System settings (Celery worker configuration, EVTX descriptions management, SSL certificate upload)
 - `ioc.py` - IOC management (Indicators of Compromise tracking and analysis)
 - `known_systems.py` - Known systems tracking (workstations, servers, network devices)
 - `known_users.py` - Known users tracking (user accounts, identities, compromised credentials)
 - `hunting.py` - Threat hunting dashboard and IOC hunt operations
+- `noise_filters.py` - Noise filter rules management interface
+- `events_noise_check.py` - Event noise tagging operations
 - `ai.py` - AI assistant interface (RAG-powered threat intelligence)
 
 **Adding New Routes**: Simply create a new file in `/app/routes` that exports a blueprint, and it will be auto-loaded on next server restart.
@@ -40,12 +43,15 @@ All route blueprints are automatically discovered and registered by `main.py`.
 ### `/static` - Static Assets
 Frontend resources (CSS, JavaScript, images).
 
-#### `/static/css` - Centralized Styling
+#### `/css` - Centralized Styling (Root Level)
 - `main.css` - Global styles, CSS variables, color palette, typography
-- (removed) `components.css` - Merged into main.css
-- (removed) `layout.css` - Merged into main.css
+- `components.css` - Reusable UI components (buttons, modals, alerts, badges, process tree, etc.)
+- `layout.css` - Page layout and structural styles
 
-**Philosophy**: All styling centralized in CSS files. **No inline styles**. **No `<style>` blocks in templates**. Modals and all UI components use consistent, reusable classes.
+#### `/static/css` - Static Assets (Served via Flask)
+- `main.css` - Deployed/production CSS (may differ from /css)
+
+**Philosophy**: All styling centralized in CSS files. **No inline styles**. **No `<style>` blocks in templates**. Modals and all UI components use consistent, reusable classes from `/css/components.css`.
 
 **CSS Architecture Compliance:**
 - ✅ Zero inline styles in HTML (e.g., no `style="..."`)
@@ -89,9 +95,11 @@ All HTML templates using Jinja2 templating engine.
 - `/templates/ioc/` - IOC management pages:
   - `manage.html` - IOC management interface (list, add, edit, bulk operations)
 - `/templates/systems/` - Known systems pages:
-  - `manage.html` - Systems management interface (list, add, edit, discovery, CSV import)
+  - `manage.html` - Systems management (list, add, edit, auto-discovery, CSV import/export, bulk ops)
 - `/templates/users/` - Known users pages:
-  - `manage.html` - Users management interface (list, add, edit, discovery, CSV import)
+  - `manage.html` - Users management (list, add, edit, auto-discovery, CSV import/export, bulk ops)
+- `/templates/browser/` - Browser history pages:
+  - `history.html` - Browser history viewer (Chrome, Edge, Firefox, WebCache)
 - `/templates/hunting/` - Threat hunting pages:
   - `dashboard.html` - Threat hunting dashboard and IOC hunt interface
 - `/templates/ai/` - AI assistant pages:
@@ -118,7 +126,7 @@ SQL migration scripts for schema changes.
 
 **Systemd Services**:
 - `casescope-new.service` - Flask web application
-- `casescope-celery.service` - Background task worker (if using Celery)
+- `casescope-workers.service` - Celery background task workers
 
 ## Key Design Principles
 

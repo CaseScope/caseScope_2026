@@ -455,13 +455,17 @@ def api_search_events():
             )
             
             # Get computer/hostname
-            computer = (
-                source.get('normalized_computer') or
-                source.get('computer') or
-                source.get('host', {}).get('hostname') if isinstance(source.get('host'), dict) else None or
-                source.get('host', {}).get('name') if isinstance(source.get('host'), dict) else None or
-                'Unknown'
-            )
+            computer = source.get('normalized_computer')
+            if not computer:
+                computer = source.get('computer')
+            if not computer and isinstance(source.get('host'), dict):
+                computer = source.get('host', {}).get('hostname') or source.get('host', {}).get('name')
+            if not computer:
+                computer = 'Unknown'
+            
+            # Debug logging for Unknown computers
+            if computer == 'Unknown':
+                logger.warning(f"Event {hit['_id']} has Unknown computer. Fields: normalized_computer={source.get('normalized_computer')}, computer={source.get('computer')}, source_file={source.get('source_file')}")
             
             # Get event ID (for NDJSON, show "EDR" instead)
             if file_type == 'NDJSON':
@@ -1032,4 +1036,228 @@ def api_get_tagged_events():
         
     except Exception as e:
         logger.error(f"Error in get tagged events: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@search_bp.route('/api/related_processes/<event_id>')
+@login_required
+def api_related_processes(event_id):
+    """
+    Find related processes (siblings, children, parent, grandparent) by entity_id correlation
+    
+    Returns a process tree showing:
+    - Siblings: Processes with the same parent.entity_id
+    - Children: Processes where this process is the parent
+    - Parent: Process matching this event's parent.entity_id
+    - Grandparent: Parent's parent (if available)
+    
+    Args:
+        event_id: OpenSearch document ID
+        
+    Returns:
+        JSON with process tree structure
+    """
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'error': 'No case selected'}), 400
+        
+        client = get_opensearch_client()
+        index_name = f"case_{case_id}"
+        
+        # Get the source event
+        try:
+            source_event = client.get(index=index_name, id=event_id)
+            source = source_event['_source']
+        except NotFoundError:
+            return jsonify({'error': 'Event not found'}), 404
+        
+        # Extract process info
+        process = source.get('process', {})
+        process_entity_id = process.get('entity_id')
+        parent_entity_id = process.get('parent', {}).get('entity_id')
+        computer = source.get('normalized_computer') or source.get('computer') or 'Unknown'
+        
+        logger.info(f"[RELATED_PROC] Event: {event_id}, Process: {process.get('name')}, Entity: {process_entity_id}, Parent Entity: {parent_entity_id}, Computer: {computer}")
+        
+        if not process_entity_id:
+            return jsonify({'error': 'Event does not have process.entity_id (not a process event)'}), 400
+        
+        results = {
+            'current_process': {
+                'name': process.get('name'),
+                'pid': process.get('pid'),
+                'entity_id': process_entity_id,
+                'executable': process.get('executable'),
+                'command_line': process.get('command_line'),
+                'timestamp': source.get('normalized_timestamp') or source.get('@timestamp'),
+                'computer': computer
+            },
+            'siblings': [],
+            'children': [],
+            'parent': None,
+            'grandparent': None,
+            'analysis': {}
+        }
+        
+        # 1. Find siblings (same parent.entity_id)
+        # Note: entity_id is globally unique, no need to filter by computer
+        # Use match_phrase for exact GUID matching (avoid tokenization)
+        if parent_entity_id:
+            sibling_query = {
+                'query': {
+                    'match_phrase': {'process.parent.entity_id': parent_entity_id}
+                },
+                'sort': [{'normalized_timestamp': 'asc'}],
+                'size': 100,
+                '_source': ['process.name', 'process.pid', 'process.entity_id', 'process.executable', 
+                           'process.command_line', 'normalized_timestamp', 'event.type']
+            }
+            
+            sibling_response = client.search(index=index_name, body=sibling_query)
+            logger.info(f"[RELATED_PROC] Sibling query for parent {parent_entity_id}: found {sibling_response['hits']['total']['value']} results")
+            
+            for hit in sibling_response['hits']['hits']:
+                hit_source = hit['_source']
+                hit_process = hit_source.get('process', {})
+                results['siblings'].append({
+                    'id': hit['_id'],
+                    'name': hit_process.get('name'),
+                    'pid': hit_process.get('pid'),
+                    'entity_id': hit_process.get('entity_id'),
+                    'executable': hit_process.get('executable'),
+                    'command_line': hit_process.get('command_line'),
+                    'timestamp': hit_source.get('normalized_timestamp'),
+                    'is_current': hit['_id'] == event_id,
+                    'event_type': hit_source.get('event', {}).get('type', [])
+                })
+        
+        # 2. Find children (where this process is parent)
+        children_query = {
+            'query': {
+                'match_phrase': {'process.parent.entity_id': process_entity_id}
+            },
+            'sort': [{'normalized_timestamp': 'asc'}],
+            'size': 100,
+            '_source': ['process.name', 'process.pid', 'process.entity_id', 'process.executable',
+                       'process.command_line', 'normalized_timestamp', 'event.type']
+        }
+        
+        children_response = client.search(index=index_name, body=children_query)
+        
+        for hit in children_response['hits']['hits']:
+            hit_source = hit['_source']
+            hit_process = hit_source.get('process', {})
+            results['children'].append({
+                'id': hit['_id'],
+                'name': hit_process.get('name'),
+                'pid': hit_process.get('pid'),
+                'entity_id': hit_process.get('entity_id'),
+                'executable': hit_process.get('executable'),
+                'command_line': hit_process.get('command_line'),
+                'timestamp': hit_source.get('normalized_timestamp'),
+                'event_type': hit_source.get('event', {}).get('type', [])
+            })
+        
+        # 3. Find parent (where entity_id matches parent_entity_id)
+        if parent_entity_id:
+            parent_query = {
+                'query': {
+                    'match_phrase': {'process.entity_id': parent_entity_id}
+                },
+                'size': 1,
+                '_source': ['process.name', 'process.pid', 'process.entity_id', 'process.executable',
+                           'process.command_line', 'process.parent.entity_id', 'normalized_timestamp', 'event.type']
+            }
+            
+            parent_response = client.search(index=index_name, body=parent_query)
+            
+            if parent_response['hits']['hits']:
+                parent_hit = parent_response['hits']['hits'][0]
+                parent_source = parent_hit['_source']
+                parent_process = parent_source.get('process', {})
+                
+                results['parent'] = {
+                    'id': parent_hit['_id'],
+                    'name': parent_process.get('name'),
+                    'pid': parent_process.get('pid'),
+                    'entity_id': parent_process.get('entity_id'),
+                    'executable': parent_process.get('executable'),
+                    'command_line': parent_process.get('command_line'),
+                    'timestamp': parent_source.get('normalized_timestamp'),
+                    'event_type': parent_source.get('event', {}).get('type', [])
+                }
+                
+                # 4. Find grandparent if parent exists
+                grandparent_entity_id = parent_process.get('parent', {}).get('entity_id')
+                if grandparent_entity_id:
+                    grandparent_query = {
+                        'query': {
+                            'match_phrase': {'process.entity_id': grandparent_entity_id}
+                        },
+                        'size': 1,
+                        '_source': ['process.name', 'process.pid', 'process.entity_id', 'process.executable',
+                                   'process.command_line', 'normalized_timestamp', 'event.type']
+                    }
+                    
+                    grandparent_response = client.search(index=index_name, body=grandparent_query)
+                    
+                    if grandparent_response['hits']['hits']:
+                        gp_hit = grandparent_response['hits']['hits'][0]
+                        gp_source = gp_hit['_source']
+                        gp_process = gp_source.get('process', {})
+                        
+                        results['grandparent'] = {
+                            'id': gp_hit['_id'],
+                            'name': gp_process.get('name'),
+                            'pid': gp_process.get('pid'),
+                            'entity_id': gp_process.get('entity_id'),
+                            'executable': gp_process.get('executable'),
+                            'command_line': gp_process.get('command_line'),
+                            'timestamp': gp_source.get('normalized_timestamp'),
+                            'event_type': gp_source.get('event', {}).get('type', [])
+                        }
+        
+        # 5. Generate analysis/insights
+        sibling_count = len(results['siblings'])
+        children_count = len(results['children'])
+        
+        # Calculate time span between siblings
+        if sibling_count > 1:
+            timestamps = [s['timestamp'] for s in results['siblings'] if s['timestamp']]
+            if timestamps:
+                from datetime import datetime
+                dates = [datetime.fromisoformat(t.replace('Z', '+00:00')) for t in timestamps]
+                time_span_ms = int((max(dates) - min(dates)).total_seconds() * 1000)
+                results['analysis']['sibling_time_span_ms'] = time_span_ms
+                results['analysis']['sibling_time_span_desc'] = f"{time_span_ms}ms"
+        
+        # Detect patterns
+        patterns = []
+        if sibling_count >= 3:
+            sibling_names = [s['name'].lower() if s['name'] else '' for s in results['siblings']]
+            # Diagnostic tools pattern
+            diagnostic_tools = ['netstat', 'find', 'tasklist', 'ipconfig', 'whoami', 'systeminfo', 'ping']
+            diagnostic_count = sum(1 for name in sibling_names if any(tool in name for tool in diagnostic_tools))
+            
+            if diagnostic_count >= 2:
+                patterns.append('Multiple diagnostic tools spawned together')
+                patterns.append('Likely automated RMM/EDR activity')
+        
+        if not results['parent']:
+            patterns.append('Parent process not in dataset (short-lived or pre-collection)')
+        
+        results['analysis']['patterns'] = patterns
+        results['analysis']['sibling_count'] = sibling_count
+        results['analysis']['children_count'] = children_count
+        results['analysis']['has_parent'] = results['parent'] is not None
+        results['analysis']['has_grandparent'] = results['grandparent'] is not None
+        
+        return jsonify({
+            'success': True,
+            'data': results
+        })
+        
+    except Exception as e:
+        logger.error(f"Error finding related processes: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

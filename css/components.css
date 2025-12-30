@@ -483,3 +483,100 @@
     color: var(--color-text-primary);
     font-weight: 500;
 }
+
+/* ============================================================================
+   PROCESS TREE (Related Processes Feature)
+   ============================================================================ */
+
+.process-tree-level {
+    margin-bottom: var(--spacing-lg);
+}
+
+.process-tree-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--color-info);
+    margin-bottom: var(--spacing-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.process-tree-item {
+    padding: var(--spacing-md);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--color-primary);
+    position: relative;
+    margin-bottom: var(--spacing-sm);
+}
+
+.process-tree-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--color-success);
+    color: white;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+}
+
+.process-tree-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+}
+
+.process-tree-details {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
+}
+
+.process-tree-cmd {
+    font-size: 0.8125rem;
+    color: var(--color-success);
+    font-family: var(--font-mono);
+    background: rgba(0,0,0,0.3);
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    margin: 6px 0;
+}
+
+.process-tree-path {
+    font-size: 0.6875rem;
+    color: var(--color-text-tertiary);
+    font-family: var(--font-mono);
+    margin-bottom: 8px;
+}
+
+.process-tree-actions {
+    margin-top: var(--spacing-sm);
+}
+
+.process-tree-expand {
+    display: inline-block;
+    width: 16px;
+    margin-right: 8px;
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    transition: transform 0.2s ease;
+}
+
+.process-tree-details-expand {
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 500px;
+    }
+}

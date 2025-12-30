@@ -56,14 +56,22 @@ ALTER TABLE case_file ADD CONSTRAINT fk_parent_file
 
 ```
 1. UPLOAD → Move to storage/case_X/
-2. CREATE container record (is_container=True, is_virtual=False)
-3. EXTRACT → staging/case_X/ (temporary)
+2. CREATE container record (is_container=True, is_virtual=False, status='extracting')
+3. EXTRACT → staging/case_X/extract_{container_id}/ (temporary)
 4. For each extracted file:
-   a. CREATE virtual file record (is_virtual=True, parent_file_id=container.id)
-   b. PARSE artifact → NDJSON
+   a. CREATE virtual file record (is_virtual=True, parent_file_id=container.id, status='parsing')
+   b. QUEUE for parsing (parallel processing across workers)
+5. UPDATE container to status='parsing' when extraction complete
+6. As each child file completes:
+   a. PARSE artifact (EVTX/NDJSON/CSV/Browser)
+   b. NORMALIZE fields (computer, timestamp, event_id)
    c. INDEX to appropriate OpenSearch index
-   d. DELETE from staging (keep only ZIP)
-5. UPDATE container status to "completed"
+   d. COMPRESS (GZIP) and delete from staging
+   e. UPDATE child status to 'indexed'
+   f. CALL update_container_status() - accumulates event_count, updates container status
+7. When all children complete:
+   - Container status → 'indexed' (all succeeded) or 'partial' (some failed)
+   - Container event_count = SUM(child event_counts)
 ```
 
 #### For Standalone Files:
@@ -105,13 +113,21 @@ ALTER TABLE case_file ADD CONSTRAINT fk_parent_file
 **EVTX Parser** (`parsers/evtx_parser.py`)
 - Windows Event Logs → `case_X`
 - Chunked processing (5000 events)
-- Computer name extraction
+- Uses comprehensive normalization module (`event_normalization.py`)
+- Handles nested structures (`Event.System.Computer` for ZIP exports)
 - Memory-safe for 16-32GB systems
 
 **NDJSON Parser** (`parsers/ndjson_parser.py`)
 - Pre-parsed JSON events → `case_X`
-- Supports CyLR output format
-- Normalized computer field extraction
+- Supports EDR formats (CrowdStrike, SentinelOne, Huntress, CyLR)
+- Uses comprehensive normalization module
+- Extracts from nested fields (`host.hostname`, `event.code`)
+
+**CSV Parser** (`parsers/firewall_csv_parser.py`)
+- Firewall logs (SonicWall, generic) → `case_X`
+- Auto-detects format from headers
+- Uses comprehensive normalization module
+- Extracts all IPs for IOC hunting
 
 ### Phase 2: Browser Artifacts (NEW)
 
@@ -334,6 +350,81 @@ python3 migrate_existing_cases.py
 - 352 EVTX files marked as standalone
 - All files now have `target_index` set
 - No data loss, no file movement
+
+---
+
+## Container Status & Event Tracking (v1.5.7)
+
+### Automatic Container Updates
+
+**Function**: `update_container_status(container_id)` in `task_file_upload.py`
+
+**Triggered**: Automatically after each child file completes (success or failure)
+
+**Logic**:
+```python
+# Get all children
+children = CaseFile.query.filter_by(parent_file_id=container_id).all()
+
+# Check completion status
+all_indexed = all(child.status == 'indexed' for child in children)
+any_failed = any(child.status == 'failed' for child in children)
+
+# Calculate cumulative events
+total_events = sum(child.event_count or 0 for child in children)
+
+# Update container
+if all_indexed:
+    container.status = 'indexed'  # All succeeded
+    container.event_count = total_events
+elif any_failed:
+    container.status = 'partial'  # Some failed
+    container.event_count = total_events  # Still counts successful files
+else:
+    container.event_count = total_events  # Running total during processing
+```
+
+**Status Progression**:
+```
+extracting → parsing → indexed/partial
+```
+
+**Event Count**:
+- Updates in real-time as children complete
+- Shows cumulative total from all successfully indexed child files
+- Displayed in file list and ZIP breakdown modal
+
+### ZIP Breakdown Modal
+
+**Trigger**: Click file count badge (e.g., "954 files") on any ZIP container
+
+**Endpoint**: `/case/<id>/files/<container_id>/breakdown`
+
+**Shows**:
+- Total files extracted
+- Successfully indexed count
+- Failed files count
+- Total events indexed
+- Container status
+- **Indexed files by type** (with descriptions):
+  - File type (evtx, ndjson, dat, db, etc.)
+  - Description (e.g., "Windows Event Log files - System, Security, Application logs")
+  - Count of files
+  - Event count per type
+- **Failed files by type** (with sample errors):
+  - File type
+  - Description
+  - Count
+  - Common error message
+
+**File Type Descriptions**:
+```javascript
+'evtx': 'Windows Event Log files - System, Security, Application logs'
+'ndjson': 'Newline Delimited JSON - Typically EDR/SIEM logs (CrowdStrike, SentinelOne, etc.)'
+'dat': 'Data files - Often WebCache (browser cache), ESE databases'
+'db': 'SQLite databases - Thumbnails, application data, browser artifacts'
+'' (empty): 'Browser artifacts - History, Cookies, Download records (SQLite)'
+```
 
 ---
 

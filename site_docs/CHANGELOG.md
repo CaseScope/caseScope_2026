@@ -1,5 +1,174 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.7 - December 29, 2025
+
+### 🔧 Major Fixes & Features
+
+**1. Computer Name Normalization Fix**
+- **Issue**: Events showing "Unknown" instead of actual computer names
+- **Root Cause**: Parser only checking limited field paths, missing nested structures like `Event.System.Computer`
+- **Solution**: Created comprehensive `event_normalization.py` module checking 15+ field paths
+- **Files Modified**: 
+  - `app/utils/event_normalization.py` (new)
+  - `app/parsers/evtx_parser.py`
+  - `app/parsers/ndjson_parser.py`
+  - `app/parsers/firewall_csv_parser.py`
+- **Impact**: Computer names now display correctly for all log types
+
+**2. ZIP Container Status & Event Count Tracking**
+- **Issue**: ZIP containers stuck in "parsing" status, showing 0 events
+- **Solution**: Auto-update container status when all children complete, accumulate event counts
+- **Files Modified**: `app/tasks/task_file_upload.py`, `app/routes/case.py`
+- **Features Added**:
+  - Containers update to `indexed` or `partial` status automatically
+  - Cumulative event counts from all child files
+  - Pending files counter queries database (not filesystem)
+
+**3. Active File Tracking**
+- **Feature**: Real-time display of files being indexed across all Celery workers
+- **Implementation**: Uses Celery task inspection to show active files with ZIP context
+- **Files Modified**: `app/routes/case.py`, `templates/case/files.html`
+- **Display**: Shows `📦 ZipName / filename` for virtual files, just `filename` for standalone
+
+**4. ZIP Breakdown Modal**
+- **Feature**: Click file count badge on ZIPs to see detailed breakdown
+- **Shows**: Indexed/failed files by type, event counts, file type descriptions
+- **Files Modified**: `templates/case/files.html`, `app/routes/case.py`
+
+**5. Chunked Upload Fixes**
+- **Issue**: Specific ZIPs failing with "file size mismatch" (1 byte short)
+- **Root Cause**: Browser Blob.slice() edge case at chunk boundaries
+- **Solutions Applied**:
+  - Added 500ms delay between file uploads (reduces SSL handshake conflicts)
+  - Enhanced error logging for chunk analysis
+  - Documented bulk upload folder as workaround
+- **Files Modified**: `templates/case/upload.html`, `app/routes/upload.py`
+
+**6. Known Systems/Users Alphabetical Sorting**
+- **Changed**: Lists now sort by name/username instead of creation date
+- **Files Modified**: `app/routes/known_systems.py`, `app/routes/known_users.py`
+
+**7. User Discovery Modal Fix**
+- **Issue**: User discovery modal using inline HTML instead of proper CSS classes
+- **Solution**: Aligned with systems modal structure using central CSS
+- **Files Modified**: `templates/users/manage.html`
+
+**8. Search Display Logic Fix**
+- **Issue**: Events showing "Unknown" computer despite having normalized_computer field
+- **Root Cause**: Python operator precedence issue in conditional chain
+- **Solution**: Refactored to explicit if/else logic
+- **Files Modified**: `app/routes/search.py`
+
+---
+
+## Version 1.5.6 - December 28, 2025
+
+### ✨ Feature: CSV/Firewall Log Upload Support
+
+**Added:** Full CSV firewall log upload and parsing support
+
+**Integration:**
+- `firewall_csv_parser.py` now integrated into `task_file_upload.py`
+- Supports all upload methods: browser, drag/drop, bulk SFTP
+- Auto-detects SonicWall and generic firewall CSV formats
+- Populates normalized fields: `normalized_timestamp`, `normalized_source_ip`, `normalized_dest_ip`, `normalized_event_id`
+
+**Supported Formats:**
+- SonicWall CSV exports
+- Generic firewall logs (source IP, dest IP, action columns)
+- Auto-detection based on CSV headers
+
+**Fields Extracted:**
+- Network: Source/Dest IP, Port, MAC, Zone
+- Firewall: Action, Rule, Priority, Application
+- Geo-blocking: Country, blocked IP, direction
+- All IPs extracted to `extracted_ips` array for IOC hunting
+
+**Files Modified:**
+- `app/tasks/task_file_upload.py` - Added CSV parser integration
+- `app/parsers/firewall_csv_parser.py` - Already existed, now integrated
+
+---
+
+## Version 1.5.5 - December 28, 2025
+
+### 🔗 Feature: Related Processes Investigation Tool
+
+**Added:** "Find Related Processes" feature for NDJSON events using entity ID correlation
+
+**Problem Solved:**
+- Huntress and other EDR platforms sometimes don't populate parent process names in events
+- Parent entity_id exists but parent process details are empty strings
+- Need to correlate by entity_id to find actual parent process and siblings
+
+**The Solution:**
+Dynamic process tree reconstruction by correlating `process.entity_id` and `process.parent.entity_id` fields.
+
+**How It Works:**
+1. Click "🔗 Find Related Processes" button in Process Tree tab
+2. API searches for:
+   - **Siblings**: Processes with same `parent.entity_id` (spawned together)
+   - **Children**: Processes where current process is parent
+   - **Parent**: Process matching `parent.entity_id`
+   - **Grandparent**: Parent's parent
+3. Displays interactive process tree modal
+4. Click 🔗 on ANY process to navigate to its tree
+5. Bulk tag siblings or entire tree as suspicious
+
+**Key Features:**
+- **Entity ID correlation**: Handles PID reuse correctly (uses globally unique GUIDs)
+- **Pattern detection**: Automatically identifies RMM activity, diagnostic tool chains
+- **Time analysis**: Shows sibling spawn time span (milliseconds apart = automation)
+- **Interactive navigation**: Click through process chains for investigation
+- **Bulk tagging**: Tag siblings only or entire tree with one click
+- **Collapsible details**: Compact view with expand-on-click
+
+**Example Use Case:**
+```
+User finds suspicious netstat.exe
+→ Click "Find Related" → See 2 find.exe siblings spawned within 20ms
+→ Pattern: Diagnostic recon tools = RMM activity
+→ Click "Tag Siblings" → All 3 tagged for review
+→ Click 🔗 on parent (cmd.exe) → See what else cmd spawned
+→ Continue hunting up the process tree
+```
+
+**Performance:**
+- Uses `match_phrase` for exact GUID matching (no tokenization)
+- Single API call returns complete tree
+- Queries optimized for speed (<100ms typical)
+
+**Files Modified:**
+- `app/routes/search.py` - Added `/api/related_processes/<event_id>` endpoint
+- `templates/search/events.html` - Added modal UI and navigation JavaScript
+- `css/components.css` - Added process tree styles (reuses central CSS)
+
+**API Endpoint:**
+```
+GET /search/api/related_processes/<event_id>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "current_process": {...},
+    "siblings": [{...}, {...}],
+    "children": [{...}],
+    "parent": {...} or null,
+    "grandparent": {...} or null,
+    "analysis": {
+      "sibling_count": 3,
+      "sibling_time_span_ms": 20,
+      "patterns": ["Multiple diagnostic tools spawned together", "Likely automated RMM/EDR activity"]
+    }
+  }
+}
+```
+
+---
+
 ## Version 1.5.4 - December 28, 2025
 
 ### 🐛 Critical Fix: EDR/RMM Agent URLs Causing False Noise Positives

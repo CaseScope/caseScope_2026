@@ -408,10 +408,10 @@ def case_files(case_id=None):
                 total_files += 1
                 total_size += os.path.getsize(file_path)
     
-    # Pending files in staging
-    pending_files = 0
-    if os.path.exists(staging_path):
-        pending_files = len([f for f in os.listdir(staging_path) if os.path.isfile(os.path.join(staging_path, f))])
+    # Pending files - files that are being processed (query database, not filesystem)
+    pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['pending', 'processing', 'parsing', 'extracting'])
+    ).count()
     
     # Get event count from OpenSearch
     total_events = 0
@@ -490,10 +490,10 @@ def case_files_stats(case_id):
                 total_files += 1
                 total_size += os.path.getsize(file_path)
     
-    # Pending files in staging
-    pending_files = 0
-    if os.path.exists(staging_path):
-        pending_files = len([f for f in os.listdir(staging_path) if os.path.isfile(os.path.join(staging_path, f))])
+    # Pending files - files that are being processed (query database, not filesystem)
+    pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['pending', 'processing', 'parsing', 'extracting'])
+    ).count()
     
     # Get event count from OpenSearch
     total_events = 0
@@ -506,7 +506,9 @@ def case_files_stats(case_id):
         logger.error(f"Error getting event count: {e}")
     
     # Get file counts by status
-    processing_count = CaseFile.query.filter_by(case_id=case_id, status='processing').count()
+    processing_count = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['processing', 'parsing', 'extracting'])
+    ).count()
     indexed_count = CaseFile.query.filter_by(case_id=case_id, status='indexed').count()
     failed_count = CaseFile.query.filter_by(case_id=case_id, status='failed').count()
     
@@ -620,6 +622,140 @@ def get_zip_contents(case_id, container_id):
             'has_prev': pagination.has_prev,
             'files': files_data
         })
+
+
+@case_bp.route('/<int:case_id>/files/active-tasks', methods=['GET'])
+@login_required
+def get_active_tasks(case_id):
+    """
+    Get list of files currently being processed by Celery workers
+    Returns files actively being indexed with ZIP context
+    """
+    from models import Case, CaseFile
+    from celery_app import celery
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+    
+    active_files = []
+    
+    try:
+        # Inspect Celery workers for active tasks
+        i = celery.control.inspect()
+        active_tasks = i.active()
+        
+        if not active_tasks:
+            return jsonify({'active_files': []})
+        
+        # Process each worker's tasks
+        for worker_name, tasks in active_tasks.items():
+            for task in tasks:
+                # Only care about parse_and_index_file tasks
+                if task.get('name') == 'tasks.parse_and_index_file':
+                    try:
+                        # Extract file_id from task args [case_id, file_id, file_path, target_index]
+                        task_args = task.get('args', [])
+                        if len(task_args) >= 2:
+                            task_case_id = task_args[0]
+                            file_id = task_args[1]
+                            
+                            # Only include tasks for this case
+                            if task_case_id != case_id:
+                                continue
+                            
+                            # Get file from database
+                            file = CaseFile.query.get(file_id)
+                            if file:
+                                # Get parent ZIP name if this is a virtual file
+                                parent_zip_name = None
+                                if file.is_virtual and file.parent_file_id:
+                                    parent = CaseFile.query.get(file.parent_file_id)
+                                    if parent:
+                                        parent_zip_name = parent.filename
+                                
+                                active_files.append({
+                                    'filename': file.filename,
+                                    'original_filename': file.original_filename or file.filename,
+                                    'parent_zip': parent_zip_name,
+                                    'is_virtual': file.is_virtual,
+                                    'worker': worker_name.split('@')[0] if '@' in worker_name else worker_name
+                                })
+                    except Exception as e:
+                        logger.error(f"Error parsing active task: {e}")
+                        continue
+        
+        return jsonify({'active_files': active_files})
+        
+    except Exception as e:
+        logger.error(f"Error inspecting Celery tasks: {e}")
+        return jsonify({'active_files': [], 'error': str(e)})
+
+
+@case_bp.route('/<int:case_id>/files/<int:container_id>/breakdown', methods=['GET'])
+@login_required
+def get_zip_breakdown(case_id, container_id):
+    """
+    API endpoint to get detailed breakdown of ZIP container files
+    Shows statistics by file type, status, and events
+    """
+    from models import Case, CaseFile
+    from sqlalchemy import func
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            return jsonify({'error': 'Access denied'}), 403
+    
+    # Get container
+    container = CaseFile.query.filter_by(id=container_id, case_id=case_id, is_container=True).first_or_404()
+    
+    # Get all child files
+    children = CaseFile.query.filter_by(parent_file_id=container_id, is_virtual=True).all()
+    
+    # Calculate statistics
+    total_files = len(children)
+    indexed_files = len([f for f in children if f.status == 'indexed'])
+    failed_files = len([f for f in children if f.status == 'failed'])
+    total_events = sum(f.event_count or 0 for f in children if f.status == 'indexed')
+    
+    # Breakdown by file type - Indexed
+    indexed_by_type = {}
+    for file in children:
+        if file.status == 'indexed':
+            ext = file.file_type or 'unknown'
+            if ext not in indexed_by_type:
+                indexed_by_type[ext] = {'count': 0, 'events': 0}
+            indexed_by_type[ext]['count'] += 1
+            indexed_by_type[ext]['events'] += file.event_count or 0
+    
+    # Breakdown by file type - Failed
+    failed_by_type = {}
+    for file in children:
+        if file.status == 'failed':
+            ext = file.file_type or 'unknown'
+            if ext not in failed_by_type:
+                failed_by_type[ext] = {'count': 0, 'sample_error': None}
+            failed_by_type[ext]['count'] += 1
+            if not failed_by_type[ext]['sample_error'] and file.error_message:
+                failed_by_type[ext]['sample_error'] = file.error_message
+    
+    return jsonify({
+        'container_id': container_id,
+        'container_name': container.original_filename,
+        'container_status': container.status,
+        'total_files': total_files,
+        'indexed_files': indexed_files,
+        'failed_files': failed_files,
+        'total_events': total_events,
+        'indexed_by_type': indexed_by_type,
+        'failed_by_type': failed_by_type
+    })
 
 
 @case_bp.route('/<int:case_id>/files/<int:file_id>/download', methods=['GET'])

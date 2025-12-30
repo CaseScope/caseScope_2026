@@ -149,6 +149,61 @@ def calculate_file_hash(file_path):
         logger.error(f"Error calculating hash for {file_path}: {e}")
         return None
 
+
+def update_container_status(container_id):
+    """
+    Update ZIP container status and event count after child files are processed
+    
+    Checks if all child files are indexed, and if so:
+    - Updates container status to 'indexed'
+    - Updates container event_count to cumulative total from all children
+    
+    Args:
+        container_id: CaseFile ID of the ZIP container
+    """
+    from main import app, db
+    from models import CaseFile
+    
+    with app.app_context():
+        try:
+            container = CaseFile.query.get(container_id)
+            if not container or not container.is_container:
+                return
+            
+            # Get all child files
+            children = CaseFile.query.filter_by(parent_file_id=container_id).all()
+            
+            if not children:
+                return
+            
+            # Check if all children are indexed
+            all_indexed = all(child.status == 'indexed' for child in children)
+            any_failed = any(child.status == 'failed' for child in children)
+            
+            # Calculate cumulative event count from all children
+            total_events = sum(child.event_count or 0 for child in children)
+            
+            # Update container
+            if all_indexed:
+                container.status = 'indexed'
+                container.event_count = total_events
+                logger.info(f"ZIP container {container.filename} fully indexed: {total_events} total events from {len(children)} files")
+            elif any_failed:
+                container.status = 'partial'  # Some files failed
+                container.event_count = total_events
+                logger.warning(f"ZIP container {container.filename} partially indexed: some files failed")
+            else:
+                # Still processing
+                container.event_count = total_events  # Update running total
+            
+            db.session.commit()
+            
+        except Exception as e:
+            logger.error(f"Error updating container status for container_id={container_id}: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 def compress_file_gzip(source_path, keep_original=False):
     """
     Compress file with GZIP
@@ -993,6 +1048,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             case_file.event_count = total_indexed
             case_file.indexed_at = datetime.utcnow()
             db.session.commit()
+            
+            # If this is a virtual file (from ZIP), update parent container status/counts
+            if case_file.is_virtual and case_file.parent_file_id:
+                update_container_status(case_file.parent_file_id)
         
         logger.info(f"Indexed {total_indexed} events from {filename} to {target_index}")
         
@@ -1015,6 +1074,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             case_file.error_message = str(e)
             case_file.retry_count = (case_file.retry_count or 0) + 1
             db.session.commit()
+            
+            # If this is a virtual file (from ZIP), update parent container status/counts
+            if case_file.is_virtual and case_file.parent_file_id:
+                update_container_status(case_file.parent_file_id)
         
         return {
             'status': 'failed',

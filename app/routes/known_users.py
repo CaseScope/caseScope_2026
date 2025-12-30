@@ -98,8 +98,8 @@ def api_list():
         if source:
             query = query.filter(KnownUser.source == source)
         
-        # Order by most recent first
-        query = query.order_by(KnownUser.created_at.desc())
+        # Order alphabetically by username
+        query = query.order_by(KnownUser.username)
         
         # Get total count
         total = query.count()
@@ -895,8 +895,8 @@ def api_export_csv():
         if source:
             query = query.filter(KnownUser.source == source)
         
-        # Order by most recent first
-        query = query.order_by(KnownUser.created_at.desc())
+        # Order alphabetically by username
+        query = query.order_by(KnownUser.username)
         
         # Get all users (no pagination for export)
         users = query.all()
