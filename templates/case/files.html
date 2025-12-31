@@ -322,15 +322,64 @@ function updateTimestamp() {
     element.textContent = text;
 }
 
-// Start auto-refresh during processing
+// Refresh file list via AJAX (no full page reload)
+async function refreshFileList() {
+    try {
+        const response = await fetch(`/case/${caseId}/files/api/list`);
+        const data = await response.json();
+        
+        if (!data.files) return;
+        
+        const tbody = document.getElementById('filesTableBody');
+        if (!tbody) return;
+        
+        // Update table rows
+        tbody.innerHTML = data.files.map(file => `
+            <tr>
+                <td>
+                    <div class="fw-bold">${file.filename}</div>
+                    <div class="text-small text-muted">${(file.file_size / 1024 / 1024).toFixed(2)} MB</div>
+                </td>
+                <td>
+                    ${file.source_system !== '-' ? `<span class="badge badge-secondary">${file.source_system}</span>` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>
+                    <div>${file.uploaded_at.split(' ')[0]}</div>
+                    <div class="text-small text-muted">${file.uploaded_at.split(' ')[1]}</div>
+                </td>
+                <td>${file.uploaded_by}</td>
+                <td><span class="stat-value-success">${file.event_count.toLocaleString()}</span></td>
+                <td>
+                    ${file.parser_type !== '-' ? `<span class="badge badge-info">${file.parser_type}</span>` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>
+                    ${file.sigma_violations > 0 ? `<span class="badge badge-error">${file.sigma_violations}</span>` : '<span class="text-muted">0</span>'}
+                </td>
+                <td>
+                    ${file.ioc_count > 0 ? `<span class="badge badge-warning">${file.ioc_count}</span>` : '<span class="text-muted">0</span>'}
+                </td>
+                <td>
+                    <span class="badge ${file.status === 'Indexed' ? 'badge-success' : file.status === 'New' ? 'badge-info' : file.status === 'Error' ? 'badge-error' : 'badge-secondary'}">${file.status}</span>
+                </td>
+            </tr>
+        `).join('');
+        
+        console.log('✓ File list refreshed via AJAX');
+        
+    } catch (error) {
+        console.error('Error refreshing file list:', error);
+    }
+}
+
+// Start auto-refresh during processing (AJAX only, no full page reload)
 function startAutoRefresh() {
     if (updateInterval) return;
     
     console.log('🔄 Auto-refresh started - files are processing');
     updateInterval = setInterval(() => {
-        console.log('♻️ Refreshing page to show updated files...');
-        window.location.reload();
-    }, 3000); // Reload every 3 seconds while processing
+        console.log('♻️ Refreshing file list via AJAX...');
+        refreshFileList();
+    }, 3000); // Refresh every 3 seconds while processing
 }
 
 // Stop auto-refresh

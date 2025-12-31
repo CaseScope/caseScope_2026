@@ -544,6 +544,47 @@ def case_files_stats(case_id):
     return jsonify({'stats': stats})
 
 
+@case_bp.route('/<int:case_id>/files/api/list', methods=['GET'])
+@login_required
+def case_files_list_api(case_id):
+    """API endpoint for file list (AJAX refresh without full page reload)"""
+    from models import Case, CaseFile, User
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control
+    if current_user.role == 'read-only' and current_user.case_assigned != case_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    # Get files
+    show_hidden = request.args.get('show_hidden', 'false').lower() == 'true'
+    
+    query = CaseFile.query.filter_by(case_id=case_id)
+    if not show_hidden:
+        query = query.filter_by(is_hidden=False)
+    
+    files = query.order_by(CaseFile.uploaded_at.desc()).all()
+    
+    # Format for JSON
+    files_data = []
+    for file in files:
+        files_data.append({
+            'id': file.id,
+            'filename': file.original_filename or file.filename,
+            'file_size': file.file_size,
+            'source_system': file.source_system or '-',
+            'parser_type': file.parser_type or '-',
+            'uploaded_at': file.uploaded_at.strftime('%Y-%m-%d %H:%M:%S') if file.uploaded_at else '-',
+            'uploaded_by': file.uploader.username if file.uploader else 'Unknown',
+            'event_count': file.event_count or 0,
+            'sigma_violations': file.sigma_violations or 0,
+            'ioc_count': file.ioc_count or 0,
+            'status': file.status or 'pending'
+        })
+    
+    return jsonify({'files': files_data})
+
+
 @case_bp.route('/<int:case_id>/files/<int:container_id>/contents', methods=['GET'])
 @login_required
 def get_zip_contents(case_id, container_id):
