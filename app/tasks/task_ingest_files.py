@@ -264,7 +264,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 file_info = file_data['info']
                 progress_pct = 50 + int((idx / max(len(file_records), 1)) * 40)  # Indexing = 50-90%
                 
-                file_path = file_info['info']['path']
+                file_path = file_data['info']['path']
                 filename = os.path.basename(file_path)
                 file_ext = os.path.splitext(filename)[1].lower()
                 
