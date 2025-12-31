@@ -218,11 +218,12 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             indexed_count = 0
             failed_count = 0
             
-            # Import parsers
+            # Import parsers and utilities
             from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
             from parsers.ndjson_parser import parse_ndjson_file
             from opensearch_indexer import OpenSearchIndexer
             from config import Config
+            from utils.event_normalization import normalize_event_computer
             
             indexer = OpenSearchIndexer()
             index_name = f'case_{case_id}'
@@ -274,15 +275,10 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         # Parse EVTX (returns iterator of events)
                         events = list(parse_evtx_file(file_path))
                         
-                        # Extract computer name from first event
+                        # Extract computer name from first event using normalization utility
                         source_system = None
                         if events:
-                            first_event = events[0]
-                            source_system = (
-                                first_event.get('normalized_computer') or
-                                first_event.get('computer') or
-                                first_event.get('Computer')
-                            )
+                            source_system = normalize_event_computer(events[0])
                         
                         # Index to OpenSearch in chunks
                         chunk_size = 500
@@ -303,15 +299,10 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         # Parse NDJSON (returns iterator of events)
                         events = list(parse_ndjson_file(file_path))
                         
-                        # Extract computer name from first event
+                        # Extract computer name from first event using normalization utility
                         source_system = None
                         if events:
-                            first_event = events[0]
-                            source_system = (
-                                first_event.get('normalized_computer') or
-                                first_event.get('host', {}).get('hostname') if isinstance(first_event.get('host'), dict) else None or
-                                first_event.get('computer')
-                            )
+                            source_system = normalize_event_computer(events[0])
                         
                         # Index to OpenSearch in chunks
                         chunk_size = 500
