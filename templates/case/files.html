@@ -347,6 +347,8 @@ async function refreshFileList() {
             return;
         }
         
+        console.log(`📋 Updating DOM with ${data.files.length} files...`);
+        
         // Update table rows
         tbody.innerHTML = data.files.map(file => `
             <tr>
@@ -378,7 +380,8 @@ async function refreshFileList() {
             </tr>
         `).join('');
         
-        console.log('✓ File list refreshed via AJAX');
+        console.log('✓ File list DOM updated successfully');
+        console.log('Sample file data:', data.files[0]);
         
     } catch (error) {
         console.error('Error refreshing file list:', error);
