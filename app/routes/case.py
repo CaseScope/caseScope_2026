@@ -549,6 +549,10 @@ def case_files_stats(case_id):
 def case_files_list_api(case_id):
     """API endpoint for file list (AJAX refresh without full page reload)"""
     from models import Case, CaseFile, User
+    from main import db
+    
+    # Expire session to force fresh queries (no caching)
+    db.session.expire_all()
     
     case = Case.query.get_or_404(case_id)
     
