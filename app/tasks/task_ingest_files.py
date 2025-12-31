@@ -212,23 +212,32 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 staged_info['hash'] = file_hash
                 files_to_index.append(staged_info)
             
-            # STEP 4: Index files (using existing parsers)
-            # Note: This will be implemented by calling existing parser functions
-            # For now, we'll create file records with status='New'
+            # STEP 4: Parse and Index files
             update_ingestion_progress(progress_id, current_step='indexing')
             
             indexed_count = 0
             failed_count = 0
             
+            # Import parsers
+            from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
+            from parsers.ndjson_parser import parse_ndjson_file
+            from opensearch_indexer import OpenSearchIndexer
+            from config import Config
+            
+            indexer = OpenSearchIndexer()
+            index_name = f'case_{case_id}'
+            
             for idx, file_info in enumerate(files_to_index):
                 progress_pct = 50 + int((idx / max(len(files_to_index), 1)) * 40)  # Indexing = 50-90%
                 
                 filename = os.path.basename(file_info['path'])
+                file_path = file_info['path']
+                file_ext = os.path.splitext(filename)[1].lower()
                 
                 self.update_state(
                     state='PROGRESS',
                     meta={
-                        'status': f'Indexing {filename}...',
+                        'status': f'Parsing {filename}...',
                         'progress': progress_pct,
                         'current_step': 'indexing',
                         'indexed': indexed_count,
@@ -239,43 +248,101 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 try:
                     # Determine parser type
                     parser_type = get_parser_type_from_file(filename)
+                    event_count = 0
+                    parse_success = False
                     
-                    # Create file record with 'New' status
-                    # Note: Actual parsing/indexing will be done by existing parsers
-                    # which will update the status to Indexed/ParseFail/etc.
+                    # Parse and index based on file type
+                    if file_ext == '.evtx' and EVTX_AVAILABLE:
+                        # Parse EVTX
+                        for chunk in parse_evtx_file(file_path, chunk_size=5000):
+                            # Index to OpenSearch
+                            indexer.bulk_index(
+                                index_name=index_name,
+                                events=iter(chunk),
+                                chunk_size=500,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                            event_count += len(chunk)
+                        parse_success = True
+                        
+                    elif file_ext in ['.json', '.ndjson', '.jsonl']:
+                        # Parse NDJSON
+                        for chunk in parse_ndjson_file(file_path, chunk_size=5000):
+                            indexer.bulk_index(
+                                index_name=index_name,
+                                events=iter(chunk),
+                                chunk_size=500,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                            event_count += len(chunk)
+                        parse_success = True
                     
-                    # For this initial implementation, we'll just create records
-                    # The actual parsing integration will be in a follow-up step
+                    # Determine status
+                    if parse_success:
+                        if event_count == 0:
+                            status = 'ZeroEvents'
+                        else:
+                            status = 'Indexed'
+                    else:
+                        status = 'ParseFail'
                     
+                    # Create file record
                     file_record = CaseFile(
                         case_id=case_id,
                         filename=filename,
                         original_filename=file_info['original_name'],
-                        file_type=os.path.splitext(filename)[1].lstrip('.'),
-                        file_size=os.path.getsize(file_info['path']),
-                        file_path=file_info['path'],  # Still in staging at this point
+                        file_type=file_ext.lstrip('.'),
+                        file_size=os.path.getsize(file_path),
+                        file_path=file_path,
                         file_hash=file_info['hash'],
                         parser_type=parser_type,
-                        status='New',
+                        status=status,
+                        event_count=event_count,
                         uploaded_by=user_id,
-                        uploaded_at=datetime.utcnow()
+                        uploaded_at=datetime.utcnow(),
+                        indexed_at=datetime.utcnow() if status == 'Indexed' else None
                     )
                     
                     db.session.add(file_record)
-                    db.session.flush()
+                    db.session.commit()
                     
-                    indexed_count += 1
+                    if status == 'Indexed':
+                        indexed_count += 1
+                    else:
+                        failed_count += 1
                     
                 except Exception as e:
-                    logger.error(f"Error creating record for {filename}: {e}")
+                    logger.error(f"Error processing {filename}: {e}", exc_info=True)
+                    
+                    # Create failed record
+                    try:
+                        file_record = CaseFile(
+                            case_id=case_id,
+                            filename=filename,
+                            original_filename=file_info['original_name'],
+                            file_type=file_ext.lstrip('.'),
+                            file_size=os.path.getsize(file_path),
+                            file_path=file_path,
+                            file_hash=file_info['hash'],
+                            parser_type=get_parser_type_from_file(filename),
+                            status='Error',
+                            error_message=str(e),
+                            uploaded_by=user_id,
+                            uploaded_at=datetime.utcnow()
+                        )
+                        db.session.add(file_record)
+                        db.session.commit()
+                    except:
+                        pass
+                    
                     failed_count += 1
                     processing_errors.append({
                         'file': filename,
-                        'step': 'record_creation',
+                        'step': 'parsing',
                         'error': str(e)
                     })
-            
-            db.session.commit()
             
             # STEP 5: Move to storage
             # Note: In full implementation, this happens after parsing
