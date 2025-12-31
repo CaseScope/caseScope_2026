@@ -326,7 +326,12 @@ function updateTimestamp() {
 async function refreshFileList() {
     try {
         console.log('📋 Fetching file list...');
-        const response = await fetch(`/case/${caseId}/files/api/list`);
+        const response = await fetch(`/case/${caseId}/files/api/list?_=${Date.now()}`, {
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
         const data = await response.json();
         
         console.log(`📋 Received ${data.files ? data.files.length : 0} files`);
