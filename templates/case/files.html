@@ -383,6 +383,10 @@ async function refreshFileList() {
         console.log('✓ File list DOM updated successfully');
         console.log('Sample file data:', data.files[0]);
         
+        // Visual feedback that update happened
+        tbody.style.opacity = '0.5';
+        setTimeout(() => { tbody.style.opacity = '1'; }, 100);
+        
     } catch (error) {
         console.error('Error refreshing file list:', error);
     }
