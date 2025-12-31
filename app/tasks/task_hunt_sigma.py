@@ -69,7 +69,7 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
         # Get all EVTX files for this case that are indexed and not hidden
         evtx_files = CaseFile.query.filter_by(
             case_id=case_id,
-            file_type='evtx',  # lowercase!
+            file_type='evtx',
             status='indexed',
             is_hidden=False
         ).all()
@@ -85,87 +85,160 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
                 'rules_matched': {}
             }
         
+        # Group files by parent ZIP
+        files_by_zip = {}
+        standalone_files = []
+        
+        for case_file in evtx_files:
+            if case_file.parent_file_id:
+                if case_file.parent_file_id not in files_by_zip:
+                    files_by_zip[case_file.parent_file_id] = []
+                files_by_zip[case_file.parent_file_id].append(case_file)
+            else:
+                standalone_files.append(case_file)
+        
         total_files = len(evtx_files)
         files_checked = 0
         files_ignored = 0
         events_tagged = 0
         total_hits = 0
         rules_matched = {}
+        files_processed = 0
         
-        for idx, case_file in enumerate(evtx_files, 1):
+        # Process standalone files (those with direct paths)
+        for case_file in standalone_files:
+            files_processed += 1
             try:
-                logger.info(f"Processing file {idx}/{total_files}: {case_file.original_filename}")
-                
-                # Get the EVTX file path
-                evtx_path = case_file.file_path
-                if not evtx_path or not os.path.exists(evtx_path):
-                    logger.warning(f"EVTX file not found: {evtx_path}")
+                if case_file.file_path and os.path.exists(case_file.file_path):
+                    logger.info(f"Processing standalone file {files_processed}/{total_files}: {case_file.original_filename}")
+                    
+                    if current_task:
+                        current_task.update_state(
+                            state='PROGRESS',
+                            meta={
+                                'current': files_processed,
+                                'total': total_files,
+                                'current_file': case_file.original_filename,
+                                'files_checked': files_checked,
+                                'files_ignored': files_ignored,
+                                'events_tagged': events_tagged,
+                                'total_hits': total_hits,
+                                'percent': int(files_processed / total_files * 100)
+                            }
+                        )
+                    
+                    detections = run_chainsaw_on_evtx_file(
+                        evtx_path=case_file.file_path,
+                        case_id=case_id,
+                        os_client=os_client,
+                        index_name=index_name,
+                        filename=case_file.original_filename
+                    )
+                    
+                    if detections:
+                        stats = store_sigma_detections(detections, case_id, case_file.id, user_id)
+                        events_tagged += stats['events_tagged']
+                        total_hits += stats['total_hits']
+                        for rule_title, count in stats['rules_matched'].items():
+                            rules_matched[rule_title] = rules_matched.get(rule_title, 0) + count
+                    
+                    files_checked += 1
+                else:
+                    files_ignored += 1
+            except Exception as e:
+                logger.error(f"Error processing standalone file {case_file.original_filename}: {e}", exc_info=True)
+                files_ignored += 1
+        
+        # Process files grouped by ZIP
+        for parent_id, zip_files in files_by_zip.items():
+            temp_dir = None
+            try:
+                # Get parent ZIP
+                parent_zip = db.session.get(CaseFile, parent_id)
+                if not parent_zip or not parent_zip.file_path or not os.path.exists(parent_zip.file_path):
+                    logger.warning(f"Parent ZIP not found for {len(zip_files)} files")
+                    files_ignored += len(zip_files)
+                    files_processed += len(zip_files)
                     continue
                 
-                # Update progress at start of processing
-                if current_task:
-                    current_task.update_state(
-                        state='PROGRESS',
-                        meta={
-                            'current': idx,
-                            'total': total_files,
-                            'current_file': case_file.original_filename,
-                            'files_checked': files_checked,
-                            'files_ignored': files_ignored,
-                            'events_tagged': events_tagged,
-                            'total_hits': total_hits,
-                            'percent': int((idx - 1) / total_files * 100)
-                        }
-                    )
+                logger.info(f"Extracting {len(zip_files)} EVTX files from {parent_zip.original_filename}")
                 
-                # Run Chainsaw directly on EVTX file (this works!)
-                detections = run_chainsaw_on_evtx_file(
-                    evtx_path=evtx_path,
-                    case_id=case_id,
-                    os_client=os_client,
-                    index_name=index_name,
-                    filename=case_file.original_filename
-                )
+                # Create temp directory for this ZIP's files
+                temp_dir = tempfile.mkdtemp(prefix='sigma_batch_')
                 
-                logger.info(f"Chainsaw found {len(detections)} detections in {case_file.original_filename}")
+                # Extract all EVTX files from this ZIP at once
+                import zipfile
+                extracted_files = {}
                 
-                if detections:
-                    # Store detections in database
-                    stats = store_sigma_detections(
-                        detections=detections,
-                        case_id=case_id,
-                        file_id=case_file.id,
-                        user_id=user_id
-                    )
-                    
-                    events_tagged += stats['events_tagged']
-                    total_hits += stats['total_hits']
-                    
-                    # Merge rules_matched (use rule_title, not rule_id)
-                    for rule_title, count in stats['rules_matched'].items():
-                        rules_matched[rule_title] = rules_matched.get(rule_title, 0) + count
+                with zipfile.ZipFile(parent_zip.file_path, 'r') as zf:
+                    for case_file in zip_files:
+                        file_in_zip = case_file.original_filename
+                        for name in zf.namelist():
+                            if name.replace('\\', '/') == file_in_zip.replace('\\', '/'):
+                                # Extract to temp dir with safe filename
+                                safe_name = os.path.basename(name)
+                                temp_path = os.path.join(temp_dir, f"{case_file.id}_{safe_name}")
+                                with zf.open(name) as source, open(temp_path, 'wb') as target:
+                                    target.write(source.read())
+                                extracted_files[case_file.id] = (case_file, temp_path)
+                                break
                 
-                files_checked += 1
+                logger.info(f"Extracted {len(extracted_files)} files, processing with Chainsaw...")
                 
-                # Update progress after processing file
-                if current_task:
-                    current_task.update_state(
-                        state='PROGRESS',
-                        meta={
-                            'current': idx,
-                            'total': total_files,
-                            'current_file': case_file.original_filename,
-                            'files_checked': files_checked,
-                            'files_ignored': files_ignored,
-                            'events_tagged': events_tagged,
-                            'total_hits': total_hits,
-                            'percent': int(idx / total_files * 100)
-                        }
-                    )
+                # Process all extracted files from this ZIP
+                for file_id, (case_file, temp_path) in extracted_files.items():
+                    files_processed += 1
+                    try:
+                        logger.info(f"Processing {files_processed}/{total_files}: {case_file.original_filename}")
+                        
+                        if current_task:
+                            current_task.update_state(
+                                state='PROGRESS',
+                                meta={
+                                    'current': files_processed,
+                                    'total': total_files,
+                                    'current_file': case_file.original_filename,
+                                    'files_checked': files_checked,
+                                    'files_ignored': files_ignored,
+                                    'events_tagged': events_tagged,
+                                    'total_hits': total_hits,
+                                    'percent': int(files_processed / total_files * 100)
+                                }
+                            )
+                        
+                        detections = run_chainsaw_on_evtx_file(
+                            evtx_path=temp_path,
+                            case_id=case_id,
+                            os_client=os_client,
+                            index_name=index_name,
+                            filename=case_file.original_filename
+                        )
+                        
+                        if detections:
+                            stats = store_sigma_detections(detections, case_id, case_file.id, user_id)
+                            events_tagged += stats['events_tagged']
+                            total_hits += stats['total_hits']
+                            for rule_title, count in stats['rules_matched'].items():
+                                rules_matched[rule_title] = rules_matched.get(rule_title, 0) + count
+                        
+                        files_checked += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing {case_file.original_filename}: {e}", exc_info=True)
+                        files_ignored += 1
                 
             except Exception as e:
-                logger.error(f"Error processing file {case_file.original_filename}: {e}", exc_info=True)
-                continue
+                logger.error(f"Error processing ZIP batch: {e}", exc_info=True)
+                files_ignored += len(zip_files)
+                files_processed += len(zip_files)
+            finally:
+                # Clean up entire temp directory
+                if temp_dir and os.path.exists(temp_dir):
+                    try:
+                        shutil.rmtree(temp_dir)
+                        logger.info(f"Cleaned up temp directory: {temp_dir}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up temp dir {temp_dir}: {e}")
         
         logger.info(f"Sigma hunt complete for case {case_id}: {files_checked} files, {events_tagged} events, {total_hits} hits")
         
