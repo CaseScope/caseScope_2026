@@ -526,7 +526,7 @@ def case_files_stats(case_id):
     
     # Get file counts by status
     processing_count = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['processing', 'parsing', 'extracting'])
+        CaseFile.status.in_(['New', 'processing', 'parsing', 'extracting'])
     ).count()
     indexed_count = CaseFile.query.filter_by(case_id=case_id, status='indexed').count()
     failed_count = CaseFile.query.filter_by(case_id=case_id, status='failed').count()
