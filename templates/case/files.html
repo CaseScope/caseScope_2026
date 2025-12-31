@@ -325,13 +325,22 @@ function updateTimestamp() {
 // Refresh file list via AJAX (no full page reload)
 async function refreshFileList() {
     try {
+        console.log('📋 Fetching file list...');
         const response = await fetch(`/case/${caseId}/files/api/list`);
         const data = await response.json();
         
-        if (!data.files) return;
+        console.log(`📋 Received ${data.files ? data.files.length : 0} files`);
+        
+        if (!data.files) {
+            console.warn('No files in response');
+            return;
+        }
         
         const tbody = document.getElementById('filesTableBody');
-        if (!tbody) return;
+        if (!tbody) {
+            console.error('filesTableBody element not found');
+            return;
+        }
         
         // Update table rows
         tbody.innerHTML = data.files.map(file => `
@@ -376,6 +385,11 @@ function startAutoRefresh() {
     if (updateInterval) return;
     
     console.log('🔄 Auto-refresh started - files are processing');
+    
+    // Do an immediate refresh
+    refreshFileList();
+    
+    // Then refresh every 3 seconds
     updateInterval = setInterval(() => {
         console.log('♻️ Refreshing file list via AJAX...');
         refreshFileList();
