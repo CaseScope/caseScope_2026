@@ -748,6 +748,32 @@ def get_active_tasks(case_id):
                     except Exception as e:
                         logger.error(f"Error parsing active task: {e}")
                         continue
+                
+                # Check for new system: ingest_files task  
+                elif task.get('name') == 'tasks.ingest_files':
+                    try:
+                        task_id = task.get('id')
+                        if task_id:
+                            from tasks.task_ingest_files import ingest_files
+                            result = ingest_files.AsyncResult(task_id)
+                            
+                            if result.state == 'PROGRESS' and result.info:
+                                current_status = result.info.get('status', '')
+                                if 'Parsing' in current_status or 'Indexing' in current_status:
+                                    import re
+                                    match = re.search(r'(?:Parsing|Indexing)\s+(.+?)\.\.\.$', current_status)
+                                    if match:
+                                        filename = match.group(1)
+                                        active_files.append({
+                                            'filename': filename,
+                                            'original_filename': filename,
+                                            'parent_zip': None,
+                                            'is_virtual': False,
+                                            'worker': worker_name.split('@')[0] if '@' in worker_name else worker_name
+                                        })
+                    except Exception as e:
+                        logger.error(f"Error parsing ingest task: {e}")
+                        continue
         
         return jsonify({'active_files': active_files})
         
