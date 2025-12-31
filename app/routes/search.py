@@ -538,8 +538,21 @@ def api_search_events():
                         if len(cmd) > 100:
                             cmd = cmd[:100] + '...'
                         description_parts.append(f"CMD: {cmd}")
+            elif file_type == 'CSV':
+                # For CSV/Firewall events, use message field as description
+                if source.get('message'):
+                    description_parts.append(source['message'])
+                elif source.get('fw_event'):
+                    description_parts.append(source['fw_event'])
+                
+                # Add category/group context if available
+                if source.get('category'):
+                    description_parts.append(f"[{source['category']}]")
+                elif source.get('group'):
+                    description_parts.append(f"[{source['group']}]")
+                    
             else:
-                # For other file types (CSV, IIS, etc.), use original logic
+                # For other file types (IIS, etc.), use original logic
                 if source.get('provider_name'):
                     description_parts.append(source['provider_name'])
                 if source.get('channel'):
