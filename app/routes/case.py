@@ -715,7 +715,7 @@ def get_active_tasks(case_id):
         # Process each worker's tasks
         for worker_name, tasks in active_tasks.items():
             for task in tasks:
-                # Only care about parse_and_index_file tasks
+                # Check for old system: parse_and_index_file tasks
                 if task.get('name') == 'tasks.parse_and_index_file':
                     try:
                         # Extract file_id from task args [case_id, file_id, file_path, target_index]
