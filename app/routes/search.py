@@ -538,7 +538,7 @@ def api_search_events():
                         if len(cmd) > 100:
                             cmd = cmd[:100] + '...'
                         description_parts.append(f"CMD: {cmd}")
-            elif file_type == 'CSV':
+            elif file_type == 'CSV' or 'csv' in file_type.lower():
                 # For CSV/Firewall events, use message field as description
                 if source.get('message'):
                     description_parts.append(source['message'])
