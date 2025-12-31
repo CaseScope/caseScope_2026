@@ -321,6 +321,29 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         event_count = len(events)
                         parse_success = True
                     
+                    elif file_ext == '.csv':
+                        # Parse CSV/Firewall logs
+                        events = list(parse_firewall_csv(file_path))
+                        
+                        # Extract computer name from first event using normalization utility
+                        if events:
+                            source_system = normalize_event_computer(events[0])
+                        
+                        # Index to OpenSearch in chunks
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=index_name,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
                     # Update file record with results
                     if parse_success:
                         if event_count == 0:
