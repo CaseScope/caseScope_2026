@@ -221,6 +221,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             # Import parsers and utilities
             from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
             from parsers.ndjson_parser import parse_ndjson_file
+            from parsers.firewall_csv_parser import parse_firewall_csv
             from opensearch_indexer import OpenSearchIndexer
             from config import Config
             from utils.event_normalization import normalize_event_computer
@@ -341,26 +342,10 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 except Exception as e:
                     logger.error(f"Error processing {filename}: {e}", exc_info=True)
                     
-                    # Create failed record
-                    try:
-                        file_record = CaseFile(
-                            case_id=case_id,
-                            filename=filename,
-                            original_filename=file_info['original_name'],
-                            file_type=file_ext.lstrip('.'),
-                            file_size=os.path.getsize(file_path),
-                            file_path=file_path,
-                            file_hash=file_info['hash'],
-                            parser_type=get_parser_type_from_file(filename),
-                            status='Error',
-                            error_message=str(e),
-                            uploaded_by=user_id,
-                            uploaded_at=datetime.utcnow()
-                        )
-                        db.session.add(file_record)
-                        db.session.commit()
-                    except:
-                        pass
+                    # Update existing record with error (don't create duplicate)
+                    file_record.status = 'Error'
+                    file_record.error_message = str(e)
+                    db.session.commit()
                     
                     failed_count += 1
                     processing_errors.append({
