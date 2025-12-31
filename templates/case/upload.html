@@ -213,12 +213,14 @@
         
         <!-- Start Processing Button -->
         <div class="mt-4">
-            <button id="startProcessingBtn" class="btn btn-primary btn-lg" onclick="startProcessing()">
-                🚀 Start Processing
-            </button>
-            <button class="btn btn-secondary btn-lg" onclick="refreshPendingFiles()">
-                🔄 Refresh
-            </button>
+            <div class="grid grid-2 gap-3">
+                <button id="startProcessingBtn" class="btn btn-primary btn-lg" onclick="startProcessing()" style="width: 100%; justify-content: center;">
+                    🚀 Start Processing
+                </button>
+                <button class="btn btn-secondary btn-lg" onclick="refreshPendingFiles()" style="width: 100%; justify-content: center;">
+                    🔄 Refresh
+                </button>
+            </div>
         </div>
         
         <!-- Processing Status -->
