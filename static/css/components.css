@@ -198,8 +198,16 @@
 }
 
 /* ============================================================================
-   MODALS
-   ============================================================================ */
+   MODALS - CENTRAL LOCATION FOR ALL MODAL STYLING
+   ============================================================================ 
+   
+   All modal classes are defined here (components.css loads AFTER main.css).
+   Modal size variants:
+   - .modal-container        (600px) - Default/small modals
+   - .modal-container-large  (1200px) - Large data modals
+   - .modal-container-xlarge (1600px) - Extra wide tables (downloads, logins)
+   
+*/
 
 /* Legacy modal support (for backwards compatibility) */
 .modal {
@@ -262,6 +270,23 @@
     overflow-y: auto;
     box-shadow: var(--shadow-xl);
     animation: slideUp 0.3s ease;
+}
+
+/* Modal Size Variants */
+.modal-container-large {
+    max-width: 1200px;
+    width: 95%;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+.modal-container-xlarge {
+    max-width: 1600px;
+    width: 95%;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
 }
 
 @keyframes slideUp {

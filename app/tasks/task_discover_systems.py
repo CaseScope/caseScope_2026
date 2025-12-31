@@ -305,58 +305,60 @@ def discover_systems_from_logs(self, case_id, user_id):
             except Exception as e:
                 logger.warning(f"Could not resolve IPs: {e}")
             
-            # Categorize and save systems
+            # Categorize and save systems using auto-merge
             self.update_state(state='PROGRESS', meta={'status': 'Creating system entries...', 'progress': 90})
             
             new_systems_count = 0
-            updated_systems_count = 0
+            merged_systems_count = 0
             
-            # Get existing systems for deduplication
+            # Import auto-merge helper
+            from utils.merge_helpers import find_or_merge_system, normalize_hostname
+            
+            # Build map of existing systems for tracking new vs merged
             existing_systems = KnownSystem.query.filter_by(case_id=case_id).all()
-            existing_map = {s.hostname.upper(): s for s in existing_systems if s.hostname}
+            existing_map = {normalize_hostname(s.hostname).upper(): s for s in existing_systems if s.hostname}
             
             for sys_name, sys_data in discovered_systems.items():
-                # Check if already exists
-                existing = existing_map.get(sys_name)
-                
                 # Get IP address and domain for this system
                 ip_address = system_ips.get(sys_name)
                 domain_name = system_domains.get(sys_name)
                 
-                if not existing:
-                    # Categorize system type
-                    system_type = guess_system_type(sys_name)
-                    
-                    new_system = KnownSystem(
-                        hostname=sys_name,
-                        domain_name=domain_name,
-                        ip_address=ip_address,
-                        system_type=system_type,
-                        compromised='unknown',
-                        source='logs',
-                        description=f"Auto-discovered from logs. Found in {sys_data['count']} events.",
-                        case_id=case_id,
-                        created_by=user_id,
-                        updated_by=user_id
-                    )
-                    db.session.add(new_system)
-                    new_systems_count += 1
-                    
-                    logger.debug(f"New system: {sys_name} (type: {system_type}, domain: {domain_name}, IP: {ip_address}, events: {sys_data['count']})")
-                else:
-                    # Update IP address and domain if we found them and they're not already set
-                    if ip_address and not existing.ip_address:
-                        existing.ip_address = ip_address
-                        logger.debug(f"Updated IP for {sys_name}: {ip_address}")
-                    if domain_name and not existing.domain_name:
-                        existing.domain_name = domain_name
-                        logger.debug(f"Updated domain for {sys_name}: {domain_name}")
-                    updated_systems_count += 1
+                # Categorize system type
+                system_type = guess_system_type(sys_name)
+                
+                # Check if exists before merge
+                normalized_name = normalize_hostname(sys_name).upper()
+                existed_before = normalized_name in existing_map
+                
+                # Use auto-merge logic
+                system = find_or_merge_system(
+                    db=db,
+                    case_id=case_id,
+                    hostname=sys_name,
+                    domain_name=domain_name,
+                    ip_address=ip_address,
+                    system_type=system_type,
+                    compromised='unknown',
+                    source='logs',
+                    description=f"Auto-discovered from logs. Found in {sys_data['count']} events.",
+                    analyst_notes=f"Discovered from field: {sys_data['field']}",
+                    created_by=user_id,
+                    updated_by=user_id,
+                    logger=logger
+                )
+                
+                if system:
+                    if existed_before:
+                        merged_systems_count += 1
+                    else:
+                        new_systems_count += 1
+                        # Add to map for tracking
+                        existing_map[normalized_name] = system
             
             # Commit all changes
             db.session.commit()
             
-            logger.info(f"System discovery complete: {new_systems_count} created, {updated_systems_count} updated")
+            logger.info(f"System discovery complete: {new_systems_count} created, {merged_systems_count} merged")
             
             # Log the completion with detailed results
             from audit_logger import log_action
@@ -394,7 +396,7 @@ def discover_systems_from_logs(self, case_id, user_id):
                     'total_events_scanned': total_events,
                     'systems_found': len(discovered_systems),
                     'new_systems': new_systems_count,
-                    'updated_systems': updated_systems_count,
+                    'merged_systems': merged_systems_count,
                     'new_systems_list': new_systems_list,
                     'updated_systems_list': updated_systems_list
                 }
@@ -402,10 +404,10 @@ def discover_systems_from_logs(self, case_id, user_id):
             
             return {
                 'status': 'success',
-                'message': 'Discovery complete',
+                'message': f'Discovery complete: {new_systems_count} new, {merged_systems_count} merged',
                 'systems_found': len(discovered_systems),
                 'systems_created': new_systems_count,
-                'systems_updated': updated_systems_count,
+                'systems_merged': merged_systems_count,
                 'events_processed': total_events
             }
             

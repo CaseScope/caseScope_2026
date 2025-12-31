@@ -380,10 +380,16 @@ def api_login_events():
             scroll='5m'
         )
         
-        # Parse results
-        events = []
+        # Deduplicate events by username/computer/logon_type combination
+        # This reduces tens of thousands of events to hundreds of distinct logins
+        seen_combinations = set()
+        distinct_logins = []
+        total_events = 0
+        filtered_count = 0
+        
         for hit in scroll_results:
             source = hit['_source']
+            total_events += 1
             
             # Try both event_data and event_data_fields (different formats)
             event_data = source.get('event_data_fields', source.get('event_data', {})) or {}
@@ -394,35 +400,57 @@ def api_login_events():
             source_ip = event_data.get('IpAddress', 'N/A')
             source_hostname = event_data.get('WorkstationName', 'N/A')
             target_system = source.get('computer', source.get('normalized_computer', 'N/A'))
-            target_ip = source_ip  # Same as source IP for login events
+            
+            # Extract logon type (for filtering)
+            logon_type = event_data.get('LogonType', event_data.get('Logon Type', 'N/A'))
+            
+            # Extract failure reason for 4625 events
+            status = event_data.get('Status', 'N/A')
+            sub_status = event_data.get('SubStatus', 'N/A')
             
             # Filter out system accounts and groups
             if should_exclude_username(username):
+                filtered_count += 1
                 continue
             
-            events.append({
-                'timestamp': timestamp,
-                'username': username,
-                'source_ip': source_ip,
-                'source_hostname': source_hostname,
-                'target_system': target_system,
-                'target_ip': target_ip
-            })
+            # Create unique key for deduplication
+            # Include status/sub_status for failed logins to track different failure types
+            if event_id == '4625':
+                combo_key = (username.lower(), target_system.lower(), logon_type, sub_status)
+            else:
+                combo_key = (username.lower(), target_system.lower(), logon_type)
+            
+            # Only add if this combination hasn't been seen
+            if combo_key not in seen_combinations:
+                seen_combinations.add(combo_key)
+                
+                distinct_logins.append({
+                    'timestamp': timestamp,
+                    'username': username,
+                    'source_ip': source_ip,
+                    'source_hostname': source_hostname,
+                    'target_system': target_system,
+                    'logon_type': logon_type,
+                    'status': status,
+                    'sub_status': sub_status
+                })
         
         # Sort by timestamp descending (newest first)
-        events.sort(key=lambda x: x['timestamp'], reverse=True)
+        distinct_logins.sort(key=lambda x: x['timestamp'], reverse=True)
         
         log_action(
             action='hunt_login_events',
             resource_type='case',
             resource_id=case_id,
-            details=f'Queried event ID {event_id}: found {len(events)} events'
+            details=f'Queried event ID {event_id}: {total_events} total events, {len(distinct_logins)} distinct logins'
         )
         
         return jsonify({
             'success': True,
-            'events': events,
-            'total': len(events)
+            'events': distinct_logins,
+            'total': len(distinct_logins),
+            'total_events': total_events,
+            'filtered_count': filtered_count
         })
         
     except Exception as e:

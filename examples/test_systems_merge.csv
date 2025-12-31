@@ -1,0 +1,8 @@
+SERVER01,corp.local,192.168.1.10,false
+server01.corp.local,corp.local,192.168.1.10,false
+SERVER01,CORP,10.0.0.5,unknown
+workstation-99,,,true
+WORKSTATION-99.domain.local,domain.local,172.16.0.100,false
+DC01,CORP.LOCAL,192.168.1.1,false
+dc01.corp.local,CORP,192.168.1.1,false
+

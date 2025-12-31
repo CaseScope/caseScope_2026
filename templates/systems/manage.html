@@ -158,6 +158,9 @@
                             <strong><span id="selectedCount">0</span> systems selected</strong>
                         </div>
                         <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" onclick="combineSelected()" title="Combine selected systems" id="combineBtn" style="display: none;">
+                                🔗 Combine
+                            </button>
                             <button class="btn btn-sm btn-secondary" onclick="editSelected()" title="Edit selected systems">
                                 ✏️ Edit Selected
                             </button>
@@ -214,6 +217,63 @@
         <div class="pagination-numbers" id="paginationNumbers"></div>
         <button class="btn btn-secondary btn-sm" id="nextPageBtn" onclick="nextPage()">Next</button>
         <button class="btn btn-secondary btn-sm" id="lastPageBtn" onclick="goToPage(totalPages)">Last</button>
+    </div>
+</div>
+
+<!-- Combine Systems Modal -->
+<div id="combineModal" class="modal-overlay" style="display: none;" onclick="closeCombineModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🔗 Combine Systems</h2>
+            <button class="modal-close" onclick="closeCombineModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="mb-3">Select which system should be the <strong>parent</strong>. All others will be merged into it and deleted.</p>
+            
+            <div id="combineWarnings" class="combine-warnings" style="display: none;">
+                <!-- Warnings displayed here -->
+            </div>
+            
+            <div id="combineSystemsList" class="list-group mb-3">
+                <!-- Systems listed here with radio buttons -->
+            </div>
+            
+            <div class="alert alert-info">
+                <strong>What happens when combining:</strong>
+                <ul class="mt-2">
+                    <li>If parent field is blank and child has data → copy to parent</li>
+                    <li>If both have data → add child data to parent's analyst notes</li>
+                    <li>All IP addresses collected in parent's analyst notes</li>
+                    <li>Child items are permanently deleted</li>
+                </ul>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeCombineModal(event)">Cancel</button>
+            <button class="btn btn-primary" type="button" id="confirmCombineBtn" onclick="confirmCombine()">
+                Combine Systems
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Combine Summary Modal -->
+<div id="combineSummaryModal" class="modal-overlay" style="display: none;" onclick="closeCombineSummaryModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">✅ Combine Complete</h2>
+            <button class="modal-close" onclick="closeCombineSummaryModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="combineSummaryContent">
+                <!-- Summary displayed here -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" type="button" onclick="closeCombineSummaryModal(event)">
+                Close
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1035,10 +1095,14 @@ function updateSelectAllCheckbox() {
 function updateBulkActionsBar() {
     const bulkActionsBar = document.getElementById('bulkActionsBar');
     const selectedCount = document.getElementById('selectedCount');
+    const combineBtn = document.getElementById('combineBtn');
     
     if (selectedSystems.size > 0) {
         bulkActionsBar.style.display = 'block';
         selectedCount.textContent = selectedSystems.size;
+        
+        // Show combine button only if 2+ items selected
+        combineBtn.style.display = selectedSystems.size >= 2 ? 'inline-block' : 'none';
     } else {
         bulkActionsBar.style.display = 'none';
     }
@@ -1245,7 +1309,7 @@ function submitCSVImport(event) {
                 <div class="alert alert-success">
                     <strong>✓ Import Complete!</strong><br>
                     Created: ${data.created}<br>
-                    Updated: ${data.updated}<br>
+                    Merged: ${data.merged}<br>
                     Total: ${data.total}
                 </div>
             `;
@@ -1350,7 +1414,7 @@ function checkDiscoveryStatus() {
                 let resultsText = `Processed ${result.events_processed || 0} events.<br>`;
                 resultsText += `Found ${result.systems_found || 0} unique systems.<br>`;
                 resultsText += `Created ${result.systems_created || 0} new system entries.<br>`;
-                resultsText += `Updated ${result.systems_updated || 0} existing systems with additional information.`;
+                resultsText += `Merged ${result.systems_merged || 0} into existing systems.`;
                 
                 document.getElementById('discoveryResultsText').innerHTML = resultsText;
                 document.getElementById('discoveryCloseBtn').disabled = false;
@@ -1393,6 +1457,267 @@ function closeDiscoveryModal() {
         discoveryCheckInterval = null;
     }
     discoveryTaskId = null;
+}
+
+// Combine Functions
+let combineSystemsData = [];
+let selectedParentId = null;
+let combineNeedsConfirmation = false;
+
+function combineSelected() {
+    if (selectedSystems.size < 2) {
+        alert('Please select at least 2 systems to combine');
+        return;
+    }
+    
+    // Fetch details for all selected systems
+    const fetchPromises = Array.from(selectedSystems).map(id => 
+        fetch(`/systems/api/get/${id}`).then(r => r.json())
+    );
+    
+    Promise.all(fetchPromises)
+        .then(results => {
+            combineSystemsData = results.filter(r => r.success).map(r => r.system);
+            
+            if (combineSystemsData.length < 2) {
+                alert('Failed to load system data');
+                return;
+            }
+            
+            // Check if warning needed
+            const warnings = checkCombineWarnings(combineSystemsData);
+            
+            // Populate modal
+            const listContainer = document.getElementById('combineSystemsList');
+            listContainer.innerHTML = '';
+            
+            combineSystemsData.forEach((system, index) => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item';
+                
+                const isFirstItem = index === 0;
+                
+                item.innerHTML = `
+                    <label>
+                        <input type="radio" name="parentSystem" value="${system.id}" ${isFirstItem ? 'checked' : ''} onchange="selectParent(${system.id})">
+                        <div class="flex-1">
+                            <div class="list-group-item-title">${escapeHtml(system.hostname || 'N/A')}</div>
+                            <div class="list-group-item-subtitle">
+                                <span class="badge badge-info">${escapeHtml(system.system_type)}</span>
+                                <span class="badge ${system.compromised === 'yes' ? 'badge-error' : 'badge-success'}">${escapeHtml(system.compromised)}</span>
+                                ${system.domain_name ? `<br>Domain: ${escapeHtml(system.domain_name)}` : ''}
+                                ${system.ip_address ? `<br>IP: <code>${escapeHtml(system.ip_address)}</code>` : ''}
+                            </div>
+                        </div>
+                    </label>
+                `;
+                
+                listContainer.appendChild(item);
+            });
+            
+            // Set default parent
+            selectedParentId = combineSystemsData[0].id;
+            
+            // Show warnings if any
+            const warningsDiv = document.getElementById('combineWarnings');
+            if (warnings.length > 0) {
+                warningsDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        <strong>⚠️ Warning:</strong>
+                        <ul class="mt-2">
+                            ${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                        </ul>
+                        <p class="mt-2 mb-0">Are you sure you want to proceed?</p>
+                    </div>
+                `;
+                warningsDiv.style.display = 'block';
+                combineNeedsConfirmation = true;
+            } else {
+                warningsDiv.style.display = 'none';
+                combineNeedsConfirmation = false;
+            }
+            
+            // Show modal
+            document.getElementById('combineModal').style.display = 'flex';
+        })
+        .catch(error => {
+            console.error('Error loading systems for combine:', error);
+            alert('Failed to load system details: ' + error);
+        });
+}
+
+function checkCombineWarnings(systems) {
+    const warnings = [];
+    
+    // Check for different system types
+    const types = new Set(systems.map(s => s.system_type));
+    if (types.size > 1) {
+        warnings.push(`Mixing different system types: ${Array.from(types).join(', ')}`);
+    }
+    
+    // Check for different compromised statuses
+    const compromisedValues = new Set(systems.map(s => s.compromised));
+    if (compromisedValues.size > 1) {
+        warnings.push(`Mixing different compromised statuses: ${Array.from(compromisedValues).join(', ')}`);
+    }
+    
+    return warnings;
+}
+
+function selectParent(systemId) {
+    selectedParentId = systemId;
+}
+
+function closeCombineModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('combineModal').style.display = 'none';
+    combineSystemsData = [];
+    selectedParentId = null;
+    combineNeedsConfirmation = false;
+}
+
+function confirmCombine() {
+    if (!selectedParentId) {
+        alert('Please select a parent system');
+        return;
+    }
+    
+    const childIds = combineSystemsData
+        .filter(s => s.id !== selectedParentId)
+        .map(s => s.id);
+    
+    if (childIds.length === 0) {
+        alert('No children to merge');
+        return;
+    }
+    
+    // Disable button during processing
+    const confirmBtn = document.getElementById('confirmCombineBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Combining...';
+    
+    // Submit combine request
+    fetch('/systems/api/combine', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            parent_id: selectedParentId,
+            child_ids: childIds,
+            confirmed: combineNeedsConfirmation  // Include confirmation if warnings shown
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Combine Systems';
+        
+        if (result.warning) {
+            // User needs to confirm warnings
+            alert('Warning: ' + result.warnings.join(', ') + '\n\nPlease confirm in the modal.');
+            combineNeedsConfirmation = true;
+            return;
+        }
+        
+        if (result.success) {
+            // Close combine modal
+            closeCombineModal();
+            
+            // Show summary modal
+            showCombineSummary(result.summary);
+            
+            // Clear selection
+            clearSelection();
+        } else {
+            alert('Error combining systems: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Combine Systems';
+        console.error('Error combining systems:', error);
+        alert('Failed to combine systems: ' + error);
+    });
+}
+
+function showCombineSummary(summary) {
+    const parent = summary.parent;
+    const before = parent.before;
+    const after = parent.after;
+    
+    let html = `
+        <div class="alert alert-success">
+            <h4 class="mt-0">✅ Successfully Combined!</h4>
+            <p><strong>Parent:</strong> ${escapeHtml(after.hostname)} (ID: ${parent.id})</p>
+            <p><strong>Merged:</strong> ${summary.total_merged} system(s)</p>
+        </div>
+        
+        <h4 class="mt-4 mb-2">Changes to Parent:</h4>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Before</th>
+                    <th>After</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    // Show only fields that changed
+    const fields = ['hostname', 'domain_name', 'ip_address', 'system_type', 'compromised', 'description'];
+    let changesFound = false;
+    
+    for (const field of fields) {
+        const beforeVal = before[field] || '-';
+        const afterVal = after[field] || '-';
+        
+        if (beforeVal !== afterVal) {
+            html += `
+                <tr>
+                    <td><strong>${field}</strong></td>
+                    <td>${escapeHtml(beforeVal)}</td>
+                    <td class="combine-field-highlight">${escapeHtml(afterVal)}</td>
+                </tr>
+            `;
+            changesFound = true;
+        }
+    }
+    
+    if (!changesFound) {
+        html += `<tr><td colspan="3" class="text-center text-muted">No field changes (data merged into analyst notes)</td></tr>`;
+    }
+    
+    html += `
+            </tbody>
+        </table>
+        
+        <h4 class="mt-4 mb-2">Children Merged:</h4>
+        <ul>
+    `;
+    
+    summary.children_merged.forEach(child => {
+        html += `<li><strong>${escapeHtml(child.hostname)}</strong> (ID: ${child.id})`;
+        if (child.data_merged && child.data_merged.length > 0) {
+            html += ` - ${child.data_merged.length} field(s) merged to notes`;
+        }
+        html += `</li>`;
+    });
+    
+    html += `</ul>`;
+    
+    document.getElementById('combineSummaryContent').innerHTML = html;
+    document.getElementById('combineSummaryModal').style.display = 'flex';
+}
+
+function closeCombineSummaryModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('combineSummaryModal').style.display = 'none';
+    
+    // Reload table
+    loadSystems();
+    loadStats();
 }
 
 function escapeHtml(text) {

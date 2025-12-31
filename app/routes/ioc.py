@@ -8,9 +8,13 @@ from flask_login import login_required, current_user
 from main import db
 from models import IOC, Case, EventIOCHit
 from audit_logger import log_action
+from utils.merge_helpers import (
+    is_blank, update_analyst_notes_with_merge, append_original_notes, should_warn_before_combine
+)
 import logging
 import csv
 from io import StringIO
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -1207,12 +1211,194 @@ def api_merge_duplicates():
         
         return jsonify({
             'success': True,
-            'merged_count': merged_count
+            'merged_count': merged_count,
+            'audit_details': audit_details
         })
         
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error merging duplicate IOCs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ioc_bp.route('/api/combine', methods=['POST'])
+@login_required
+def api_combine():
+    """
+    Combine multiple IOCs - user selects parent, children merge in
+    Uses new markdown-based analyst notes format
+    
+    Requires analyst or higher permissions
+    Logs detailed before/after states to audit log
+    """
+    try:
+        # Check permissions
+        if current_user.role not in ['analyst', 'administrator']:
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        data = request.get_json()
+        parent_id = data.get('parent_id')
+        child_ids = data.get('child_ids', [])
+        
+        if not parent_id or not child_ids:
+            return jsonify({'success': False, 'error': 'Must specify parent and children'}), 400
+        
+        # Get parent
+        parent = IOC.query.get(parent_id)
+        if not parent:
+            return jsonify({'success': False, 'error': 'Parent not found'}), 404
+        
+        # Get children
+        children = IOC.query.filter(IOC.id.in_(child_ids)).all()
+        if not children:
+            return jsonify({'success': False, 'error': 'No children found'}), 404
+        
+        # Verify all same case
+        for child in children:
+            if child.case_id != parent.case_id:
+                return jsonify({'success': False, 'error': 'All IOCs must be from same case'}), 400
+        
+        # Check if warning needed
+        items_to_check = [{'type': parent.type, 'threat_level': parent.threat_level}]
+        for child in children:
+            items_to_check.append({'type': child.type, 'threat_level': child.threat_level})
+        
+        should_warn, warnings = should_warn_before_combine(items_to_check, 'ioc')
+        
+        # If warning and user hasn't confirmed, return warning
+        if should_warn and not data.get('confirmed', False):
+            return jsonify({
+                'success': False,
+                'warning': True,
+                'warnings': warnings,
+                'message': 'Please confirm you want to combine these IOCs'
+            }), 400
+        
+        # Track changes for summary
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        fields_merged = []
+        children_deleted = []
+        
+        # Capture before state
+        before_state = {
+            'type': parent.type,
+            'value': parent.value,
+            'category': parent.category,
+            'threat_level': parent.threat_level,
+            'confidence': parent.confidence,
+            'times_seen': parent.times_seen,
+            'description': parent.description,
+            'analyst_notes': parent.analyst_notes
+        }
+        
+        for child in children:
+            child_info = []
+            
+            # Merge type if different
+            if child.type != parent.type:
+                child_info.append(f"type: {child.type}")
+            
+            # Merge category if different
+            if child.category != parent.category:
+                if is_blank(parent.category):
+                    parent.category = child.category
+                    fields_merged.append(f"category: {child.category}")
+                else:
+                    child_info.append(f"category: {child.category}")
+            
+            # Merge description
+            if child.description and not is_blank(child.description):
+                if is_blank(parent.description):
+                    parent.description = child.description
+                    fields_merged.append(f"description: {child.description}")
+                elif child.description != parent.description:
+                    child_info.append(f"description: {child.description}")
+            
+            # Update times_seen (sum)
+            if child.times_seen:
+                parent.times_seen = (parent.times_seen or 0) + child.times_seen
+            
+            # Update confidence (use highest)
+            if child.confidence and (not parent.confidence or child.confidence > parent.confidence):
+                old_confidence = parent.confidence
+                parent.confidence = child.confidence
+                child_info.append(f"confidence upgraded: {old_confidence} → {child.confidence}")
+            
+            # Update threat level (use highest)
+            threat_order = {'info': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+            if threat_order.get(child.threat_level, 0) > threat_order.get(parent.threat_level, 0):
+                old_level = parent.threat_level
+                parent.threat_level = child.threat_level
+                child_info.append(f"threat_level upgraded: {old_level} → {child.threat_level}")
+            
+            # Merge analyst_notes from child
+            if child.analyst_notes and not is_blank(child.analyst_notes):
+                parent.analyst_notes = append_original_notes(parent.analyst_notes or "", child.analyst_notes)
+            
+            # Add merge note to parent using new markdown format
+            merge_fields = {k.split(': ')[0]: k.split(': ')[1] for k in child_info if ': ' in k} if child_info else {}
+            parent.analyst_notes = update_analyst_notes_with_merge(
+                parent.analyst_notes or "",
+                merge_type='manual',
+                source_name=f"{child.type}:{child.value}",
+                source_id=child.id,
+                fields_merged=merge_fields if merge_fields else None
+            )
+            
+            # Reassign EventIOCHit records from child to parent
+            EventIOCHit.query.filter_by(ioc_id=child.id).update({'ioc_id': parent.id})
+            
+            # Track for summary
+            children_deleted.append({
+                'id': child.id,
+                'type': child.type,
+                'value': child.value,
+                'data_merged': child_info
+            })
+            
+            # Delete child
+            db.session.delete(child)
+        
+        parent.updated_by = current_user.id
+        db.session.commit()
+        
+        # Build summary
+        summary = {
+            'parent': {
+                'id': parent.id,
+                'type': parent.type,
+                'value': parent.value,
+                'before': before_state,
+                'after': {
+                    'type': parent.type,
+                    'value': parent.value,
+                    'category': parent.category,
+                    'threat_level': parent.threat_level,
+                    'confidence': parent.confidence,
+                    'times_seen': parent.times_seen,
+                    'description': parent.description,
+                    'analyst_notes': parent.analyst_notes
+                }
+            },
+            'children_merged': children_deleted,
+            'total_merged': len(children_deleted)
+        }
+        
+        # Audit log
+        log_action('iocs_combined', resource_type='ioc', 
+                  resource_id=parent.id, 
+                  resource_name=f"{parent.type}:{parent.value}",
+                  details=summary)
+        
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'message': f'Successfully combined {len(children_deleted)} IOCs into {parent.value}'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error combining IOCs: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

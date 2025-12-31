@@ -167,6 +167,12 @@ OPENSEARCH_BULK_TIMEOUT = 60  # Seconds to wait for bulk operation
 OPENSEARCH_REQUEST_TIMEOUT = 30  # Seconds to wait for single request
 OPENSEARCH_MAX_RETRIES = 3  # Number of retries on failure
 
+# OpenSearch index settings (field limits for forensic datasets)
+# Forensic data can have hundreds/thousands of dynamic fields from event logs
+# Default OpenSearch limit is 5000, which is insufficient for large cases
+OPENSEARCH_TOTAL_FIELDS_LIMIT = 50000  # Maximum number of fields per index (default: 5000)
+OPENSEARCH_NESTED_FIELDS_LIMIT = 500   # Maximum number of nested fields (default: 100)
+
 # ============================================================================
 # FLASK CONFIGURATION (Advanced - Do Not Edit Unless You Know What You're Doing)
 # ============================================================================

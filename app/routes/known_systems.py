@@ -8,14 +8,39 @@ from flask_login import login_required, current_user
 from main import db
 from models import KnownSystem, Case
 from audit_logger import log_action
+from utils.merge_helpers import (
+    is_blank, normalize_hostname, check_in_analyst_notes,
+    extract_ips_from_notes, format_ip_section, collect_unique_ips,
+    update_analyst_notes_with_merge, append_original_notes, should_warn_before_combine,
+    find_or_merge_system
+)
 import logging
 import csv
 from io import StringIO
 from celery.result import AsyncResult
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 known_systems_bp = Blueprint('known_systems', __name__, url_prefix='/systems')
+
+
+# ============================================================================
+# HELPER FUNCTIONS - Auto-Merge Logic
+# ============================================================================
+
+def _find_or_merge_system(case_id, hostname, domain_name=None, ip_address=None, 
+                          system_type=None, compromised=None, source='manual',
+                          description=None, analyst_notes=None, created_by=None, updated_by=None):
+    """
+    Wrapper for centralized find_or_merge_system function
+    """
+    return find_or_merge_system(
+        db=db, case_id=case_id, hostname=hostname, domain_name=domain_name,
+        ip_address=ip_address, system_type=system_type, compromised=compromised,
+        source=source, description=description, analyst_notes=analyst_notes,
+        created_by=created_by, updated_by=updated_by, logger=logger
+    )
 
 
 @known_systems_bp.route('/')
@@ -290,8 +315,9 @@ def api_create():
         if not any([data.get('hostname'), data.get('domain_name'), data.get('ip_address')]):
             return jsonify({'success': False, 'error': 'At least one identifier required: hostname, domain_name, or ip_address'}), 400
         
-        # Create new system
-        system = KnownSystem(
+        # Use auto-merge logic to find existing or create new
+        system = _find_or_merge_system(
+            case_id=case_id,
             hostname=data.get('hostname', '').strip() if data.get('hostname') else None,
             domain_name=data.get('domain_name', '').strip() if data.get('domain_name') else None,
             ip_address=data.get('ip_address', '').strip() if data.get('ip_address') else None,
@@ -300,13 +326,13 @@ def api_create():
             source=data.get('source', 'manual'),
             description=data.get('description', '').strip() if data.get('description') else None,
             analyst_notes=data.get('analyst_notes', '').strip() if data.get('analyst_notes') else None,
-            case_id=case_id,
             created_by=current_user.id,
             updated_by=current_user.id
         )
         
-        # Add to database
-        db.session.add(system)
+        if not system:
+            return jsonify({'success': False, 'error': 'Failed to create system'}), 500
+        
         db.session.commit()
         
         # Build detailed system information for audit log
@@ -415,6 +441,15 @@ def api_update(system_id):
         # Update modified info
         system.updated_by = current_user.id
         
+        # Check if system was marked as compromised - create IOC if needed
+        ioc_created = False
+        if 'compromised' in changes and changes['compromised']['new'] == 'yes':
+            from utils.ioc_sync import create_ioc_from_system
+            ioc = create_ioc_from_system(db, system, current_user.id)
+            if ioc:
+                ioc_created = True
+                logger.info(f"Auto-created IOC (ID: {ioc.id}) for compromised system {system.hostname}")
+        
         db.session.commit()
         
         # Log the action with detailed changes
@@ -434,7 +469,8 @@ def api_update(system_id):
         
         return jsonify({
             'success': True,
-            'message': 'System updated successfully',
+            'message': 'System updated successfully' + (' (IOC created)' if ioc_created else ''),
+            'ioc_created': ioc_created,
             'system': {
                 'id': system.id,
                 'hostname': system.hostname,
@@ -669,6 +705,189 @@ def api_bulk_delete():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@known_systems_bp.route('/api/combine', methods=['POST'])
+@login_required
+def api_combine():
+    """
+    Combine multiple systems - user selects parent, children merge in
+    
+    Requires analyst or higher permissions
+    Logs detailed before/after states to audit log
+    """
+    try:
+        # Check permissions
+        if current_user.role not in ['analyst', 'administrator']:
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        data = request.get_json()
+        parent_id = data.get('parent_id')
+        child_ids = data.get('child_ids', [])
+        
+        if not parent_id or not child_ids:
+            return jsonify({'success': False, 'error': 'Must specify parent and children'}), 400
+        
+        # Get parent
+        parent = KnownSystem.query.get(parent_id)
+        if not parent:
+            return jsonify({'success': False, 'error': 'Parent not found'}), 404
+        
+        # Get children
+        children = KnownSystem.query.filter(KnownSystem.id.in_(child_ids)).all()
+        if not children:
+            return jsonify({'success': False, 'error': 'No children found'}), 404
+        
+        # Verify all same case
+        for child in children:
+            if child.case_id != parent.case_id:
+                return jsonify({'success': False, 'error': 'All systems must be from same case'}), 400
+        
+        # Check if warning needed
+        items_to_check = [{'system_type': parent.system_type, 'compromised': parent.compromised}]
+        for child in children:
+            items_to_check.append({'system_type': child.system_type, 'compromised': child.compromised})
+        
+        should_warn, warnings = should_warn_before_combine(items_to_check, 'system')
+        
+        # If warning and user hasn't confirmed, return warning
+        if should_warn and not data.get('confirmed', False):
+            return jsonify({
+                'success': False,
+                'warning': True,
+                'warnings': warnings,
+                'message': 'Please confirm you want to combine these systems'
+            }), 400
+        
+        # Track changes for summary
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        fields_merged = []
+        children_deleted = []
+        
+        # Capture before state
+        before_state = {
+            'hostname': parent.hostname,
+            'domain_name': parent.domain_name,
+            'ip_address': parent.ip_address,
+            'description': parent.description,
+            'analyst_notes': parent.analyst_notes,
+            'system_type': parent.system_type,
+            'compromised': parent.compromised
+        }
+        
+        # Collect all IPs for tracking
+        all_ips = extract_ips_from_notes(parent.analyst_notes)
+        if parent.ip_address and not is_blank(parent.ip_address):
+            all_ips = collect_unique_ips(all_ips, parent.ip_address)
+        
+        for child in children:
+            child_info = []
+            
+            # Merge each field
+            for field in ['hostname', 'domain_name', 'ip_address', 'description', 'system_type', 'compromised']:
+                parent_val = getattr(parent, field)
+                child_val = getattr(child, field)
+                
+                # Skip if child has no value
+                if is_blank(child_val):
+                    continue
+                
+                # If parent blank, copy from child
+                if is_blank(parent_val):
+                    setattr(parent, field, child_val)
+                    fields_merged.append(f"{field}: {child_val}")
+                # Both have values - add to analyst notes
+                elif parent_val != child_val:
+                    child_info.append(f"{field}: {child_val}")
+            
+            # Collect IP addresses
+            if child.ip_address and not is_blank(child.ip_address):
+                all_ips = collect_unique_ips(all_ips, child.ip_address)
+            
+            # Merge analyst_notes from child
+            if child.analyst_notes and not is_blank(child.analyst_notes):
+                parent.analyst_notes = append_original_notes(parent.analyst_notes or "", child.analyst_notes)
+            
+            # Add merge note to parent
+            merge_fields = {k.split(': ')[0]: k.split(': ')[1] for k in child_info if ': ' in k} if child_info else {}
+            parent.analyst_notes = update_analyst_notes_with_merge(
+                parent.analyst_notes or "",
+                merge_type='manual',
+                source_name=child.hostname or f"System #{child.id}",
+                source_id=child.id,
+                fields_merged=merge_fields if merge_fields else None
+            )
+            
+            # Track for summary
+            children_deleted.append({
+                'id': child.id,
+                'hostname': child.hostname,
+                'data_merged': child_info
+            })
+            
+            # Delete child
+            db.session.delete(child)
+        
+        # Update IP section if multiple IPs
+        if len(all_ips) > 1:
+            # Remove old IP section if present
+            notes_lines = (parent.analyst_notes or "").split('\n')
+            filtered_lines = []
+            skip_section = False
+            
+            for line in notes_lines:
+                if '## Known IP Addresses' in line:
+                    skip_section = True
+                    continue
+                elif skip_section and line.strip().startswith('##'):
+                    skip_section = False
+                
+                if not skip_section:
+                    filtered_lines.append(line)
+            
+            parent.analyst_notes = '\n'.join(filtered_lines)
+            if not parent.analyst_notes.endswith('\n'):
+                parent.analyst_notes += '\n'
+            parent.analyst_notes += format_ip_section(all_ips, latest_ip=parent.ip_address)
+        
+        parent.updated_by = current_user.id
+        db.session.commit()
+        
+        # Build summary
+        summary = {
+            'parent': {
+                'id': parent.id,
+                'hostname': parent.hostname,
+                'before': before_state,
+                'after': {
+                    'hostname': parent.hostname,
+                    'domain_name': parent.domain_name,
+                    'ip_address': parent.ip_address,
+                    'description': parent.description,
+                    'analyst_notes': parent.analyst_notes,
+                    'system_type': parent.system_type,
+                    'compromised': parent.compromised
+                }
+            },
+            'children_merged': children_deleted,
+            'total_merged': len(children_deleted)
+        }
+        
+        # Audit log
+        log_action('systems_combined', resource_type='known_system', 
+                  resource_id=parent.id, resource_name=parent.hostname,
+                  details=summary)
+        
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'message': f'Successfully combined {len(children_deleted)} systems into {parent.hostname}'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error combining systems: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @known_systems_bp.route('/api/import_csv', methods=['POST'])
 @login_required
 def api_import_csv():
@@ -754,45 +973,37 @@ def api_import_csv():
                 compromised = 'unknown'
             
             try:
-                # Check if system already exists
-                existing = KnownSystem.query.filter(
+                # Track if this is a new system or merge
+                normalized_check = normalize_hostname(hostname)
+                existing_check = KnownSystem.query.filter(
                     KnownSystem.case_id == case_id,
-                    db.func.upper(KnownSystem.hostname) == hostname.upper()
+                    db.func.upper(KnownSystem.hostname) == normalized_check
                 ).first()
                 
-                if existing:
-                    # Update existing system
-                    if domain != '-':
-                        existing.domain_name = domain
-                    if ip_address != '-':
-                        existing.ip_address = ip_address
-                    existing.compromised = compromised
-                    existing.updated_by = current_user.id
-                    
-                    note = f"Updated from CSV import"
-                    if existing.analyst_notes:
-                        existing.analyst_notes += f"\n{note}"
+                # Use auto-merge logic
+                system = _find_or_merge_system(
+                    case_id=case_id,
+                    hostname=hostname,
+                    domain_name=domain if domain != '-' else None,
+                    ip_address=ip_address if ip_address != '-' else None,
+                    system_type='workstation',  # Default for CSV imports
+                    compromised=compromised,
+                    source='csv_import',
+                    description='Imported from CSV',
+                    analyst_notes='Imported from CSV file',
+                    created_by=current_user.id,
+                    updated_by=current_user.id
+                )
+                
+                if system:
+                    # Track whether this was new or merged
+                    if existing_check:
+                        updated_count += 1
                     else:
-                        existing.analyst_notes = note
-                    
-                    updated_count += 1
+                        created_count += 1
                 else:
-                    # Create new system
-                    new_system = KnownSystem(
-                        hostname=hostname.upper(),
-                        domain_name=domain,
-                        ip_address=ip_address,
-                        system_type='workstation',  # Default
-                        compromised=compromised,
-                        source='csv_import',
-                        description='Imported from CSV',
-                        analyst_notes='Imported from CSV file',
-                        case_id=case_id,
-                        created_by=current_user.id,
-                        updated_by=current_user.id
-                    )
-                    db.session.add(new_system)
-                    created_count += 1
+                    error_count += 1
+                    errors.append(f"Line {line_num}: Failed to create/merge system")
                 
             except Exception as e:
                 error_count += 1
@@ -811,7 +1022,7 @@ def api_import_csv():
             details={
                 'performed_by': current_user.username,
                 'created': created_count,
-                'updated': updated_count,
+                'merged': updated_count,  # These were auto-merged into existing
                 'errors': error_count,
                 'total_lines': line_num
             }
@@ -820,7 +1031,7 @@ def api_import_csv():
         result = {
             'success': True,
             'created': created_count,
-            'updated': updated_count,
+            'merged': updated_count,  # Renamed from 'updated' for clarity
             'errors': error_count,
             'total': created_count + updated_count
         }

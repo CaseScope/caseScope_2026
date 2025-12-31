@@ -26,9 +26,16 @@ EXCLUDED_USERNAMES = {
     'dwa\\system', 'nt authority\\system', 'nt authority\\local service', 
     'nt authority\\network service', 'authority\\system',
     
-    # Built-in Windows accounts
-    'guest', 'administrator', 'defaultaccount', 'default', 'wdagutilityaccount',
+    # Built-in Windows system accounts (NOT generic "admin" or "user")
+    'guest', 'defaultaccount', 'default', 'wdagutilityaccount',
     'krbtgt', 'wsiaccount', 'wsiuser', 'defaultuser', 'defaultuser0',
+    
+    # IIS service accounts (specific)
+    'iusr', 'iwam', 'iis_iusrs', 'defaultapppool', 'iis apppool',
+    'network service', 'aspnet', 'iis_wpg', 'iis_wpr',
+    
+    # System virtual accounts
+    'localsystem', 'local system', 'nt authority\\localsystem',
     
     # Windows group names (not user accounts)
     'users', 'administrators', 'guests', 'power users', 'backup operators',
@@ -53,7 +60,11 @@ EXCLUDED_USERNAMES = {
     # Service accounts (common patterns)
     'udw', 'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3', 'umfd-4', 'umfd-5',
     'dwm-1', 'dwm-2', 'dwm-3', 'dwm-4', 'dwm-5',
-    'anonymous logon', 'anonymous', 'nobody',
+    'anonymous logon', 'anonymous', 'nobody', 'basic',
+    
+    # Common service account names (SQL, Tableau, etc.)
+    'sqlserveragent', 'sqlserver', 'mssql', 'sqlagent',
+    'service', 'svc', 'svcaccount', 'tabsvc',
     
     # Computer accounts (ending with $)
     # These will be filtered by pattern, not by exact name
@@ -79,15 +90,21 @@ EXCLUDED_PREFIXES = [
     'nt authority\\',
     'font driver host\\',
     'window manager\\',
+    'iis apppool\\',
+    'virtual machines\\',
+    'default app pool',
 ]
 
-# Patterns to exclude
+# Patterns to exclude (ONLY system/service accounts, NOT generic user names)
 EXCLUDED_PATTERNS = [
-    r'^.*\$$',  # Computer accounts ending with $
+    r'\$$',  # Computer accounts ending with $ (CRITICAL)
     r'^S-\d+-\d+',  # SIDs that look like usernames
     r'.*_\d+[a-z]{5,}$',  # Pattern like "name_5wofrIv" (likely auto-generated/junk)
     r'^[a-z0-9]{20,}$',  # Very long random strings
     r'^[A-Z0-9]{8,}-[A-Z0-9]{4,}-',  # GUID patterns
+    r'^svc[_-]?\w+',  # Service accounts starting with svc
+    r'^\w*serviceuser\d+$',  # Pattern: qbdataserviceuser28, dataserviceuser5, etc.
+    r'localsystem',  # Local system account (any case)
 ]
 
 
@@ -118,10 +135,33 @@ def should_exclude_username(username):
         return True
     
     username_lower = username.lower().strip()
+    original_username = username.strip()
     
-    # Skip empty or too short
-    if not username_lower or len(username_lower) < 2:
+    # Skip empty only (allow short usernames - they might be real)
+    if not username_lower or len(username_lower) < 1:
         return True
+    
+    # CRITICAL: Computer accounts ending with $ (check BEFORE normalization)
+    if original_username.endswith('$'):
+        return True
+    
+    # IIS AppPool accounts (various formats)
+    if 'apppool' in username_lower or 'iis' in username_lower:
+        return True
+    
+    # Check for domain-qualified service accounts
+    if '\\' in username_lower:
+        parts = username_lower.split('\\')
+        domain_part = parts[0]
+        user_part = parts[1] if len(parts) > 1 else ''
+        
+        # Check if domain is a service domain
+        if domain_part in ['iis apppool', 'nt authority', 'font driver host', 'window manager', 'nt service']:
+            return True
+        
+        # Check if username part should be excluded
+        if user_part in EXCLUDED_USERNAMES or user_part.endswith('$'):
+            return True
     
     # Check exact matches
     if username_lower in EXCLUDED_USERNAMES:
@@ -134,7 +174,7 @@ def should_exclude_username(username):
     
     # Check patterns
     for pattern in EXCLUDED_PATTERNS:
-        if re.match(pattern, username, re.IGNORECASE):
+        if re.match(pattern, original_username, re.IGNORECASE):
             return True
     
     return False
@@ -151,13 +191,19 @@ def classify_user_type(username, domain=None):
     Returns:
         str: 'domain', 'local', or 'unknown'
     """
-    if domain and domain != '-' and domain.upper() not in ['LOCAL', 'WORKGROUP', 'NT AUTHORITY']:
+    # Service/system domains
+    SERVICE_DOMAINS = [
+        'LOCAL', 'WORKGROUP', 'NT AUTHORITY', 'FONT DRIVER HOST', 
+        'WINDOW MANAGER', 'IIS APPPOOL', 'NT SERVICE', 'VIRTUAL MACHINES'
+    ]
+    
+    if domain and domain != '-' and domain.upper() not in SERVICE_DOMAINS:
         return 'domain'
     
     if '\\' in username:
         # Extract domain from username
         domain_part = username.split('\\')[0].upper()
-        if domain_part not in ['LOCAL', 'WORKGROUP', 'NT AUTHORITY', 'FONT DRIVER HOST', 'WINDOW MANAGER']:
+        if domain_part not in SERVICE_DOMAINS:
             return 'domain'
         else:
             return 'local'
@@ -276,9 +322,28 @@ def discover_users_from_logs(self, case_id, user_id):
                             # Clean username
                             username = username.strip() if isinstance(username, str) else str(username)
                             
-                            # Check if should be excluded
-                            if should_exclude_username(username):
+                            # DEBUG: Log every username we see
+                            logger.info(f"[DEBUG] Processing username from field {field}: '{username}' (len={len(username)}, last_char='{username[-1] if username else 'N/A'}', ends_with_$={username.endswith('$')})")
+                            
+                            # CRITICAL: Aggressive filtering before any processing
+                            # 1. Computer accounts (ending with $) - Must check first!
+                            if username.endswith('$'):
+                                logger.info(f"[FILTER] ✓ Excluded computer account: {username}")
                                 continue
+                            
+                            # 2. Known service account patterns (quick inline check)
+                            username_lower = username.lower()
+                            if 'serviceuser' in username_lower or 'apppool' in username_lower or username_lower == 'localsystem':
+                                logger.info(f"[FILTER] Excluded service account: {username}")
+                                continue
+                            
+                            # 3. Check comprehensive exclusion list
+                            if should_exclude_username(username):
+                                logger.info(f"[FILTER] Excluded by filter: {username}")
+                                continue
+                            
+                            # If we got here, it's a valid username
+                            logger.debug(f"[FILTER] KEEPING username: {username}")
                             
                             # Normalize username for comparison
                             username_key = username.lower()
@@ -298,6 +363,13 @@ def discover_users_from_logs(self, case_id, user_id):
                     continue
             
             logger.info(f"Discovered {len(discovered_users)} unique users from OpenSearch fields")
+            
+            # DEBUG: Check if any computer accounts slipped through
+            computer_accounts_in_dict = [u['username'] for u in discovered_users.values() if u['username'].endswith('$')]
+            if computer_accounts_in_dict:
+                logger.error(f"[BUG] Computer accounts in discovered_users AFTER filtering: {computer_accounts_in_dict}")
+            else:
+                logger.info(f"[SUCCESS] No computer accounts in discovered_users dict")
             
             # Get domains and SIDs for discovered users
             self.update_state(state='PROGRESS', meta={'status': 'Extracting domains and SIDs...', 'progress': 65})
@@ -398,17 +470,25 @@ def discover_users_from_logs(self, case_id, user_id):
             except Exception as e:
                 logger.warning(f"Could not extract NDJSON user domains: {e}")
             
-            # Create/update user entries
+            # Create/update user entries using auto-merge
             self.update_state(state='PROGRESS', meta={'status': 'Creating user entries...', 'progress': 80})
             
             new_users_count = 0
-            updated_users_count = 0
+            merged_users_count = 0
             
-            # Get existing users for deduplication
+            # Import auto-merge helper
+            from utils.merge_helpers import find_or_merge_user, normalize_username
+            
+            # Build map of existing users for tracking new vs merged
             existing_users = KnownUser.query.filter_by(case_id=case_id).all()
             existing_map = {}
             for u in existing_users:
-                key = f"{u.domain_name or '-'}\\{u.username}".lower()
+                # Track by normalized username AND SID (to detect different users)
+                norm_username = normalize_username(u.username)
+                if u.sid:
+                    key = f"{norm_username}::{u.sid}"
+                else:
+                    key = norm_username
                 existing_map[key] = u
             
             new_users_list = []
@@ -417,86 +497,80 @@ def discover_users_from_logs(self, case_id, user_id):
             for username_key, user_data in discovered_users.items():
                 username = user_data['username']
                 
-                # Get domain and SID for this user
-                domain = user_domains.get(username_key, '-')
-                sid = user_sids.get(username_key, '-')
+                # CRITICAL: Explicit computer account check (safety #1)
+                if username.endswith('$'):
+                    logger.info(f"[SAFETY] Blocked computer account before creation: {username}")
+                    continue
                 
-                # Parse username if it contains domain
-                if '\\' in username:
-                    parts = username.split('\\', 1)
-                    domain = parts[0]
-                    username = parts[1]
-                elif '@' in username:
-                    parts = username.split('@', 1)
-                    username = parts[0]
-                    if domain == '-':
-                        domain = parts[1]
+                # Double-check exclusion (safety check #2)
+                if should_exclude_username(username):
+                    logger.info(f"[SAFETY] Excluded by filter before creation: {username}")
+                    continue
+                
+                # Get domain and SID for this user
+                domain = user_domains.get(username_key)
+                if domain == '-':
+                    domain = None
+                    
+                sid = user_sids.get(username_key)
+                if sid == '-':
+                    sid = None
                 
                 # Classify user type
                 user_type = classify_user_type(username, domain)
                 
-                # Check if already exists
-                lookup_key = f"{domain}\\{username}".lower()
-                existing = existing_map.get(lookup_key)
+                # Skip if classified as service account domain
+                if domain and domain.upper() in ['IIS APPPOOL', 'NT SERVICE', 'VIRTUAL MACHINES']:
+                    logger.debug(f"Excluding service domain user: {domain}\\{username}")
+                    continue
                 
-                # Also check without domain
-                if not existing:
-                    lookup_key_no_domain = f"-\\{username}".lower()
-                    existing = existing_map.get(lookup_key_no_domain)
+                # Check if existed before merge (for tracking)
+                norm_check = normalize_username(username)
+                existed_before = any(norm_check in k for k in existing_map.keys())
                 
-                if not existing:
-                    # Create new user
-                    new_user = KnownUser(
-                        username=username,
-                        domain_name=domain if domain and domain != '-' else '-',
-                        sid=sid if sid and sid != '-' else '-',
-                        user_type=user_type,
-                        compromised='no',
-                        source='logs',
-                        description=f"Auto-discovered from logs. Found in {user_data['count']} events.",
-                        analyst_notes=f"Discovered from field: {user_data['field']}",
-                        case_id=case_id,
-                        created_by=user_id,
-                        updated_by=user_id
-                    )
-                    db.session.add(new_user)
-                    new_users_count += 1
-                    
-                    new_users_list.append({
-                        'username': username,
-                        'domain': domain if domain != '-' else 'None',
-                        'sid': sid if sid != '-' else 'None',
-                        'type': user_type,
+                # Use auto-merge logic (with SID validation)
+                user = find_or_merge_user(
+                    db=db,
+                    case_id=case_id,
+                    username=username,  # May include domain prefix
+                    domain_name=domain,
+                    sid=sid,
+                    user_type=user_type,
+                    compromised='no',
+                    source='logs',
+                    description=f"Auto-discovered from logs. Found in {user_data['count']} events.",
+                    analyst_notes=f"Discovered from field: {user_data['field']}",
+                    created_by=user_id,
+                    updated_by=user_id,
+                    logger=logger
+                )
+                
+                if user:
+                    user_info = {
+                        'username': user.username,
+                        'domain': user.domain_name or 'None',
+                        'sid': user.sid or 'None',
+                        'type': user.user_type,
                         'event_count': user_data['count']
-                    })
+                    }
                     
-                    logger.debug(f"New user: {domain}\\{username} (type: {user_type}, SID: {sid}, events: {user_data['count']})")
-                else:
-                    # Update if we have new information
-                    updated = False
-                    if sid and sid != '-' and (not existing.sid or existing.sid == '-'):
-                        existing.sid = sid
-                        updated = True
-                    if domain and domain != '-' and (not existing.domain_name or existing.domain_name == '-'):
-                        existing.domain_name = domain
-                        updated = True
-                    
-                    if updated:
-                        existing.updated_by = user_id
-                        updated_users_count += 1
-                        updated_users_list.append({
-                            'username': username,
-                            'domain': domain if domain != '-' else 'None',
-                            'sid': sid if sid != '-' else 'None',
-                            'type': user_type,
-                            'event_count': user_data['count']
-                        })
-                        logger.debug(f"Updated user: {domain}\\{username}")
+                    if existed_before:
+                        merged_users_count += 1
+                        updated_users_list.append(user_info)
+                    else:
+                        new_users_count += 1
+                        new_users_list.append(user_info)
+                        # Add to map for tracking
+                        if user.sid:
+                            key = f"{normalize_username(user.username)}::{user.sid}"
+                        else:
+                            key = normalize_username(user.username)
+                        existing_map[key] = user
             
             # Commit all changes
             db.session.commit()
             
-            logger.info(f"User discovery complete: {new_users_count} created, {updated_users_count} updated")
+            logger.info(f"User discovery complete: {new_users_count} created, {merged_users_count} merged")
             
             # Log the completion with detailed results
             from audit_logger import log_action
@@ -515,7 +589,7 @@ def discover_users_from_logs(self, case_id, user_id):
                     'total_events_scanned': total_events,
                     'users_found': len(discovered_users),
                     'new_users': new_users_count,
-                    'updated_users': updated_users_count,
+                    'merged_users': merged_users_count,
                     'new_users_list': new_users_list,
                     'updated_users_list': updated_users_list
                 }
@@ -523,10 +597,10 @@ def discover_users_from_logs(self, case_id, user_id):
             
             return {
                 'status': 'success',
-                'message': 'Discovery complete',
+                'message': f'Discovery complete: {new_users_count} new, {merged_users_count} merged',
                 'users_found': len(discovered_users),
                 'users_created': new_users_count,
-                'users_updated': updated_users_count,
+                'users_merged': merged_users_count,
                 'events_processed': total_events
             }
             

@@ -45,11 +45,17 @@ class OpenSearchIndexer:
         """
         if not self.client.indices.exists(index=index_name):
             # Index mapping for Windows events and NDJSON data
+            from app.config import OPENSEARCH_TOTAL_FIELDS_LIMIT, OPENSEARCH_NESTED_FIELDS_LIMIT
+            
             mapping = {
                 'settings': {
                     'number_of_shards': 1,
                     'number_of_replicas': 0,
-                    'refresh_interval': '5s'
+                    'refresh_interval': '5s',
+                    'index': {
+                        'mapping.total_fields.limit': OPENSEARCH_TOTAL_FIELDS_LIMIT,
+                        'mapping.nested_fields.limit': OPENSEARCH_NESTED_FIELDS_LIMIT
+                    }
                 },
                 'mappings': {
                     'properties': {

@@ -8,13 +8,37 @@ from flask_login import login_required, current_user
 from main import db
 from models import KnownUser, Case
 from audit_logger import log_action
+from utils.merge_helpers import (
+    is_blank, normalize_username, extract_domain_from_username,
+    check_in_analyst_notes, update_analyst_notes_with_merge,
+    append_original_notes, should_warn_before_combine, find_or_merge_user
+)
 import logging
 import csv
 from io import StringIO
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 known_users_bp = Blueprint('known_users', __name__, url_prefix='/users')
+
+
+# ============================================================================
+# HELPER FUNCTIONS - Auto-Merge Logic
+# ============================================================================
+
+def _find_or_merge_user(case_id, username, domain_name=None, sid=None, user_type=None,
+                        compromised=None, source='manual', description=None, analyst_notes=None,
+                        created_by=None, updated_by=None):
+    """
+    Wrapper for centralized find_or_merge_user function
+    """
+    return find_or_merge_user(
+        db=db, case_id=case_id, username=username, domain_name=domain_name,
+        sid=sid, user_type=user_type, compromised=compromised,
+        source=source, description=description, analyst_notes=analyst_notes,
+        created_by=created_by, updated_by=updated_by, logger=logger
+    )
 
 
 @known_users_bp.route('/')
@@ -270,8 +294,9 @@ def api_create():
         if not data.get('username'):
             return jsonify({'success': False, 'error': 'Missing required field: username'}), 400
         
-        # Create new user
-        user = KnownUser(
+        # Use auto-merge logic to find existing or create new
+        user = _find_or_merge_user(
+            case_id=case_id,
             username=data['username'].strip(),
             domain_name=data.get('domain_name', '').strip() if data.get('domain_name') else None,
             sid=data.get('sid', '').strip() if data.get('sid') else None,
@@ -280,13 +305,13 @@ def api_create():
             source=data.get('source', 'manual'),
             description=data.get('description', '').strip() if data.get('description') else None,
             analyst_notes=data.get('analyst_notes', '').strip() if data.get('analyst_notes') else None,
-            case_id=case_id,
             created_by=current_user.id,
             updated_by=current_user.id
         )
         
-        # Add to database
-        db.session.add(user)
+        if not user:
+            return jsonify({'success': False, 'error': 'Failed to create user'}), 500
+        
         db.session.commit()
         
         # Build detailed user information for audit log
@@ -395,6 +420,15 @@ def api_update(user_id):
         # Update modified info
         user.updated_by = current_user.id
         
+        # Check if user was marked as compromised - create IOC if needed
+        ioc_created = False
+        if 'compromised' in changes and changes['compromised']['new'] == 'yes':
+            from utils.ioc_sync import create_ioc_from_user
+            ioc = create_ioc_from_user(db, user, current_user.id)
+            if ioc:
+                ioc_created = True
+                logger.info(f"Auto-created IOC (ID: {ioc.id}) for compromised user {user.username}")
+        
         db.session.commit()
         
         # Log the action with detailed changes
@@ -414,7 +448,8 @@ def api_update(user_id):
         
         return jsonify({
             'success': True,
-            'message': 'User updated successfully',
+            'message': 'User updated successfully' + (' (IOC created)' if ioc_created else ''),
+            'ioc_created': ioc_created,
             'user': {
                 'id': user.id,
                 'username': user.username,
@@ -650,6 +685,161 @@ def api_bulk_delete():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@known_users_bp.route('/api/combine', methods=['POST'])
+@login_required
+def api_combine():
+    """
+    Combine multiple users - user selects parent, children merge in
+    
+    Requires analyst or higher permissions
+    Logs detailed before/after states to audit log
+    """
+    try:
+        # Check permissions
+        if current_user.role not in ['analyst', 'administrator']:
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        data = request.get_json()
+        parent_id = data.get('parent_id')
+        child_ids = data.get('child_ids', [])
+        
+        if not parent_id or not child_ids:
+            return jsonify({'success': False, 'error': 'Must specify parent and children'}), 400
+        
+        # Get parent
+        parent = KnownUser.query.get(parent_id)
+        if not parent:
+            return jsonify({'success': False, 'error': 'Parent not found'}), 404
+        
+        # Get children
+        children = KnownUser.query.filter(KnownUser.id.in_(child_ids)).all()
+        if not children:
+            return jsonify({'success': False, 'error': 'No children found'}), 404
+        
+        # Verify all same case
+        for child in children:
+            if child.case_id != parent.case_id:
+                return jsonify({'success': False, 'error': 'All users must be from same case'}), 400
+        
+        # Check if warning needed
+        items_to_check = [{'user_type': parent.user_type, 'compromised': parent.compromised}]
+        for child in children:
+            items_to_check.append({'user_type': child.user_type, 'compromised': child.compromised})
+        
+        should_warn, warnings = should_warn_before_combine(items_to_check, 'user')
+        
+        # If warning and user hasn't confirmed, return warning
+        if should_warn and not data.get('confirmed', False):
+            return jsonify({
+                'success': False,
+                'warning': True,
+                'warnings': warnings,
+                'message': 'Please confirm you want to combine these users'
+            }), 400
+        
+        # Track changes for summary
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        fields_merged = []
+        children_deleted = []
+        
+        # Capture before state
+        before_state = {
+            'username': parent.username,
+            'domain_name': parent.domain_name,
+            'sid': parent.sid,
+            'description': parent.description,
+            'analyst_notes': parent.analyst_notes,
+            'user_type': parent.user_type,
+            'compromised': parent.compromised
+        }
+        
+        for child in children:
+            child_info = []
+            
+            # Merge each field
+            for field in ['username', 'domain_name', 'sid', 'description', 'user_type', 'compromised']:
+                parent_val = getattr(parent, field)
+                child_val = getattr(child, field)
+                
+                # Skip if child has no value
+                if is_blank(child_val):
+                    continue
+                
+                # If parent blank, copy from child
+                if is_blank(parent_val):
+                    setattr(parent, field, child_val)
+                    fields_merged.append(f"{field}: {child_val}")
+                # Both have values - add to analyst notes
+                elif parent_val != child_val:
+                    child_info.append(f"{field}: {child_val}")
+            
+            # Merge analyst_notes from child
+            if child.analyst_notes and not is_blank(child.analyst_notes):
+                parent.analyst_notes = append_original_notes(parent.analyst_notes or "", child.analyst_notes)
+            
+            # Add merge note to parent
+            merge_fields = {k.split(': ')[0]: k.split(': ')[1] for k in child_info if ': ' in k} if child_info else {}
+            parent.analyst_notes = update_analyst_notes_with_merge(
+                parent.analyst_notes or "",
+                merge_type='manual',
+                source_name=f"{child.domain_name}\\{child.username}" if child.domain_name else child.username,
+                source_id=child.id,
+                fields_merged=merge_fields if merge_fields else None
+            )
+            
+            # Track for summary
+            children_deleted.append({
+                'id': child.id,
+                'username': child.username,
+                'domain_name': child.domain_name,
+                'data_merged': child_info
+            })
+            
+            # Delete child
+            db.session.delete(child)
+        
+        parent.updated_by = current_user.id
+        db.session.commit()
+        
+        # Build summary
+        summary = {
+            'parent': {
+                'id': parent.id,
+                'username': parent.username,
+                'domain_name': parent.domain_name,
+                'before': before_state,
+                'after': {
+                    'username': parent.username,
+                    'domain_name': parent.domain_name,
+                    'sid': parent.sid,
+                    'description': parent.description,
+                    'analyst_notes': parent.analyst_notes,
+                    'user_type': parent.user_type,
+                    'compromised': parent.compromised
+                }
+            },
+            'children_merged': children_deleted,
+            'total_merged': len(children_deleted)
+        }
+        
+        # Audit log
+        log_action('users_combined', resource_type='known_user', 
+                  resource_id=parent.id, 
+                  resource_name=f"{parent.domain_name}\\{parent.username}" if parent.domain_name else parent.username,
+                  details=summary)
+        
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'message': f'Successfully combined {len(children_deleted)} users into {parent.username}'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error combining users: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @known_users_bp.route('/api/import_csv', methods=['POST'])
 @login_required
 def api_import_csv():
@@ -754,57 +944,37 @@ def api_import_csv():
                 compromised = 'no'  # Default to no for imports
             
             try:
-                # Check if user already exists
-                existing = None
-                if domain != '-':
-                    existing = KnownUser.query.filter(
-                        KnownUser.case_id == case_id,
-                        db.func.lower(KnownUser.username) == username.lower(),
-                        db.func.lower(KnownUser.domain_name) == domain.lower()
-                    ).first()
-                else:
-                    existing = KnownUser.query.filter(
-                        KnownUser.case_id == case_id,
-                        db.func.lower(KnownUser.username) == username.lower(),
-                        db.or_(
-                            KnownUser.domain_name == '-',
-                            KnownUser.domain_name.is_(None)
-                        )
-                    ).first()
+                # Track if this is new or merged
+                normalized_check = normalize_username(username_raw)
+                existing_check = KnownUser.query.filter(
+                    KnownUser.case_id == case_id,
+                    db.func.lower(KnownUser.username) == normalized_check
+                ).first()
                 
-                if existing:
-                    # Update existing user
-                    if domain != '-':
-                        existing.domain_name = domain
-                    if sid != '-':
-                        existing.sid = sid
-                    existing.compromised = compromised
-                    existing.updated_by = current_user.id
-                    
-                    note = f"Updated from CSV import"
-                    if existing.analyst_notes:
-                        existing.analyst_notes += f"\n{note}"
+                # Use auto-merge logic (with SID validation)
+                user = _find_or_merge_user(
+                    case_id=case_id,
+                    username=username_raw,  # Use raw (may include domain)
+                    domain_name=domain if domain != '-' else None,
+                    sid=sid if sid != '-' else None,
+                    user_type=user_type,
+                    compromised=compromised,
+                    source='csv_import',
+                    description='Imported from CSV',
+                    analyst_notes='Imported from CSV file',
+                    created_by=current_user.id,
+                    updated_by=current_user.id
+                )
+                
+                if user:
+                    # Track whether this was new or merged
+                    if existing_check:
+                        updated_count += 1
                     else:
-                        existing.analyst_notes = note
-                    
-                    updated_count += 1
+                        created_count += 1
                 else:
-                    # Create new user
-                    new_user = KnownUser(
-                        username=username,
-                        domain_name=domain,
-                        sid=sid,
-                        user_type=user_type,
-                        compromised=compromised,
-                        source='csv_import',
-                        description='Imported from CSV',
-                        analyst_notes='Imported from CSV file',
-                        case_id=case_id,
-                        created_by=current_user.id,
-                        updated_by=current_user.id
-                    )
-                    db.session.add(new_user)
-                    created_count += 1
+                    error_count += 1
+                    errors.append(f"Line {line_num}: Failed to create/merge user")
                 
             except Exception as e:
                 error_count += 1
@@ -823,7 +993,7 @@ def api_import_csv():
             details={
                 'performed_by': current_user.username,
                 'created': created_count,
-                'updated': updated_count,
+                'merged': updated_count,
                 'errors': error_count,
                 'total_lines': line_num
             }
@@ -832,7 +1002,7 @@ def api_import_csv():
         result = {
             'success': True,
             'created': created_count,
-            'updated': updated_count,
+            'merged': updated_count,  # Renamed for clarity
             'errors': error_count,
             'total': created_count + updated_count
         }

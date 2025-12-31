@@ -153,6 +153,9 @@
                             <strong><span id="selectedCount">0</span> users selected</strong>
                         </div>
                         <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" onclick="combineSelected()" title="Combine selected users" id="combineBtn" style="display: none;">
+                                🔗 Combine
+                            </button>
                             <button class="btn btn-sm btn-secondary" onclick="editSelected()" title="Edit selected users">
                                 ✏️ Edit Selected
                             </button>
@@ -210,17 +213,73 @@
     </div>
 </div>
 
+<!-- Combine Users Modal -->
+<div id="combineModal" class="modal-overlay" style="display: none;" onclick="closeCombineModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🔗 Combine Users</h2>
+            <button class="modal-close" onclick="closeCombineModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="mb-3">Select which user should be the <strong>parent</strong>. All others will be merged into it and deleted.</p>
+            
+            <div id="combineWarnings" class="combine-warnings" style="display: none;">
+                <!-- Warnings displayed here -->
+            </div>
+            
+            <div id="combineUsersList" class="list-group mb-3">
+                <!-- Users listed here with radio buttons -->
+            </div>
+            
+            <div class="alert alert-info">
+                <strong>What happens when combining:</strong>
+                <ul class="mt-2">
+                    <li>If parent field is blank and child has data → copy to parent</li>
+                    <li>If both have data → add child data to parent's analyst notes</li>
+                    <li>Child items are permanently deleted</li>
+                    <li><strong>Note:</strong> Users with different SIDs should NOT be combined (they're different people)</li>
+                </ul>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeCombineModal(event)">Cancel</button>
+            <button class="btn btn-primary" type="button" id="confirmCombineBtn" onclick="confirmCombine()">
+                Combine Users
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Combine Summary Modal -->
+<div id="combineSummaryModal" class="modal-overlay" style="display: none;" onclick="closeCombineSummaryModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">✅ Combine Complete</h2>
+            <button class="modal-close" onclick="closeCombineSummaryModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="combineSummaryContent">
+                <!-- Summary displayed here -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" type="button" onclick="closeCombineSummaryModal(event)">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
 {% endif %}
 
 <!-- Add/Edit User Modal -->
-<div id="userModal" class="modal" style="display: none;">
-    <div class="modal-dialog" style="max-width: 600px;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title" id="modalTitle">Add User</h2>
-                <button class="modal-close" onclick="closeUserModal()">&times;</button>
-            </div>
-            <div class="modal-body">
+<div id="userModal" class="modal-overlay" style="display: none;" onclick="closeUserModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title" id="modalTitle">Add User</h2>
+            <button class="modal-close" onclick="closeUserModal(event)">×</button>
+        </div>
+        <div class="modal-body">
                 <form id="userForm">
                     <input type="hidden" id="userId" name="user_id">
                     <input type="hidden" id="isBulkEdit" value="false">
@@ -270,7 +329,7 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeUserModal()">Cancel</button>
+                <button class="btn btn-secondary" onclick="closeUserModal(event)">Cancel</button>
                 <button class="btn btn-primary" onclick="saveUser()">Save User</button>
             </div>
         </div>
@@ -278,13 +337,12 @@
 </div>
 
 <!-- View User Details Modal -->
-<div id="viewUserModal" class="modal" style="display: none;">
-    <div class="modal-dialog" style="max-width: 700px;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title">User Details</h2>
-                <button class="modal-close" onclick="closeViewUserModal()">&times;</button>
-            </div>
+<div id="viewUserModal" class="modal-overlay" style="display: none;" onclick="closeViewUserModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">User Details</h2>
+            <button class="modal-close" onclick="closeViewUserModal(event)">×</button>
+        </div>
             <div class="modal-body">
                 <div class="detail-grid">
                     <div class="detail-item">
@@ -330,7 +388,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeViewUserModal()">Close</button>
+                <button class="btn btn-secondary" onclick="closeViewUserModal(event)">Close</button>
                 <button class="btn btn-primary" onclick="editFromView()">Edit User</button>
             </div>
         </div>
@@ -678,10 +736,14 @@ function updateSelectionUI() {
     // Update bulk actions bar
     const bulkActionsBar = document.getElementById('bulkActionsBar');
     const selectedCount = document.getElementById('selectedCount');
+    const combineBtn = document.getElementById('combineBtn');
     
     if (selectedUsers.size > 0) {
         bulkActionsBar.style.display = 'block';
         selectedCount.textContent = selectedUsers.size;
+        
+        // Show combine button only if 2+ items selected
+        combineBtn.style.display = selectedUsers.size >= 2 ? 'inline-block' : 'none';
     } else {
         bulkActionsBar.style.display = 'none';
     }
@@ -708,7 +770,8 @@ function showAddUserModal() {
     document.getElementById('userModal').style.display = 'flex';
 }
 
-function closeUserModal() {
+function closeUserModal(event) {
+    if (event) event.stopPropagation();
     document.getElementById('userModal').style.display = 'none';
 }
 
@@ -737,7 +800,8 @@ function viewUser(userId) {
         .catch(error => showNotification('Error loading user: ' + error.message, 'error'));
 }
 
-function closeViewUserModal() {
+function closeViewUserModal(event) {
+    if (event) event.stopPropagation();
     document.getElementById('viewUserModal').style.display = 'none';
 }
 
@@ -1024,7 +1088,7 @@ function submitCSVImport(event) {
                 <div class="alert alert-success">
                     <strong>✓ Import Complete!</strong><br>
                     Created: ${data.created}<br>
-                    Updated: ${data.updated}<br>
+                    Merged: ${data.merged}<br>
                     Total: ${data.total}
                 </div>
             `;
@@ -1125,7 +1189,7 @@ function pollUserDiscoveryStatus(taskId) {
             resultsText.innerHTML = `
                 <strong>Users Found:</strong> ${result.users_found}<br>
                 <strong>New Users Created:</strong> ${result.users_created}<br>
-                <strong>Existing Users Updated:</strong> ${result.users_updated}<br>
+                <strong>Merged into Existing:</strong> ${result.users_merged}<br>
                 <strong>Events Scanned:</strong> ${result.events_processed.toLocaleString()}
             `;
             resultsEl.style.display = 'block';
@@ -1156,6 +1220,275 @@ function closeUserDiscoveryModal() {
     document.getElementById('userDiscoveryModal').style.display = 'none';
 }
 
+// Combine Functions
+let combineUsersData = [];
+let selectedParentId = null;
+let combineNeedsConfirmation = false;
+
+function combineSelected() {
+    if (selectedUsers.size < 2) {
+        alert('Please select at least 2 users to combine');
+        return;
+    }
+    
+    // Fetch details for all selected users
+    const fetchPromises = Array.from(selectedUsers).map(id => 
+        fetch(`/users/api/get/${id}`).then(r => r.json())
+    );
+    
+    Promise.all(fetchPromises)
+        .then(results => {
+            combineUsersData = results.filter(r => r.success).map(r => r.user);
+            
+            if (combineUsersData.length < 2) {
+                alert('Failed to load user data');
+                return;
+            }
+            
+            // Check if warning needed
+            const warnings = checkCombineWarnings(combineUsersData);
+            
+            // Populate modal
+            const listContainer = document.getElementById('combineUsersList');
+            listContainer.innerHTML = '';
+            
+            combineUsersData.forEach((user, index) => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item';
+                
+                const isFirstItem = index === 0;
+                const displayName = user.domain_name ? `${user.domain_name}\\${user.username}` : user.username;
+                
+                item.innerHTML = `
+                    <label>
+                        <input type="radio" name="parentUser" value="${user.id}" ${isFirstItem ? 'checked' : ''} onchange="selectParent(${user.id})">
+                        <div class="flex-1">
+                            <div class="list-group-item-title">${escapeHtml(displayName)}</div>
+                            <div class="list-group-item-subtitle">
+                                <span class="badge badge-info">${escapeHtml(user.user_type)}</span>
+                                <span class="badge ${user.compromised === 'yes' ? 'badge-error' : 'badge-success'}">${escapeHtml(user.compromised)}</span>
+                                ${user.sid ? `<br>SID: <code>${escapeHtml(user.sid)}</code>` : ''}
+                            </div>
+                        </div>
+                    </label>
+                `;
+                
+                listContainer.appendChild(item);
+            });
+            
+            // Set default parent
+            selectedParentId = combineUsersData[0].id;
+            
+            // Show warnings if any
+            const warningsDiv = document.getElementById('combineWarnings');
+            if (warnings.length > 0) {
+                warningsDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        <strong>⚠️ Warning:</strong>
+                        <ul style="margin: 0.5rem 0 0 1.5rem;">
+                            ${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                        </ul>
+                        <p style="margin-top: 0.5rem; margin-bottom: 0;">Are you sure you want to proceed?</p>
+                    </div>
+                `;
+                warningsDiv.style.display = 'block';
+                combineNeedsConfirmation = true;
+            } else {
+                warningsDiv.style.display = 'none';
+                combineNeedsConfirmation = false;
+            }
+            
+            // Show modal
+            document.getElementById('combineModal').style.display = 'flex';
+        })
+        .catch(error => {
+            console.error('Error loading users for combine:', error);
+            alert('Failed to load user details: ' + error);
+        });
+}
+
+function checkCombineWarnings(users) {
+    const warnings = [];
+    
+    // Check for different user types
+    const types = new Set(users.map(u => u.user_type));
+    if (types.size > 1) {
+        warnings.push(`Mixing different user types: ${Array.from(types).join(', ')}`);
+    }
+    
+    // Check for different compromised statuses
+    const compromisedValues = new Set(users.map(u => u.compromised));
+    if (compromisedValues.size > 1) {
+        warnings.push(`Mixing different compromised statuses: ${Array.from(compromisedValues).join(', ')}`);
+    }
+    
+    // Check for different SIDs (CRITICAL)
+    const sids = users.map(u => u.sid).filter(s => s && s !== '-');
+    const uniqueSids = new Set(sids);
+    if (uniqueSids.size > 1) {
+        warnings.push(`⚠️ CRITICAL: Different SIDs detected - these may be different people!`);
+    }
+    
+    return warnings;
+}
+
+function selectParent(userId) {
+    selectedParentId = userId;
+}
+
+function closeCombineModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('combineModal').style.display = 'none';
+    combineUsersData = [];
+    selectedParentId = null;
+    combineNeedsConfirmation = false;
+}
+
+function confirmCombine() {
+    if (!selectedParentId) {
+        alert('Please select a parent user');
+        return;
+    }
+    
+    const childIds = combineUsersData
+        .filter(u => u.id !== selectedParentId)
+        .map(u => u.id);
+    
+    if (childIds.length === 0) {
+        alert('No children to merge');
+        return;
+    }
+    
+    // Disable button during processing
+    const confirmBtn = document.getElementById('confirmCombineBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Combining...';
+    
+    // Submit combine request
+    fetch('/users/api/combine', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            parent_id: selectedParentId,
+            child_ids: childIds,
+            confirmed: combineNeedsConfirmation
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Combine Users';
+        
+        if (result.warning) {
+            alert('Warning: ' + result.warnings.join(', ') + '\n\nPlease confirm in the modal.');
+            combineNeedsConfirmation = true;
+            return;
+        }
+        
+        if (result.success) {
+            // Close combine modal
+            closeCombineModal();
+            
+            // Show summary modal
+            showCombineSummary(result.summary);
+            
+            // Clear selection
+            clearSelection();
+        } else {
+            alert('Error combining users: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Combine Users';
+        console.error('Error combining users:', error);
+        alert('Failed to combine users: ' + error);
+    });
+}
+
+function showCombineSummary(summary) {
+    const parent = summary.parent;
+    const before = parent.before;
+    const after = parent.after;
+    const displayName = after.domain_name ? `${after.domain_name}\\${after.username}` : after.username;
+    
+    let html = `
+        <div class="alert alert-success">
+            <h4 class="mt-0">✅ Successfully Combined!</h4>
+            <p><strong>Parent:</strong> ${escapeHtml(displayName)} (ID: ${parent.id})</p>
+            <p><strong>Merged:</strong> ${summary.total_merged} user(s)</p>
+        </div>
+        
+        <h4 class="mt-4 mb-2">Changes to Parent:</h4>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Before</th>
+                    <th>After</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    // Show only fields that changed
+    const fields = ['username', 'domain_name', 'sid', 'user_type', 'compromised', 'description'];
+    let changesFound = false;
+    
+    for (const field of fields) {
+        const beforeVal = before[field] || '-';
+        const afterVal = after[field] || '-';
+        
+        if (beforeVal !== afterVal) {
+            html += `
+                <tr>
+                    <td><strong>${field}</strong></td>
+                    <td>${escapeHtml(String(beforeVal))}</td>
+                    <td class="combine-field-highlight">${escapeHtml(String(afterVal))}</td>
+                </tr>
+            `;
+            changesFound = true;
+        }
+    }
+    
+    if (!changesFound) {
+        html += `<tr><td colspan="3" class="text-center text-muted">No field changes (data merged into analyst notes)</td></tr>`;
+    }
+    
+    html += `
+            </tbody>
+        </table>
+        
+        <h4 class="mt-4 mb-2">Children Merged:</h4>
+        <ul>
+    `;
+    
+    summary.children_merged.forEach(child => {
+        const childDisplayName = child.domain_name ? `${child.domain_name}\\${child.username}` : child.username;
+        html += `<li><strong>${escapeHtml(childDisplayName)}</strong> (ID: ${child.id})`;
+        if (child.data_merged && child.data_merged.length > 0) {
+            html += ` - ${child.data_merged.length} field(s) merged to notes`;
+        }
+        html += `</li>`;
+    });
+    
+    html += `</ul>`;
+    
+    document.getElementById('combineSummaryContent').innerHTML = html;
+    document.getElementById('combineSummaryModal').style.display = 'flex';
+}
+
+function closeCombineSummaryModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('combineSummaryModal').style.display = 'none';
+    
+    // Reload table
+    loadUsers(currentPage);
+    loadStats();
+}
+
 // Utility functions
 function escapeHtml(unsafe) {
     if (!unsafe) return '';
@@ -1168,56 +1501,9 @@ function escapeHtml(unsafe) {
 }
 
 function showNotification(message, type = 'info') {
-    // Use existing notification system
-    if (typeof window.showNotification === 'function') {
-        window.showNotification(message, type);
-    } else {
-        alert(message);
-    }
+    // Simple notification display
+    alert(message);
 }
 </script>
-
-<style>
-.detail-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-}
-
-.detail-item {
-    padding: 0.75rem;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-}
-
-.detail-item.full-width {
-    grid-column: 1 / -1;
-}
-
-.detail-label {
-    font-weight: 600;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    margin-bottom: 0.25rem;
-}
-
-.detail-value {
-    color: var(--text-primary);
-}
-
-.loading-indicator {
-    text-align: center;
-    padding: 3rem;
-}
-
-.table-container {
-    overflow-x: auto;
-}
-
-.pagination {
-    display: flex;
-    gap: 0.5rem;
-}
-</style>
 
 {% endblock %}

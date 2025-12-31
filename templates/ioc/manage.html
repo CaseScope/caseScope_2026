@@ -149,6 +149,9 @@
                             <strong><span id="selectedCount">0</span> IOCs selected</strong>
                         </div>
                         <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" onclick="combineSelected()" title="Combine selected IOCs" id="combineBtn" style="display: none;">
+                                🔗 Combine
+                            </button>
                             <button class="btn btn-sm btn-secondary" onclick="editSelected()" title="Edit selected IOCs">
                                 ✏️ Edit Selected
                             </button>
@@ -205,6 +208,65 @@
         <div class="pagination-numbers" id="paginationNumbers"></div>
         <button class="btn btn-secondary btn-sm" id="nextPageBtn" onclick="nextPage()">Next</button>
         <button class="btn btn-secondary btn-sm" id="lastPageBtn" onclick="goToPage(totalPages)">Last</button>
+    </div>
+</div>
+
+<!-- Combine IOCs Modal -->
+<div id="combineModal" class="modal-overlay" style="display: none;" onclick="closeCombineModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">🔗 Combine IOCs</h2>
+            <button class="modal-close" onclick="closeCombineModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="mb-3">Select which IOC should be the <strong>parent</strong>. All others will be merged into it and deleted.</p>
+            
+            <div id="combineWarnings" class="combine-warnings" style="display: none;">
+                <!-- Warnings displayed here -->
+            </div>
+            
+            <div id="combineIOCsList" class="list-group mb-3">
+                <!-- IOCs listed here with radio buttons -->
+            </div>
+            
+            <div class="alert alert-info">
+                <strong>What happens when combining:</strong>
+                <ul class="mt-2">
+                    <li>If parent field is blank and child has data → copy to parent</li>
+                    <li>If both have data → add child data to parent's analyst notes</li>
+                    <li>Event hits from children are transferred to parent</li>
+                    <li>times_seen values are summed</li>
+                    <li>Highest threat level and confidence are kept</li>
+                    <li>Child items are permanently deleted</li>
+                </ul>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="closeCombineModal(event)">Cancel</button>
+            <button class="btn btn-primary" type="button" id="confirmCombineBtn" onclick="confirmCombine()">
+                Combine IOCs
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Combine Summary Modal -->
+<div id="combineSummaryModal" class="modal-overlay" style="display: none;" onclick="closeCombineSummaryModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 class="modal-title">✅ Combine Complete</h2>
+            <button class="modal-close" onclick="closeCombineSummaryModal(event)">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="combineSummaryContent">
+                <!-- Summary displayed here -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" type="button" onclick="closeCombineSummaryModal(event)">
+                Close
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1288,10 +1350,14 @@ function updateSelectAllCheckbox() {
 function updateBulkActionsBar() {
     const bulkActionsBar = document.getElementById('bulkActionsBar');
     const selectedCount = document.getElementById('selectedCount');
+    const combineBtn = document.getElementById('combineBtn');
     
     if (selectedIOCs.size > 0) {
         bulkActionsBar.style.display = 'block';
         selectedCount.textContent = selectedIOCs.size;
+        
+        // Show combine button only if 2+ items selected
+        combineBtn.style.display = selectedIOCs.size >= 2 ? 'inline-block' : 'none';
     } else {
         bulkActionsBar.style.display = 'none';
     }
@@ -1672,6 +1738,279 @@ function closeDeduplicationModal(evt) {
     document.getElementById('deduplicationModal').style.display = 'none';
     deduplicationData = null;
     selectedMerges = {};
+}
+
+// Combine Functions
+let combineIOCsData = [];
+let selectedParentId = null;
+let combineNeedsConfirmation = false;
+
+function combineSelected() {
+    if (selectedIOCs.size < 2) {
+        alert('Please select at least 2 IOCs to combine');
+        return;
+    }
+    
+    // Fetch details for all selected IOCs
+    const fetchPromises = Array.from(selectedIOCs).map(id => 
+        fetch(`/ioc/api/get/${id}`).then(r => r.json())
+    );
+    
+    Promise.all(fetchPromises)
+        .then(results => {
+            combineIOCsData = results.filter(r => r.success).map(r => r.ioc);
+            
+            if (combineIOCsData.length < 2) {
+                alert('Failed to load IOC data');
+                return;
+            }
+            
+            // Check if warning needed
+            const warnings = checkCombineWarnings(combineIOCsData);
+            
+            // Populate modal
+            const listContainer = document.getElementById('combineIOCsList');
+            listContainer.innerHTML = '';
+            
+            combineIOCsData.forEach((ioc, index) => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item';
+                
+                const isFirstItem = index === 0;
+                
+                // Truncate long values
+                const displayValue = ioc.value.length > 80 ? ioc.value.substring(0, 80) + '...' : ioc.value;
+                
+                const threatClass = {
+                    'critical': 'badge-error',
+                    'high': 'badge-warning',
+                    'medium': 'badge-info',
+                    'low': 'badge-success',
+                    'info': 'badge-secondary'
+                }[ioc.threat_level] || 'badge-secondary';
+                
+                item.innerHTML = `
+                    <label>
+                        <input type="radio" name="parentIOC" value="${ioc.id}" ${isFirstItem ? 'checked' : ''} onchange="selectParent(${ioc.id})">
+                        <div class="flex-1">
+                            <div class="list-group-item-title"><code>${escapeHtml(displayValue)}</code></div>
+                            <div class="list-group-item-subtitle">
+                                <span class="badge badge-secondary">${escapeHtml(ioc.type)}</span>
+                                <span class="badge ${threatClass}">${escapeHtml(ioc.threat_level)}</span>
+                                ${ioc.confidence ? `<span class="badge badge-info">${ioc.confidence}%</span>` : ''}
+                                <br>Times seen: ${ioc.times_seen || 0}
+                            </div>
+                        </div>
+                    </label>
+                `;
+                
+                listContainer.appendChild(item);
+            });
+            
+            // Set default parent
+            selectedParentId = combineIOCsData[0].id;
+            
+            // Show warnings if any
+            const warningsDiv = document.getElementById('combineWarnings');
+            if (warnings.length > 0) {
+                warningsDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        <strong>⚠️ Warning:</strong>
+                        <ul class="mt-2">
+                            ${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                        </ul>
+                        <p class="mt-2 mb-0">Are you sure you want to proceed?</p>
+                    </div>
+                `;
+                warningsDiv.style.display = 'block';
+                combineNeedsConfirmation = true;
+            } else {
+                warningsDiv.style.display = 'none';
+                combineNeedsConfirmation = false;
+            }
+            
+            // Show modal
+            document.getElementById('combineModal').style.display = 'flex';
+        })
+        .catch(error => {
+            console.error('Error loading IOCs for combine:', error);
+            alert('Failed to load IOC details: ' + error);
+        });
+}
+
+function checkCombineWarnings(iocs) {
+    const warnings = [];
+    
+    // Check for different IOC types
+    const types = new Set(iocs.map(i => i.type));
+    if (types.size > 1) {
+        warnings.push(`Mixing different IOC types: ${Array.from(types).join(', ')}`);
+    }
+    
+    // Check for different threat levels
+    const threatLevels = new Set(iocs.map(i => i.threat_level));
+    if (threatLevels.size > 1) {
+        warnings.push(`Mixing different threat levels: ${Array.from(threatLevels).join(', ')}`);
+    }
+    
+    return warnings;
+}
+
+function selectParent(iocId) {
+    selectedParentId = iocId;
+}
+
+function closeCombineModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('combineModal').style.display = 'none';
+    combineIOCsData = [];
+    selectedParentId = null;
+    combineNeedsConfirmation = false;
+}
+
+function confirmCombine() {
+    if (!selectedParentId) {
+        alert('Please select a parent IOC');
+        return;
+    }
+    
+    const childIds = combineIOCsData
+        .filter(i => i.id !== selectedParentId)
+        .map(i => i.id);
+    
+    if (childIds.length === 0) {
+        alert('No children to merge');
+        return;
+    }
+    
+    // Disable button during processing
+    const confirmBtn = document.getElementById('confirmCombineBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Combining...';
+    
+    // Submit combine request
+    fetch('/ioc/api/combine', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            parent_id: selectedParentId,
+            child_ids: childIds,
+            confirmed: combineNeedsConfirmation
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Combine IOCs';
+        
+        if (result.warning) {
+            alert('Warning: ' + result.warnings.join(', ') + '\n\nPlease confirm in the modal.');
+            combineNeedsConfirmation = true;
+            return;
+        }
+        
+        if (result.success) {
+            // Close combine modal
+            closeCombineModal();
+            
+            // Show summary modal
+            showCombineSummary(result.summary);
+            
+            // Clear selection
+            clearSelection();
+        } else {
+            alert('Error combining IOCs: ' + (result.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Combine IOCs';
+        console.error('Error combining IOCs:', error);
+        alert('Failed to combine IOCs: ' + error);
+    });
+}
+
+function showCombineSummary(summary) {
+    const parent = summary.parent;
+    const before = parent.before;
+    const after = parent.after;
+    
+    let html = `
+        <div class="alert alert-success">
+            <h4 class="mt-0">✅ Successfully Combined!</h4>
+            <p><strong>Parent:</strong> ${escapeHtml(after.type)}:${escapeHtml(after.value)} (ID: ${parent.id})</p>
+            <p><strong>Merged:</strong> ${summary.total_merged} IOC(s)</p>
+        </div>
+        
+        <h4 class="mt-4 mb-2">Changes to Parent:</h4>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Before</th>
+                    <th>After</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    // Show only fields that changed
+    const fields = ['type', 'value', 'category', 'threat_level', 'confidence', 'times_seen', 'description'];
+    let changesFound = false;
+    
+    for (const field of fields) {
+        const beforeVal = before[field] || '-';
+        const afterVal = after[field] || '-';
+        
+        if (beforeVal !== afterVal) {
+            html += `
+                <tr>
+                    <td><strong>${field}</strong></td>
+                    <td>${escapeHtml(String(beforeVal))}</td>
+                    <td class="combine-field-highlight">${escapeHtml(String(afterVal))}</td>
+                </tr>
+            `;
+            changesFound = true;
+        }
+    }
+    
+    if (!changesFound) {
+        html += `<tr><td colspan="3" class="text-center text-muted">No field changes (data merged into analyst notes)</td></tr>`;
+    }
+    
+    html += `
+            </tbody>
+        </table>
+        
+        <h4 class="mt-4 mb-2">Children Merged:</h4>
+        <ul>
+    `;
+    
+    summary.children_merged.forEach(child => {
+        const childDisplay = `${child.type}:${child.value}`;
+        const displayValue = childDisplay.length > 100 ? childDisplay.substring(0, 100) + '...' : childDisplay;
+        html += `<li><code>${escapeHtml(displayValue)}</code> (ID: ${child.id})`;
+        if (child.data_merged && child.data_merged.length > 0) {
+            html += ` - ${child.data_merged.length} field(s) merged to notes`;
+        }
+        html += `</li>`;
+    });
+    
+    html += `</ul>`;
+    
+    document.getElementById('combineSummaryContent').innerHTML = html;
+    document.getElementById('combineSummaryModal').style.display = 'flex';
+}
+
+function closeCombineSummaryModal(event) {
+    if (event) event.preventDefault();
+    document.getElementById('combineSummaryModal').style.display = 'none';
+    
+    // Reload table
+    loadIOCs();
+    loadStats();
 }
 
 function escapeHtml(text) {
