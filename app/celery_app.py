@@ -87,4 +87,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_tag_noise: {e}")
 
+try:
+    from tasks import task_ingest_files
+    logger.info("✓ Registered file ingestion tasks (NEW_FILE_UPLOAD.ND)")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_ingest_files: {e}")
+
 logger.info("✓ Celery tasks registered")

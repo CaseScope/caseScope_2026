@@ -11,12 +11,122 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
+from celery import group
 
 logger = logging.getLogger(__name__)
+
+from celery_app import celery
 
 # Paths
 CHAINSAW_BIN = '/opt/casescope/bin/chainsaw'
 SIGMA_RULES = '/opt/casescope/rules/sigma/rules'
+
+
+@celery.task(bind=False, name='tasks.process_single_evtx')
+def process_single_evtx(task_id, file_id, case_id, user_id, evtx_path, original_filename, zip_filename):
+    """
+    Process a single EVTX file with Chainsaw in parallel.
+    Updates ActiveTask progress directly.
+    """
+    from main import app
+    
+    with app.app_context():
+        from models import db, ActiveTask
+        from opensearchpy import OpenSearch
+        from config import OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL, OPENSEARCH_INDEX_PREFIX
+        
+        try:
+            # Update currently processing file
+            if task_id:
+                try:
+                    from sqlalchemy import text
+                    db.session.execute(text("""
+                        UPDATE active_tasks 
+                        SET result_data = jsonb_set(
+                                jsonb_set(result_data, '{current_zip}', to_jsonb(:zip_name::text)),
+                                '{current_evtx}', 
+                                to_jsonb(:evtx_name::text)
+                            )
+                        WHERE task_id = :task_id
+                    """), {'task_id': task_id, 'zip_name': zip_filename, 'evtx_name': original_filename})
+                    db.session.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to update current file: {e}")
+                    db.session.rollback()
+            
+            os_client = OpenSearch(
+                hosts=[{'host': OPENSEARCH_HOST, 'port': OPENSEARCH_PORT}],
+                use_ssl=OPENSEARCH_USE_SSL,
+                verify_certs=False,
+                ssl_show_warn=False
+            )
+            
+            index_name = f"{OPENSEARCH_INDEX_PREFIX}{case_id}"
+            
+            detections = run_chainsaw_on_evtx_file(
+                evtx_path=evtx_path,
+                case_id=case_id,
+                os_client=os_client,
+                index_name=index_name,
+                filename=original_filename
+            )
+            
+            result = {'success': True, 'file_id': file_id, 'filename': original_filename, 'events_tagged': 0, 'total_hits': 0, 'rules_matched': {}}
+            
+            if detections:
+                stats = store_sigma_detections(detections, case_id, file_id, user_id)
+                result.update(stats)
+            
+            # Increment progress in ActiveTask using atomic SQL updates
+            if task_id:
+                try:
+                    from sqlalchemy import text
+                    # Atomic increment of counters using PostgreSQL JSONB operations
+                    db.session.execute(text("""
+                        UPDATE active_tasks 
+                        SET 
+                            result_data = jsonb_set(
+                                jsonb_set(
+                                    jsonb_set(
+                                        result_data,
+                                        '{files_checked}',
+                                        to_jsonb(COALESCE((result_data->>'files_checked')::int, 0) + 1)
+                                    ),
+                                    '{events_tagged}',
+                                    to_jsonb(COALESCE((result_data->>'events_tagged')::int, 0) + :events_tagged)
+                                ),
+                                '{total_hits}',
+                                to_jsonb(COALESCE((result_data->>'total_hits')::int, 0) + :total_hits)
+                            ),
+                            progress_percent = LEAST(100, (COALESCE((result_data->>'files_checked')::int, 0) + 1) * 100 / GREATEST((result_data->>'total_files')::int, 1)),
+                            progress_message = 'Processing ' || (COALESCE((result_data->>'files_checked')::int, 0) + 1)::text || '/' || (result_data->>'total_files')::text
+                        WHERE task_id = :task_id
+                    """), {
+                        'task_id': task_id,
+                        'events_tagged': result['events_tagged'],
+                        'total_hits': result['total_hits']
+                    })
+                    db.session.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to update progress: {e}")
+                    db.session.rollback()
+            
+            return result
+                
+        except Exception as e:
+            logger.error(f"Error processing {original_filename}: {e}", exc_info=True)
+            # Increment ignored count
+            if task_id:
+                try:
+                    active_task = ActiveTask.query.filter_by(task_id=task_id).first()
+                    if active_task:
+                        rd = active_task.result_data or {}
+                        rd['files_ignored'] = rd.get('files_ignored', 0) + 1
+                        active_task.result_data = rd
+                        db.session.commit()
+                except:
+                    pass
+            return {'success': False, 'file_id': file_id, 'filename': original_filename, 'error': str(e)}
 
 
 def hunt_sigma(case_id, user_id, clear_previous=True):
@@ -42,12 +152,14 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
     # Import inside function to avoid circular imports
     from main import app
     
+    task_id = current_task.request.id if current_task else None
+    
     with app.app_context():
-        from models import db, CaseFile, EventSigmaHit
+        from models import db, CaseFile, EventSigmaHit, ActiveTask
         from opensearchpy import OpenSearch
         from config import OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL, OPENSEARCH_INDEX_PREFIX
         
-        logger.info(f"Starting Sigma hunt for case {case_id}, user {user_id}, clear_previous={clear_previous}")
+        logger.info(f"Starting Sigma hunt for case {case_id}, user {user_id}, task_id={task_id}, clear_previous={clear_previous}")
         
         # Initialize OpenSearch
         os_client = OpenSearch(
@@ -104,6 +216,43 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
         total_hits = 0
         rules_matched = {}
         files_processed = 0
+        
+        # Create ActiveTask record
+        if task_id:
+            active_task = ActiveTask(
+                case_id=case_id,
+                task_type='sigma_hunt',
+                task_id=task_id,
+                user_id=user_id,
+                status='running',
+                progress_percent=0,
+                progress_message='Initializing...',
+                result_data={'total_files': total_files, 'files_checked': 0, 'events_tagged': 0, 'total_hits': 0}
+            )
+            db.session.add(active_task)
+            db.session.commit()
+        
+        def update_progress(current_zip=None, current_evtx=None):
+            if not task_id:
+                return
+            try:
+                percent = int((files_processed / total_files) * 100) if total_files > 0 else 0
+                ActiveTask.query.filter_by(task_id=task_id).update({
+                    'progress_percent': percent,
+                    'progress_message': f'Processing {files_processed}/{total_files}',
+                    'result_data': {
+                        'total_files': total_files,
+                        'files_checked': files_checked,
+                        'files_ignored': files_ignored,
+                        'events_tagged': events_tagged,
+                        'total_hits': total_hits,
+                        'current_zip': current_zip,
+                        'current_evtx': current_evtx
+                    }
+                })
+                db.session.commit()
+            except Exception as e:
+                logger.warning(f"Failed to update progress: {e}")
         
         # Process standalone files (those with direct paths)
         for case_file in standalone_files:
@@ -162,6 +311,7 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
                     continue
                 
                 logger.info(f"Extracting {len(zip_files)} EVTX files from {parent_zip.original_filename}")
+                update_progress(current_zip=parent_zip.original_filename, current_evtx='Extracting...')
                 
                 # Create temp directory for this ZIP's files
                 temp_dir = tempfile.mkdtemp(prefix='sigma_batch_')
@@ -183,49 +333,39 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
                                 extracted_files[case_file.id] = (case_file, temp_path)
                                 break
                 
-                logger.info(f"Extracted {len(extracted_files)} files, processing with Chainsaw...")
+                logger.info(f"Extracted {len(extracted_files)} files, processing in parallel with {len(extracted_files)} workers...")
                 
-                # Process all extracted files from this ZIP
+                # Create parallel tasks for all extracted files
+                tasks = []
                 for file_id, (case_file, temp_path) in extracted_files.items():
-                    files_processed += 1
-                    try:
-                        logger.info(f"Processing {files_processed}/{total_files}: {case_file.original_filename}")
-                        
-                        if current_task:
-                            current_task.update_state(
-                                state='PROGRESS',
-                                meta={
-                                    'current': files_processed,
-                                    'total': total_files,
-                                    'current_file': case_file.original_filename,
-                                    'files_checked': files_checked,
-                                    'files_ignored': files_ignored,
-                                    'events_tagged': events_tagged,
-                                    'total_hits': total_hits,
-                                    'percent': int(files_processed / total_files * 100)
-                                }
-                            )
-                        
-                        detections = run_chainsaw_on_evtx_file(
-                            evtx_path=temp_path,
+                    tasks.append(
+                        process_single_evtx.s(
+                            task_id=task_id,
+                            file_id=case_file.id,
                             case_id=case_id,
-                            os_client=os_client,
-                            index_name=index_name,
-                            filename=case_file.original_filename
+                            user_id=user_id,
+                            evtx_path=temp_path,
+                            original_filename=case_file.original_filename,
+                            zip_filename=parent_zip.original_filename
                         )
-                        
-                        if detections:
-                            stats = store_sigma_detections(detections, case_id, case_file.id, user_id)
-                            events_tagged += stats['events_tagged']
-                            total_hits += stats['total_hits']
-                            for rule_title, count in stats['rules_matched'].items():
-                                rules_matched[rule_title] = rules_matched.get(rule_title, 0) + count
-                        
+                    )
+                
+                # Execute tasks in parallel and wait for completion
+                job = group(tasks)
+                result = job.apply_async()
+                results = result.get()  # Blocks until all complete
+                
+                # Aggregate results (progress already updated by subtasks)
+                for res in results:
+                    if res.get('success'):
                         files_checked += 1
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing {case_file.original_filename}: {e}", exc_info=True)
+                        events_tagged += res.get('events_tagged', 0)
+                        total_hits += res.get('total_hits', 0)
+                        for rule_title, count in res.get('rules_matched', {}).items():
+                            rules_matched[rule_title] = rules_matched.get(rule_title, 0) + count
+                    else:
                         files_ignored += 1
+                files_processed += len(extracted_files)
                 
             except Exception as e:
                 logger.error(f"Error processing ZIP batch: {e}", exc_info=True)
@@ -240,15 +380,44 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
                     except Exception as e:
                         logger.warning(f"Failed to clean up temp dir {temp_dir}: {e}")
         
-        logger.info(f"Sigma hunt complete for case {case_id}: {files_checked} files, {events_tagged} events, {total_hits} hits")
+        # Mark as completed (subtasks already updated counters in result_data)
+        if task_id:
+            try:
+                # Get current values from database (updated by subtasks)
+                active_task = ActiveTask.query.filter_by(task_id=task_id).first()
+                if active_task:
+                    final_data = active_task.result_data or {}
+                    logger.info(f"Sigma hunt complete for case {case_id}: {final_data.get('files_checked', 0)} files, {final_data.get('events_tagged', 0)} events, {final_data.get('total_hits', 0)} hits")
+                    
+                    # Just update status, leave counters as-is (already updated by subtasks)
+                    ActiveTask.query.filter_by(task_id=task_id).update({
+                        'status': 'completed',
+                        'progress_percent': 100,
+                        'progress_message': 'Complete',
+                        'completed_at': datetime.utcnow()
+                    })
+                    db.session.commit()
+                    
+                    # Return values from database (updated by subtasks)
+                    return {
+                        'success': True,
+                        'files_checked': final_data.get('files_checked', 0),
+                        'files_ignored': final_data.get('files_ignored', 0),
+                        'events_tagged': final_data.get('events_tagged', 0),
+                        'total_hits': final_data.get('total_hits', 0),
+                        'rules_matched': final_data.get('rules_matched', {})
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to mark complete: {e}")
         
+        # Fallback return if task_id not found
         return {
             'success': True,
-            'files_checked': files_checked,
-            'files_ignored': files_ignored,
-            'events_tagged': events_tagged,
-            'total_hits': total_hits,
-            'rules_matched': rules_matched
+            'files_checked': 0,
+            'files_ignored': 0,
+            'events_tagged': 0,
+            'total_hits': 0,
+            'rules_matched': {}
         }
 
 

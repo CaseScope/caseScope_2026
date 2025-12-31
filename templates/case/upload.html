@@ -96,25 +96,25 @@
     <div class="card-body">
         <div class="alert alert-info mb-4">
             <strong>📋 For Large Files & Bulk Operations</strong>
-            <p class="mt-2 mb-0">Upload large files or multiple files at once by copying them to the monitored folder on the server. The system will automatically detect and import them.</p>
+            <p class="mt-2 mb-0">Upload large files or multiple files at once by copying them to the SFTP folder on the server. Files will appear in the "Pending Files" section below.</p>
         </div>
         
         <div class="grid grid-2 mb-4">
             <div class="info-card">
-                <h4 class="mb-3">📁 Upload Folder Location</h4>
+                <h4 class="mb-3">📁 SFTP Upload Folder</h4>
                 <div class="mb-3">
-                    <div class="text-muted text-small mb-1">Root Folder (create subfolder here)</div>
-                    <div class="fw-bold code-block">/opt/casescope/bulk_upload/</div>
+                    <div class="text-muted text-small mb-1">Your Case Folder (automatically created)</div>
+                    <div class="fw-bold code-block highlight">/opt/casescope/uploads/sftp/{{ case.id }}/</div>
                 </div>
                 
                 <div class="mb-3">
-                    <div class="text-muted text-small mb-1">Your Case ID</div>
-                    <div class="case-id-display">{{ case.id }}</div>
+                    <div class="text-muted text-small mb-1">Access Method</div>
+                    <div class="fw-bold">SFTP / SCP / Direct Access</div>
                 </div>
                 
                 <div class="mb-3">
-                    <div class="text-muted text-small mb-1">Create This Subfolder</div>
-                    <div class="fw-bold code-block highlight">/opt/casescope/bulk_upload/{{ case.id }}/</div>
+                    <div class="text-muted text-small mb-1">Permissions</div>
+                    <div class="fw-bold">casescope:casescope (770)</div>
                 </div>
             </div>
             
@@ -122,11 +122,10 @@
                 <h4 class="mb-3">📝 Instructions</h4>
                 <ol class="text-small">
                     <li class="mb-2">Access the server via SFTP, SCP, or direct filesystem access</li>
-                    <li class="mb-2">Navigate to: <code>/opt/casescope/bulk_upload/</code></li>
-                    <li class="mb-2">Create a subfolder named: <strong>{{ case.id }}</strong></li>
-                    <li class="mb-2">Copy your evidence files into this subfolder</li>
-                    <li class="mb-2">Click "Scan for New Files" below to import them</li>
-                    <li class="mb-2">Files will be moved to the case and indexed</li>
+                    <li class="mb-2">Navigate to: <code>/opt/casescope/uploads/sftp/{{ case.id }}/</code></li>
+                    <li class="mb-2">Copy your evidence files into this folder</li>
+                    <li class="mb-2">Files will appear in "Pending Files" section below</li>
+                    <li class="mb-2">Click "Start Processing" to begin ingestion</li>
                 </ol>
             </div>
         </div>
@@ -134,32 +133,16 @@
         <div class="alert alert-warning mb-4">
             <strong>⚠️ Important:</strong>
             <ul class="mt-2 mb-0 text-small">
-                <li>Always create a subfolder with your case ID ({{ case.id }}) - don't upload directly to the root</li>
-                <li>This prevents files from different cases mixing together</li>
-                <li>Files will be moved (not copied) during import</li>
-                <li>Large files may take time to process</li>
+                <li>Files will be moved (not copied) during processing</li>
+                <li>Original ZIPs stay in storage, extracted files in subfolders</li>
+                <li>Duplicate files (same SHA256) are automatically skipped</li>
+                <li>Large files may take time to process - use "Pending Files" section to monitor</li>
             </ul>
         </div>
         
-        <div class="scan-section">
-            <h4 class="mb-3">🔍 Scan for New Files</h4>
-            <p class="text-muted text-small mb-3">
-                Click the button below to check the folder <code>/opt/casescope/bulk_upload/{{ case.id }}/</code> for new files.
-                Any files found will be imported into this case.
-            </p>
-            
-            <button id="scanBtn" class="btn btn-primary btn-lg" onclick="scanForFiles()">
-                <span id="scanBtnText">Scan for New Files</span>
-            </button>
-            
-            <div id="scanResults" class="mt-4" style="display: none;">
-                <div class="card" style="background: var(--color-bg-tertiary);">
-                    <div class="card-body">
-                        <h5 class="mb-3">Scan Results</h5>
-                        <div id="scanResultsContent"></div>
-                    </div>
-                </div>
-            </div>
+        <div class="alert alert-success">
+            <strong>✓ SFTP Folder Ready</strong>
+            <p class="mt-2 mb-0">Your case folder has been created and is ready to receive files. After uploading, check the "Pending Files" section below and click "Start Processing".</p>
         </div>
         
         <div class="mt-4">
@@ -168,14 +151,87 @@
                 <div class="mb-2"># Connect via SFTP</div>
                 <div class="fw-bold mb-3">sftp {{ current_user.username }}@{{ request.host.split(':')[0] }}</div>
                 
-                <div class="mb-2"># Create your case subfolder</div>
-                <div class="fw-bold mb-3">mkdir /opt/casescope/bulk_upload/{{ case.id }}</div>
-                
-                <div class="mb-2"># Navigate to your case folder</div>
-                <div class="fw-bold mb-3">cd /opt/casescope/bulk_upload/{{ case.id }}/</div>
+                <div class="mb-2"># Navigate to your case folder (auto-created)</div>
+                <div class="fw-bold mb-3">cd /opt/casescope/uploads/sftp/{{ case.id }}/</div>
                 
                 <div class="mb-2"># Upload files</div>
-                <div class="fw-bold">put /path/to/your/file.evtx</div>
+                <div class="fw-bold mb-3">put /path/to/your/file.evtx</div>
+                
+                <div class="mb-2"># Or upload entire folder</div>
+                <div class="fw-bold">put -r /path/to/folder/*</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- NEW: Pending Files & Start Processing (NEW_FILE_UPLOAD.ND) -->
+<div class="card mt-4" id="pendingFilesSection" style="display: none;">
+    <div class="card-header">
+        <h2 class="card-title">📋 Pending Files - Ready to Process</h2>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info mb-4">
+            <strong>📌 Files waiting in upload folders</strong>
+            <p class="mt-2 mb-0">These files have been uploaded but not yet processed. Click "Start Processing" to begin ingestion.</p>
+        </div>
+        
+        <!-- Web Upload Files -->
+        <div id="webFilesSection" style="display: none;">
+            <h4 class="mb-3">🌐 Web Uploads</h4>
+            <div class="table-container mb-4">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Size</th>
+                            <th>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody id="webFilesList">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- SFTP Upload Files -->
+        <div id="sftpFilesSection" style="display: none;">
+            <h4 class="mb-3">📡 SFTP Uploads</h4>
+            <div class="table-container mb-4">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Size</th>
+                            <th>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sftpFilesList">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Start Processing Button -->
+        <div class="mt-4">
+            <button id="startProcessingBtn" class="btn btn-primary btn-lg" onclick="startProcessing()">
+                🚀 Start Processing
+            </button>
+            <button class="btn btn-secondary" onclick="refreshPendingFiles()">
+                🔄 Refresh
+            </button>
+        </div>
+        
+        <!-- Processing Status -->
+        <div id="processingStatus" class="mt-4" style="display: none;">
+            <div class="card" style="background: var(--color-bg-tertiary);">
+                <div class="card-body">
+                    <h5 class="mb-3">Processing Status</h5>
+                    <div class="progress mb-3" style="height: 30px;">
+                        <div id="processingProgress" class="progress-bar progress-bar-animated" style="width: 0%">0%</div>
+                    </div>
+                    <p id="processingText" class="text-center">Starting processing...</p>
+                    <div id="processingDetails" class="mt-3"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -604,6 +660,231 @@ async function scanForFiles() {
         btnText.textContent = 'Scan for New Files';
     }
 }
+
+// =============================================================================
+// NEW FILE UPLOAD SYSTEM - Pending Files & Start Processing
+// =============================================================================
+
+let processingTaskId = null;
+let processingInterval = null;
+
+// Load pending files from upload folders
+async function loadPendingFiles() {
+    try {
+        const response = await fetch(`/upload/api/list_pending/${caseId}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            console.error('Error loading pending files:', data.error);
+            return;
+        }
+        
+        const hasWebFiles = data.web_files && data.web_files.length > 0;
+        const hasSftpFiles = data.sftp_files && data.sftp_files.length > 0;
+        
+        if (!hasWebFiles && !hasSftpFiles) {
+            document.getElementById('pendingFilesSection').style.display = 'none';
+            return;
+        }
+        
+        // Show pending files section
+        document.getElementById('pendingFilesSection').style.display = 'block';
+        
+        // Populate web files
+        if (hasWebFiles) {
+            document.getElementById('webFilesSection').style.display = 'block';
+            const webList = document.getElementById('webFilesList');
+            webList.innerHTML = data.web_files.map(file => `
+                <tr>
+                    <td class="fw-bold">${file.filename}</td>
+                    <td>${formatFileSize(file.size)}</td>
+                    <td><span class="badge ${file.is_zip ? 'badge-info' : 'badge-secondary'}">${file.is_zip ? 'ZIP' : getFileType(file.filename)}</span></td>
+                </tr>
+            `).join('');
+        } else {
+            document.getElementById('webFilesSection').style.display = 'none';
+        }
+        
+        // Populate SFTP files
+        if (hasSftpFiles) {
+            document.getElementById('sftpFilesSection').style.display = 'block';
+            const sftpList = document.getElementById('sftpFilesList');
+            sftpList.innerHTML = data.sftp_files.map(file => `
+                <tr>
+                    <td class="fw-bold">${file.filename}</td>
+                    <td>${formatFileSize(file.size)}</td>
+                    <td><span class="badge ${file.is_zip ? 'badge-info' : 'badge-secondary'}">${file.is_zip ? 'ZIP' : getFileType(file.filename)}</span></td>
+                </tr>
+            `).join('');
+        } else {
+            document.getElementById('sftpFilesSection').style.display = 'none';
+        }
+        
+    } catch (error) {
+        console.error('Error loading pending files:', error);
+    }
+}
+
+// Refresh pending files list
+function refreshPendingFiles() {
+    loadPendingFiles();
+}
+
+// Start processing pending files
+async function startProcessing() {
+    const btn = document.getElementById('startProcessingBtn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    
+    try {
+        // Determine upload type (prefer web, but check which has files)
+        const hasWebFiles = document.getElementById('webFilesSection').style.display !== 'none';
+        const hasSftpFiles = document.getElementById('sftpFilesSection').style.display !== 'none';
+        
+        const uploadType = hasWebFiles ? 'web' : (hasSftpFiles ? 'sftp' : 'web');
+        
+        const response = await fetch(`/upload/api/start_processing/${caseId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                upload_type: uploadType,
+                resume: false
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            showFlash(data.error || 'Failed to start processing', 'error');
+            btn.disabled = false;
+            btn.textContent = '🚀 Start Processing';
+            return;
+        }
+        
+        // Save task ID and start polling
+        processingTaskId = data.task_id;
+        
+        // Show processing status section
+        document.getElementById('processingStatus').style.display = 'block';
+        
+        // Start polling for status
+        checkProcessingStatus();
+        processingInterval = setInterval(checkProcessingStatus, 2000);  // Check every 2 seconds
+        
+    } catch (error) {
+        console.error('Error starting processing:', error);
+        showFlash('Error starting processing: ' + error.message, 'error');
+        btn.disabled = false;
+        btn.textContent = '🚀 Start Processing';
+    }
+}
+
+// Check processing status
+async function checkProcessingStatus() {
+    if (!processingTaskId) return;
+    
+    try {
+        const response = await fetch(`/upload/api/processing_status/${processingTaskId}`);
+        const data = await response.json();
+        
+        // Update progress bar
+        const progressBar = document.getElementById('processingProgress');
+        const progressText = document.getElementById('processingText');
+        const detailsDiv = document.getElementById('processingDetails');
+        
+        progressBar.style.width = `${data.progress || 0}%`;
+        progressBar.textContent = `${data.progress || 0}%`;
+        progressText.textContent = data.status || 'Processing...';
+        
+        // Show details if available
+        if (data.state === 'PROGRESS') {
+            detailsDiv.innerHTML = `
+                <div class="grid grid-3 gap-3 mt-3">
+                    <div class="stat-card">
+                        <div class="stat-label">Step</div>
+                        <div class="stat-value">${data.current_step || 'N/A'}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Processed</div>
+                        <div class="stat-value">${data.files_processed || 0} / ${data.total_files || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Status</div>
+                        <div class="stat-value text-small">${data.status || ''}</div>
+                    </div>
+                </div>
+            `;
+        } else if (data.state === 'SUCCESS') {
+            // Processing complete
+            clearInterval(processingInterval);
+            processingInterval = null;
+            
+            const result = data.result || {};
+            
+            detailsDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <strong>✓ Processing Complete!</strong>
+                </div>
+                <div class="grid grid-4 gap-3 mt-3">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Files</div>
+                        <div class="stat-value">${result.total_files || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Indexed</div>
+                        <div class="stat-value text-success">${result.indexed || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Duplicates</div>
+                        <div class="stat-value text-info">${result.duplicates_skipped || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Failed</div>
+                        <div class="stat-value text-error">${result.failed || 0}</div>
+                    </div>
+                </div>
+            `;
+            
+            showFlash('File processing completed successfully!', 'success');
+            
+            // Refresh pending files list (should be empty now)
+            setTimeout(() => {
+                loadPendingFiles();
+                document.getElementById('startProcessingBtn').disabled = false;
+                document.getElementById('startProcessingBtn').textContent = '🚀 Start Processing';
+            }, 2000);
+            
+        } else if (data.state === 'FAILURE') {
+            // Processing failed
+            clearInterval(processingInterval);
+            processingInterval = null;
+            
+            detailsDiv.innerHTML = `
+                <div class="alert alert-error">
+                    <strong>✗ Processing Failed</strong>
+                    <p class="mt-2 mb-0">${data.status || 'Unknown error'}</p>
+                </div>
+            `;
+            
+            showFlash('File processing failed: ' + (data.status || 'Unknown error'), 'error');
+            
+            document.getElementById('startProcessingBtn').disabled = false;
+            document.getElementById('startProcessingBtn').textContent = '🚀 Start Processing';
+        }
+        
+    } catch (error) {
+        console.error('Error checking processing status:', error);
+    }
+}
+
+// Initialize - check for pending files on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadPendingFiles();
+    // Refresh pending files every 10 seconds
+    setInterval(loadPendingFiles, 10000);
+});
 </script>
 
 <style>

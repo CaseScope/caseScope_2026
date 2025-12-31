@@ -1667,6 +1667,23 @@ def api_hunt_sigma():
         if current_user.role == 'readonly':
             return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
         
+        # Check for existing running task
+        from models import ActiveTask
+        existing_task = ActiveTask.query.filter_by(
+            case_id=case_id,
+            task_type='sigma_hunt',
+            status='running'
+        ).first()
+        
+        if existing_task:
+            logger.info(f"Reconnecting to existing SIGMA hunt task {existing_task.task_id}")
+            return jsonify({
+                'success': True,
+                'task_id': existing_task.task_id,
+                'message': 'Reconnected to existing hunt',
+                'reconnecting': True
+            })
+        
         # Get clear_previous option from request
         data = request.get_json() or {}
         clear_previous = data.get('clear_previous', True)
@@ -1701,66 +1718,65 @@ def api_hunt_sigma():
 @login_required
 def api_hunt_sigma_status(task_id):
     """
-    Check status of Sigma hunt task
+    Check status of Sigma hunt task from ActiveTask table
     """
     try:
-        from tasks.task_hunt_sigma import hunt_sigma
-        from celery.result import AsyncResult
+        from models import ActiveTask
         
-        task = AsyncResult(task_id, app=hunt_sigma.app)
+        # Get task from database
+        active_task = ActiveTask.query.filter_by(task_id=task_id).first()
         
-        if task.state == 'PENDING':
-            response = {
+        if not active_task:
+            return jsonify({
                 'state': 'PENDING',
-                'status': 'Task is queued...',
-                'progress': 0,
-                'current_file': '',
-                'files_checked': 0,
-                'events_tagged': 0,
-                'total_hits': 0
-            }
-        elif task.state == 'PROGRESS':
-            info = task.info or {}
+                'status': 'Task queued...',
+                'progress': 0
+            })
+        
+        result_data = active_task.result_data or {}
+        
+        if active_task.status == 'running':
             response = {
                 'state': 'PROGRESS',
-                'status': f"Processing {info.get('current', 0)}/{info.get('total', 0)} files...",
-                'progress': info.get('percent', 0),
-                'current_file': info.get('current_file', ''),
-                'files_checked': info.get('files_checked', 0),
-                'events_tagged': info.get('events_tagged', 0),
-                'total_hits': info.get('total_hits', 0),
-                'current': info.get('current', 0),
-                'total': info.get('total', 0)
+                'status': active_task.progress_message or 'Processing...',
+                'progress': active_task.progress_percent or 0,
+                'files_checked': result_data.get('files_checked', 0),
+                'events_tagged': result_data.get('events_tagged', 0),
+                'total_hits': result_data.get('total_hits', 0),
+                'current_zip': result_data.get('current_zip', ''),
+                'current_evtx': result_data.get('current_evtx', ''),
+                'current': result_data.get('files_checked', 0),
+                'total': result_data.get('total_files', 0)
             }
-        elif task.state == 'SUCCESS':
-            result = task.result
+        elif active_task.status == 'completed':
             response = {
                 'state': 'SUCCESS',
                 'status': 'Sigma hunt complete!',
                 'progress': 100,
-                'files_checked': result.get('files_checked', 0),
-                'files_ignored': result.get('files_ignored', 0),
-                'events_tagged': result.get('events_tagged', 0),
-                'total_hits': result.get('total_hits', 0),
-                'rules_matched': result.get('rules_matched', {})
+                'files_checked': result_data.get('files_checked', 0),
+                'files_ignored': result_data.get('files_ignored', 0),
+                'events_tagged': result_data.get('events_tagged', 0),
+                'total_hits': result_data.get('total_hits', 0),
+                'rules_matched': result_data.get('rules_matched', {})
             }
-        elif task.state == 'FAILURE':
+        elif active_task.status == 'failed':
             response = {
                 'state': 'FAILURE',
                 'status': 'Task failed',
-                'error': str(task.info)
+                'error': active_task.error_message or 'Unknown error'
             }
         else:
             response = {
-                'state': task.state,
-                'status': str(task.info)
+                'state': 'PENDING',
+                'status': f'Task status: {active_task.status}',
+                'progress': 0
             }
         
         return jsonify(response)
         
     except Exception as e:
         logger.error(f"Error checking Sigma hunt status: {e}", exc_info=True)
-        return jsonify({'state': 'FAILURE', 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ============================================================================

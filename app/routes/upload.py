@@ -249,10 +249,14 @@ def complete_upload(case_id):
         except Exception as e:
             logger.warning(f"Failed to clean up chunks: {e}")
         
-        # Queue file for processing (ZIP-centric architecture)
-        from tasks.task_file_upload import process_uploaded_files
-        # Web uploads are in staging, pass source_dir parameter
-        task = process_uploaded_files.delay(case_id, [final_filename], source_dir='staging')
+        # NEW SYSTEM (NEW_FILE_UPLOAD.ND): Move to uploads/web folder instead of auto-processing
+        # Files stay in uploads/web until user clicks "Start Processing"
+        web_upload_dir = f'/opt/casescope/uploads/web/{case_id}'
+        os.makedirs(web_upload_dir, mode=0o770, exist_ok=True)
+        
+        # Move from staging to uploads/web
+        final_upload_path = os.path.join(web_upload_dir, file_name)  # Use original name, not timestamped
+        shutil.move(final_path, final_upload_path)
         
         # Log action
         from audit_logger import log_action
@@ -265,18 +269,19 @@ def complete_upload(case_id):
                        'file_name': file_name,
                        'file_size': file_size,
                        'chunks': total_chunks,
-                       'task_id': task.id
+                       'upload_path': final_upload_path,
+                       'file_hash': file_hash
                    })
         
-        logger.info(f"File {file_name} uploaded and queued for processing. Task: {task.id}")
+        logger.info(f"File {file_name} uploaded to web upload folder. Ready for processing.")
         
         return jsonify({
             'success': True,
             'file_name': file_name,
             'file_size': file_size,
-            'final_path': final_path,
-            'task_id': task.id,
-            'message': f'File uploaded successfully and queued for processing'
+            'file_hash': file_hash,
+            'upload_path': final_upload_path,
+            'message': f'File uploaded successfully. Click "Start Processing" to begin ingestion.'
         })
         
     except Exception as e:
@@ -349,4 +354,162 @@ def upload_status(case_id, upload_id):
         
     except Exception as e:
         logger.error(f"Error checking upload status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# NEW FILE UPLOAD SYSTEM - NEW_FILE_UPLOAD.ND Implementation
+# =============================================================================
+
+@upload_bp.route('/api/list_pending/<int:case_id>', methods=['GET'])
+@login_required
+def list_pending_files(case_id):
+    """
+    List files in upload folder waiting to be processed
+    
+    Returns:
+        JSON with list of files in web and sftp upload folders
+    """
+    try:
+        from utils.file_ingestion import scan_upload_folder
+        
+        # Scan both web and sftp folders
+        web_files = scan_upload_folder(case_id, 'web')
+        sftp_files = scan_upload_folder(case_id, 'sftp')
+        
+        return jsonify({
+            'success': True,
+            'web_files': web_files,
+            'sftp_files': sftp_files,
+            'total_files': len(web_files) + len(sftp_files)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing pending files: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@upload_bp.route('/api/start_processing/<int:case_id>', methods=['POST'])
+@login_required
+def start_processing(case_id):
+    """
+    Start processing files in upload folder
+    
+    Triggers the new ingestion task (NEW_FILE_UPLOAD.ND)
+    
+    Request JSON:
+        {
+            'upload_type': 'web' or 'sftp',
+            'resume': bool (optional, default: false)
+        }
+    
+    Returns:
+        JSON with task_id for progress tracking
+    """
+    try:
+        from main import db
+        from models import Case
+        from tasks.task_ingest_files import ingest_files
+        from audit_logger import log_action
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'error': 'Case not found'}), 404
+        
+        # Get parameters
+        data = request.json or {}
+        upload_type = data.get('upload_type', 'web')
+        resume = data.get('resume', False)
+        
+        # Validate upload_type
+        if upload_type not in ['web', 'sftp']:
+            return jsonify({'error': 'Invalid upload_type. Must be "web" or "sftp"'}), 400
+        
+        # Queue ingestion task
+        task = ingest_files.delay(
+            case_id=case_id,
+            user_id=current_user.id,
+            upload_type=upload_type,
+            resume=resume
+        )
+        
+        # Log action
+        log_action(
+            action='file_ingestion_started',
+            resource_type='case',
+            details={
+                'case_id': case_id,
+                'case_name': case.name,
+                'upload_type': upload_type,
+                'resume': resume,
+                'task_id': task.id
+            },
+            status='success'
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'File processing started'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting file processing: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@upload_bp.route('/api/processing_status/<task_id>', methods=['GET'])
+@login_required
+def processing_status(task_id):
+    """
+    Get status of file processing task
+    
+    Returns:
+        JSON with task status and progress
+    """
+    try:
+        from tasks.task_ingest_files import ingest_files
+        
+        # Get task result
+        task = ingest_files.AsyncResult(task_id)
+        
+        if task.state == 'PENDING':
+            response = {
+                'state': 'PENDING',
+                'status': 'Task is waiting to start...',
+                'progress': 0
+            }
+        elif task.state == 'PROGRESS':
+            response = {
+                'state': 'PROGRESS',
+                'status': task.info.get('status', ''),
+                'progress': task.info.get('progress', 0),
+                'current_step': task.info.get('current_step', ''),
+                'files_processed': task.info.get('files_processed', 0),
+                'total_files': task.info.get('total_files', 0),
+                'indexed': task.info.get('indexed', 0),
+                'failed': task.info.get('failed', 0),
+                'duplicates_skipped': task.info.get('duplicates_skipped', 0)
+            }
+        elif task.state == 'SUCCESS':
+            result = task.result
+            response = {
+                'state': 'SUCCESS',
+                'status': 'Processing complete',
+                'progress': 100,
+                'result': result
+            }
+        else:
+            # FAILURE or other state
+            response = {
+                'state': task.state,
+                'status': str(task.info) if task.info else 'Unknown error',
+                'progress': 0
+            }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking processing status: {e}")
         return jsonify({'error': str(e)}), 500

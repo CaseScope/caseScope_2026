@@ -90,10 +90,12 @@ class CaseFile(db.Model):
     # File identification
     file_hash = db.Column(db.String(64), index=True)  # SHA256 hash for deduplication (ZIP-level)
     
-    # ZIP-centric fields
+    # File classification
+    parser_type = db.Column(db.String(50), index=True)  # Parser used (evtx, edr, firewall, iis, etc.) - auto-determined, without '_parser' suffix
+    
+    # ZIP-centric fields (deprecated - will be removed in future version)
     is_container = db.Column(db.Boolean, default=False)  # True for ZIP files
     is_virtual = db.Column(db.Boolean, default=False, index=True)  # True for files extracted from ZIP
-    parent_file_id = db.Column(db.Integer, db.ForeignKey('case_file.id', ondelete='CASCADE'), nullable=True, index=True)
     target_index = db.Column(db.String(100))  # Target OpenSearch index (case_X, case_X_browser, etc.)
     
     # Processing status fields
@@ -141,10 +143,38 @@ class CaseFile(db.Model):
     # Relationships
     case = db.relationship('Case', backref='files')
     uploader = db.relationship('User', backref='uploaded_files')
-    parent_file = db.relationship('CaseFile', remote_side=[id], backref='child_files', foreign_keys=[parent_file_id])
     
     def __repr__(self):
         return f'<CaseFile {self.filename}>'
+
+
+class IngestionProgress(db.Model):
+    """
+    Track file ingestion progress for resumable uploads
+    Allows resuming interrupted ingestions exactly where they left off
+    """
+    __tablename__ = 'ingestion_progress'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id', ondelete='CASCADE'), nullable=False, index=True)
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    started_by = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True)
+    status = db.Column(db.String(50), nullable=False, default='pending', index=True)  # pending, in_progress, completed, failed, aborted
+    current_step = db.Column(db.String(50))  # staging, hashing, indexing, moving, cleanup
+    total_files = db.Column(db.Integer, default=0)
+    processed_files = db.Column(db.Integer, default=0)
+    failed_files = db.Column(db.Integer, default=0)
+    last_file_processed = db.Column(db.String(500))
+    error_message = db.Column(db.Text)
+    can_resume = db.Column(db.Boolean, default=True)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    case = db.relationship('Case', backref='ingestion_progress')
+    user = db.relationship('User', backref='started_ingestions')
+    
+    def __repr__(self):
+        return f'<IngestionProgress case_id={self.case_id} status={self.status}>'
 
 
 class AuditLog(db.Model):

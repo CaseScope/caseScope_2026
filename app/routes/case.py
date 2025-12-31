@@ -150,6 +150,24 @@ def create_case():
         
         db.session.commit()
         
+        # Create upload folders for this case (NEW_FILE_UPLOAD.ND Phase 2)
+        import os
+        import stat
+        
+        case_folders = [
+            f'/opt/casescope/uploads/web/{case.id}',
+            f'/opt/casescope/uploads/sftp/{case.id}',
+        ]
+        
+        for folder in case_folders:
+            try:
+                os.makedirs(folder, mode=0o770, exist_ok=True)
+                # SFTP folder needs read/write/delete for casescope user and group
+                if 'sftp' in folder:
+                    os.chmod(folder, stat.S_IRWXU | stat.S_IRWXG)  # 770
+            except Exception as e:
+                logger.warning(f"Could not create folder {folder}: {e}")
+        
         # Audit log - comprehensive tracking
         log_action('create_case',
                    resource_type='case',
@@ -162,7 +180,8 @@ def create_case():
                        'company': case.company or 'Not specified',
                        'status': case.status,
                        'assigned_to': case.assigned_to,
-                       'opensearch_index': case.opensearch_index
+                       'opensearch_index': case.opensearch_index,
+                       'upload_folders_created': case_folders
                    })
         
         return jsonify({'success': True, 'case_id': case.id})

@@ -1783,12 +1783,48 @@ let sigmaHuntProgressInterval = null;
 let sigmaHuntTaskId = null;
 
 function startSigmaHunt() {
-    // Show modal with options
-    document.getElementById('sigmaHuntModal').style.display = 'flex';
-    document.getElementById('sigmaOptionsContainer').style.display = 'block';
-    document.getElementById('sigmaHuntProgressContainer').style.display = 'none';
-    document.getElementById('sigmaHuntResultsContainer').style.display = 'none';
-    document.getElementById('sigmaHuntCloseBtn').style.display = 'none';
+    // Check for existing running task first
+    fetch('/hunting/api/hunt_sigma', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            clear_previous: false
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.reconnecting) {
+            if (confirm('A Sigma hunt is already in progress. Reconnect to it?')) {
+                sigmaHuntTaskId = data.task_id;
+                document.getElementById('sigmaHuntModal').style.display = 'flex';
+                document.getElementById('sigmaOptionsContainer').style.display = 'none';
+                document.getElementById('sigmaHuntProgressContainer').style.display = 'block';
+                document.getElementById('sigmaHuntResultsContainer').style.display = 'none';
+                document.getElementById('sigmaHuntCloseBtn').style.display = 'none';
+                const btn = document.getElementById('btnHuntSigma');
+                btn.disabled = true;
+                btn.textContent = '🎭 Hunting...';
+                sigmaHuntProgressInterval = setInterval(checkSigmaHuntProgress, 2000);
+                checkSigmaHuntProgress();
+            }
+        } else {
+            document.getElementById('sigmaHuntModal').style.display = 'flex';
+            document.getElementById('sigmaOptionsContainer').style.display = 'block';
+            document.getElementById('sigmaHuntProgressContainer').style.display = 'none';
+            document.getElementById('sigmaHuntResultsContainer').style.display = 'none';
+            document.getElementById('sigmaHuntCloseBtn').style.display = 'none';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('sigmaHuntModal').style.display = 'flex';
+        document.getElementById('sigmaOptionsContainer').style.display = 'block';
+        document.getElementById('sigmaHuntProgressContainer').style.display = 'none';
+        document.getElementById('sigmaHuntResultsContainer').style.display = 'none';
+        document.getElementById('sigmaHuntCloseBtn').style.display = 'none';
+    });
 }
 
 function confirmSigmaHunt() {
@@ -1849,9 +1885,16 @@ function checkSigmaHuntProgress() {
                 document.getElementById('sigmaHuntProgressText').textContent = data.progress + '%';
                 document.getElementById('sigmaHuntStatus').textContent = data.status || 'Processing...';
                 
-                // Update current file
-                const currentFile = data.current_file || 'Waiting...';
-                document.getElementById('sigmaHuntCurrentFile').textContent = currentFile;
+                // Update current file - show ZIP / EVTX format
+                let currentFileText = 'Waiting...';
+                if (data.current_zip && data.current_evtx) {
+                    currentFileText = `${data.current_zip} / ${data.current_evtx}`;
+                } else if (data.current_zip) {
+                    currentFileText = data.current_zip;
+                } else if (data.current_file) {
+                    currentFileText = data.current_file;
+                }
+                document.getElementById('sigmaHuntCurrentFile').textContent = currentFileText;
                 
                 // Update live stats
                 document.getElementById('sigmaStatsFilesChecked').textContent = formatNumber(data.files_checked || 0);
