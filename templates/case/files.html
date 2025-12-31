@@ -101,6 +101,7 @@
                         <th>Uploaded</th>
                         <th>Uploaded By</th>
                         <th>Events</th>
+                        <th>Parser</th>
                         <th>SIGMA</th>
                         <th>IOCs</th>
                         <th>Status</th>
@@ -152,6 +153,13 @@
                         </td>
                         <td>
                             <span class="stat-value-success">{{ "{:,}".format(file.event_count) if file.event_count else '0' }}</span>
+                        </td>
+                        <td>
+                            {% if file.parser_type %}
+                                <span class="badge badge-info">{{ file.parser_type }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if file.sigma_violations > 0 %}
