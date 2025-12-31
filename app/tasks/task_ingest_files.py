@@ -253,30 +253,41 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                     
                     # Parse and index based on file type
                     if file_ext == '.evtx' and EVTX_AVAILABLE:
-                        # Parse EVTX
-                        for chunk in parse_evtx_file(file_path, chunk_size=5000):
-                            # Index to OpenSearch
+                        # Parse EVTX (returns iterator of events)
+                        events = list(parse_evtx_file(file_path))
+                        
+                        # Index to OpenSearch in chunks
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
                             indexer.bulk_index(
                                 index_name=index_name,
                                 events=iter(chunk),
-                                chunk_size=500,
+                                chunk_size=chunk_size,
                                 case_id=case_id,
                                 source_file=filename
                             )
-                            event_count += len(chunk)
+                        
+                        event_count = len(events)
                         parse_success = True
                         
                     elif file_ext in ['.json', '.ndjson', '.jsonl']:
-                        # Parse NDJSON
-                        for chunk in parse_ndjson_file(file_path, chunk_size=5000):
+                        # Parse NDJSON (returns iterator of events)
+                        events = list(parse_ndjson_file(file_path))
+                        
+                        # Index to OpenSearch in chunks
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
                             indexer.bulk_index(
                                 index_name=index_name,
                                 events=iter(chunk),
-                                chunk_size=500,
+                                chunk_size=chunk_size,
                                 case_id=case_id,
                                 source_file=filename
                             )
-                            event_count += len(chunk)
+                        
+                        event_count = len(events)
                         parse_success = True
                     
                     # Determine status
