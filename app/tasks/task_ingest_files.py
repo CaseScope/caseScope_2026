@@ -270,6 +270,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                     
                     event_count = 0
                     parse_success = False
+                    source_system = None  # Initialize before parsing
                     
                     # Now parse and index
                     if file_ext == '.evtx' and EVTX_AVAILABLE:
