@@ -212,7 +212,37 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 staged_info['hash'] = file_hash
                 files_to_index.append(staged_info)
             
-            # STEP 4: Parse and Index files
+            # STEP 4A: Create all file records first (so they all appear in UI immediately)
+            update_ingestion_progress(progress_id, current_step='creating_records')
+            
+            file_records = []
+            for file_info in files_to_index:
+                filename = os.path.basename(file_info['path'])
+                file_ext = os.path.splitext(filename)[1].lower()
+                parser_type = get_parser_type_from_file(filename)
+                
+                file_record = CaseFile(
+                    case_id=case_id,
+                    filename=filename,
+                    original_filename=file_info['original_name'],
+                    file_type=file_ext.lstrip('.'),
+                    file_size=os.path.getsize(file_info['path']),
+                    file_path=file_info['path'],
+                    file_hash=file_info['hash'],
+                    parser_type=parser_type,
+                    status='New',
+                    uploaded_by=user_id,
+                    uploaded_at=datetime.utcnow()
+                )
+                db.session.add(file_record)
+                file_records.append({
+                    'record': file_record,
+                    'info': file_info
+                })
+            
+            db.session.commit()  # Commit all at once so all files appear in UI
+            
+            # STEP 4B: Now parse and index each file
             update_ingestion_progress(progress_id, current_step='indexing')
             
             indexed_count = 0
@@ -229,11 +259,13 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             indexer = OpenSearchIndexer()
             index_name = f'case_{case_id}'
             
-            for idx, file_info in enumerate(files_to_index):
-                progress_pct = 50 + int((idx / max(len(files_to_index), 1)) * 40)  # Indexing = 50-90%
+            for idx, file_data in enumerate(file_records):
+                file_record = file_data['record']
+                file_info = file_data['info']
+                progress_pct = 50 + int((idx / max(len(file_records), 1)) * 40)  # Indexing = 50-90%
                 
-                filename = os.path.basename(file_info['path'])
-                file_path = file_info['path']
+                file_path = file_info['info']['path']
+                filename = os.path.basename(file_path)
                 file_ext = os.path.splitext(filename)[1].lower()
                 
                 self.update_state(
@@ -248,26 +280,6 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 )
                 
                 try:
-                    # Determine parser type
-                    parser_type = get_parser_type_from_file(filename)
-                    
-                    # Create file record with 'New' status FIRST (so it shows in UI immediately)
-                    file_record = CaseFile(
-                        case_id=case_id,
-                        filename=filename,
-                        original_filename=file_info['original_name'],
-                        file_type=file_ext.lstrip('.'),
-                        file_size=os.path.getsize(file_path),
-                        file_path=file_path,
-                        file_hash=file_info['hash'],
-                        parser_type=parser_type,
-                        status='New',
-                        uploaded_by=user_id,
-                        uploaded_at=datetime.utcnow()
-                    )
-                    db.session.add(file_record)
-                    db.session.commit()  # Commit so it appears in UI
-                    
                     event_count = 0
                     parse_success = False
                     source_system = None  # Initialize before parsing
