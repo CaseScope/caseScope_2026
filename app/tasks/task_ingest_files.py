@@ -356,7 +356,9 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         event_count = len(events)
                         parse_success = True
                     
-                    # Update file record with results
+                    # Update file record with results (merge to reattach to session)
+                    file_record = db.session.merge(file_record)
+                    
                     if parse_success:
                         if event_count == 0:
                             file_record.status = 'ZeroEvents'
@@ -378,7 +380,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 except Exception as e:
                     logger.error(f"Error processing {filename}: {e}", exc_info=True)
                     
-                    # Update existing record with error (don't create duplicate)
+                    # Update existing record with error (merge to reattach)
+                    file_record = db.session.merge(file_record)
                     file_record.status = 'Error'
                     file_record.error_message = str(e)
                     db.session.commit()
