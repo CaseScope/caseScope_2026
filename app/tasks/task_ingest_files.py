@@ -248,10 +248,28 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 try:
                     # Determine parser type
                     parser_type = get_parser_type_from_file(filename)
+                    
+                    # Create file record with 'New' status FIRST (so it shows in UI immediately)
+                    file_record = CaseFile(
+                        case_id=case_id,
+                        filename=filename,
+                        original_filename=file_info['original_name'],
+                        file_type=file_ext.lstrip('.'),
+                        file_size=os.path.getsize(file_path),
+                        file_path=file_path,
+                        file_hash=file_info['hash'],
+                        parser_type=parser_type,
+                        status='New',
+                        uploaded_by=user_id,
+                        uploaded_at=datetime.utcnow()
+                    )
+                    db.session.add(file_record)
+                    db.session.commit()  # Commit so it appears in UI
+                    
                     event_count = 0
                     parse_success = False
                     
-                    # Parse and index based on file type
+                    # Now parse and index
                     if file_ext == '.evtx' and EVTX_AVAILABLE:
                         # Parse EVTX (returns iterator of events)
                         events = list(parse_evtx_file(file_path))
@@ -290,36 +308,20 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         event_count = len(events)
                         parse_success = True
                     
-                    # Determine status
+                    # Update file record with results
                     if parse_success:
                         if event_count == 0:
-                            status = 'ZeroEvents'
+                            file_record.status = 'ZeroEvents'
                         else:
-                            status = 'Indexed'
+                            file_record.status = 'Indexed'
+                            file_record.indexed_at = datetime.utcnow()
                     else:
-                        status = 'ParseFail'
+                        file_record.status = 'ParseFail'
                     
-                    # Create file record
-                    file_record = CaseFile(
-                        case_id=case_id,
-                        filename=filename,
-                        original_filename=file_info['original_name'],
-                        file_type=file_ext.lstrip('.'),
-                        file_size=os.path.getsize(file_path),
-                        file_path=file_path,
-                        file_hash=file_info['hash'],
-                        parser_type=parser_type,
-                        status=status,
-                        event_count=event_count,
-                        uploaded_by=user_id,
-                        uploaded_at=datetime.utcnow(),
-                        indexed_at=datetime.utcnow() if status == 'Indexed' else None
-                    )
-                    
-                    db.session.add(file_record)
+                    file_record.event_count = event_count
                     db.session.commit()
                     
-                    if status == 'Indexed':
+                    if file_record.status == 'Indexed':
                         indexed_count += 1
                     else:
                         failed_count += 1
