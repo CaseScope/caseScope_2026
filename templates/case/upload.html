@@ -879,6 +879,26 @@ async function checkProcessingStatus() {
     }
 }
 
+// Simple flash message function
+function showFlash(message, type) {
+    // Create alert element
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} mb-3`;
+    alertDiv.innerHTML = `<strong>${type === 'success' ? '✓' : '✗'}</strong> ${message}`;
+    alertDiv.style.position = 'fixed';
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.style.minWidth = '300px';
+    
+    document.body.appendChild(alertDiv);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
+
 // Initialize - check for pending files on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadPendingFiles();
