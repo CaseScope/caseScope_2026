@@ -274,6 +274,16 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         # Parse EVTX (returns iterator of events)
                         events = list(parse_evtx_file(file_path))
                         
+                        # Extract computer name from first event
+                        source_system = None
+                        if events:
+                            first_event = events[0]
+                            source_system = (
+                                first_event.get('normalized_computer') or
+                                first_event.get('computer') or
+                                first_event.get('Computer')
+                            )
+                        
                         # Index to OpenSearch in chunks
                         chunk_size = 500
                         for i in range(0, len(events), chunk_size):
@@ -292,6 +302,16 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                     elif file_ext in ['.json', '.ndjson', '.jsonl']:
                         # Parse NDJSON (returns iterator of events)
                         events = list(parse_ndjson_file(file_path))
+                        
+                        # Extract computer name from first event
+                        source_system = None
+                        if events:
+                            first_event = events[0]
+                            source_system = (
+                                first_event.get('normalized_computer') or
+                                first_event.get('host', {}).get('hostname') if isinstance(first_event.get('host'), dict) else None or
+                                first_event.get('computer')
+                            )
                         
                         # Index to OpenSearch in chunks
                         chunk_size = 500
@@ -319,6 +339,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         file_record.status = 'ParseFail'
                     
                     file_record.event_count = event_count
+                    file_record.source_system = source_system
                     db.session.commit()
                     
                     if file_record.status == 'Indexed':
