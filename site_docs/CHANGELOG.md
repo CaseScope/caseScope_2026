@@ -4,7 +4,27 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Fixed Table Display Glitch on Page Refresh**
+**1. CSS Consolidation - Removed Inline Styles**
+- **Issue**: Large inline `<style>` block in upload.html (185 lines)
+- **Root Cause**:
+  - Many styles duplicated from main.css (badges, alerts, progress bars, etc.)
+  - Upload-specific styles not in central CSS
+  - Harder to maintain and inconsistent across pages
+- **Solution**:
+  - Moved upload-specific styles (`.upload-area`, `.upload-icon`, `.info-card`, etc.) to `main.css`
+  - Removed all duplicate styles (badges, alerts, progress bars already in main.css)
+  - Deleted entire inline style block from `upload.html`
+  - Added comment pointing to central CSS
+- **Files Modified**:
+  - `static/css/main.css` - Added upload page component styles
+  - `templates/case/upload.html` - Removed 185-line inline style block
+- **Impact**:
+  - All styling centralized in main.css
+  - Easier maintenance and consistency
+  - No more duplicate CSS definitions
+  - 185 lines of code eliminated from template
+
+**2. Fixed Table Display Glitch on Page Refresh**
 - **Issue**: File list table briefly shows broken layout during AJAX refresh
 - **Root Cause**:
   - `innerHTML` replacement caused immediate browser reflow

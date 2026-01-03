@@ -1936,3 +1936,53 @@ tbody tr {
 .browser-type-badge {
     flex: 1;
 }
+
+/* ============================================================================
+   UPLOAD PAGE COMPONENTS
+   ============================================================================ */
+
+.upload-area {
+    border: 3px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 4rem 2rem;
+    text-align: center;
+    background: var(--color-bg-tertiary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.upload-area:hover,
+.upload-area.drag-over {
+    border-color: var(--color-primary);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.upload-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+}
+
+.info-card {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+}
+
+.case-id-display {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    text-align: center;
+    padding: var(--spacing-lg);
+    background: rgba(59, 130, 246, 0.1);
+    border: 2px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    margin: var(--spacing-md) 0;
+}
+
+.code-block.highlight {
+    border-color: var(--color-primary);
+    border-width: 2px;
+    background: rgba(59, 130, 246, 0.05);
+}
