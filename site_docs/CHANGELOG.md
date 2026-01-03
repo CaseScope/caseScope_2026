@@ -4,7 +4,26 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Auto-Start Processing After Upload (Prevents Duplicate Processing)**
+**1. Fixed ZIP Filename Appearing Multiple Times in File List**
+- **Issue**: ZIP filename appearing many times instead of showing actual extracted files
+- **Root Cause**:
+  - Files extracted from ZIPs were being created as standalone records
+  - `is_hidden` flag not set, so they appeared in main file list
+  - `original_filename` stored ZIP name, creating confusion
+- **Solution**:
+  - Updated ingestion system to mark ZIP-extracted files as hidden (`is_hidden=true`)
+  - Modified file record creation to detect files from ZIPs via `is_from_zip` flag
+  - Cleanup script/SQL to hide 7,323 existing extracted files
+  - Files still indexed and searchable, just not shown in main file list
+- **Files Modified**:
+  - `app/tasks/task_ingest_files.py` - Added `is_hidden` flag for ZIP-extracted files
+  - `scripts/cleanup_extracted_files.py` - Cleanup script (new)
+- **Impact**:
+  - Main file list now only shows actual user-uploaded files
+  - ZIP-extracted files hidden but remain indexed in OpenSearch
+  - Cleaner, more intuitive file list display
+
+**2. Auto-Start Processing After Upload (Prevents Duplicate Processing)**
 - **Issue**: Users could start processing the same files multiple times by navigating away and back
 - **Root Cause**: 
   - Files stayed in `uploads/web/{case_id}/` after upload until manually processed

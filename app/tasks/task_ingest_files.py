@@ -221,16 +221,21 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 file_ext = os.path.splitext(filename)[1].lower()
                 parser_type = get_parser_type_from_file(filename)
                 
+                # Determine if this file came from a ZIP (should be hidden from main view)
+                is_from_zip = file_info.get('is_from_zip', False)
+                is_hidden = is_from_zip  # Hide files extracted from ZIPs
+                
                 file_record = CaseFile(
                     case_id=case_id,
                     filename=filename,
-                    original_filename=file_info['original_name'],
+                    original_filename=file_info['original_name'] if not is_from_zip else filename,
                     file_type=file_ext.lstrip('.'),
                     file_size=os.path.getsize(file_info['path']),
                     file_path=file_info['path'],
                     file_hash=file_info['hash'],
                     parser_type=parser_type,
                     status='New',
+                    is_hidden=is_hidden,  # Mark ZIP-extracted files as hidden
                     uploaded_by=user_id,
                     uploaded_at=datetime.utcnow()
                 )
