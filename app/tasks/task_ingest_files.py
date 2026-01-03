@@ -371,6 +371,35 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         event_count = len(events)
                         parse_success = True
                     
+                    elif file_ext == '.pf':
+                        # Parse Prefetch files
+                        from parsers.prefetch_parser import parse_prefetch_file, SCCA_AVAILABLE
+                        
+                        if not SCCA_AVAILABLE:
+                            # Parser library not available
+                            raise ImportError("pyscca library not available for Prefetch parsing")
+                        
+                        events = list(parse_prefetch_file(file_path))
+                        
+                        # Extract computer name if available
+                        if events:
+                            source_system = normalize_event_computer(events[0])
+                        
+                        # Index to OpenSearch
+                        chunk_size = 100
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=index_name,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
                     # Update file record with results (fetch fresh from DB by ID)
                     file_id = file_record.id
                     file_record = CaseFile.query.get(file_id)
