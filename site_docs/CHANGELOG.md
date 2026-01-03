@@ -23,7 +23,25 @@
   - ZIP-extracted files hidden but remain indexed in OpenSearch
   - Cleaner, more intuitive file list display
 
-**2. Auto-Start Processing After Upload (Prevents Duplicate Processing)**
+**2. Removed Dual Processing Displays - Streamlined UX**
+- **Issue**: Two processing progress displays showing simultaneously (upload page + case files page)
+- **Root Cause**:
+  - Upload page had detailed processing status section
+  - Case files page also showed indexing progress
+  - Created confusion about what was happening
+- **Solution**:
+  - Removed detailed processing status from upload page
+  - Removed `checkProcessingStatus()` polling function
+  - Upload page now only shows upload progress
+  - After upload, auto-redirects to case files page for indexing progress
+- **Files Modified**:
+  - `templates/case/upload.html` - Removed processing status section and polling
+- **Impact**:
+  - Cleaner, simpler UX
+  - Upload page focuses on upload, case files page shows indexing
+  - No more confusion about which progress to watch
+
+**3. Auto-Start Processing After Upload (Prevents Duplicate Processing)**
 - **Issue**: Users could start processing the same files multiple times by navigating away and back
 - **Root Cause**: 
   - Files stayed in `uploads/web/{case_id}/` after upload until manually processed

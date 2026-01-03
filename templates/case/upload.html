@@ -71,19 +71,7 @@
             </button>
         </div>
         
-        <!-- Processing Status -->
-        <div id="processingStatus" class="mt-4" style="display: none;">
-            <div class="card" style="background: var(--color-bg-tertiary);">
-                <div class="card-body">
-                    <h5 class="mb-3">Processing Status</h5>
-                    <div class="progress mb-3" style="height: 30px;">
-                        <div id="processingProgress" class="progress-bar progress-bar-animated" style="width: 0%">0%</div>
-                    </div>
-                    <p id="processingText" class="text-center">Starting processing...</p>
-                    <div id="processingDetails" class="mt-3"></div>
-                </div>
-            </div>
-        </div>
+        <!-- Processing Status - Removed, now handled on case files page -->
     </div>
 </div>
 
@@ -840,103 +828,7 @@ async function startProcessing() {
     }
 }
 
-// Check processing status
-async function checkProcessingStatus() {
-    if (!processingTaskId) return;
-    
-    try {
-        const response = await fetch(`/upload/api/processing_status/${processingTaskId}`);
-        const data = await response.json();
-        
-        // Update progress bar
-        const progressBar = document.getElementById('processingProgress');
-        const progressText = document.getElementById('processingText');
-        const detailsDiv = document.getElementById('processingDetails');
-        
-        progressBar.style.width = `${data.progress || 0}%`;
-        progressBar.textContent = `${data.progress || 0}%`;
-        progressText.textContent = data.status || 'Processing...';
-        
-        // Show details if available
-        if (data.state === 'PROGRESS') {
-            detailsDiv.innerHTML = `
-                <div class="grid grid-3 gap-3 mt-3">
-                    <div class="stat-card">
-                        <div class="stat-label">Step</div>
-                        <div class="stat-value">${data.current_step || 'N/A'}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Processed</div>
-                        <div class="stat-value">${data.files_processed || 0} / ${data.total_files || 0}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Status</div>
-                        <div class="stat-value text-small">${data.status || ''}</div>
-                    </div>
-                </div>
-            `;
-        } else if (data.state === 'SUCCESS') {
-            // Processing complete
-            clearInterval(processingInterval);
-            processingInterval = null;
-            
-            const result = data.result || {};
-            
-            detailsDiv.innerHTML = `
-                <div class="alert alert-success">
-                    <strong>✓ Processing Complete!</strong>
-                </div>
-                <div class="grid grid-4 gap-3 mt-3">
-                    <div class="stat-card">
-                        <div class="stat-label">Total Files</div>
-                        <div class="stat-value">${result.total_files || 0}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Indexed</div>
-                        <div class="stat-value text-success">${result.indexed || 0}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Duplicates</div>
-                        <div class="stat-value text-info">${result.duplicates_skipped || 0}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Failed</div>
-                        <div class="stat-value text-error">${result.failed || 0}</div>
-                    </div>
-                </div>
-            `;
-            
-            showFlash('File processing completed successfully!', 'success');
-            
-            // Refresh pending files list (should be empty now)
-            setTimeout(() => {
-                loadPendingFiles();
-                document.getElementById('startProcessingBtn').disabled = false;
-                document.getElementById('startProcessingBtn').textContent = '🚀 Start Processing';
-            }, 2000);
-            
-        } else if (data.state === 'FAILURE') {
-            // Processing failed
-            clearInterval(processingInterval);
-            processingInterval = null;
-            
-            detailsDiv.innerHTML = `
-                <div class="alert alert-error">
-                    <strong>✗ Processing Failed</strong>
-                    <p class="mt-2 mb-0">${data.status || 'Unknown error'}</p>
-                </div>
-            `;
-            
-            showFlash('File processing failed: ' + (data.status || 'Unknown error'), 'error');
-            
-            document.getElementById('startProcessingBtn').disabled = false;
-            document.getElementById('startProcessingBtn').textContent = '🚀 Start Processing';
-        }
-        
-    } catch (error) {
-        console.error('Error checking processing status:', error);
-    }
-}
+// Processing status check removed - now handled on case files page
 
 // Simple flash message function
 function showFlash(message, type) {
