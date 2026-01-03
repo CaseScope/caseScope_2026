@@ -1,5 +1,30 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.9 - January 3, 2026
+
+### 🔧 Upload & Processing Flow Fixes
+
+**1. Auto-Start Processing After Upload (Prevents Duplicate Processing)**
+- **Issue**: Users could start processing the same files multiple times by navigating away and back
+- **Root Cause**: 
+  - Files stayed in `uploads/web/{case_id}/` after upload until manually processed
+  - No backend check prevented duplicate task execution
+  - UI didn't redirect after upload completion
+- **Solution**:
+  - Auto-start processing immediately after upload completes (frontend)
+  - Auto-redirect to case files page after processing starts
+  - Added backend duplicate detection: checks `IngestionProgress` table for active tasks (within 5 minutes)
+  - Returns 409 Conflict if processing already in progress
+- **Files Modified**:
+  - `templates/case/upload.html` - Added `autoStartProcessing()` function
+  - `app/routes/upload.py` - Added duplicate task prevention check
+- **Impact**: 
+  - Zero risk of duplicate file processing
+  - Smoother UX - automatic workflow after upload
+  - Upload page only shows upload progress, case files page shows indexing progress
+
+---
+
 ## Version 1.5.8 - January 3, 2026
 
 ### 🔧 CSV Event Display Fixes

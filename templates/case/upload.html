@@ -533,7 +533,23 @@ async function startUpload() {
         progressBar.classList.add('bg-success');
         progressText.textContent = `Upload Complete! Success: ${successCount}, Failed: ${failCount}`;
         
-        // Show results alert
+        // Auto-start processing after successful upload
+        if (successCount > 0) {
+            progressText.textContent = 'Upload complete! Starting processing...';
+            
+            // Delay to allow user to see completion message
+            setTimeout(async () => {
+                try {
+                    await autoStartProcessing();
+                } catch (error) {
+                    console.error('Error auto-starting processing:', error);
+                    alert('Files uploaded successfully, but auto-processing failed. Please use "Start Processing" button.');
+                }
+            }, 1000);
+            return; // Don't show alerts or reset, we're auto-processing
+        }
+        
+        // Show results alert (only if no successful uploads)
         if (failCount === 0) {
             alert(`✓ All ${successCount} file(s) uploaded successfully!\n\nFiles are now being processed and indexed.`);
         } else {
@@ -730,9 +746,53 @@ function refreshPendingFiles() {
     loadPendingFiles();
 }
 
-// Start processing pending files
+// Auto-start processing after upload (prevents duplicate processing)
+async function autoStartProcessing() {
+    // Check if already processing
+    if (processingTaskId) {
+        console.log('Processing already in progress, skipping auto-start');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/upload/api/start_processing/${caseId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                upload_type: 'web',
+                resume: false
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to start processing');
+        }
+        
+        // Save task ID
+        processingTaskId = data.task_id;
+        
+        // Redirect to case files page to show indexing progress
+        window.location.href = `/case/${caseId}/files`;
+        
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Start processing pending files (manual button click)
 async function startProcessing() {
     const btn = document.getElementById('startProcessingBtn');
+    
+    // Prevent duplicate processing
+    if (processingTaskId) {
+        showFlash('Processing already in progress', 'warning');
+        return;
+    }
+    
     btn.disabled = true;
     btn.textContent = 'Starting...';
     
@@ -766,12 +826,11 @@ async function startProcessing() {
         // Save task ID and start polling
         processingTaskId = data.task_id;
         
-        // Show processing status section
-        document.getElementById('processingStatus').style.display = 'block';
-        
-        // Start polling for status
-        checkProcessingStatus();
-        processingInterval = setInterval(checkProcessingStatus, 2000);  // Check every 2 seconds
+        // Redirect to case files page to show indexing progress
+        showFlash('Processing started! Redirecting to case files...', 'success');
+        setTimeout(() => {
+            window.location.href = `/case/${caseId}/files`;
+        }, 1500);
         
     } catch (error) {
         console.error('Error starting processing:', error);

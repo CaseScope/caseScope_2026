@@ -408,14 +408,31 @@ def start_processing(case_id):
     """
     try:
         from main import db
-        from models import Case
+        from models import Case, IngestionProgress
         from tasks.task_ingest_files import ingest_files
         from audit_logger import log_action
+        from datetime import datetime, timedelta
         
         # Verify case exists
         case = Case.query.get(case_id)
         if not case:
             return jsonify({'error': 'Case not found'}), 404
+        
+        # Check for recent active ingestion (prevent duplicates)
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=5)
+        active_ingestion = IngestionProgress.query.filter(
+            IngestionProgress.case_id == case_id,
+            IngestionProgress.status.in_(['in_progress', 'pending']),
+            IngestionProgress.started_at >= recent_cutoff
+        ).first()
+        
+        if active_ingestion:
+            logger.warning(f"Duplicate processing attempt blocked for case {case_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Processing already in progress for this case',
+                'active_task_id': active_ingestion.task_id
+            }), 409  # Conflict
         
         # Get parameters
         data = request.json or {}
