@@ -75,7 +75,7 @@ def parse_jumplist_file(file_path):
                 logger.error(f"JLECmd failed for {filename}: {result.stderr}")
                 return
             
-            # Read JSON output
+            # Read JSON output - JLECmd creates filename based on input file
             json_files = [f for f in os.listdir(temp_dir) if f.endswith('.json')]
             if not json_files:
                 logger.warning(f"No JSON output from JLECmd for {filename}")
@@ -85,9 +85,16 @@ def parse_jumplist_file(file_path):
             with open(json_path, 'r') as f:
                 jumplist_data = json.load(f)
             
-            # JLECmd returns array of entries
-            if not isinstance(jumplist_data, list):
+            # JLECmd can return dict or array depending on file
+            if isinstance(jumplist_data, dict):
+                # Single entry - convert to list
+                jumplist_data = [jumplist_data]
+            elif not isinstance(jumplist_data, list):
                 logger.warning(f"Unexpected JSON format for {filename}")
+                return
+            
+            if len(jumplist_data) == 0:
+                logger.info(f"Empty JumpList: {filename}")
                 return
             
             # Process each entry in the jumplist
