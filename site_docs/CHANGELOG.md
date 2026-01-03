@@ -4,7 +4,29 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Fixed Status Filtering to Work with Pagination (Backend Filtering)**
+**1. Converted Search to Backend with Extension Support**
+- **Issue**: Search only worked on current page and didn't search file extensions
+- **Root Cause**:
+  - Search was client-side (only searched visible rows on current page)
+  - Only searched filename field, not file_type (extension)
+- **Solution**: Backend search with dual-field support
+  - Search now queries backend before pagination
+  - Searches both `filename` and `file_type` fields using SQL ILIKE (case-insensitive)
+  - Debounced input (500ms delay) to reduce queries while typing
+  - Preserves search term in URL param: `?search=evtx`
+  - Search box shows current search term
+  - Resets to page 1 when searching
+  - Works across all pages, not just current page
+- **Files Modified**:
+  - `app/routes/case.py` - Added search filtering with dual-field OR query
+  - `templates/case/files.html` - Changed to backend search with debouncing
+- **Impact**:
+  - Can now search file extensions (e.g., "evtx", "pdf", "ndjson")
+  - Can search partial filenames across all files
+  - Search works with pagination (shows all matching files across pages)
+  - Better performance with indexed database queries
+
+**2. Fixed Status Filtering to Work with Pagination (Backend Filtering)**
 - **Issue**: Status filters only applied to current page, reset when changing pages
 - **Root Cause**: 
   - Filters applied client-side (JavaScript hiding rows)

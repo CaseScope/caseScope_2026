@@ -88,7 +88,8 @@
             <input type="text" 
                    class="form-control form-control-sm" 
                    id="fileSearch" 
-                   placeholder="🔍 Search filenames..." 
+                   placeholder="🔍 Search filenames/extensions..." 
+                   value="{{ search_term }}"
                    style="max-width: 250px;">
             
             <!-- Status Filter Checkboxes -->
@@ -564,40 +565,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update timestamp every second
     setInterval(updateTimestamp, 1000);
     
-    // Search functionality
+    // Search functionality - backend search with debouncing
     const searchInput = document.getElementById('fileSearch');
     if (searchInput) {
+        let searchTimeout;
         searchInput.addEventListener('input', function(e) {
-            const searchTerm = e.target.value.toLowerCase();
-            const rows = document.querySelectorAll('.file-row');
+            const searchTerm = e.target.value.trim();
             
-            let visibleCount = 0;
-            rows.forEach(row => {
-                const filename = row.getAttribute('data-filename');
-                if (filename.includes(searchTerm)) {
-                    row.style.display = '';
-                    visibleCount++;
+            // Debounce search (wait 500ms after typing stops)
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const url = new URL(window.location);
+                
+                if (searchTerm) {
+                    url.searchParams.set('search', searchTerm);
                 } else {
-                    row.style.display = 'none';
+                    url.searchParams.delete('search');
                 }
-            });
-            
-            // Show "no results" message if needed
-            const tbody = document.getElementById('filesTableBody');
-            let noResultsRow = document.getElementById('noResultsRow');
-            
-            if (visibleCount === 0 && searchTerm !== '') {
-                if (!noResultsRow) {
-                    noResultsRow = document.createElement('tr');
-                    noResultsRow.id = 'noResultsRow';
-                    noResultsRow.innerHTML = '<td colspan="10" class="text-center text-muted p-4">No files match your search</td>';
-                    tbody.appendChild(noResultsRow);
-                }
-            } else {
-                if (noResultsRow) {
-                    noResultsRow.remove();
-                }
-            }
+                
+                url.searchParams.set('page', '1');  // Reset to page 1 when searching
+                window.location.href = url.toString();
+            }, 500);
         });
     }
     

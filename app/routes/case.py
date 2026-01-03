@@ -463,11 +463,25 @@ def case_files(case_id=None):
     status_filter = request.args.get('statuses', 'New,Indexed,ParseFail,ZeroEvents,Error,Partial')
     enabled_statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
     
-    # Build query with status filter
+    # Search parameter
+    search_term = request.args.get('search', '').strip()
+    
+    # Build query with filters
     query = CaseFile.query.filter_by(case_id=case_id)
     
+    # Apply status filter
     if enabled_statuses:
         query = query.filter(CaseFile.status.in_(enabled_statuses))
+    
+    # Apply search filter (searches filename and file_type)
+    if search_term:
+        search_pattern = f'%{search_term}%'
+        query = query.filter(
+            db.or_(
+                CaseFile.filename.ilike(search_pattern),
+                CaseFile.file_type.ilike(search_pattern)
+            )
+        )
     
     # Apply pagination to filtered query
     pagination = query.order_by(CaseFile.uploaded_at.desc()).paginate(
@@ -485,7 +499,7 @@ def case_files(case_id=None):
     
     return render_template('case/files.html', case=case, stats=stats, files=files, 
                          pagination=pagination, page=page, per_page=per_page,
-                         enabled_statuses=enabled_statuses)
+                         enabled_statuses=enabled_statuses, search_term=search_term)
 
 
 @case_bp.route('/<int:case_id>/files/stats', methods=['GET'])
