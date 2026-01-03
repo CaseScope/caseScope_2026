@@ -75,6 +75,11 @@
                     <span>Browser History</span>
                 </a>
                 
+                <a href="/execution" class="sidebar-nav-item {% if request.path.startswith('/execution') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">⚡</span>
+                    <span>Execution Artifacts</span>
+                </a>
+                
                 <a href="/systems" class="sidebar-nav-item {% if request.path.startswith('/systems') %}active{% endif %}">
                     <span class="sidebar-nav-icon">💻</span>
                     <span>Known Systems</span>

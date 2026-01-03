@@ -33,7 +33,8 @@ from celery_app import celery
 # Valid file extensions (case-insensitive)
 VALID_EXTENSIONS = [
     '.zip', '.evtx', '.ndjson', '.json', '.jsonl', '.log', '.csv',
-    '.edb', '.sdb', '.db', '.sqlite', '.pf'  # Phase 2/3: ESE, SQLite, Prefetch
+    '.edb', '.sdb', '.db', '.sqlite', '.pf',  # Phase 2/3: ESE, SQLite, Prefetch
+    '.lnk', '-ms'  # LNK files and JumpLists (automaticDestinations-ms, customDestinations-ms)
 ]
 
 # Base paths
@@ -45,7 +46,7 @@ BASE_STORAGE_PATH = '/opt/casescope/storage'
 ARTIFACT_PATTERNS = {
     'browser': ['history', 'webcachev01.dat', 'webcachev24.dat', 'places.sqlite', 'cookies', 'downloads', 'formhistory'],
     'devices': ['setupapi.dev.log', 'setupapi'],
-    'execution': ['.pf', 'prefetch', 'amcache', 'shimcache'],
+    'execution': ['.pf', 'prefetch', 'amcache', 'shimcache', '.lnk', 'destinations-ms'],
     'network': ['srudb.dat', 'srum']
 }
 
@@ -56,6 +57,9 @@ BROWSER_FILE_PATTERNS = [
     '/mozilla/firefox/',
     '/microsoft/edge/',
     '/windows/webcache/',
+    '/appdata/local/google/',
+    '/appdata/local/microsoft/edge/',
+    '/appdata/roaming/mozilla/',
     'history',  # Chrome/Edge History (no extension)
     'cookies',  # Chrome/Edge Cookies (no extension)
     'webcachev01.dat',
@@ -99,10 +103,18 @@ def detect_artifact_type(file_path):
     Returns: ('browser'|'devices'|'execution'|'network'|'event')
     """
     filename = os.path.basename(file_path).lower()
+    full_path_lower = file_path.lower()
     
+    # Check full path for browser artifacts (extensionless files)
+    for browser_pattern in BROWSER_FILE_PATTERNS:
+        if browser_pattern in full_path_lower:
+            # If in browser path, likely browser artifact
+            return 'browser'
+    
+    # Check filename patterns
     for artifact_type, patterns in ARTIFACT_PATTERNS.items():
         for pattern in patterns:
-            if pattern.lower() in filename:
+            if pattern.lower() in filename or pattern.lower() in full_path_lower:
                 return artifact_type
     
     # Default: main event index
@@ -911,11 +923,11 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                 total_failed += stats.get('failed', 0)
         
         elif file_ext == '.pf':
-            # Prefetch Parser (Phase 3)
-            from parsers.prefetch_parser import parse_prefetch_file, SCCA_AVAILABLE
+            # Prefetch Parser (Phase 3) - Updated for Windows 10/11
+            from parsers.prefetch_parser_new import parse_prefetch_file, PREFETCH_AVAILABLE
             
-            if not SCCA_AVAILABLE:
-                raise ImportError("pyscca not available for Prefetch parsing")
+            if not PREFETCH_AVAILABLE:
+                raise ImportError("windowsprefetch not available for Prefetch parsing")
             
             logger.info(f"Parsing Prefetch: {filename}")
             
@@ -1005,6 +1017,28 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     case_id=case_id,
                     source_file=filename,
                     file_type='DeviceLog'
+                )
+                total_indexed += stats['indexed']
+                total_failed += stats.get('failed', 0)
+        
+        elif file_ext == '.lnk' or filename.endswith('destinations-ms'):
+            # LNK and JumpList Parser (NEW)
+            from parsers.lnk_parser import parse_lnk_file, LNK_AVAILABLE
+            
+            if not LNK_AVAILABLE:
+                raise ImportError("LnkParse3 not available for LNK parsing")
+            
+            logger.info(f"Parsing LNK/JumpList: {filename}")
+            
+            for event in parse_lnk_file(file_path):
+                chunk = [event]
+                stats = indexer.bulk_index(
+                    index_name=target_index,
+                    events=iter(chunk),
+                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    case_id=case_id,
+                    source_file=filename,
+                    file_type='LNK'
                 )
                 total_indexed += stats['indexed']
                 total_failed += stats.get('failed', 0)

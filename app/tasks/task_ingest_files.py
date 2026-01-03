@@ -267,6 +267,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
             from parsers.ndjson_parser import parse_ndjson_file
             from parsers.firewall_csv_parser import parse_firewall_csv
+            from parsers.prefetch_parser_new import parse_prefetch_file as parse_prefetch_new, PREFETCH_AVAILABLE
+            from parsers.lnk_parser import parse_lnk_file, LNK_AVAILABLE
             from opensearch_indexer import OpenSearchIndexer
             from config import Config
             from utils.event_normalization import normalize_event_computer
@@ -372,24 +374,50 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         parse_success = True
                     
                     elif file_ext == '.pf':
-                        # Parse Prefetch files
-                        from parsers.prefetch_parser import parse_prefetch_file, SCCA_AVAILABLE
-                        
-                        if not SCCA_AVAILABLE:
+                        # Parse Prefetch files (updated for Windows 10/11)
+                        if not PREFETCH_AVAILABLE:
                             raise ImportError("pyscca library not available for Prefetch parsing")
                         
-                        events = list(parse_prefetch_file(file_path))
+                        events = list(parse_prefetch_new(file_path))
                         
                         # Extract computer name if available
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to OpenSearch
+                        # Index to case_X_execution
+                        execution_index = f'case_{case_id}_execution'
                         chunk_size = 100
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
                             indexer.bulk_index(
-                                index_name=index_name,
+                                index_name=execution_index,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
+                    elif file_ext == '.lnk' or filename.endswith('-ms'):
+                        # Parse LNK shortcuts and JumpLists
+                        if not LNK_AVAILABLE:
+                            raise ImportError("LnkParse3 library not available for LNK parsing")
+                        
+                        events = list(parse_lnk_file(file_path))
+                        
+                        # Extract computer name if available
+                        if events:
+                            source_system = normalize_event_computer(events[0])
+                        
+                        # Index to case_X_execution
+                        execution_index = f'case_{case_id}_execution'
+                        chunk_size = 100
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=execution_index,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
@@ -541,12 +569,47 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         'error': str(e)
                     })
             
-            # STEP 5: Move to storage
-            # Note: In full implementation, this happens after parsing
-            # For now, files stay in staging for parser to access
+            # STEP 5: Move indexed files to storage (compress and relocate)
+            update_ingestion_progress(progress_id, current_step='storage')
             
-            # STEP 6: Cleanup uploads folder
+            import gzip
+            import shutil
+            storage_path = f'/opt/casescope/storage/case_{case_id}'
+            os.makedirs(storage_path, exist_ok=True)
+            
+            for idx, file_data in enumerate(file_records):
+                file_record = file_data['record']
+                file_info = file_data['info']
+                file_path = file_info['path']
+                
+                # Only move successfully indexed files
+                if file_record.status == 'Indexed' and os.path.exists(file_path):
+                    try:
+                        filename = os.path.basename(file_path)
+                        
+                        # Compress with GZIP
+                        compressed_filename = filename + '.gz'
+                        compressed_path = os.path.join(storage_path, compressed_filename)
+                        
+                        with open(file_path, 'rb') as f_in:
+                            with gzip.open(compressed_path, 'wb', compresslevel=6) as f_out:
+                                shutil.copyfileobj(f_in, f_out)
+                        
+                        # Update file record with new path
+                        file_record.file_path = compressed_path
+                        db.session.commit()
+                        
+                        # Delete original from staging
+                        os.remove(file_path)
+                        
+                        logger.info(f"Moved to storage: {filename} → {compressed_filename}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error moving {filename} to storage: {e}")
+            
+            # STEP 6: Cleanup staging and uploads folders
             update_ingestion_progress(progress_id, current_step='cleanup')
+            cleanup_staging(case_id)
             cleanup_uploads(case_id, upload_type)
             
             # Mark ingestion as complete
