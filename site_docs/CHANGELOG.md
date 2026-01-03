@@ -4,7 +4,29 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Converted Search to Backend with Extension Support**
+**1. Added Staging Progress Modal for File Uploads**
+- **Feature**: Visual feedback during file staging/extraction process
+- **Implementation**:
+  - Modal displays after file upload or clicking "Start Processing"
+  - Shows progress bar with percentage
+  - Shows current processing step (staging, hashing, indexing)
+  - Polls task status every second
+  - Auto-redirects to case files page when staging completes
+  - Error handling with user feedback
+- **Workflow Changes**:
+  - **Web Upload**: Upload → Show modal → Monitor staging → Redirect when complete
+  - **SFTP Upload**: Click "Start Processing" → Show modal → Monitor staging → Redirect
+  - No more immediate redirect (user sees what's happening)
+- **Files Modified**:
+  - `templates/case/upload.html` - Added staging modal, updated processing functions
+  - `static/css/main.css` - Added staging modal styling
+- **Impact**:
+  - Better user feedback during file processing
+  - Users understand what's happening during staging
+  - Clearer workflow from upload to indexing
+  - No more confusion about "nothing happened"
+
+**2. Converted Search to Backend with Extension Support**
 - **Issue**: Search only worked on current page and didn't search file extensions
 - **Root Cause**:
   - Search was client-side (only searched visible rows on current page)

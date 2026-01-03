@@ -2082,3 +2082,60 @@ tbody tr {
     border-top: 1px solid var(--color-border);
     padding: var(--spacing-md);
 }
+
+/* Staging Progress Modal */
+.staging-files-list {
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
+
+.staging-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.staging-file-item:last-child {
+    border-bottom: none;
+}
+
+.staging-file-name {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-right: var(--spacing-md);
+}
+
+.staging-file-status {
+    font-size: 0.875rem;
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-primary);
+}
+
+.staging-file-status.waiting {
+    color: var(--color-text-secondary);
+}
+
+.staging-file-status.extracting {
+    color: var(--color-info);
+}
+
+.staging-file-status.staging {
+    color: var(--color-warning);
+}
+
+.staging-file-status.complete {
+    color: var(--color-success);
+}
+
+.staging-file-status.error {
+    color: var(--color-error);
+}
