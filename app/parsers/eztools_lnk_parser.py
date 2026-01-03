@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Path to LECmd
 LECMD_PATH = '/opt/LECmd/LECmd.dll'
-DOTNET_PATH = os.path.expanduser('~/.dotnet/dotnet')
+DOTNET_PATH = '/opt/dotnet/dotnet'  # System-wide installation
 
 # Check availability
 LECMD_AVAILABLE = os.path.exists(LECMD_PATH) and os.path.exists(DOTNET_PATH)

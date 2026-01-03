@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Path to MFTECmd
 MFTECMD_PATH = '/opt/MFTEcmd/MFTECmd.dll'
-DOTNET_PATH = os.path.expanduser('~/.dotnet/dotnet')
+DOTNET_PATH = '/opt/dotnet/dotnet'  # System-wide installation
 
 # Check availability  
 MFTECMD_AVAILABLE = os.path.exists(MFTECMD_PATH) and os.path.exists(DOTNET_PATH)

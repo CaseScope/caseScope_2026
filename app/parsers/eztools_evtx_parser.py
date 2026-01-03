@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Path to EvtxECmd
 EVTXECMD_PATH = '/opt/EvtxECmd/EvtxeCmd/EvtxECmd.dll'
-DOTNET_PATH = os.path.expanduser('~/.dotnet/dotnet')
+DOTNET_PATH = '/opt/dotnet/dotnet'  # System-wide installation
 
 # Check availability
 EVTXECMD_AVAILABLE = os.path.exists(EVTXECMD_PATH) and os.path.exists(DOTNET_PATH)

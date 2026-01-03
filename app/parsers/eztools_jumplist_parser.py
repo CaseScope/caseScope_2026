@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Path to JLECmd
 JLECMD_PATH = '/opt/JLECmd/JLECmd.dll'
-DOTNET_PATH = os.path.expanduser('~/.dotnet/dotnet')
+DOTNET_PATH = '/opt/dotnet/dotnet'  # System-wide installation
 
 # Check availability
 JLECMD_AVAILABLE = os.path.exists(JLECMD_PATH) and os.path.exists(DOTNET_PATH)
