@@ -574,7 +574,8 @@ def case_files_list_api(case_id):
     for file in files:
         files_data.append({
             'id': file.id,
-            'filename': file.original_filename or file.filename,
+            'filename': file.filename,
+            'original_filename': file.original_filename,
             'file_size': file.file_size,
             'source_system': file.source_system or '-',
             'parser_type': file.parser_type or '-',

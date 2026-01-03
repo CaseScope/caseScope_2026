@@ -43,24 +43,27 @@
   - No more broken layout flashes
   - Better perceived performance
 
-**1. Fixed ZIP Filename Appearing Multiple Times in File List**
-- **Issue**: ZIP filename appearing many times instead of showing actual extracted files
+**1. Added "Parent ZIP" Column to File List**
+- **Issue**: Need to show files extracted from ZIPs with clear indication of their source
 - **Root Cause**:
-  - Files extracted from ZIPs were being created as standalone records
-  - `is_hidden` flag not set, so they appeared in main file list
-  - `original_filename` stored ZIP name, creating confusion
+  - No way to distinguish files extracted from ZIPs vs standalone uploads
+  - Users need to see which ZIP each file came from for context
 - **Solution**:
-  - Updated ingestion system to mark ZIP-extracted files as hidden (`is_hidden=true`)
-  - Modified file record creation to detect files from ZIPs via `is_from_zip` flag
-  - Cleanup script/SQL to hide 7,323 existing extracted files
-  - Files still indexed and searchable, just not shown in main file list
+  - Added new "Parent ZIP" column as first column in file list
+  - Shows ZIP filename with 📦 badge for files extracted from ZIPs
+  - Shows "-" for standalone uploaded files
+  - Updated `original_filename` logic: stores ZIP name for extracted files, filename for standalone
+  - All extracted files now visible with clear parent ZIP indication
+  - Updated AJAX refresh to include Parent ZIP column
 - **Files Modified**:
-  - `app/tasks/task_ingest_files.py` - Added `is_hidden` flag for ZIP-extracted files
-  - `scripts/cleanup_extracted_files.py` - Cleanup script (new)
+  - `templates/case/files.html` - Added Parent ZIP column to table
+  - `app/routes/case.py` - Include original_filename in API response
+  - `app/tasks/task_ingest_files.py` - Store ZIP name in original_filename for extracted files
 - **Impact**:
-  - Main file list now only shows actual user-uploaded files
-  - ZIP-extracted files hidden but remain indexed in OpenSearch
-  - Cleaner, more intuitive file list display
+  - Clear visibility into file origins
+  - Users can see which files came from which ZIP
+  - Better context for analysis
+  - New column order: Parent ZIP | Filename | System | Uploaded | Uploaded By | Events | Parser | SIGMA | IOCs | Status
 
 **2. Removed Dual Processing Displays - Streamlined UX**
 - **Issue**: Two processing progress displays showing simultaneously (upload page + case files page)
