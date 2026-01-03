@@ -409,10 +409,6 @@ def case_files(case_id=None):
     # Store selected case in session
     session['selected_case_id'] = case.id
     
-    # Check filter parameters
-    show_hidden = request.args.get('show_hidden', 'false').lower() == 'true'
-    only_hidden = request.args.get('only_hidden', 'false').lower() == 'true'
-    
     # Calculate statistics
     storage_path = f'/opt/casescope/storage/case_{case_id}'
     staging_path = f'/opt/casescope/staging/{case_id}'
@@ -457,16 +453,8 @@ def case_files(case_id=None):
         'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
     }
     
-    # Get file list from database (ONLY physical files, not virtual)
-    # Virtual files are shown within ZIP expansion
-    query = CaseFile.query.filter_by(case_id=case_id, is_virtual=False)
-    
-    if only_hidden:
-        query = query.filter_by(is_hidden=True)
-    elif not show_hidden:
-        query = query.filter_by(is_hidden=False)
-    
-    files = query.order_by(CaseFile.uploaded_at.desc()).all()
+    # Get file list from database (show all files, filtering done client-side via checkboxes)
+    files = CaseFile.query.filter_by(case_id=case_id).order_by(CaseFile.uploaded_at.desc()).all()
     
     # For each container (ZIP), get child count
     for file in files:
@@ -475,7 +463,7 @@ def case_files(case_id=None):
         else:
             file.child_count = 0
     
-    return render_template('case/files.html', case=case, stats=stats, files=files, show_hidden=show_hidden, only_hidden=only_hidden)
+    return render_template('case/files.html', case=case, stats=stats, files=files)
 
 
 @case_bp.route('/<int:case_id>/files/stats', methods=['GET'])
@@ -560,18 +548,15 @@ def case_files_list_api(case_id):
     if current_user.role == 'read-only' and current_user.case_assigned != case_id:
         return jsonify({'error': 'Access denied'}), 403
     
-    # Get files
-    show_hidden = request.args.get('show_hidden', 'false').lower() == 'true'
-    
-    query = CaseFile.query.filter_by(case_id=case_id)
-    if not show_hidden:
-        query = query.filter_by(is_hidden=False)
-    
-    files = query.order_by(CaseFile.uploaded_at.desc()).all()
+    # Get all files (filtering done client-side)
+    files = CaseFile.query.filter_by(case_id=case_id).order_by(CaseFile.uploaded_at.desc()).all()
     
     # Format for JSON
     files_data = []
     for file in files:
+        # Normalize status to match filter values
+        status = file.status or 'New'
+        
         files_data.append({
             'id': file.id,
             'filename': file.filename,
@@ -584,7 +569,7 @@ def case_files_list_api(case_id):
             'event_count': file.event_count or 0,
             'sigma_violations': file.sigma_violations or 0,
             'ioc_count': file.ioc_count or 0,
-            'status': file.status or 'pending'
+            'status': status
         })
     
     return jsonify({'files': files_data})

@@ -4,7 +4,33 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. CSS Consolidation - Removed Inline Styles**
+**1. Replaced Dropdown with Status Checkbox Filters**
+- **Issue**: Dropdown only allowed one filter option at a time (Hide Hidden/Only Hidden/Show All)
+- **New Feature**: Status-based checkbox filters for granular control
+- **Statuses Available**:
+  - **New**: File before any index processing is done
+  - **Indexed**: All events successfully indexed
+  - **ParseFail**: Unable to parse and index file
+  - **ZeroEvents**: File parsed but contains no events
+  - **Error**: Some other error happened with file
+  - **Partial**: Not all events indexed successfully
+- **Implementation**:
+  - Six checkboxes, one for each status
+  - All checked by default (show all files)
+  - Uncheck to hide files with that status
+  - Client-side filtering (instant response)
+  - Re-applies filters after AJAX refresh
+  - Removed old show_hidden/only_hidden logic from backend
+- **Files Modified**:
+  - `templates/case/files.html` - Added checkbox filters, removed dropdown
+  - `app/routes/case.py` - Removed hidden file filtering (now client-side)
+  - `static/css/main.css` - Added status filter checkbox styling
+- **Impact**:
+  - More flexible filtering - show/hide any combination of statuses
+  - Instant filtering without page reload
+  - Better UX for analysts reviewing file processing results
+
+**2. CSS Consolidation - Removed Inline Styles**
 - **Issue**: Large inline `<style>` block in upload.html (185 lines)
 - **Root Cause**:
   - Many styles duplicated from main.css (badges, alerts, progress bars, etc.)

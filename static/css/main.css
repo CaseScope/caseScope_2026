@@ -2013,3 +2013,30 @@ tbody tr {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* Status Filter Checkboxes */
+.status-filters {
+    flex-wrap: wrap;
+}
+
+.status-filter-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast);
+    margin: 0;
+}
+
+.status-filter-label:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.status-filter {
+    cursor: pointer;
+    margin: 0;
+}

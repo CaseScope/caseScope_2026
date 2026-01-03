@@ -76,18 +76,35 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h2 class="card-title mb-0">Uploaded Files</h2>
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-3">
             <input type="text" 
                    class="form-control form-control-sm" 
                    id="fileSearch" 
-                   placeholder="🔍 Search filenames...">
-            <select class="form-select form-select-sm" 
-                    id="fileFilterDropdown" 
-                    onchange="applyFileFilter(this.value)">
-                <option value="hide_hidden" {% if not show_hidden and not only_hidden %}selected{% endif %}>Hide Hidden</option>
-                <option value="only_hidden" {% if only_hidden %}selected{% endif %}>Only Hidden</option>
-                <option value="show_all" {% if show_hidden %}selected{% endif %}>Show All</option>
-            </select>
+                   placeholder="🔍 Search filenames..." 
+                   style="max-width: 250px;">
+            
+            <!-- Status Filter Checkboxes -->
+            <div class="status-filters d-flex align-items-center gap-2">
+                <span class="text-small text-muted me-2">Status:</span>
+                <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="New" checked> New
+                </label>
+                <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="Indexed" checked> Indexed
+                </label>
+                <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="ParseFail" checked> ParseFail
+                </label>
+                <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="ZeroEvents" checked> ZeroEvents
+                </label>
+                <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="Error" checked> Error
+                </label>
+                <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="Partial" checked> Partial
+                </label>
+            </div>
         </div>
     </div>
     <div class="card-body">
@@ -183,15 +200,19 @@
                                 <span class="text-muted">0</span>
                             {% endif %}
                         </td>
-                        <td>
-                            {% if file.status == 'indexed' %}
+                        <td class="file-status" data-status="{{ file.status }}">
+                            {% if file.status == 'Indexed' %}
                                 <span class="badge badge-success">✓ Indexed</span>
-                            {% elif file.status == 'processing' %}
-                                <span class="badge badge-info">Processing...</span>
-                            {% elif file.status == 'pending' %}
-                                <span class="badge badge-secondary">Pending</span>
-                            {% elif file.status == 'failed' %}
-                                <span class="badge badge-error">Failed</span>
+                            {% elif file.status == 'New' %}
+                                <span class="badge badge-info">New</span>
+                            {% elif file.status == 'ParseFail' %}
+                                <span class="badge badge-error">ParseFail</span>
+                            {% elif file.status == 'ZeroEvents' %}
+                                <span class="badge badge-warning">ZeroEvents</span>
+                            {% elif file.status == 'Error' %}
+                                <span class="badge badge-error">Error</span>
+                            {% elif file.status == 'Partial' %}
+                                <span class="badge badge-warning">Partial</span>
                             {% else %}
                                 <span class="badge badge-secondary">{{ file.status }}</span>
                             {% endif %}
@@ -394,8 +415,16 @@ async function refreshFileList() {
                 <td>
                     ${file.ioc_count > 0 ? `<span class="badge badge-warning">${file.ioc_count}</span>` : '<span class="text-muted">0</span>'}
                 </td>
-                <td>
-                    <span class="badge ${file.status === 'Indexed' ? 'badge-success' : file.status === 'New' ? 'badge-info' : file.status === 'Error' ? 'badge-error' : 'badge-secondary'}">${file.status}</span>
+                <td class="file-status" data-status="${file.status}">
+                    <span class="badge ${
+                        file.status === 'Indexed' ? 'badge-success' : 
+                        file.status === 'New' ? 'badge-info' : 
+                        file.status === 'ParseFail' ? 'badge-error' :
+                        file.status === 'ZeroEvents' ? 'badge-warning' :
+                        file.status === 'Error' ? 'badge-error' :
+                        file.status === 'Partial' ? 'badge-warning' :
+                        'badge-secondary'
+                    }">${file.status}</span>
                 </td>
             </tr>
         `).join('');
@@ -405,6 +434,9 @@ async function refreshFileList() {
         
         // Fade back in after DOM update
         tbody.style.opacity = '1';
+        
+        // Re-apply status filters after refresh
+        applyStatusFilters();
         
     } catch (error) {
         console.error('Error refreshing file list:', error);
@@ -442,20 +474,34 @@ function stopAutoRefresh() {
     }
 }
 
-// Apply file filter
-function applyFileFilter(filterType) {
-    const url = new URL(window.location);
-    if (filterType === 'show_all') {
-        url.searchParams.set('show_hidden', 'true');
-        url.searchParams.delete('only_hidden');
-    } else if (filterType === 'only_hidden') {
-        url.searchParams.set('only_hidden', 'true');
-        url.searchParams.delete('show_hidden');
-    } else {
-        url.searchParams.delete('show_hidden');
-        url.searchParams.delete('only_hidden');
-    }
-    window.location.href = url.toString();
+// Apply status filters
+function applyStatusFilters() {
+    const rows = document.querySelectorAll('.file-row');
+    const checkedStatuses = new Set();
+    
+    // Get all checked status filters
+    document.querySelectorAll('.status-filter:checked').forEach(checkbox => {
+        checkedStatuses.add(checkbox.value);
+    });
+    
+    // Show/hide rows based on status
+    let visibleCount = 0;
+    rows.forEach(row => {
+        const statusCell = row.querySelector('.file-status');
+        if (statusCell) {
+            const status = statusCell.getAttribute('data-status');
+            
+            // Check if this status is in our checked filters
+            if (checkedStatuses.has(status)) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        }
+    });
+    
+    console.log(`Filtered: ${visibleCount} files visible`);
 }
 
 // Initialize everything
@@ -495,7 +541,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!noResultsRow) {
                     noResultsRow = document.createElement('tr');
                     noResultsRow.id = 'noResultsRow';
-                    noResultsRow.innerHTML = '<td colspan="8" class="text-center text-muted p-4">No files match your search</td>';
+                    noResultsRow.innerHTML = '<td colspan="10" class="text-center text-muted p-4">No files match your search</td>';
                     tbody.appendChild(noResultsRow);
                 }
             } else {
@@ -505,6 +551,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    
+    // Status filter checkboxes
+    const statusFilters = document.querySelectorAll('.status-filter');
+    statusFilters.forEach(checkbox => {
+        checkbox.addEventListener('change', applyStatusFilters);
+    });
     
     console.log('📊 Real-time stats monitoring active');
 });
