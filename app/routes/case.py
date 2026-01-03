@@ -417,8 +417,9 @@ def case_files(case_id=None):
     total_size = db.session.query(db.func.sum(CaseFile.file_size)).filter_by(case_id=case_id).scalar() or 0
     
     # Pending files - files that are being processed (query database, not filesystem)
+    # Includes: New (not started), pending, processing, parsing, extracting
     pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['pending', 'processing', 'parsing', 'extracting'])
+        CaseFile.status.in_(['New', 'pending', 'processing', 'parsing', 'extracting'])
     ).count()
     
     # Get event count from OpenSearch
@@ -528,8 +529,9 @@ def case_files_stats(case_id):
     total_size = db.session.query(db.func.sum(CaseFile.file_size)).filter_by(case_id=case_id).scalar() or 0
     
     # Pending files - files that are being processed (query database, not filesystem)
+    # Includes: New (not started), pending, processing, parsing, extracting
     pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['pending', 'processing', 'parsing', 'extracting'])
+        CaseFile.status.in_(['New', 'pending', 'processing', 'parsing', 'extracting'])
     ).count()
     
     # Get event count from OpenSearch
@@ -542,9 +544,9 @@ def case_files_stats(case_id):
     except Exception as e:
         logger.error(f"Error getting event count: {e}")
     
-    # Get file counts by status
+    # Get file counts by status (processing includes all non-completed statuses)
     processing_count = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['New', 'processing', 'parsing', 'extracting'])
+        CaseFile.status.in_(['New', 'pending', 'processing', 'parsing', 'extracting'])
     ).count()
     indexed_count = CaseFile.query.filter_by(case_id=case_id).filter(
         CaseFile.status.in_(['Indexed', 'Partial'])
