@@ -461,7 +461,7 @@ def case_files(case_id=None):
     per_page = min(per_page, 100)  # Max 100 items per page
     
     # Status filter parameters (comma-separated list of statuses to show)
-    status_filter = request.args.get('statuses', 'New,Indexed,ParseFail,ZeroEvents,Error,Partial')
+    status_filter = request.args.get('statuses', 'New,Indexed,ParseFail,UnableToParse,ZeroEvents,Error,Partial')
     enabled_statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
     
     # Search parameter

@@ -505,13 +505,32 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                     else:
                         failed_count += 1
                     
+                except OSError as e:
+                    # OSError typically means file can't be opened (corrupt, locked, etc.)
+                    logger.warning(f"Unable to parse {filename}: {e}")
+                    
+                    # Update existing record with UnableToParse status
+                    file_id = file_record.id
+                    file_record = CaseFile.query.get(file_id)
+                    file_record.status = 'UnableToParse'
+                    file_record.error_message = str(e)[:500]  # Truncate long error messages
+                    db.session.commit()
+                    
+                    failed_count += 1
+                    processing_errors.append({
+                        'file': filename,
+                        'step': 'parsing',
+                        'error': 'Unable to open/read file (may be corrupt or in-use)'
+                    })
+                    
                 except Exception as e:
+                    # Other exceptions are parsing errors
                     logger.error(f"Error processing {filename}: {e}", exc_info=True)
                     
                     # Update existing record with error (fetch fresh from DB)
                     file_id = file_record.id
                     file_record = CaseFile.query.get(file_id)
-                    file_record.status = 'Error'
+                    file_record.status = 'ParseFail'
                     file_record.error_message = str(e)
                     db.session.commit()
                     

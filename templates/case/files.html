@@ -105,6 +105,9 @@
                     <input type="checkbox" class="status-filter" value="ParseFail" {{ 'checked' if 'ParseFail' in enabled_statuses else '' }}> ParseFail
                 </label>
                 <label class="status-filter-label">
+                    <input type="checkbox" class="status-filter" value="UnableToParse" {{ 'checked' if 'UnableToParse' in enabled_statuses else '' }}> UnableToParse
+                </label>
+                <label class="status-filter-label">
                     <input type="checkbox" class="status-filter" value="ZeroEvents" {{ 'checked' if 'ZeroEvents' in enabled_statuses else '' }}> ZeroEvents
                 </label>
                 <label class="status-filter-label">
@@ -216,6 +219,8 @@
                                 <span class="badge badge-info">New</span>
                             {% elif file.status == 'ParseFail' %}
                                 <span class="badge badge-error">ParseFail</span>
+                            {% elif file.status == 'UnableToParse' %}
+                                <span class="badge badge-warning">UnableToParse</span>
                             {% elif file.status == 'ZeroEvents' %}
                                 <span class="badge badge-warning">ZeroEvents</span>
                             {% elif file.status == 'Error' %}
@@ -482,6 +487,7 @@ async function refreshFileList() {
                         file.status === 'Indexed' ? 'badge-success' : 
                         file.status === 'New' ? 'badge-info' : 
                         file.status === 'ParseFail' ? 'badge-error' :
+                        file.status === 'UnableToParse' ? 'badge-warning' :
                         file.status === 'ZeroEvents' ? 'badge-warning' :
                         file.status === 'Error' ? 'badge-error' :
                         file.status === 'Partial' ? 'badge-warning' :
