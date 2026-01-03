@@ -78,7 +78,7 @@ def parse_evtx_file(file_path):
                 return
             
             json_path = os.path.join(temp_dir, json_files[0])
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig handles BOM
                 events_data = json.load(f)
             
             # EvtxECmd returns array of events

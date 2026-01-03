@@ -80,7 +80,7 @@ def parse_mft_file(file_path):
             json_path = os.path.join(temp_dir, json_files[0])
             
             # MFT files can be HUGE - stream the JSON
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding='utf-8-sig') as f:  # Handle BOM
                 mft_data = json.load(f)
             
             if not isinstance(mft_data, list):

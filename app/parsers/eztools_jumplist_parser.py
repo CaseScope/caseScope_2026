@@ -82,7 +82,7 @@ def parse_jumplist_file(file_path):
                 return
             
             json_path = os.path.join(temp_dir, json_files[0])
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding='utf-8-sig') as f:  # Handle BOM
                 jumplist_data = json.load(f)
             
             # JLECmd can return dict or array depending on file

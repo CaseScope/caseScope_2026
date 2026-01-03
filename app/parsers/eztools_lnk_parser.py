@@ -81,7 +81,7 @@ def parse_lnk_file(file_path):
                 return
             
             json_path = os.path.join(temp_dir, json_files[0])
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding='utf-8-sig') as f:  # Handle BOM
                 lnk_data = json.load(f)
             
             # LECmd returns a single dict object (not array)
