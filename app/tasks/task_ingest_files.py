@@ -284,7 +284,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             from parsers.evtx_parser import parse_evtx_file as parse_evtx_python, EVTX_AVAILABLE
             from parsers.ndjson_parser import parse_ndjson_file
             from parsers.firewall_csv_parser import parse_firewall_csv
-            from parsers.prefetch_parser_new import parse_prefetch_file as parse_prefetch_new, PREFETCH_AVAILABLE
+            from parsers.prefetch_parser_dissect import parse_prefetch_file as parse_prefetch_dissect, DISSECT_AVAILABLE as PREFETCH_AVAILABLE
             from parsers.eztools_jumplist_parser import parse_jumplist_file, JLECMD_AVAILABLE
             from parsers.eztools_mft_parser import parse_mft_file as parse_mft_eztools, MFTECMD_AVAILABLE
             from opensearch_indexer import OpenSearchIndexer
@@ -400,11 +400,11 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         parse_success = True
                     
                     elif file_ext == '.pf':
-                        # Parse Prefetch files (updated for Windows 10/11)
+                        # Parse Prefetch files (dissect.util handles Win10/11 compression!)
                         if not PREFETCH_AVAILABLE:
-                            raise ImportError("pyscca library not available for Prefetch parsing")
+                            raise ImportError("dissect.util not available for Prefetch parsing")
                         
-                        events = list(parse_prefetch_new(file_path))
+                        events = list(parse_prefetch_dissect(file_path))
                         
                         # Extract computer name if available
                         if events:
