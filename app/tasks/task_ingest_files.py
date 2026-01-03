@@ -376,7 +376,6 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         from parsers.prefetch_parser import parse_prefetch_file, SCCA_AVAILABLE
                         
                         if not SCCA_AVAILABLE:
-                            # Parser library not available
                             raise ImportError("pyscca library not available for Prefetch parsing")
                         
                         events = list(parse_prefetch_file(file_path))
@@ -391,6 +390,90 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                             chunk = events[i:i + chunk_size]
                             indexer.bulk_index(
                                 index_name=index_name,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
+                    elif 'history' in filename.lower() or 'places.sqlite' in filename.lower() or (file_ext in ['.sqlite', '.db'] and 'history' in filename.lower()):
+                        # Parse Browser History (Chrome/Firefox)
+                        from parsers.browser_history_parser import parse_browser_history_file
+                        
+                        events = list(parse_browser_history_file(file_path))
+                        
+                        # Extract computer name if available
+                        if events:
+                            source_system = normalize_event_computer(events[0])
+                        
+                        # Index to case_X_browser
+                        browser_index = f'case_{case_id}_browser'
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=browser_index,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
+                    elif 'webcache' in filename.lower() and file_ext in ['.dat', '.edb']:
+                        # Parse WebCache ESE database
+                        from parsers.webcache_parser import parse_webcache_file, ESE_AVAILABLE
+                        
+                        if not ESE_AVAILABLE:
+                            raise ImportError("pyesedb library not available for WebCache parsing")
+                        
+                        events = list(parse_webcache_file(file_path))
+                        
+                        # Extract computer name if available
+                        if events:
+                            source_system = normalize_event_computer(events[0])
+                        
+                        # Index to case_X_browser
+                        browser_index = f'case_{case_id}_browser'
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=browser_index,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
+                    elif 'srudb' in filename.lower() and file_ext == '.dat':
+                        # Parse SRUM database
+                        from parsers.srum_parser import parse_srum_file, ESE_AVAILABLE
+                        
+                        if not ESE_AVAILABLE:
+                            raise ImportError("pyesedb library not available for SRUM parsing")
+                        
+                        events = list(parse_srum_file(file_path))
+                        
+                        # Extract computer name if available
+                        if events:
+                            source_system = normalize_event_computer(events[0])
+                        
+                        # Index to case_X_network
+                        network_index = f'case_{case_id}_network'
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=network_index,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
