@@ -335,14 +335,17 @@ async function updateStats() {
         const data = await response.json();
         const stats = data.stats;
         
-        // Update stat cards with animation
-        updateStatCard('stat-total-files', stats.total_files);
-        updateStatCard('stat-total-events', formatNumber(stats.total_events));
-        updateStatCard('stat-indexed-files', stats.indexed_files);
-        updateStatCard('stat-pending-files', stats.pending_files);
-        updateStatCard('stat-not-indexed-files', stats.not_indexed_files);
-        updateStatCard('stat-zero-events-files', stats.zero_events_files);
-        updateStatCard('stat-total-size', (stats.total_size_gb || 0).toFixed(2) + ' GB');
+        // Update stat cards with animation (with null safety)
+        updateStatCard('stat-total-files', stats.total_files || 0);
+        updateStatCard('stat-total-events', formatNumber(stats.total_events || 0));
+        updateStatCard('stat-indexed-files', stats.indexed_files || 0);
+        updateStatCard('stat-pending-files', stats.pending_files || 0);
+        updateStatCard('stat-not-indexed-files', stats.not_indexed_files || 0);
+        updateStatCard('stat-zero-events-files', stats.zero_events_files || 0);
+        
+        // Safe conversion to number for total_size_gb
+        const totalSize = Number(stats.total_size_gb) || 0;
+        updateStatCard('stat-total-size', totalSize.toFixed(2) + ' GB');
         
         // Show/hide processing indicator
         const indicator = document.getElementById('processingIndicator');
