@@ -426,16 +426,18 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         event_count = len(events)
                         parse_success = True
                     
-                    elif file_ext == '.lnk' or filename.endswith('-ms'):
-                        # Parse LNK shortcuts and JumpLists
-                        if not LNK_AVAILABLE:
-                            raise ImportError("LnkParse3 library not available for LNK parsing")
+                    elif file_ext == '.lnk':
+                        # LNK Parser - Use EZ Tools LECmd (better data)
+                        if LECMD_AVAILABLE and parse_lnk_file:
+                            logger.info(f"Using LECmd for {filename}")
+                            events = list(parse_lnk_file(file_path))
+                        else:
+                            logger.info(f"Using Python LNK parser for {filename}")
+                            from parsers.lnk_parser import parse_lnk_file as parse_lnk_python
+                            events = list(parse_lnk_python(file_path))
                         
-                        events = list(parse_lnk_file(file_path))
-                        
-                        # Extract computer name if available
                         if events:
-                            source_system = normalize_event_computer(events[0])
+                            source_system = events[0].get('machine_id') or normalize_event_computer(events[0])
                         
                         # Index to case_X_execution
                         execution_index = f'case_{case_id}_execution'
@@ -449,6 +451,61 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 case_id=case_id,
                                 source_file=filename
                             )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
+                    elif filename.lower().endswith('destinations-ms'):
+                        # JumpList Parser - EZ Tools JLECmd (NEW)
+                        if not JLECMD_AVAILABLE:
+                            logger.warning(f"JLECmd not available for {filename}")
+                            continue
+                        
+                        logger.info(f"Using JLECmd for {filename}")
+                        events = list(parse_jumplist_file(file_path))
+                        
+                        if events:
+                            source_system = events[0].get('machine_id') or normalize_event_computer(events[0])
+                        
+                        # Index to case_X_execution
+                        execution_index = f'case_{case_id}_execution'
+                        chunk_size = 100
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=execution_index,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                        
+                        event_count = len(events)
+                        parse_success = True
+                    
+                    elif filename in ['$MFT', '$MFT.gz'] or filename.startswith('$MFT'):
+                        # MFT Parser - EZ Tools MFTECmd (NEW)
+                        if not MFTECMD_AVAILABLE:
+                            logger.warning(f"MFTECmd not available for {filename}")
+                            continue
+                        
+                        logger.info(f"Using MFTECmd for {filename} - processing filesystem timeline")
+                        events = list(parse_mft_eztools(file_path))
+                        
+                        # Index to case_X_filesystem (NEW index type)
+                        filesystem_index = f'case_{case_id}_filesystem'
+                        chunk_size = 500
+                        for i in range(0, len(events), chunk_size):
+                            chunk = events[i:i + chunk_size]
+                            indexer.bulk_index(
+                                index_name=filesystem_index,
+                                events=iter(chunk),
+                                chunk_size=chunk_size,
+                                case_id=case_id,
+                                source_file=filename
+                            )
+                            if i % 50000 == 0 and i > 0:
+                                logger.info(f"MFT progress: {i}/{len(events)} entries indexed")
                         
                         event_count = len(events)
                         parse_success = True
