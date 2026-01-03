@@ -459,8 +459,18 @@ def case_files(case_id=None):
     per_page = request.args.get('per_page', 50, type=int)
     per_page = min(per_page, 100)  # Max 100 items per page
     
-    # Get file list from database with pagination
-    pagination = CaseFile.query.filter_by(case_id=case_id).order_by(CaseFile.uploaded_at.desc()).paginate(
+    # Status filter parameters (comma-separated list of statuses to show)
+    status_filter = request.args.get('statuses', 'New,Indexed,ParseFail,ZeroEvents,Error,Partial')
+    enabled_statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
+    
+    # Build query with status filter
+    query = CaseFile.query.filter_by(case_id=case_id)
+    
+    if enabled_statuses:
+        query = query.filter(CaseFile.status.in_(enabled_statuses))
+    
+    # Apply pagination to filtered query
+    pagination = query.order_by(CaseFile.uploaded_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
     
@@ -474,7 +484,8 @@ def case_files(case_id=None):
             file.child_count = 0
     
     return render_template('case/files.html', case=case, stats=stats, files=files, 
-                         pagination=pagination, page=page, per_page=per_page)
+                         pagination=pagination, page=page, per_page=per_page,
+                         enabled_statuses=enabled_statuses)
 
 
 @case_bp.route('/<int:case_id>/files/stats', methods=['GET'])

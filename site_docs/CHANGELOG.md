@@ -4,7 +4,29 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Added Pagination to File List**
+**1. Fixed Status Filtering to Work with Pagination (Backend Filtering)**
+- **Issue**: Status filters only applied to current page, reset when changing pages
+- **Root Cause**: 
+  - Filters applied client-side (JavaScript hiding rows)
+  - Pagination happened server-side (query returned all statuses)
+  - Changing pages reloaded data without preserving filters
+- **Solution**: Changed to backend filtering approach
+  - Status filters sent to backend as URL query param: `?statuses=New,Indexed,ParseFail`
+  - Backend filters BEFORE pagination using `.filter(status.in_(enabled_statuses))`
+  - Pagination works on filtered results
+  - Checkbox states preserved in URL and restored from query params
+  - Changing pages preserves current filter selection
+  - Changing filters resets to page 1
+- **Files Modified**:
+  - `app/routes/case.py` - Added status filtering to query before pagination
+  - `templates/case/files.html` - Updated checkboxes to read from URL params, reload page on filter change
+- **Impact**:
+  - Filters now work across all pages, not just current page
+  - No filter reset when navigating between pages
+  - Better performance (only queries needed files)
+  - Correct pagination counts based on filtered results
+
+**2. Added Pagination to File List**
 - **Feature**: Paginated file list for better performance with large cases
 - **Implementation**:
   - 50 files per page (default)

@@ -95,22 +95,22 @@
             <div class="status-filters d-flex align-items-center gap-2">
                 <span class="text-small text-muted me-2">Status:</span>
                 <label class="status-filter-label">
-                    <input type="checkbox" class="status-filter" value="New" checked> New
+                    <input type="checkbox" class="status-filter" value="New" {{ 'checked' if 'New' in enabled_statuses else '' }}> New
                 </label>
                 <label class="status-filter-label">
-                    <input type="checkbox" class="status-filter" value="Indexed" checked> Indexed
+                    <input type="checkbox" class="status-filter" value="Indexed" {{ 'checked' if 'Indexed' in enabled_statuses else '' }}> Indexed
                 </label>
                 <label class="status-filter-label">
-                    <input type="checkbox" class="status-filter" value="ParseFail" checked> ParseFail
+                    <input type="checkbox" class="status-filter" value="ParseFail" {{ 'checked' if 'ParseFail' in enabled_statuses else '' }}> ParseFail
                 </label>
                 <label class="status-filter-label">
-                    <input type="checkbox" class="status-filter" value="ZeroEvents" checked> ZeroEvents
+                    <input type="checkbox" class="status-filter" value="ZeroEvents" {{ 'checked' if 'ZeroEvents' in enabled_statuses else '' }}> ZeroEvents
                 </label>
                 <label class="status-filter-label">
-                    <input type="checkbox" class="status-filter" value="Error" checked> Error
+                    <input type="checkbox" class="status-filter" value="Error" {{ 'checked' if 'Error' in enabled_statuses else '' }}> Error
                 </label>
                 <label class="status-filter-label">
-                    <input type="checkbox" class="status-filter" value="Partial" checked> Partial
+                    <input type="checkbox" class="status-filter" value="Partial" {{ 'checked' if 'Partial' in enabled_statuses else '' }}> Partial
                 </label>
             </div>
         </div>
@@ -493,9 +493,6 @@ async function refreshFileList() {
         // Fade back in after DOM update
         tbody.style.opacity = '1';
         
-        // Re-apply status filters after refresh
-        applyStatusFilters();
-        
     } catch (error) {
         console.error('Error refreshing file list:', error);
         
@@ -532,40 +529,27 @@ function stopAutoRefresh() {
     }
 }
 
-// Apply status filters
+// Apply status filters - reload page with new filter params
 function applyStatusFilters() {
-    const rows = document.querySelectorAll('.file-row');
-    const checkedStatuses = new Set();
+    const checkedStatuses = [];
     
     // Get all checked status filters
     document.querySelectorAll('.status-filter:checked').forEach(checkbox => {
-        checkedStatuses.add(checkbox.value);
+        checkedStatuses.push(checkbox.value);
     });
     
-    // Show/hide rows based on status
-    let visibleCount = 0;
-    rows.forEach(row => {
-        const statusCell = row.querySelector('.file-status');
-        if (statusCell) {
-            const status = statusCell.getAttribute('data-status');
-            
-            // Check if this status is in our checked filters
-            if (checkedStatuses.has(status)) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        }
-    });
-    
-    console.log(`Filtered: ${visibleCount} files visible`);
+    // Build URL with status filters
+    const url = new URL(window.location);
+    url.searchParams.set('statuses', checkedStatuses.join(','));
+    url.searchParams.set('page', '1');  // Reset to page 1 when filtering
+    window.location.href = url.toString();
 }
 
-// Change page
+// Change page (preserve current filters)
 function changePage(page) {
     const url = new URL(window.location);
     url.searchParams.set('page', page);
+    // Keep existing status filters
     window.location.href = url.toString();
 }
 
