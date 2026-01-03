@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Backfill Normalized Fields for Existing EVTX Events
+Backfill Normalized Fields for All Events
 Updates existing OpenSearch documents to add normalized_timestamp, normalized_computer, and normalized_event_id
+Supports EVTX, CSV, NDJSON, and all other file types
 """
 
 import sys
@@ -10,6 +11,7 @@ sys.path.insert(0, '/opt/casescope')
 
 from opensearchpy import OpenSearch
 from opensearchpy.helpers import scan, bulk
+from app.utils.event_normalization import normalize_event
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -45,13 +47,17 @@ def backfill_case(client, case_id):
     
     logger.info(f"Processing case {case_id} (index: {index_name})")
     
-    # Query for documents missing normalized_timestamp
+    # Query for documents missing any normalized field (OR condition)
+    # This catches events that might have some but not all normalized fields
     query = {
         "query": {
             "bool": {
-                "must_not": [
-                    {"exists": {"field": "normalized_timestamp"}}
-                ]
+                "should": [
+                    {"bool": {"must_not": {"exists": {"field": "normalized_timestamp"}}}},
+                    {"bool": {"must_not": {"exists": {"field": "normalized_computer"}}}},
+                    {"bool": {"must_not": {"exists": {"field": "normalized_event_id"}}}}
+                ],
+                "minimum_should_match": 1
             }
         }
     }
@@ -62,25 +68,22 @@ def backfill_case(client, case_id):
     
     for doc in scan(client, index=index_name, query=query, size=1000):
         doc_id = doc['_id']
-        source = doc['_source']
+        source = doc['_source'].copy()  # Make a copy to avoid modifying original
         
-        # Build update document
+        # Use comprehensive normalization function (handles all file types)
+        normalized = normalize_event(source)
+        
+        # Build update document with normalized fields
         update_doc = {}
         
-        # Normalize timestamp
-        timestamp = source.get('timestamp') or source.get('system_time') or source.get('@timestamp')
-        if timestamp:
-            update_doc['normalized_timestamp'] = timestamp
+        if 'normalized_timestamp' in normalized:
+            update_doc['normalized_timestamp'] = normalized['normalized_timestamp']
         
-        # Normalize computer
-        computer = source.get('computer') or source.get('host', {}).get('hostname') if isinstance(source.get('host'), dict) else None
-        if computer:
-            update_doc['normalized_computer'] = computer
+        if 'normalized_computer' in normalized:
+            update_doc['normalized_computer'] = normalized['normalized_computer']
         
-        # Normalize event_id
-        event_id = source.get('event_id') or source.get('event', {}).get('code') if isinstance(source.get('event'), dict) else None
-        if event_id:
-            update_doc['normalized_event_id'] = str(event_id)
+        if 'normalized_event_id' in normalized:
+            update_doc['normalized_event_id'] = normalized['normalized_event_id']
         
         # Only update if we have something to update
         if update_doc:

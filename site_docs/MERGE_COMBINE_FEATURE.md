@@ -1,5 +1,8 @@
 # Merge & Combine Feature
 
+**Last Updated**: January 3, 2026  
+**Status**: Implemented for Known Systems, Known Users, and IOCs
+
 ## Overview
 
 The merge and combine feature provides automatic duplicate detection and manual consolidation for Known Systems, Known Users, and IOCs. This helps maintain clean, deduplicated data across the platform.
@@ -50,7 +53,7 @@ Result:
 - Domain: corp.local (copied from child)
 - Analyst Notes:
   ## Auto-Merge History
-  - 2024-12-30 15:30:00: Also seen as **server01.domain.local** (IP: 192.168.1.10)
+  - 2026-01-03 13:30:00: Also seen as **server01.domain.local** (IP: 192.168.1.10)
 ```
 
 ### Known Users
@@ -87,7 +90,7 @@ Result: TWO SEPARATE USERS (SIDs differ)
 
 ### IOCs
 
-IOCs already have duplicate detection via `api_check_duplicate`, but the new combine feature provides:
+IOCs have duplicate detection via `api_check_duplicate`, and manual combine feature provides:
 - Manual consolidation of related IOCs
 - Markdown-based analyst notes
 - Event hit reassignment
@@ -144,15 +147,15 @@ IOCs already have duplicate detection via `api_check_duplicate`, but the new com
 
 ```markdown
 ## Auto-Merge History
-- 2024-12-30 15:30:00: Also seen as **SERVER01.domain.local** (IP: 192.168.1.10, domain: corp.local)
-- 2024-12-30 16:00:00: Also seen as **server01** (IP: 10.0.0.5)
+- 2026-01-03 15:30:00: Also seen as **SERVER01.domain.local** (IP: 192.168.1.10, domain: corp.local)
+- 2026-01-03 16:00:00: Also seen as **server01** (IP: 10.0.0.5)
 
 ## Known IP Addresses
-- 192.168.1.10 (current as of 2024-12-30 15:30:00)
+- 192.168.1.10 (current as of 2026-01-03 15:30:00)
 - 10.0.0.5
 
 ## Manual Merge History
-- 2024-12-30 17:00:00: Merged from **SERVER01-OLD** (ID #123)
+- 2026-01-03 17:00:00: Merged from **SERVER01-OLD** (ID #123)
   - `ip_address`: 172.16.0.99
   - `domain_name`: old.domain.com
   - `description`: Legacy server entry
@@ -179,105 +182,8 @@ Old server that was decommissioned in Q3.
   - Returns: Summary with before/after states
 
 ### IOCs:
-- `POST /ioc/api/combine` - Manual combine (new)
-- `POST /ioc/api/merge_duplicates` - Auto-deduplication (existing, kept for backward compatibility)
-
----
-
-## Testing
-
-### Test Files Provided:
-
-**`examples/test_systems_merge.csv`**
-- Tests FQDN normalization (SERVER01 variants)
-- Tests multiple IPs for same system
-- Tests case-insensitive matching
-
-**`examples/test_users_merge.csv`**
-- Tests domain prefix handling (CORP\user variants)
-- Tests SID validation (different SIDs = different users)
-- Tests email format (@domain.com)
-
-### Manual Test Scenarios:
-
-**1. Systems Auto-Merge (CSV Import)**
-```bash
-# Import test file
-# Expected: 3 unique systems created
-# - SERVER01 (3 variants merged, 2 IPs collected)
-# - WORKSTATION-99 (2 variants merged)
-# - DC01 (2 variants merged)
-```
-
-**2. Users SID Validation**
-```bash
-# Import test file
-# Expected: 3 unique users created
-# - jsmith (3 variants merged, same SID)
-# - admin (2 SEPARATE users - different SIDs)
-# - tabadmin (2 variants merged, same SID)
-```
-
-**3. Manual Combine**
-```bash
-# Create 2 systems manually with different data
-# Select both → Combine → Choose parent
-# Verify summary shows merged fields
-# Verify analyst notes contain merge history
-```
-
----
-
-## Database Changes
-
-No schema changes required! All functionality works with existing tables.
-
-**Indexes Used:**
-- `idx_known_systems_hostname` - fast hostname lookups
-- `idx_known_users_username` - fast username lookups
-- Case-insensitive comparisons via `db.func.lower()` / `db.func.upper()`
-
-**No Unique Constraints Added:**
-- Allows multiple users with same username (different SIDs)
-- Allows multiple systems with same hostname (different IPs/domains)
-
----
-
-## Audit Logging
-
-All merge/combine operations logged with full detail:
-
-**Auto-Merge:**
-```json
-{
-  "action": "system_discovery_completed",
-  "details": {
-    "new_systems": 10,
-    "merged_systems": 15,
-    "new_systems_list": [...],
-    "updated_systems_list": [...]
-  }
-}
-```
-
-**Manual Combine:**
-```json
-{
-  "action": "systems_combined",
-  "resource_id": 123,
-  "details": {
-    "parent": {
-      "id": 123,
-      "before": {...},
-      "after": {...}
-    },
-    "children_merged": [
-      {"id": 124, "data_merged": [...]}
-    ],
-    "total_merged": 2
-  }
-}
-```
+- `POST /ioc/api/combine` - Manual combine
+- `POST /ioc/api/merge_duplicates` - Auto-deduplication (existing)
 
 ---
 
@@ -316,12 +222,9 @@ All merge/combine operations logged with full detail:
 
 ---
 
-## Future Enhancements
+## Related Documentation
 
-Possible future improvements:
-1. **One-time consolidation** - Script to merge all existing duplicates
-2. **Merge suggestions** - AI-powered duplicate detection
-3. **Undo capability** - Soft-delete with recovery window
-4. **Bulk combine** - Combine multiple groups at once
-5. **Smart IP tracking** - Detect DHCP vs static IPs
+- **ASSET_TRACKING.md** - Known Systems & Users management
+- **IOC-MANAGEMENT.md** - IOC database and operations
+- **AUDIT.MD** - All merge operations are audited
 

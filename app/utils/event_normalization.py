@@ -123,8 +123,11 @@ def normalize_event_computer(event: Dict[str, Any]) -> Optional[str]:
             'hostname', 'Hostname', 'host_name', 'HostName',
             'machine', 'Machine', 'device', 'Device',
             'agent', 'Agent', 'host', 'Host',
-            'Dst. Name',  # SonicWall CSV
+            'Dst. Name',  # SonicWall CSV - original case
+            'dst_name',   # SonicWall CSV - normalized to lowercase
+            'src_name',   # SonicWall CSV - normalized source name
             'Source Name', 'Destination Name',  # Firewall logs
+            'source_name', 'destination_name',  # Normalized versions
             'normalized_computer'  # Already normalized
         ]
         
@@ -145,10 +148,14 @@ def normalize_event_computer(event: Dict[str, Any]) -> Optional[str]:
         computer_name = event.get('host', {}).get('hostname') or event.get('host', {}).get('name')
     
     # Priority 5: Fallback for firewall logs - use device type
-    if not computer_name and event.get('file_type') == 'CSV':
-        # Check if this looks like a firewall log
-        if any(field in event for field in ['Src. IP', 'Dst. IP', 'Firewall', 'Category', 'Group']):
-            computer_name = 'Firewall'
+    if not computer_name:
+        file_type = event.get('file_type', '').lower()
+        log_source = event.get('log_source_type', '').lower()
+        # Check if this looks like a firewall log (CSV or firewall source type)
+        if 'csv' in file_type or 'firewall' in log_source or 'sonicwall' in log_source:
+            # Check for firewall-specific fields (normalized lowercase versions)
+            if any(field in event for field in ['src_ip', 'dst_ip', 'fw_action', 'category', 'group', 'firewall']):
+                computer_name = 'Firewall'
     
     # Priority 6: IIS logs - use server from metadata
     if not computer_name and event.get('file_type') == 'IIS':
@@ -190,8 +197,10 @@ def normalize_event_id(event: Dict[str, Any]) -> Optional[str]:
     if not event_id:
         event_id_fields = [
             'event_id', 'eventid', 'EventID', 'event.id',
-            'Event',  # SonicWall CSV (event type)
-            'ID',     # SonicWall CSV (numeric ID)
+            'id',     # SonicWall CSV (numeric ID) - normalized to lowercase
+            'Event',  # SonicWall CSV (event type) - original case
+            'fw_event',  # SonicWall CSV (renamed from 'Event' to avoid conflicts)
+            'ID',     # SonicWall CSV (numeric ID) - original case
             'event_type', 'EventType', 'event_name', 'EventName',
             'event.code',  # NDJSON/EDR
             'normalized_event_id'  # Already normalized

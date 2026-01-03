@@ -50,8 +50,8 @@ All services are running and ready to process background tasks!
 
 2. **`extract_and_process_zip`** (queue: `file_processing`)
    - Extract ZIP contents to staging (temporary)
-   - Create virtual file records (is_virtual=True, parent_file_id=container.id)
-   - Auto-detect artifact type → route to appropriate index
+   - Create file records for extracted files
+   - Auto-detect artifact type (determines parser_type)
    - Queue each extracted file for parsing
    - Update container status
    - Files failed count tracking

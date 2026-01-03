@@ -1,5 +1,31 @@
 # CaseScope 2026 - Changelog
 
+## Version 1.5.8 - January 3, 2026
+
+### 🔧 CSV Event Display Fixes
+
+**1. CSV Event Field Mapping Corrections**
+- **Issue**: SonicWall CSV events showing "Event N/A" in description and "N/A" for event ID
+- **Root Causes**:
+  1. Event normalization not checking lowercase 'id' field from CSV
+  2. Firewall computer name fallback checking capitalized field names instead of normalized lowercase
+  3. Search query not fetching 'message', 'fw_event', 'category', 'group' fields from OpenSearch
+- **Solutions**:
+  - Updated `normalize_event_id()` to check 'id' and 'fw_event' fields (CSV-specific)
+  - Updated `normalize_event_computer()` firewall fallback to check lowercase field names ('src_ip', 'dst_ip', etc.)
+  - Added CSV fields to search query `_source` list (message, fw_event, category, group)
+  - Ran backfill script to update 18,889 existing events
+- **Files Modified**:
+  - `app/utils/event_normalization.py` - Enhanced CSV event ID and computer name extraction
+  - `app/routes/search.py` - Added CSV fields to _source list
+  - `scripts/backfill_normalized_fields.py` - Enhanced to use comprehensive normalization
+- **Impact**: CSV events now display correctly:
+  - Event ID: Shows actual ID from 'id' field (e.g., "1199")
+  - Description: Shows message content (e.g., "Responder from country blocked: Responder IP:52.108.36.33...")
+  - System Name: Shows "Firewall" for firewall logs instead of "Unknown"
+
+---
+
 ## Version 1.5.7 - December 29, 2025
 
 ### 🔧 Major Fixes & Features

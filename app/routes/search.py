@@ -369,7 +369,9 @@ def api_search_events():
                 'event_id', 'computer', 'channel', 'provider_name',
                 'host.hostname', 'host.name', 'event.code', 'event.type', 'event.category',
                 'process.name', 'process.command_line', 'command_line', 'file_type',
-                'analyst_tagged', 'analyst_tagged_by', 'analyst_tagged_at'
+                'analyst_tagged', 'analyst_tagged_by', 'analyst_tagged_at',
+                # CSV/Firewall specific fields
+                'message', 'fw_event', 'category', 'group'
             ],
             'track_total_hits': True
         }

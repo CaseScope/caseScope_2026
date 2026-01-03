@@ -151,7 +151,7 @@ Details: Unusual RDP session from compromised account...
 | **ZIP-Centric Fields** |||
 | `is_container` | Boolean | True for ZIP files (default: False) |
 | `is_virtual` | Boolean | True for files extracted from ZIP (default: False) |
-| `parent_file_id` | Integer | Foreign key to parent ZIP container (NULL for standalone/containers) |
+| `parser_type` | String(50), indexed | Parser used (evtx, ndjson, csv, firewall, etc.) |
 | `target_index` | String(100) | Target OpenSearch index (case_X, case_X_browser, case_X_execution, etc.) |
 | **Processing Status** |||
 | `extraction_status` | String(50) | ZIP extraction status (pending, in_progress, completed, failed) |
@@ -183,23 +183,20 @@ Details: Unusual RDP session from compromised account...
 - `failed` - Processing failed (see error_message)
 
 **Foreign Keys**:
-- `parent_file_id` → `case_file.id` (CASCADE on delete)
+- `case_id` → `case.id` (CASCADE on delete)
+- `uploaded_by` → `user.id`
 
 **Indexes**:
-- `idx_case_file_parent` on `parent_file_id`
-- `idx_case_file_virtual` on `is_virtual` WHERE `is_virtual = true`
+- `case_id`, `uploaded_at`, `file_hash`, `parser_type`
 
 **Relationships**:
 - `case` - Relationship to `Case` this file belongs to
 - `uploader` - Relationship to `User` who uploaded the file
-- `parent` - Relationship to parent ZIP container (if virtual)
-- `children` - Backref to virtual files extracted from this ZIP (if container)
 
-**ZIP-Centric Architecture**:
-- **Container files** (`is_container=True`): ZIP files stored in `storage/case_X/`, tracked but not indexed
-- **Virtual files** (`is_virtual=True`): Files extracted from ZIP, temporarily in staging, deleted after indexing
-- **Standalone files**: Regular uploaded files, compressed with GZIP after indexing
-- **Multi-index routing**: `target_index` determines OpenSearch index (case_X, case_X_browser, etc.)
+**File Processing**:
+- All files compressed with GZIP after indexing
+- Files routed to main `case_X` OpenSearch index
+- `parser_type` determines processing method (evtx, ndjson, csv, firewall, etc.)
 
 **Purpose**: Track all uploaded files with metadata, processing status, and extracted statistics for display in file management UI.
 

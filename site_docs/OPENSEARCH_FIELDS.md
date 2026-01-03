@@ -67,9 +67,9 @@ Universal fields that work across EVTX, NDJSON, and CSV:
 **How Populated**:
 - **All parsers** use comprehensive `event_normalization.py` module (v1.5.7+)
 - **Normalization Module** (`app/utils/event_normalization.py`):
-  - `normalize_event_computer()`: Checks 15+ field paths including nested structures
-  - `normalize_event_timestamp()`: Handles all timestamp formats (ISO, Unix, CSV)
-  - `normalize_event_id()`: Extracts event IDs from any log structure
+  - `normalize_event_computer()`: Checks 15+ field paths including nested structures (v1.5.8: added CSV firewall detection)
+  - `normalize_event_timestamp()`: Handles all timestamp formats (ISO, Unix, CSV with MM/DD/YYYY)
+  - `normalize_event_id()`: Extracts event IDs from any log structure (v1.5.8: added 'id', 'fw_event' for CSV)
 - **Field Path Priority for Computer Names**:
   1. `System.Computer` (standard EVTX)
   2. `Event.System.Computer` (exported EVTX - CRITICAL for ZIPs!)
@@ -295,13 +295,23 @@ destination.ip        →    normalized_dest_ip
 ```
 CSV Column                 OpenSearch Field
 ──────────                 ────────────────
-Time                  →    normalized_timestamp
+Time                  →    time, normalized_timestamp
+ID                    →    id, normalized_event_id
+Message               →    message (used for event description)
+Event                 →    fw_event (renamed to avoid mapping conflicts)
 Src. IP               →    src_ip, normalized_source_ip
 Dst. IP               →    dst_ip, normalized_dest_ip
-Event                 →    fw_event (renamed from "event")
 FW Action             →    fw_action
+Category              →    category
+Group                 →    group
 (all columns)         →    search_blob
 ```
+
+**CSV Normalization (v1.5.8+)**:
+- **Event ID**: Checks 'id' field (SonicWall ID column), falls back to 'fw_event'
+- **Computer Name**: Firewall logs display as "Firewall" (no individual system names in firewall logs)
+- **Description**: Uses 'message' field for event description display
+- **Field Name Conversion**: "ID" → "id", "Message" → "message" (lowercase normalization)
 
 ---
 

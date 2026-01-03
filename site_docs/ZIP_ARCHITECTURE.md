@@ -1,8 +1,8 @@
-# ZIP-Centric File Processing Architecture
+# File Processing Architecture
 
-**Version**: 2.0 (December 2025)  
+**Version**: 2.0 (January 2026)  
 **Status**: Production Ready  
-**Target Performance**: <5 minutes for 3GB ZIP with ~1000 files
+**Note**: ZIP-centric virtual file tracking deprecated; all files now stored physically with GZIP compression
 
 ---
 
@@ -30,7 +30,7 @@ CaseScope 2.0 implements a revolutionary **ZIP-centric** file processing archite
 -- Container/Virtual Tracking
 is_container BOOLEAN DEFAULT false          -- True for ZIP files
 is_virtual BOOLEAN DEFAULT false            -- True for files extracted from ZIP
-parent_file_id INTEGER                      -- References parent ZIP (if virtual)
+parser_type VARCHAR(50)                     -- Parser used (evtx, ndjson, csv, etc.)
 target_index VARCHAR(100)                   -- OpenSearch index (case_X, case_X_browser, etc.)
 
 -- Processing State Tracking
@@ -46,8 +46,7 @@ retry_count INTEGER DEFAULT 0               -- Number of retry attempts
 
 **Foreign Key**:
 ```sql
-ALTER TABLE case_file ADD CONSTRAINT fk_parent_file 
-  FOREIGN KEY (parent_file_id) REFERENCES case_file(id) ON DELETE CASCADE;
+-- Legacy foreign key removed - no longer tracking ZIP parent relationships
 ```
 
 ### 2. File Processing Flow
@@ -59,7 +58,7 @@ ALTER TABLE case_file ADD CONSTRAINT fk_parent_file
 2. CREATE container record (is_container=True, is_virtual=False, status='extracting')
 3. EXTRACT → staging/case_X/extract_{container_id}/ (temporary)
 4. For each extracted file:
-   a. CREATE virtual file record (is_virtual=True, parent_file_id=container.id, status='parsing')
+   a. CREATE file record for extracted file (status='parsing')
    b. QUEUE for parsing (parallel processing across workers)
 5. UPDATE container to status='parsing' when extraction complete
 6. As each child file completes:
@@ -364,7 +363,7 @@ python3 migrate_existing_cases.py
 **Logic**:
 ```python
 # Get all children
-children = CaseFile.query.filter_by(parent_file_id=container_id).all()
+children = CaseFile.query.filter_by(case_id=case_id, file_path__contains=container_name).all()
 
 # Check completion status
 all_indexed = all(child.status == 'indexed' for child in children)
@@ -580,19 +579,14 @@ curl -X GET "localhost:9200/_cat/indices?v"
 
 **Diagnosis**:
 1. Check parent ZIP exists: `ls -lah /opt/casescope/storage/case_X/`
-2. Check database `parent_file_id` is set correctly
+2. Check database file_path contains ZIP name
 3. Verify filename matching (case-sensitive)
 
 **Solution**:
 ```sql
-SELECT id, original_filename, parent_file_id, file_path 
+SELECT id, original_filename, file_path, parser_type 
 FROM case_file 
 WHERE id = <file_id>;
-
--- Check parent
-SELECT id, original_filename, file_path 
-FROM case_file 
-WHERE id = <parent_file_id>;
 ```
 
 ---

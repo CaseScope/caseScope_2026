@@ -275,9 +275,30 @@ Events Scanned: 1,234,567
 
 ---
 
-## Implementation Notes
+## Auto-Merge & Deduplication
 
-### Deduplication
+### Auto-Merge During Discovery
+
+**Systems Auto-Merge**:
+- **Parent Selection**: NetBIOS hostname (no FQDN) becomes parent
+- **Normalization**: Strip domain, convert to uppercase (SERVER01.corp.local → SERVER01)
+- **Merge Rules**:
+  - Blank parent fields populated from child data
+  - Multiple IPs collected in `## Known IP Addresses` section of analyst notes
+  - Compromised status priority: yes > no > unknown
+- **Example**: SERVER01 + server01.domain.local (IP: 192.168.1.10) → SERVER01 with IP populated
+
+**Users Auto-Merge**:
+- **Parent Selection**: Username without domain prefix
+- **Normalization**: Strip DOMAIN\\ prefix and @domain suffix, lowercase
+- **SID Validation**: Different SIDs = different users (prevents merging different people with same username)
+- **Example**: jsmith + DOMAIN\\jsmith (same SID) → Merged to jsmith
+
+### Manual Combine (Not Yet Implemented)
+
+Planned feature for manual consolidation of duplicates (see `/opt/casescope/app/utils/merge_helpers.py` for helper functions).
+
+### Implementation Notes
 
 **Systems**:
 - Primary key: `(hostname, case_id)`

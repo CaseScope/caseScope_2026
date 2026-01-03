@@ -29,14 +29,14 @@ All route blueprints are automatically discovered and registered by `main.py`.
 - `search.py` - Event search system with boolean operators and file type filtering
 - `browser.py` - Browser history viewing and analysis (Chrome, Edge, Firefox, WebCache)
 - `upload.py` - File upload system (chunk-based upload, drag & drop, bulk folder)
-- `settings.py` - System settings (Celery worker configuration, EVTX descriptions management, SSL certificate upload)
+- `settings.py` - System settings (Celery worker configuration, Sigma rules management, EVTX descriptions management, SSL certificate upload)
 - `ioc.py` - IOC management (Indicators of Compromise tracking and analysis)
 - `known_systems.py` - Known systems tracking (workstations, servers, network devices)
 - `known_users.py` - Known users tracking (user accounts, identities, compromised credentials)
 - `hunting.py` - Threat hunting dashboard and IOC hunt operations
-- `noise_filters.py` - Noise filter rules management interface
-- `events_noise_check.py` - Event noise tagging operations
-- `ai.py` - AI assistant interface (RAG-powered threat intelligence)
+- `noise_filters.py` - Noise filter category and rule management interface
+- `events_noise_check.py` - Event noise checking API (returns which filters match an event)
+- `ai.py` - AI assistant interface (RAG-powered threat intelligence, natural language queries)
 
 **Adding New Routes**: Simply create a new file in `/app/routes` that exports a blueprint, and it will be auto-loaded on next server restart.
 

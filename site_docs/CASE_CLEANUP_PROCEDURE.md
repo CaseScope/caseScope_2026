@@ -147,24 +147,33 @@ rm -rf /opt/casescope/upload_temp/{CASE_ID}/
 - Clears incomplete/abandoned uploads
 - Minimal impact on stats (these don't count toward totals)
 
-#### D. `/opt/casescope/bulk_upload/`
-**Purpose:** Shared directory for bulk file uploads
+#### D. `/opt/casescope/uploads/web/{case_id}/` & `/opt/casescope/uploads/sftp/{case_id}/`
+**Purpose:** Upload directories for web and SFTP uploads
 
 **Contains:**
-- Files uploaded via bulk upload feature
-- Shared across all cases
+- `web/{case_id}/`: Files uploaded via browser
+- `sftp/{case_id}/`: Files uploaded via SFTP
 
 **To Clean:**
 ```bash
-# Check for case-specific files first
-ls -lh /opt/casescope/bulk_upload/
-# Remove case-specific files only
-rm -f /opt/casescope/bulk_upload/{case_specific_files}
+# Clean web uploads
+rm -rf /opt/casescope/uploads/web/{CASE_ID}/
+
+# Clean SFTP uploads
+rm -rf /opt/casescope/uploads/sftp/{CASE_ID}/
 ```
 
 **Effects:**
-- Clears bulk upload queue
-- Should only be cleaned if files are case-specific
+- Clears pending uploads
+- Files not yet processed will be removed
+
+#### E. `/opt/casescope/bulk_upload/` (Legacy)
+**Purpose:** Legacy bulk upload directory
+
+**To Clean:**
+```bash
+rm -rf /opt/casescope/bulk_upload/{CASE_ID}/
+```
 
 ---
 

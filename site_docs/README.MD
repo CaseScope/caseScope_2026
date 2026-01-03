@@ -15,6 +15,7 @@
 - **[IOC-MANAGEMENT.md](IOC-MANAGEMENT.md)** - Threat intelligence database (56 types, AI extraction)
 - **[NOISE_FILTERS.md](NOISE_FILTERS.md)** - Software noise reduction (29 rules, 6 categories)
 - **[OPENSEARCH_FIELDS.md](OPENSEARCH_FIELDS.md)** - Field structure and normalization
+- **[MERGE_COMBINE_FEATURE.md](MERGE_COMBINE_FEATURE.md)** - Auto-merge and manual combine for systems/users/IOCs
 
 ### 👥 Asset Tracking
 - **[ASSET_TRACKING.md](ASSET_TRACKING.md)** - Known systems and users (auto-discovery, CSV import, bulk ops)
@@ -121,10 +122,13 @@ sudo tail -f /opt/casescope/logs/error.log
 
 ### Bulk Upload
 ```bash
-# Copy files to monitored folder
-cp /path/to/files/*.zip /opt/casescope/bulk_upload/3/
+# Copy files to SFTP folder
+cp /path/to/files/*.zip /opt/casescope/uploads/sftp/{case_id}/
 
-# Files auto-process (no web upload needed)
+# Or use bulk_upload directory
+cp /path/to/files/*.zip /opt/casescope/bulk_upload/{case_id}/
+
+# Files await manual processing trigger via web UI
 ```
 
 ---
@@ -145,14 +149,25 @@ cp /path/to/files/*.zip /opt/casescope/bulk_upload/3/
 | Uploaded ZIPs (permanent) | `/opt/casescope/storage/case_{id}/` |
 | Compressed files (.gz) | `/opt/casescope/storage/case_{id}/` |
 | Temp extraction | `/opt/casescope/staging/{id}/` |
-| Bulk upload | `/opt/casescope/bulk_upload/{case_id}/` |
+| Web uploads | `/opt/casescope/uploads/web/{case_id}/` |
+| SFTP uploads | `/opt/casescope/uploads/sftp/{case_id}/` |
+| Bulk upload (legacy) | `/opt/casescope/bulk_upload/{case_id}/` |
 | Logs | `/opt/casescope/logs/` |
 | Database | PostgreSQL `casescope` database |
 | Search indexes | OpenSearch `case_{id}*` indices |
 
 ---
 
-## Recent Updates (v1.5.7 - Dec 29, 2025)
+## Recent Updates (v1.5.8 - Jan 3, 2026)
+
+### CSV Event Display Fixes
+- ✅ CSV events showing correct Event ID (from 'id' field)
+- ✅ CSV events showing message content in Description column
+- ✅ Firewall logs showing "Firewall" as System Name
+- ✅ Enhanced event normalization for CSV logs
+- ✅ 18,889 events updated via backfill script
+
+### v1.5.7 - Dec 29, 2025
 
 ### Major Fixes
 - ✅ Computer name normalization (no more "Unknown")

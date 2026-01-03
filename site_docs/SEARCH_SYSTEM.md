@@ -630,6 +630,12 @@ else:
 - Description: `process.command_line` truncated to 120 chars
 - System Name: From `normalized_computer` or `host.hostname`
 
+**Special Handling for CSV/Firewall Logs (v1.5.8+):**
+- Event ID: From `normalized_event_id` (populated from CSV 'id' or 'fw_event' fields)
+- Description: From `message` field (firewall log message), falls back to `fw_event`, then `category`/`group`
+- System Name: Shows "Firewall" (firewall devices don't have individual computer names)
+- Field Mapping: CSV columns normalized to lowercase ('ID' → 'id', 'Message' → 'message')
+
 **IOC Badges:**
 When events contain IOCs (from IOC hunting), badges display in the IOCs column:
 - One badge per unique IOC type found in the event
@@ -1210,6 +1216,12 @@ See [NOISE_FILTERS.md](NOISE_FILTERS.md) for complete noise system documentation
 - ✅ Backend enrichment of events with `ioc_hits` and `sigma_hits` arrays
 - ✅ Substring matching for IOC detection across all field values
 - ✅ Dark theme compatible highlighting with semi-transparent colors
+
+### Version 1.5.8 (2026-01-03)
+- ✅ Fixed CSV event field display (event ID, description, system name)
+- ✅ Enhanced event normalization for CSV logs
+- ✅ Added CSV-specific fields to search query
+- ✅ Backfill support for existing CSV events
 
 ### Version 1.1.0 (2025-12-23)
 - ✅ Added file type filtering (EVTX, NDJSON, IIS, CSV)
