@@ -84,13 +84,12 @@ def parse_lnk_file(file_path):
             with open(json_path, 'r') as f:
                 lnk_data = json.load(f)
             
-            # LECmd returns array of events
-            if not isinstance(lnk_data, list) or len(lnk_data) == 0:
-                logger.warning(f"No LNK data in JSON for {filename}")
+            # LECmd returns a single dict object (not array)
+            if not lnk_data or not isinstance(lnk_data, dict):
+                logger.warning(f"Invalid LNK data format for {filename}")
                 return
             
-            # Process the LNK data
-            lnk = lnk_data[0]  # First (and usually only) entry
+            lnk = lnk_data
             
             # Create event for OpenSearch
             event = {
