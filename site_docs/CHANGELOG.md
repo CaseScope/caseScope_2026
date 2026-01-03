@@ -4,6 +4,25 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
+**1. Fixed Table Display Glitch on Page Refresh**
+- **Issue**: File list table briefly shows broken layout during AJAX refresh
+- **Root Cause**:
+  - `innerHTML` replacement caused immediate browser reflow
+  - Table opacity changed AFTER content update, showing broken state
+  - No transition delay allowed for smooth update
+- **Solution**:
+  - Fade out table (opacity: 0) BEFORE updating innerHTML
+  - Wait 150ms for fade animation to complete
+  - Update innerHTML while table is invisible
+  - Fade back in (opacity: 1) with CSS transition
+  - Added error handling to restore opacity on failure
+- **Files Modified**:
+  - `templates/case/files.html` - Added fade out/in transitions to `refreshFileList()`
+- **Impact**:
+  - Smooth, glitch-free table updates
+  - No more broken layout flashes
+  - Better perceived performance
+
 **1. Fixed ZIP Filename Appearing Multiple Times in File List**
 - **Issue**: ZIP filename appearing many times instead of showing actual extracted files
 - **Root Cause**:

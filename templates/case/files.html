@@ -349,6 +349,13 @@ async function refreshFileList() {
         
         console.log(`📋 Updating DOM with ${data.files.length} files...`);
         
+        // Fade out before update to prevent layout glitch
+        tbody.style.opacity = '0';
+        tbody.style.transition = 'opacity 0.15s ease';
+        
+        // Wait for fade out
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
         // Update table rows
         tbody.innerHTML = data.files.map(file => `
             <tr>
@@ -383,12 +390,17 @@ async function refreshFileList() {
         console.log('✓ File list DOM updated successfully');
         console.log('Sample file data:', data.files[0]);
         
-        // Visual feedback that update happened
-        tbody.style.opacity = '0.5';
-        setTimeout(() => { tbody.style.opacity = '1'; }, 100);
+        // Fade back in after DOM update
+        tbody.style.opacity = '1';
         
     } catch (error) {
         console.error('Error refreshing file list:', error);
+        
+        // Restore opacity on error
+        const tbody = document.getElementById('filesTableBody');
+        if (tbody) {
+            tbody.style.opacity = '1';
+        }
     }
 }
 
