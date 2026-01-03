@@ -342,7 +342,7 @@ async function updateStats() {
         updateStatCard('stat-pending-files', stats.pending_files);
         updateStatCard('stat-not-indexed-files', stats.not_indexed_files);
         updateStatCard('stat-zero-events-files', stats.zero_events_files);
-        updateStatCard('stat-total-size', stats.total_size_gb.toFixed(2) + ' GB');
+        updateStatCard('stat-total-size', (stats.total_size_gb || 0).toFixed(2) + ' GB');
         
         // Show/hide processing indicator
         const indicator = document.getElementById('processingIndicator');
