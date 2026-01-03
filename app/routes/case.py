@@ -410,18 +410,11 @@ def case_files(case_id=None):
     session['selected_case_id'] = case.id
     
     # Calculate statistics
-    storage_path = f'/opt/casescope/storage/case_{case_id}'
-    staging_path = f'/opt/casescope/staging/{case_id}'
+    # Total files - all files in database regardless of status
+    total_files = CaseFile.query.filter_by(case_id=case_id).count()
     
-    # Total files in storage
-    total_files = 0
-    total_size = 0
-    if os.path.exists(storage_path):
-        for filename in os.listdir(storage_path):
-            file_path = os.path.join(storage_path, filename)
-            if os.path.isfile(file_path):
-                total_files += 1
-                total_size += os.path.getsize(file_path)
+    # Total size - sum from database file_size field (more accurate than filesystem)
+    total_size = db.session.query(db.func.sum(CaseFile.file_size)).filter_by(case_id=case_id).scalar() or 0
     
     # Pending files - files that are being processed (query database, not filesystem)
     pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
@@ -492,18 +485,11 @@ def case_files_stats(case_id):
             return jsonify({'error': 'Access denied'}), 403
     
     # Calculate statistics
-    storage_path = f'/opt/casescope/storage/case_{case_id}'
-    staging_path = f'/opt/casescope/staging/{case_id}'
+    # Total files - all files in database regardless of status
+    total_files = CaseFile.query.filter_by(case_id=case_id).count()
     
-    # Total files in storage
-    total_files = 0
-    total_size = 0
-    if os.path.exists(storage_path):
-        for filename in os.listdir(storage_path):
-            file_path = os.path.join(storage_path, filename)
-            if os.path.isfile(file_path):
-                total_files += 1
-                total_size += os.path.getsize(file_path)
+    # Total size - sum from database file_size field
+    total_size = db.session.query(db.func.sum(CaseFile.file_size)).filter_by(case_id=case_id).scalar() or 0
     
     # Pending files - files that are being processed (query database, not filesystem)
     pending_files = CaseFile.query.filter_by(case_id=case_id).filter(

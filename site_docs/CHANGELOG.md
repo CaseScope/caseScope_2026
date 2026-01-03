@@ -4,7 +4,30 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Enhanced Statistics Cards - Added File Status Metrics**
+**1. Fixed Statistics Display and Calculations**
+- **Display Fix**: Changed from grid layout to single row display
+  - Added `stats-row` CSS class with 7-column grid
+  - Responsive breakpoints for smaller screens (4 cols @ 1400px, 2 cols @ 768px)
+  - All stats now display in one clean horizontal row
+- **Total Files Fix**: Now counts ALL files in database regardless of status
+  - Previous: only counted files in storage folder
+  - Current: counts all CaseFile records for the case
+  - More accurate representation of case scope
+- **Storage Size Fix**: Now calculates from database instead of filesystem
+  - Previous: scanned storage folder (returned 0 if path didn't exist)
+  - Current: sums file_size field from all CaseFile records
+  - Accounts for files in staging and storage
+  - More accurate and faster calculation
+- **Files Modified**:
+  - `templates/case/files.html` - Changed grid-7 to stats-row class
+  - `app/routes/case.py` - Updated stats calculation in both endpoints
+  - `static/css/main.css` - Added stats-row styling
+- **Impact**:
+  - Cleaner single-row stats display
+  - Accurate file counts and storage sizes
+  - Faster stats calculation (database query vs filesystem scan)
+
+**2. Enhanced Statistics Cards - Added File Status Metrics**
 - **New Metrics Added**:
   - **Files Not Indexed**: Count of ParseFail or Error status files
   - **Files with 0 Events**: Count of ZeroEvents status files
