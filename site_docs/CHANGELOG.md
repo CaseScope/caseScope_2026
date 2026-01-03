@@ -4,7 +4,31 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Replaced Dropdown with Status Checkbox Filters**
+**1. Enhanced Statistics Cards - Added File Status Metrics**
+- **New Metrics Added**:
+  - **Files Not Indexed**: Count of ParseFail or Error status files
+  - **Files with 0 Events**: Count of ZeroEvents status files
+- **Updated Metric Definitions**:
+  - **Total Files**: All files finished processing (in storage)
+  - **Total Events**: Cumulative events from all files
+  - **Indexed Files**: Files completely or partially indexed (Indexed + Partial statuses)
+  - **Pending Files**: Files waiting to be processed (New, processing, parsing, extracting statuses)
+  - **Total Size**: Size of all files in storage
+- **Implementation**:
+  - Changed from grid-5 to grid-7 layout
+  - Added stat-value-error styling for Files Not Indexed (red)
+  - Added stat-value-warning styling for Files with 0 Events (yellow)
+  - Updated both main route and stats API endpoint
+  - Real-time updates via existing polling mechanism
+- **Files Modified**:
+  - `templates/case/files.html` - Added two new stat cards
+  - `app/routes/case.py` - Updated stats calculation in both routes
+- **Impact**:
+  - Better visibility into file processing outcomes
+  - Quick identification of problematic files
+  - More comprehensive case health overview
+
+**2. Replaced Dropdown with Status Checkbox Filters**
 - **Issue**: Dropdown only allowed one filter option at a time (Hide Hidden/Only Hidden/Show All)
 - **New Feature**: Status-based checkbox filters for granular control
 - **Statuses Available**:

@@ -438,18 +438,26 @@ def case_files(case_id=None):
     except Exception as e:
         logger.error(f"Error getting event count: {e}")
     
-    # Calculate indexed files (files with events)
-    indexed_files = total_files - pending_files if total_events > 0 else 0
+    # Calculate indexed files (files completely or partially indexed)
+    indexed_files = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['Indexed', 'Partial'])
+    ).count()
     
-    # Get hidden file count
-    hidden_count = CaseFile.query.filter_by(case_id=case_id, is_hidden=True).count()
+    # Calculate files not indexed (ParseFail or Error)
+    not_indexed_files = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['ParseFail', 'Error'])
+    ).count()
+    
+    # Calculate files with zero events
+    zero_events_files = CaseFile.query.filter_by(case_id=case_id, status='ZeroEvents').count()
     
     stats = {
         'total_files': total_files,
         'total_events': total_events,
         'indexed_files': indexed_files,
         'pending_files': pending_files,
-        'hidden_files': hidden_count,
+        'not_indexed_files': not_indexed_files,
+        'zero_events_files': zero_events_files,
         'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
     }
     
@@ -516,8 +524,13 @@ def case_files_stats(case_id):
     processing_count = CaseFile.query.filter_by(case_id=case_id).filter(
         CaseFile.status.in_(['New', 'processing', 'parsing', 'extracting'])
     ).count()
-    indexed_count = CaseFile.query.filter_by(case_id=case_id, status='indexed').count()
-    failed_count = CaseFile.query.filter_by(case_id=case_id, status='failed').count()
+    indexed_count = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['Indexed', 'Partial'])
+    ).count()
+    not_indexed_count = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['ParseFail', 'Error'])
+    ).count()
+    zero_events_count = CaseFile.query.filter_by(case_id=case_id, status='ZeroEvents').count()
     
     stats = {
         'total_files': total_files,
@@ -525,7 +538,8 @@ def case_files_stats(case_id):
         'indexed_files': indexed_count,
         'pending_files': pending_files,
         'processing_files': processing_count,
-        'failed_files': failed_count,
+        'not_indexed_files': not_indexed_count,
+        'zero_events_files': zero_events_count,
         'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
     }
     

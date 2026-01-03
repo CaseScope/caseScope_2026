@@ -18,7 +18,7 @@
 </div>
 
 <!-- Statistics Row -->
-<div class="grid grid-5 mb-4" id="statsGrid">
+<div class="grid grid-7 mb-4" id="statsGrid">
     <div class="stat-card">
         <div class="stat-label">Total Files</div>
         <div class="stat-value stat-value-primary" id="stat-total-files">{{ stats.total_files }}</div>
@@ -40,9 +40,17 @@
     </div>
     
     <div class="stat-card">
-        <div class="stat-label">
-            Total Size
-        </div>
+        <div class="stat-label">Files Not Indexed</div>
+        <div class="stat-value stat-value-error" id="stat-not-indexed-files">{{ stats.not_indexed_files }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Files with 0 Events</div>
+        <div class="stat-value stat-value-warning" id="stat-zero-events-files">{{ stats.zero_events_files }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Total Size</div>
         <div class="stat-value stat-value-info" id="stat-total-size">{{ "%.2f"|format(stats.total_size_gb) }} GB</div>
     </div>
 </div>
@@ -283,6 +291,8 @@ async function updateStats() {
         updateStatCard('stat-total-events', formatNumber(stats.total_events));
         updateStatCard('stat-indexed-files', stats.indexed_files);
         updateStatCard('stat-pending-files', stats.pending_files);
+        updateStatCard('stat-not-indexed-files', stats.not_indexed_files);
+        updateStatCard('stat-zero-events-files', stats.zero_events_files);
         updateStatCard('stat-total-size', stats.total_size_gb.toFixed(2) + ' GB');
         
         // Show/hide processing indicator
