@@ -115,9 +115,9 @@
                         data-hidden="{{ 'true' if file.is_hidden else 'false' }}"
                         data-container-id="{{ file.id if file.is_container else '' }}"
                         {% if file.is_container %}onclick="toggleZipExpansion({{ file.id }}, '{{ file.original_filename }}', {{ file.child_count }})"{% endif %}>
-                        <td>
+                        <td class="parent-zip-cell">
                             {% if file.original_filename and file.original_filename.lower().endswith('.zip') and not file.filename.lower().endswith('.zip') %}
-                            <span class="badge badge-info">📦 {{ file.original_filename }}</span>
+                            <span class="parent-zip-name">📦 {{ file.original_filename }}</span>
                             {% else %}
                             <span class="text-muted">-</span>
                             {% endif %}
@@ -367,9 +367,9 @@ async function refreshFileList() {
         // Update table rows
         tbody.innerHTML = data.files.map(file => `
             <tr>
-                <td>
+                <td class="parent-zip-cell">
                     ${file.original_filename && file.original_filename.toLowerCase().endsWith('.zip') && !file.filename.toLowerCase().endsWith('.zip') 
-                        ? `<span class="badge badge-info">📦 ${file.original_filename}</span>` 
+                        ? `<span class="parent-zip-name">📦 ${file.original_filename}</span>` 
                         : '<span class="text-muted">-</span>'}
                 </td>
                 <td>

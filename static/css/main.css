@@ -1986,3 +1986,17 @@ tbody tr {
     border-width: 2px;
     background: rgba(59, 130, 246, 0.05);
 }
+
+/* Parent ZIP column styling */
+.parent-zip-cell {
+    max-width: 200px;
+}
+
+.parent-zip-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-primary);
+}
