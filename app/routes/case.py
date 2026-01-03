@@ -509,6 +509,7 @@ def case_files_stats(case_id):
     API endpoint for real-time stats updates
     Returns JSON with current file statistics
     """
+    from main import db
     from models import Case, CaseFile
     import os
     
