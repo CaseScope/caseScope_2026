@@ -4,7 +4,30 @@
 
 ### 🔧 Upload & Processing Flow Fixes
 
-**1. Fixed Statistics Display and Calculations**
+**1. Added Pagination to File List**
+- **Feature**: Paginated file list for better performance with large cases
+- **Implementation**:
+  - 50 files per page (default)
+  - Up to 100 files per page (max)
+  - Previous/Next buttons
+  - Page number buttons with current page highlighted
+  - Ellipsis (...) for large page ranges
+  - Shows "Showing X-Y of Z files" info
+  - Pagination controls in card footer
+- **Backend**:
+  - Uses Flask-SQLAlchemy `.paginate()` method
+  - Query params: `?page=1&per_page=50`
+  - Returns pagination object with page info
+- **Files Modified**:
+  - `templates/case/files.html` - Added pagination controls and changePage() function
+  - `app/routes/case.py` - Added pagination to file query
+  - `static/css/main.css` - Added pagination styling
+- **Impact**:
+  - Better performance for cases with thousands of files
+  - Consistent UX with users/IOCs/systems pages
+  - Cleaner display with manageable page sizes
+
+**2. Fixed Statistics Display and Calculations**
 - **Display Fix**: Changed from grid layout to single row display
   - Added `stats-row` CSS class with 7-column grid
   - Responsive breakpoints for smaller screens (4 cols @ 1400px, 2 cols @ 768px)

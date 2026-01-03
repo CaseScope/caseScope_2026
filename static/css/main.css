@@ -2059,3 +2059,26 @@ tbody tr {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+/* Pagination Controls */
+.pagination {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.pagination-info {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+}
+
+.pagination-ellipsis {
+    padding: 0 8px;
+    color: var(--color-text-muted);
+}
+
+.card-footer {
+    background: var(--color-bg-tertiary);
+    border-top: 1px solid var(--color-border);
+    padding: var(--spacing-md);
+}

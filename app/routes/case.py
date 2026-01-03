@@ -454,8 +454,17 @@ def case_files(case_id=None):
         'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
     }
     
-    # Get file list from database (show all files, filtering done client-side via checkboxes)
-    files = CaseFile.query.filter_by(case_id=case_id).order_by(CaseFile.uploaded_at.desc()).all()
+    # Pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(per_page, 100)  # Max 100 items per page
+    
+    # Get file list from database with pagination
+    pagination = CaseFile.query.filter_by(case_id=case_id).order_by(CaseFile.uploaded_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    files = pagination.items
     
     # For each container (ZIP), get child count
     for file in files:
@@ -464,7 +473,8 @@ def case_files(case_id=None):
         else:
             file.child_count = 0
     
-    return render_template('case/files.html', case=case, stats=stats, files=files)
+    return render_template('case/files.html', case=case, stats=stats, files=files, 
+                         pagination=pagination, page=page, per_page=per_page)
 
 
 @case_bp.route('/<int:case_id>/files/stats', methods=['GET'])
