@@ -80,6 +80,11 @@
                     <span>Execution Artifacts</span>
                 </a>
                 
+                <a href="/filesystem" class="sidebar-nav-item {% if request.path.startswith('/filesystem') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🗂️</span>
+                    <span>Filesystem Timeline</span>
+                </a>
+                
                 <a href="/systems" class="sidebar-nav-item {% if request.path.startswith('/systems') %}active{% endif %}">
                     <span class="sidebar-nav-icon">💻</span>
                     <span>Known Systems</span>
