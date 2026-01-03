@@ -838,12 +838,33 @@ async function monitorStagingProgress(taskId) {
             
             // Update files list if available
             if (data.current_step) {
+                const stepLabels = {
+                    'extracting': 'Extracting ZIP',
+                    'staging': 'Staging Files',
+                    'hashing': 'Calculating Hashes',
+                    'creating_records': 'Creating File Records',
+                    'indexing': 'Indexing Events',
+                    'cleanup': 'Cleaning Up'
+                };
+                
+                const stepLabel = stepLabels[data.current_step] || data.current_step;
+                
                 filesList.innerHTML = `
                     <div class="staging-file-item">
                         <span class="staging-file-name">Current Step:</span>
-                        <span class="staging-file-status ${data.current_step}">${data.current_step}</span>
+                        <span class="staging-file-status ${data.current_step}">${stepLabel}</span>
                     </div>
                 `;
+                
+                // Show indexed/failed counts if available
+                if (data.indexed || data.failed) {
+                    filesList.innerHTML += `
+                        <div class="staging-file-item">
+                            <span class="staging-file-name">Progress:</span>
+                            <span class="staging-file-status complete">✓ ${data.indexed || 0} indexed, ✗ ${data.failed || 0} failed</span>
+                        </div>
+                    `;
+                }
             }
             
             // Check if staging complete

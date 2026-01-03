@@ -111,12 +111,16 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             for idx, file_info in enumerate(files_to_process):
                 progress_pct = int((idx / total_files) * 30)  # Staging = 0-30%
                 
+                # Determine step based on file type
+                step_name = 'extracting' if file_info['is_zip'] else 'staging'
+                step_verb = 'Extracting' if file_info['is_zip'] else 'Staging'
+                
                 self.update_state(
                     state='PROGRESS',
                     meta={
-                        'status': f'Staging {file_info["filename"]}...',
+                        'status': f'{step_verb} {file_info["filename"]}...',
                         'progress': progress_pct,
-                        'current_step': 'staging',
+                        'current_step': step_name,
                         'files_processed': idx,
                         'total_files': total_files
                     }
