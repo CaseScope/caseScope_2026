@@ -264,11 +264,29 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             failed_count = 0
             
             # Import parsers and utilities
-            from parsers.evtx_parser import parse_evtx_file, EVTX_AVAILABLE
+            # Try EZ Tools parsers first (better data), fall back to Python parsers
+            try:
+                from parsers.eztools_lnk_parser import parse_lnk_file as parse_lnk_eztools, LECMD_AVAILABLE
+                parse_lnk_file = parse_lnk_eztools if LECMD_AVAILABLE else None
+            except:
+                from parsers.lnk_parser import parse_lnk_file, LNK_AVAILABLE
+                LECMD_AVAILABLE = False
+            
+            try:
+                from parsers.eztools_evtx_parser import parse_evtx_file as parse_evtx_eztools, EVTXECMD_AVAILABLE
+                if EVTXECMD_AVAILABLE:
+                    parse_evtx_eztools_fn = parse_evtx_eztools
+                else:
+                    parse_evtx_eztools_fn = None
+            except:
+                EVTXECMD_AVAILABLE = False
+            
+            from parsers.evtx_parser import parse_evtx_file as parse_evtx_python, EVTX_AVAILABLE
             from parsers.ndjson_parser import parse_ndjson_file
             from parsers.firewall_csv_parser import parse_firewall_csv
             from parsers.prefetch_parser_new import parse_prefetch_file as parse_prefetch_new, PREFETCH_AVAILABLE
-            from parsers.lnk_parser import parse_lnk_file, LNK_AVAILABLE
+            from parsers.eztools_jumplist_parser import parse_jumplist_file, JLECMD_AVAILABLE
+            from parsers.eztools_mft_parser import parse_mft_file as parse_mft_eztools, MFTECMD_AVAILABLE
             from opensearch_indexer import OpenSearchIndexer
             from config import Config
             from utils.event_normalization import normalize_event_computer
@@ -302,9 +320,17 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                     source_system = None  # Initialize before parsing
                     
                     # Now parse and index
-                    if file_ext == '.evtx' and EVTX_AVAILABLE:
-                        # Parse EVTX (returns iterator of events)
-                        events = list(parse_evtx_file(file_path))
+                    # Use EZ Tools if available (better normalization), otherwise Python parsers
+                    if file_ext == '.evtx':
+                        # Try EvtxECmd first (453 normalization maps), fall back to Python
+                        if EVTXECMD_AVAILABLE:
+                            logger.info(f"Using EvtxECmd for {filename}")
+                            events = list(parse_evtx_eztools_fn(file_path))
+                        elif EVTX_AVAILABLE:
+                            logger.info(f"Using Python EVTX parser for {filename}")
+                            events = list(parse_evtx_python(file_path))
+                        else:
+                            raise ImportError("No EVTX parser available")
                         
                         # Extract computer name from first event using normalization utility
                         source_system = None
