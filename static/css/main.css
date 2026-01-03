@@ -2000,3 +2000,16 @@ tbody tr {
     white-space: nowrap;
     color: var(--color-text-primary);
 }
+
+/* Filename column styling - truncate long filenames */
+.filename-cell {
+    max-width: 300px;
+}
+
+.filename-text {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
