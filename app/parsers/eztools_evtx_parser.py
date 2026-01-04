@@ -78,12 +78,21 @@ def parse_evtx_file(file_path):
                 return
             
             json_path = os.path.join(temp_dir, json_files[0])
-            with open(json_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig handles BOM
-                events_data = json.load(f)
             
-            # EvtxECmd returns array of events
-            if not isinstance(events_data, list):
-                logger.warning(f"Unexpected JSON format for {filename}")
+            # EvtxECmd outputs NDJSON (one JSON object per line), not JSON array
+            events_data = []
+            with open(json_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig handles BOM
+                for line in f:
+                    line = line.strip()
+                    if line:  # Skip empty lines
+                        try:
+                            event = json.loads(line)
+                            events_data.append(event)
+                        except json.JSONDecodeError as e:
+                            logger.debug(f"Skipping invalid JSON line: {e}")
+            
+            if not events_data:
+                logger.info(f"No events in {filename} (empty EVTX file)")
                 return
             
             logger.info(f"Parsing {len(events_data)} events from {filename} with EvtxECmd")
