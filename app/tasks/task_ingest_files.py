@@ -273,13 +273,27 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 queued_tasks.append(task)
                 logger.info(f"Queued {os.path.basename(file_path)} for parallel processing (task: {task.id[:8]})")
             
-            logger.info(f"Queued {len(queued_tasks)} files for parallel processing across {8} workers")
+            logger.info(f"Queued {len(queued_tasks)} files for parallel processing across 8 workers")
             
-            # Don't wait for completion - let them process in parallel
-            # The UI will show real-time progress via database queries
+            # Mark ingestion as completed (parallel tasks will update file records)
+            update_ingestion_progress(
+                progress_id,
+                status='completed',
+                current_step='parallel_processing',
+                processed_files=len(file_records),
+                completed_at=datetime.utcnow()
+            )
             
-            # LEGACY SEQUENTIAL CODE BELOW - Kept for reference but not executed
-            if False:  # Disabled - using parallel processing above
+            # Return immediately - parallel tasks handle the rest
+            return {
+                'success': True,
+                'total_files': len(file_records),
+                'queued_for_processing': len(queued_tasks),
+                'message': 'Files queued for parallel processing'
+            }
+            
+            # LEGACY SEQUENTIAL CODE BELOW - Disabled
+            if False:
                 indexed_count = 0
                 failed_count = 0
             
