@@ -743,6 +743,26 @@ def get_active_tasks(case_id):
         # Process each worker's tasks
         for worker_name, tasks in active_tasks.items():
             for task in tasks:
+                # Check for NEW parallel processing: process_individual_file
+                if task.get('name') == 'tasks.process_individual_file':
+                    try:
+                        task_kwargs = task.get('kwargs', {})
+                        file_id = task_kwargs.get('file_id')
+                        
+                        if file_id:
+                            file = CaseFile.query.get(file_id)
+                            if file and file.case_id == case_id:
+                                active_files.append({
+                                    'filename': file.filename,
+                                    'original_filename': file.original_filename or file.filename,
+                                    'parent_zip': None,
+                                    'is_virtual': False,
+                                    'worker': worker_name.split('@')[0] if '@' in worker_name else worker_name
+                                })
+                    except Exception as e:
+                        logger.error(f"Error parsing parallel task: {e}")
+                        continue
+                
                 # Check for old system: parse_and_index_file tasks
                 if task.get('name') == 'tasks.parse_and_index_file':
                     try:
