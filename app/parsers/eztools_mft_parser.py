@@ -79,12 +79,20 @@ def parse_mft_file(file_path):
             
             json_path = os.path.join(temp_dir, json_files[0])
             
-            # MFT files can be HUGE - stream the JSON
+            # MFTECmd outputs NDJSON (one JSON object per line), not JSON array
+            mft_data = []
             with open(json_path, 'r', encoding='utf-8-sig') as f:  # Handle BOM
-                mft_data = json.load(f)
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            entry = json.loads(line)
+                            mft_data.append(entry)
+                        except json.JSONDecodeError as e:
+                            logger.debug(f"Skipping invalid MFT JSON line: {e}")
             
-            if not isinstance(mft_data, list):
-                logger.warning(f"Unexpected JSON format for {filename}")
+            if not mft_data:
+                logger.info(f"No MFT entries in {filename}")
                 return
             
             logger.info(f"Parsing {len(mft_data)} MFT entries from {filename} with MFTECmd")
