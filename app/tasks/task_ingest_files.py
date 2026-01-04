@@ -257,13 +257,33 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             
             db.session.commit()  # Commit all at once so all files appear in UI
             
-            # STEP 4B: Now parse and index each file
+            # STEP 4B: Queue all files for parallel processing
             update_ingestion_progress(progress_id, current_step='indexing')
             
-            indexed_count = 0
-            failed_count = 0
+            from tasks.task_process_file import process_individual_file
             
-            # Import parsers and utilities
+            # Queue all files as separate tasks (parallel processing!)
+            queued_tasks = []
+            for file_data in file_records:
+                file_record = file_data['record']
+                file_path = file_data['info']['path']
+                
+                # Queue task for this file
+                task = process_individual_file.delay(case_id, file_record.id, file_path)
+                queued_tasks.append(task)
+                logger.info(f"Queued {os.path.basename(file_path)} for parallel processing (task: {task.id[:8]})")
+            
+            logger.info(f"Queued {len(queued_tasks)} files for parallel processing across {8} workers")
+            
+            # Don't wait for completion - let them process in parallel
+            # The UI will show real-time progress via database queries
+            
+            # LEGACY SEQUENTIAL CODE BELOW - Kept for reference but not executed
+            if False:  # Disabled - using parallel processing above
+                indexed_count = 0
+                failed_count = 0
+            
+                # Import parsers and utilities
             # Try EZ Tools parsers first (better data), fall back to Python parsers
             try:
                 from parsers.eztools_lnk_parser import parse_lnk_file as parse_lnk_eztools, LECMD_AVAILABLE
