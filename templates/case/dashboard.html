@@ -125,7 +125,64 @@
     </div>
 </div>
 
-<!-- Row 2: Description (Full Width) -->
+<!-- Row 2: Evidence Artifacts Overview (Full Width) -->
+<div class="card mb-4">
+    <div class="card-header" style="cursor: pointer;" onclick="toggleArtifactStats()">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2 class="card-title mb-0">📊 Evidence Artifacts</h2>
+            <div class="d-flex align-items-center gap-3">
+                <span id="artifactTotalBadge" class="badge badge-primary" style="font-size: 0.9rem;">
+                    Loading...
+                </span>
+                <span id="artifactToggleIcon" style="font-size: 1.2rem;">▼</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- File Summary (Always Visible) -->
+    <div class="card-body border-bottom">
+        <div class="text-muted text-small mb-2">File Management</div>
+        <div class="grid grid-6">
+            <div class="text-center">
+                <div class="text-small text-muted">Total Files</div>
+                <div class="fw-bold" id="stat-files">-</div>
+            </div>
+            <div class="text-center">
+                <div class="text-small text-muted">Indexed</div>
+                <div class="fw-bold text-success" id="stat-indexed">-</div>
+            </div>
+            <div class="text-center">
+                <div class="text-small text-muted">Pending</div>
+                <div class="fw-bold text-warning" id="stat-pending">-</div>
+            </div>
+            <div class="text-center">
+                <div class="text-small text-muted">Failed</div>
+                <div class="fw-bold text-error" id="stat-failed">-</div>
+            </div>
+            <div class="text-center">
+                <div class="text-small text-muted">Zero Events</div>
+                <div class="fw-bold text-muted" id="stat-zero">-</div>
+            </div>
+            <div class="text-center">
+                <div class="text-small text-muted">Total Size</div>
+                <div class="fw-bold" id="stat-size">-</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Detailed Artifact Breakdown (Collapsible) -->
+    <div id="artifactDetailsSection" class="card-body" style="display: none;">
+        <div class="text-muted text-small mb-3">Artifact counts across all OpenSearch indices</div>
+        <div id="artifactBreakdown">
+            <div class="text-center p-4">
+                <div class="spinner-border text-primary"></div>
+                <p class="mt-2 text-muted">Loading artifact statistics...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Row 3: Description (Full Width) -->
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">📝 Case Description</h2>
@@ -370,6 +427,290 @@ document.getElementById('edrModal').addEventListener('click', function(e) {
 document.getElementById('editCaseModal').addEventListener('click', function(e) {
     if (e.target === this) {
         closeEditCaseModal();
+    }
+});
+
+// ============================================================================
+// ARTIFACT STATISTICS (NEW)
+// ============================================================================
+
+let artifactStatsLoaded = false;
+
+async function toggleArtifactStats() {
+    const section = document.getElementById('artifactDetailsSection');
+    const icon = document.getElementById('artifactToggleIcon');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.textContent = '▲';
+        
+        // Load stats on first expand
+        if (!artifactStatsLoaded) {
+            await loadArtifactStats();
+            artifactStatsLoaded = true;
+        }
+    } else {
+        section.style.display = 'none';
+        icon.textContent = '▼';
+    }
+}
+
+async function loadArtifactStats() {
+    try {
+        const response = await fetch(`/case/api/artifact-stats/{{ case.id }}`);
+        if (!response.ok) throw new Error('Failed to load artifact stats');
+        
+        const data = await response.json();
+        
+        // Update total badge
+        document.getElementById('artifactTotalBadge').textContent = 
+            formatNumber(data.total_artifacts) + ' Total Artifacts';
+        
+        // Update file stats
+        if (data.files) {
+            document.getElementById('stat-files').textContent = formatNumber(data.files.total);
+            document.getElementById('stat-indexed').textContent = formatNumber(data.files.indexed);
+            document.getElementById('stat-pending').textContent = formatNumber(data.files.pending);
+            document.getElementById('stat-failed').textContent = formatNumber(data.files.failed);
+            document.getElementById('stat-zero').textContent = formatNumber(data.files.zero_events);
+            document.getElementById('stat-size').textContent = data.files.total_size_gb + ' GB';
+        }
+        
+        // Build breakdown HTML
+        let html = '';
+        
+        // Order indices by importance (non-zero first)
+        const orderedKeys = ['events', 'browser', 'execution', 'filesystem', 'useractivity', 
+                            'comms', 'network', 'persistence', 'devices', 'cloud', 'remote'];
+        
+        for (const key of orderedKeys) {
+            const index = data.indices[key];
+            if (!index) continue;
+            
+            // Only show indices with data, or show all if total artifacts is 0
+            if (index.total > 0 || data.total_artifacts === 0) {
+                const isNew = ['useractivity', 'comms', 'network', 'persistence', 'devices', 'cloud', 'remote'].includes(key);
+                
+                html += `
+                    <div class="mb-4 pb-3" style="border-bottom: 1px solid var(--color-border);">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h4 class="mb-1">
+                                    ${index.icon} ${index.label}
+                                    ${isNew ? '<span class="badge badge-success ms-2" style="font-size: 0.7rem;">NEW</span>' : ''}
+                                </h4>
+                                <div class="text-small text-muted">${index.description}</div>
+                            </div>
+                            <span class="badge ${index.total > 0 ? 'badge-primary' : 'badge-secondary'}" style="font-size: 0.95rem;">
+                                ${formatNumber(index.total)}
+                            </span>
+                        </div>
+                `;
+                
+                // Show breakdown if available
+                if (index.breakdown && index.breakdown.length > 0) {
+                    html += '<div class="ps-4">';
+                    
+                    index.breakdown.forEach(item => {
+                        const percentage = index.total > 0 ? Math.round((item.count / index.total) * 100) : 0;
+                        html += `
+                            <div class="d-flex justify-content-between align-items-center mb-1" style="font-size: 0.875rem;">
+                                <span class="text-secondary">${item.type}</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="text-muted">${formatNumber(item.count)}</span>
+                                    <span class="text-muted text-small">(${percentage}%)</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                } else if (index.total === 0) {
+                    html += '<div class="ps-4 text-muted text-small">No artifacts in this index</div>';
+                }
+                
+                html += '</div>';
+            }
+        }
+        
+        if (!html) {
+            html = '<div class="text-center p-4 text-muted">No artifacts indexed yet. Upload files to populate indices.</div>';
+        }
+        
+        document.getElementById('artifactBreakdown').innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading artifact stats:', error);
+        document.getElementById('artifactBreakdown').innerHTML = `
+            <div class="alert alert-error">
+                Error loading artifact statistics: ${error.message}
+            </div>
+        `;
+    }
+}
+
+function formatNumber(num) {
+    if (num === null || num === undefined) return '0';
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// Load artifact stats badge on page load (don't expand, just show total)
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const response = await fetch(`/case/api/artifact-stats/{{ case.id }}`);
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('artifactTotalBadge').textContent = 
+                formatNumber(data.total_artifacts) + ' Total Artifacts';
+            
+            // Pre-populate file stats
+            if (data.files) {
+                document.getElementById('stat-files').textContent = formatNumber(data.files.total);
+                document.getElementById('stat-indexed').textContent = formatNumber(data.files.indexed);
+                document.getElementById('stat-pending').textContent = formatNumber(data.files.pending);
+                document.getElementById('stat-failed').textContent = formatNumber(data.files.failed);
+                document.getElementById('stat-zero').textContent = formatNumber(data.files.zero_events);
+                document.getElementById('stat-size').textContent = data.files.total_size_gb + ' GB';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading initial stats:', error);
+    }
+});
+
+// ============================================================================
+// ARTIFACT STATISTICS (NEW)
+// ============================================================================
+
+let artifactStatsLoaded = false;
+
+async function toggleArtifactStats() {
+    const section = document.getElementById('artifactDetailsSection');
+    const icon = document.getElementById('artifactToggleIcon');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.textContent = '▲';
+        
+        if (!artifactStatsLoaded) {
+            await loadArtifactStats();
+            artifactStatsLoaded = true;
+        }
+    } else {
+        section.style.display = 'none';
+        icon.textContent = '▼';
+    }
+}
+
+async function loadArtifactStats() {
+    try {
+        const response = await fetch(`/case/api/artifact-stats/{{ case.id }}`);
+        if (!response.ok) throw new Error('Failed to load artifact stats');
+        
+        const data = await response.json();
+        
+        document.getElementById('artifactTotalBadge').textContent = 
+            formatNumber(data.total_artifacts) + ' Total Artifacts';
+        
+        if (data.files) {
+            document.getElementById('stat-files').textContent = formatNumber(data.files.total);
+            document.getElementById('stat-indexed').textContent = formatNumber(data.files.indexed);
+            document.getElementById('stat-pending').textContent = formatNumber(data.files.pending);
+            document.getElementById('stat-failed').textContent = formatNumber(data.files.failed);
+            document.getElementById('stat-zero').textContent = formatNumber(data.files.zero_events);
+            document.getElementById('stat-size').textContent = data.files.total_size_gb + ' GB';
+        }
+        
+        let html = '';
+        const orderedKeys = ['events', 'browser', 'execution', 'filesystem', 'useractivity', 
+                            'comms', 'network', 'persistence', 'devices', 'cloud', 'remote'];
+        
+        for (const key of orderedKeys) {
+            const index = data.indices[key];
+            if (!index) continue;
+            
+            if (index.total > 0 || data.total_artifacts === 0) {
+                const isNew = ['useractivity', 'comms', 'network', 'persistence', 'devices', 'cloud', 'remote'].includes(key);
+                
+                html += `
+                    <div class="mb-4 pb-3" style="border-bottom: 1px solid var(--color-border);">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h4 class="mb-1">
+                                    ${index.icon} ${index.label}
+                                    ${isNew ? '<span class="badge badge-success ms-2" style="font-size: 0.7rem;">NEW</span>' : ''}
+                                </h4>
+                                <div class="text-small text-muted">${index.description}</div>
+                            </div>
+                            <span class="badge ${index.total > 0 ? 'badge-primary' : 'badge-secondary'}" style="font-size: 0.95rem;">
+                                ${formatNumber(index.total)}
+                            </span>
+                        </div>
+                `;
+                
+                if (index.breakdown && index.breakdown.length > 0) {
+                    html += '<div class="ps-4">';
+                    
+                    index.breakdown.forEach(item => {
+                        const percentage = index.total > 0 ? Math.round((item.count / index.total) * 100) : 0;
+                        html += `
+                            <div class="d-flex justify-content-between align-items-center mb-1" style="font-size: 0.875rem;">
+                                <span class="text-secondary">${item.type}</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="text-muted">${formatNumber(item.count)}</span>
+                                    <span class="text-muted text-small">(${percentage}%)</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                } else if (index.total === 0) {
+                    html += '<div class="ps-4 text-muted text-small">No artifacts in this index</div>';
+                }
+                
+                html += '</div>';
+            }
+        }
+        
+        if (!html) {
+            html = '<div class="text-center p-4 text-muted">No artifacts indexed yet. Upload files to populate indices.</div>';
+        }
+        
+        document.getElementById('artifactBreakdown').innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading artifact stats:', error);
+        document.getElementById('artifactBreakdown').innerHTML = `
+            <div class="alert alert-error">Error loading artifact statistics: ${error.message}</div>
+        `;
+    }
+}
+
+function formatNumber(num) {
+    if (num === null || num === undefined) return '0';
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const response = await fetch(`/case/api/artifact-stats/{{ case.id }}`);
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('artifactTotalBadge').textContent = 
+                formatNumber(data.total_artifacts) + ' Total Artifacts';
+            
+            if (data.files) {
+                document.getElementById('stat-files').textContent = formatNumber(data.files.total);
+                document.getElementById('stat-indexed').textContent = formatNumber(data.files.indexed);
+                document.getElementById('stat-pending').textContent = formatNumber(data.files.pending);
+                document.getElementById('stat-failed').textContent = formatNumber(data.files.failed);
+                document.getElementById('stat-zero').textContent = formatNumber(data.files.zero_events);
+                document.getElementById('stat-size').textContent = data.files.total_size_gb + ' GB';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading initial stats:', error);
     }
 });
 </script>

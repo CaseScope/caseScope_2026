@@ -1369,3 +1369,195 @@ def update_edr_report(case_id):
         db.session.rollback()
         logger.error(f"Error updating EDR report for case {case_id}: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@case_bp.route('/api/artifact-stats/<int:case_id>')
+@login_required
+def api_artifact_stats(case_id):
+    """
+    Get comprehensive artifact statistics across all indices
+    Returns counts for all 11 OpenSearch indices with type breakdowns
+    """
+    from opensearch_indexer import OpenSearchIndexer
+    from opensearchpy.exceptions import NotFoundError
+    from models import Case, CaseFile
+    from main import db
+    
+    # Verify case access
+    case = Case.query.get_or_404(case_id)
+    if current_user.role == 'read-only' and case.id != current_user.case_assigned:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        indexer = OpenSearchIndexer()
+        client = indexer.client
+        
+        stats = {
+            'total_artifacts': 0,
+            'indices': {}
+        }
+        
+        # Define all indices with metadata
+        indices_config = {
+            'events': {
+                'name': f'case_{case_id}',
+                'label': 'Events & Logs',
+                'icon': '🔍',
+                'description': 'EVTX, EDR, Firewall, Sysmon'
+            },
+            'browser': {
+                'name': f'case_{case_id}_browser',
+                'label': 'Browser Activity',
+                'icon': '🌐',
+                'description': 'Chrome, Edge, Firefox history'
+            },
+            'execution': {
+                'name': f'case_{case_id}_execution',
+                'label': 'Execution Artifacts',
+                'icon': '⚡',
+                'description': 'Prefetch, Activities, SRUM'
+            },
+            'filesystem': {
+                'name': f'case_{case_id}_filesystem',
+                'label': 'Filesystem Timeline',
+                'icon': '📁',
+                'description': 'MFT, Thumbcache, WinSearch'
+            },
+            'useractivity': {
+                'name': f'case_{case_id}_useractivity',
+                'label': 'User Activity',
+                'icon': '👤',
+                'description': 'Jump Lists, LNK shortcuts'
+            },
+            'comms': {
+                'name': f'case_{case_id}_comms',
+                'label': 'Communications',
+                'icon': '💬',
+                'description': 'Email, Teams/Skype, Notifications'
+            },
+            'network': {
+                'name': f'case_{case_id}_network',
+                'label': 'Network Activity',
+                'icon': '🌐',
+                'description': 'BITS transfers, SRUM network'
+            },
+            'persistence': {
+                'name': f'case_{case_id}_persistence',
+                'label': 'Persistence Mechanisms',
+                'icon': '🔒',
+                'description': 'Scheduled Tasks, WMI'
+            },
+            'devices': {
+                'name': f'case_{case_id}_devices',
+                'label': 'Device History',
+                'icon': '💾',
+                'description': 'USB connections, SetupAPI'
+            },
+            'cloud': {
+                'name': f'case_{case_id}_cloud',
+                'label': 'Cloud Storage',
+                'icon': '☁️',
+                'description': 'OneDrive operations'
+            },
+            'remote': {
+                'name': f'case_{case_id}_remote',
+                'label': 'Remote Sessions',
+                'icon': '🖥️',
+                'description': 'RDP bitmap cache'
+            }
+        }
+        
+        # Query each index
+        for key, config in indices_config.items():
+            index_name = config['name']
+            
+            try:
+                # Get total count
+                count_result = client.count(index=index_name, body={"query": {"match_all": {}}})
+                total = count_result.get('count', 0)
+                
+                # Get breakdown by event_type
+                breakdown = []
+                if total > 0:
+                    agg_query = {
+                        "size": 0,
+                        "aggs": {
+                            "by_type": {
+                                "terms": {
+                                    "field": "event_type.keyword",
+                                    "size": 20
+                                }
+                            }
+                        }
+                    }
+                    
+                    try:
+                        agg_result = client.search(index=index_name, body=agg_query)
+                        buckets = agg_result.get('aggregations', {}).get('by_type', {}).get('buckets', [])
+                        
+                        breakdown = [
+                            {
+                                'type': b['key'],
+                                'count': b['doc_count']
+                            }
+                            for b in buckets
+                        ]
+                    except Exception as e:
+                        logger.warning(f"Could not get breakdown for {index_name}: {e}")
+                
+                stats['indices'][key] = {
+                    'label': config['label'],
+                    'icon': config['icon'],
+                    'description': config['description'],
+                    'total': total,
+                    'breakdown': breakdown
+                }
+                
+                stats['total_artifacts'] += total
+                
+            except NotFoundError:
+                stats['indices'][key] = {
+                    'label': config['label'],
+                    'icon': config['icon'],
+                    'description': config['description'],
+                    'total': 0,
+                    'breakdown': []
+                }
+            except Exception as e:
+                logger.error(f"Error querying {index_name}: {e}")
+                stats['indices'][key] = {
+                    'label': config['label'],
+                    'icon': config['icon'],
+                    'description': config['description'],
+                    'total': 0,
+                    'breakdown': [],
+                    'error': str(e)
+                }
+        
+        # Get file stats from database
+        file_stats = db.session.query(
+            db.func.count(CaseFile.id).label('total_files'),
+            db.func.count(db.case((CaseFile.status == 'Indexed', CaseFile.id))).label('indexed_files'),
+            db.func.count(db.case((CaseFile.status == 'New', CaseFile.id))).label('pending_files'),
+            db.func.count(db.case((CaseFile.status.in_(['ParseFail', 'UnableToParse']), CaseFile.id))).label('failed_files'),
+            db.func.count(db.case((CaseFile.event_count == 0, CaseFile.id))).label('zero_event_files'),
+            db.func.sum(CaseFile.file_size).label('total_size')
+        ).filter(
+            CaseFile.case_id == case_id
+        ).first()
+        
+        stats['files'] = {
+            'total': file_stats.total_files or 0,
+            'indexed': file_stats.indexed_files or 0,
+            'pending': file_stats.pending_files or 0,
+            'failed': file_stats.failed_files or 0,
+            'zero_events': file_stats.zero_event_files or 0,
+            'total_size_bytes': file_stats.total_size or 0,
+            'total_size_gb': round((file_stats.total_size or 0) / (1024**3), 2)
+        }
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Error getting artifact stats for case {case_id}: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
