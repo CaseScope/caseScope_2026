@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Remote Sessions - CaseScope 2026{% endblock %}
+{% block header_title %}Remote Sessions{% endblock %}
+{% block content %}
+<div class="content-header">
+    <div><h1 class="content-title">🖥️ Remote Sessions (RDP)</h1>
+    {% if case %}<p class="content-subtitle">{{ case.name }}</p>{% endif %}</div>
+</div>
+{% if not case %}
+<div class="card"><div class="card-body"><div class="placeholder-content">
+    <h3>No Case Selected</h3><a href="/case/select" class="btn btn-primary mt-2">Select Case</a>
+</div></div></div>
+{% else %}
+<div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">RDP Cache Summary</h3></div>
+<div class="card-body"><div class="grid grid-4">
+    <div class="stat-card"><div class="stat-label">Total Cache Entries</div><div class="stat-value stat-value-primary" id="totalEntries">-</div></div>
+    <div class="stat-card"><div class="stat-label">Bitmap Tiles</div><div class="stat-value stat-value-info" id="tileCount">-</div></div>
+    <div class="stat-card"><div class="stat-label">Cache Files</div><div class="stat-value stat-value-success" id="fileCount">-</div></div>
+    <div class="stat-card"><div class="stat-label">Total Size</div><div class="stat-value stat-value-warning" id="totalSize">-</div></div>
+</div></div></div>
+<div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">Search & Filter</h3></div>
+<div class="card-body">
+    <div class="d-flex gap-2 mb-3">
+        <input type="text" id="searchInput" class="form-input" placeholder="Search cache entries..." onkeypress="if(event.key==='Enter') performSearch()" style="flex: 1;">
+        <button class="btn btn-primary" onclick="performSearch()">Search</button>
+    </div>
+</div></div>
+<div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">📋 Results</h3></div>
+<div class="card-body"><div id="resultsContainer"><p class="text-muted">Click Search to view RDP cache entries</p></div></div></div>
+{% endif %}
+<script>const caseId = {{ case_id|tojson }}; async function performSearch() {}</script>
+{% endblock %}

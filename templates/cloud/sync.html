@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Cloud Storage - CaseScope 2026{% endblock %}
+{% block header_title %}Cloud Storage{% endblock %}
+{% block content %}
+<div class="content-header">
+    <div><h1 class="content-title">☁️ Cloud Storage Activity</h1>
+    {% if case %}<p class="content-subtitle">{{ case.name }}</p>{% endif %}</div>
+</div>
+{% if not case %}
+<div class="card"><div class="card-body"><div class="placeholder-content">
+    <h3>No Case Selected</h3><a href="/case/select" class="btn btn-primary mt-2">Select Case</a>
+</div></div></div>
+{% else %}
+<div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">Cloud Activity Summary</h3></div>
+<div class="card-body"><div class="grid grid-4">
+    <div class="stat-card"><div class="stat-label">Total Operations</div><div class="stat-value stat-value-primary" id="totalOperations">-</div></div>
+    <div class="stat-card"><div class="stat-label">Uploads</div><div class="stat-value stat-value-success" id="uploadCount">-</div></div>
+    <div class="stat-card"><div class="stat-label">Downloads</div><div class="stat-value stat-value-info" id="downloadCount">-</div></div>
+    <div class="stat-card"><div class="stat-label">Deletions</div><div class="stat-value stat-value-error" id="deleteCount">-</div></div>
+</div></div></div>
+<div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">Search & Filter</h3></div>
+<div class="card-body">
+    <div class="d-flex gap-2 mb-3">
+        <input type="text" id="searchInput" class="form-input" placeholder="Search file paths..." onkeypress="if(event.key==='Enter') performSearch()" style="flex: 1;">
+        <button class="btn btn-primary" onclick="performSearch()">Search</button>
+    </div>
+    <div class="d-flex gap-3">
+        <select id="operationFilter" class="form-select" onchange="performSearch()"><option value="">All Operations</option><option value="upload">Upload</option><option value="download">Download</option><option value="delete">Delete</option></select>
+    </div>
+</div></div>
+<div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">📋 Results</h3></div>
+<div class="card-body"><div id="resultsContainer"><p class="text-muted">Click Search to view cloud activity</p></div></div></div>
+{% endif %}
+<script>const caseId = {{ case_id|tojson }}; async function performSearch() {}</script>
+{% endblock %}
