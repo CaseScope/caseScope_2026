@@ -255,6 +255,12 @@ def process_individual_file(self, case_id, file_id, file_path):
                 logger.info(f"Using MFTECmd for {filename}")
                 events = list(parse_mft_eztools(file_path))
                 
+                # Extract hostname from first event (if available)
+                if events:
+                    source_system = events[0].get('computer') or normalize_event_computer(events[0])
+                    if source_system:
+                        logger.info(f"MFT hostname: {source_system}")
+                
                 filesystem_index = f'case_{case_id}_filesystem'
                 chunk_size = 500
                 for i in range(0, len(events), chunk_size):

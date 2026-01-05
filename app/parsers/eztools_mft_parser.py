@@ -31,6 +31,47 @@ if not MFTECMD_AVAILABLE:
     logger.warning("MFTECmd not available - MFT parsing will be skipped")
 
 
+def extract_hostname_from_mft_path(file_path):
+    """
+    Extract hostname from MFT file path/name
+    
+    Common patterns:
+    - HOSTNAME_$MFT
+    - HOSTNAME-$MFT  
+    - /path/HOSTNAME/C/$MFT
+    - /path/to/HOSTNAME/$MFT
+    """
+    filename = os.path.basename(file_path)
+    full_path = os.path.abspath(file_path)
+    
+    # Pattern 1: HOSTNAME_$MFT or HOSTNAME-$MFT
+    if '_' in filename and '$MFT' in filename:
+        parts = filename.split('_')
+        if len(parts) >= 2 and parts[0]:
+            return parts[0]
+    
+    if '-' in filename and '$MFT' in filename:
+        parts = filename.split('-')
+        if len(parts) >= 2 and parts[0] and not parts[0].startswith('$'):
+            return parts[0]
+    
+    # Pattern 2: Look in parent directories for hostname
+    # Common structure: .../HOSTNAME/C/$MFT or .../HOSTNAME/$MFT
+    path_parts = full_path.split(os.sep)
+    for i, part in enumerate(path_parts):
+        if part in ['$MFT', '$MFT.gz']:
+            # Check 2-3 levels up for potential hostname
+            if i >= 2 and path_parts[i-2] and not path_parts[i-2].startswith('case_'):
+                potential_host = path_parts[i-2]
+                # Skip common directory names
+                if potential_host not in ['staging', 'storage', 'C', 'D', 'E', 'data', 'triage']:
+                    return potential_host
+            if i >= 1 and path_parts[i-1] and path_parts[i-1] not in ['C', 'D', 'E', 'data']:
+                return path_parts[i-1]
+    
+    return None
+
+
 def parse_mft_file(file_path):
     """
     Parse $MFT file using MFTECmd
@@ -47,6 +88,10 @@ def parse_mft_file(file_path):
         return
     
     filename = os.path.basename(file_path)
+    hostname = extract_hostname_from_mft_path(file_path)
+    
+    if hostname:
+        logger.info(f"Extracted hostname from MFT path: {hostname}")
     
     try:
         # Create temp directory for JSON output
@@ -105,6 +150,11 @@ def parse_mft_file(file_path):
                     'source_file': filename,
                     '@timestamp': entry.get('Created0x10') or entry.get('Created0x30') or entry.get('Modified0x10')
                 }
+                
+                # Add hostname if extracted
+                if hostname:
+                    event['computer'] = hostname
+                    event['host'] = {'name': hostname}
                 
                 # Map important MFT fields
                 field_mapping = {

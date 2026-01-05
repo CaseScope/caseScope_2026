@@ -526,6 +526,12 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         logger.info(f"Using MFTECmd for {filename} - processing filesystem timeline")
                         events = list(parse_mft_eztools(file_path))
                         
+                        # Extract hostname from first event
+                        if events:
+                            source_system = events[0].get('computer') or normalize_event_computer(events[0])
+                            if source_system:
+                                logger.info(f"MFT hostname: {source_system}")
+                        
                         # Index to case_X_filesystem (NEW index type)
                         filesystem_index = f'case_{case_id}_filesystem'
                         chunk_size = 500

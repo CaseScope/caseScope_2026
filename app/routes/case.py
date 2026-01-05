@@ -746,12 +746,18 @@ def get_active_tasks(case_id):
                 # Check for NEW parallel processing: process_individual_file
                 if task.get('name') == 'tasks.process_individual_file':
                     try:
-                        task_kwargs = task.get('kwargs', {})
-                        file_id = task_kwargs.get('file_id')
-                        
-                        if file_id:
+                        # Args are: [case_id, file_id, file_path]
+                        task_args = task.get('args', [])
+                        if len(task_args) >= 2:
+                            task_case_id = task_args[0]
+                            file_id = task_args[1]
+                            
+                            # Only include tasks for this case
+                            if task_case_id != case_id:
+                                continue
+                            
                             file = CaseFile.query.get(file_id)
-                            if file and file.case_id == case_id:
+                            if file:
                                 active_files.append({
                                     'filename': file.filename,
                                     'original_filename': file.original_filename or file.filename,
