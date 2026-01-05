@@ -347,6 +347,205 @@ def process_individual_file(self, case_id, file_id, file_path):
                 event_count = len(events)
                 parse_success = True
             
+            # Thumbcache (Windows thumbnail cache)
+            elif 'thumbcache' in filename.lower() and file_ext == '.db':
+                from parsers.thumbcache_parser import parse_thumbcache_file
+                logger.info(f"Parsing thumbcache: {filename}")
+                events = list(parse_thumbcache_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                filesystem_index = f'case_{case_id}_filesystem'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(filesystem_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # BITS (Background Intelligent Transfer Service)
+            elif filename.lower() in ['qmgr.db', 'qmgr0.dat', 'qmgr1.dat']:
+                from parsers.bits_parser import parse_bits_file
+                logger.info(f"Parsing BITS database: {filename}")
+                events = list(parse_bits_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                network_index = f'case_{case_id}_network'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(network_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # Windows Search (Windows.edb)
+            elif filename.lower() == 'windows.edb':
+                from parsers.winsearch_parser import parse_windows_search_file
+                logger.info(f"Parsing Windows Search: {filename}")
+                events = list(parse_windows_search_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                filesystem_index = f'case_{case_id}_filesystem'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(filesystem_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # Activities Cache (Windows Timeline)
+            elif 'activitiescache' in filename.lower() and file_ext == '.db':
+                from parsers.activities_parser import parse_activities_cache_file
+                logger.info(f"Parsing Activities Cache: {filename}")
+                events = list(parse_activities_cache_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                execution_index = f'case_{case_id}_execution'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(execution_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # Windows Notifications
+            elif 'wpndatabase' in filename.lower() and file_ext == '.db':
+                from parsers.notifications_parser import parse_notifications_file
+                logger.info(f"Parsing Notifications: {filename}")
+                events = list(parse_notifications_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(index_name, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # RDP Cache
+            elif (filename.lower().startswith('cache') and file_ext == '.bin') or file_ext == '.bmc':
+                from parsers.rdp_cache_parser import parse_rdp_cache_file
+                logger.info(f"Parsing RDP Cache: {filename}")
+                events = list(parse_rdp_cache_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                filesystem_index = f'case_{case_id}_filesystem'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(filesystem_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # WMI Persistence
+            elif filename.lower() in ['objects.data', 'index.btr']:
+                from parsers.wmi_parser import parse_wmi_file
+                logger.info(f"Parsing WMI: {filename}")
+                events = list(parse_wmi_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(index_name, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # PST/OST Email
+            elif file_ext in ['.pst', '.ost']:
+                from parsers.pst_parser import parse_pst_file
+                logger.info(f"Parsing PST/OST: {filename}")
+                events = list(parse_pst_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(index_name, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # Scheduled Tasks
+            elif 'tasks' in file_path.lower() and (file_ext == '.xml' or not file_ext):
+                from parsers.schtasks_parser import parse_scheduled_task_file
+                logger.info(f"Parsing Scheduled Task: {filename}")
+                events = list(parse_scheduled_task_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(index_name, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # Teams/Skype
+            elif ('skype' in file_path.lower() or 'teams' in file_path.lower()) and filename.lower() == 'main.db':
+                from parsers.teams_skype_parser import parse_teams_skype_file
+                logger.info(f"Parsing Teams/Skype: {filename}")
+                events = list(parse_teams_skype_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(index_name, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # USB History
+            elif 'setupapi' in filename.lower() and 'log' in filename.lower():
+                from parsers.usb_history_parser import parse_usb_file
+                logger.info(f"Parsing USB History: {filename}")
+                events = list(parse_usb_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                devices_index = f'case_{case_id}_devices'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(devices_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
+            # OneDrive
+            elif 'onedrive' in file_path.lower() or filename.lower().endswith(('.odl', '.odlgz')):
+                from parsers.onedrive_parser import parse_onedrive_file
+                logger.info(f"Parsing OneDrive: {filename}")
+                events = list(parse_onedrive_file(file_path))
+                if events:
+                    source_system = normalize_event_computer(events[0])
+                
+                cloud_index = f'case_{case_id}_cloud'
+                chunk_size = 500
+                for i in range(0, len(events), chunk_size):
+                    chunk = events[i:i + chunk_size]
+                    indexer.bulk_index(cloud_index, iter(chunk), chunk_size, case_id, filename)
+                
+                event_count = len(events)
+                parse_success = True
+            
             else:
                 # Unsupported file type
                 logger.warning(f"No parser for {filename} (ext: {file_ext})")
