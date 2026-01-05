@@ -81,8 +81,43 @@
                 </a>
                 
                 <a href="/filesystem" class="sidebar-nav-item {% if request.path.startswith('/filesystem') %}active{% endif %}">
-                    <span class="sidebar-nav-icon">🗂️</span>
+                    <span class="sidebar-nav-icon">📁</span>
                     <span>Filesystem Timeline</span>
+                </a>
+                
+                <a href="/useractivity" class="sidebar-nav-item {% if request.path.startswith('/useractivity') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">👤</span>
+                    <span>User Activity</span>
+                </a>
+                
+                <a href="/communications" class="sidebar-nav-item {% if request.path.startswith('/communications') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">💬</span>
+                    <span>Communications</span>
+                </a>
+                
+                <a href="/network" class="sidebar-nav-item {% if request.path.startswith('/network') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🌐</span>
+                    <span>Network Activity</span>
+                </a>
+                
+                <a href="/persistence" class="sidebar-nav-item {% if request.path.startswith('/persistence') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🔒</span>
+                    <span>Persistence</span>
+                </a>
+                
+                <a href="/devices" class="sidebar-nav-item {% if request.path.startswith('/devices') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">💾</span>
+                    <span>Devices</span>
+                </a>
+                
+                <a href="/cloud" class="sidebar-nav-item {% if request.path.startswith('/cloud') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">☁️</span>
+                    <span>Cloud Storage</span>
+                </a>
+                
+                <a href="/remote" class="sidebar-nav-item {% if request.path.startswith('/remote') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🖥️</span>
+                    <span>Remote Sessions</span>
                 </a>
                 
                 <a href="/systems" class="sidebar-nav-item {% if request.path.startswith('/systems') %}active{% endif %}">
