@@ -4,45 +4,53 @@ Parser Routing Utility
 Maps parser types to OpenSearch indices and determines parsing logic
 """
 
-# Index routing for each parser type
+# Index routing for each parser type (matches layout.MD)
 PARSER_INDEX_MAP = {
-    # Main events index (case_X)
+    # Search/Events index (case_X) - existing
     'evtx': 'events',
     'ndjson': 'events',
     'edr': 'events',
     'firewall': 'events',
-    'wmi': 'events',
-    'pst': 'events',
-    'notifications': 'events',
-    'schtasks': 'events',
-    'teams_skype': 'events',
     
-    # Browser index (case_X_browser)
+    # Browser index (case_X_browser) - existing
     'browser_history': 'browser',
     'webcache': 'browser',
     
-    # Execution index (case_X_execution)
+    # Execution index (case_X_execution) - existing
     'prefetch': 'execution',
     'activities': 'execution',
-    'jumplist': 'execution',
-    'lnk': 'execution',
+    'srum': 'execution',  # SRUM has both network and execution
     
-    # Filesystem index (case_X_filesystem)
+    # Filesystem index (case_X_filesystem) - existing
     'mft': 'filesystem',
     'thumbcache': 'filesystem',
     'winsearch': 'filesystem',
-    'rdp_cache': 'filesystem',
     
-    # Network index (case_X_network)
+    # User Activity index (case_X_useractivity) - NEW
+    'jumplist': 'useractivity',
+    'lnk': 'useractivity',
+    
+    # Communications index (case_X_comms) - NEW
+    'pst': 'comms',
+    'teams_skype': 'comms',
+    'notifications': 'comms',
+    
+    # Network Activity index (case_X_network) - NEW
     'bits': 'network',
-    'srum': 'network',  # SRUM has both network and execution, network is primary
     
-    # Devices index (case_X_devices)
+    # Persistence index (case_X_persistence) - NEW
+    'schtasks': 'persistence',
+    'wmi': 'persistence',
+    
+    # Devices index (case_X_devices) - NEW
     'usb': 'devices',
     'setupapi': 'devices',
     
-    # Cloud index (case_X_cloud)
+    # Cloud Storage index (case_X_cloud) - NEW
     'onedrive': 'cloud',
+    
+    # Remote Sessions index (case_X_remote) - NEW
+    'rdp_cache': 'remote',
 }
 
 
