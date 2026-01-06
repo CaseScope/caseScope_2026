@@ -275,6 +275,10 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             
             logger.info(f"Queued {len(queued_tasks)} files for parallel processing across 8 workers")
             
+            # CLEANUP: Remove upload folder contents (files are now staged)
+            logger.info("Cleaning up upload folder...")
+            cleanup_uploads(case_id, upload_type)
+            
             # Mark ingestion as completed (parallel tasks will update file records)
             update_ingestion_progress(
                 progress_id,
@@ -282,6 +286,19 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 current_step='parallel_processing',
                 processed_files=len(file_records),
                 completed_at=datetime.utcnow()
+            )
+            
+            # Log completion
+            log_action(
+                action='file_ingestion_queued',
+                resource_type='case',
+                details={
+                    'case_id': case_id,
+                    'total_files': len(file_records),
+                    'queued_tasks': len(queued_tasks),
+                    'upload_type': upload_type
+                },
+                status='success'
             )
             
             # Return immediately - parallel tasks handle the rest
