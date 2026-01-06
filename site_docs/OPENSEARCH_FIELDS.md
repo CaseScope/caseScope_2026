@@ -1,6 +1,6 @@
 # OpenSearch Field Structure & Mappings
 
-**Last Updated**: December 28, 2025
+**Last Updated: January 6, 2026
 
 ## Overview
 

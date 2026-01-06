@@ -1,6 +1,6 @@
 # Threat Hunting System - IOC, SIGMA & Noise Filtering
 
-**Last Updated**: 2025-12-28  
+**Last Updated: 2026-01-06  
 **Status**: ✅ Production Ready  
 **Location**: `/hunting/dashboard`
 

@@ -2296,6 +2296,6 @@ New table to track which events contain which IOCs:
 
 ---
 
-*Last Updated: December 24, 2025 (Late Evening)*
+*Last Updated: January 6, 2026 (Late Evening)*
 
 ---

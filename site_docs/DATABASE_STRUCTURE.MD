@@ -1,6 +1,6 @@
 # CaseScope 2026 - Database Structure
 
-Last Updated: 2025-12-24
+Last Updated: 2026-01-06
 
 ## Technology Stack
 - **Database**: PostgreSQL 14+
