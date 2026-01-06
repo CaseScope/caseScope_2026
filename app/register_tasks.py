@@ -23,8 +23,8 @@ except Exception as e:
     print(f"⚠ Could not load task_discover_systems: {e}")
 
 try:
-    from tasks import task_process_file
-    print("✓ Registered parallel file processing tasks")
+    from tasks import task_process_file_v2
+    print("✓ Registered parallel file processing tasks (V2)")
 except Exception as e:
-    print(f"⚠ Could not load task_process_file: {e}")
+    print(f"⚠ Could not load task_process_file_v2: {e}")
 
