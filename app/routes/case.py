@@ -743,8 +743,8 @@ def get_active_tasks(case_id):
         # Process each worker's tasks
         for worker_name, tasks in active_tasks.items():
             for task in tasks:
-                # Check for NEW parallel processing: process_individual_file
-                if task.get('name') == 'tasks.process_individual_file':
+                # Check for NEW parallel processing: process_individual_file (V1 or V2)
+                if task.get('name') in ['tasks.process_individual_file', 'tasks.process_individual_file_v2']:
                     try:
                         # Args are: [case_id, file_id, file_path]
                         task_args = task.get('args', [])

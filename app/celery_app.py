@@ -94,9 +94,9 @@ except Exception as e:
     logger.warning(f"⚠ Could not load task_ingest_files: {e}")
 
 try:
-    from tasks import task_process_file
-    logger.info("✓ Registered parallel file processing tasks")
+    from tasks import task_process_file_v2
+    logger.info("✓ Registered parallel file processing tasks (V2 with parser factory)")
 except Exception as e:
-    logger.warning(f"⚠ Could not load task_process_file: {e}")
+    logger.warning(f"⚠ Could not load task_process_file_v2: {e}")
 
 logger.info("✓ Celery tasks registered")

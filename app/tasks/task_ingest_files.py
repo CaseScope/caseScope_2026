@@ -260,7 +260,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             # STEP 4B: Queue all files for parallel processing
             update_ingestion_progress(progress_id, current_step='indexing')
             
-            from tasks.task_process_file import process_individual_file
+            from tasks.task_process_file_v2 import process_individual_file_v2
             
             # Queue all files as separate tasks (parallel processing!)
             queued_tasks = []
@@ -268,8 +268,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 file_record = file_data['record']
                 file_path = file_data['info']['path']
                 
-                # Queue task for this file
-                task = process_individual_file.delay(case_id, file_record.id, file_path)
+                # Queue task for this file (using V2 with parser factory)
+                task = process_individual_file_v2.delay(case_id, file_record.id, file_path)
                 queued_tasks.append(task)
                 logger.info(f"Queued {os.path.basename(file_path)} for parallel processing (task: {task.id[:8]})")
             
