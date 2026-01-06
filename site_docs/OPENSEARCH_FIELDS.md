@@ -6,18 +6,30 @@
 
 This document explains the OpenSearch field structure used in CaseScope, including field types, normalized fields, and how different log sources map to the unified schema.
 
-**Index Structure**: Multi-index strategy (v2.0 ZIP-centric architecture)
-- **Main Events**: `case_{id}` (e.g., `case_3`) - EVTX, NDJSON, EDR logs
-- **Browser History**: `case_{id}_browser` - Chrome, Firefox, Edge, WebCache
-- **Execution**: `case_{id}_execution` - Prefetch files (future)
-- **Network**: `case_{id}_network` - SRUM network usage (future)
-- **Devices**: `case_{id}_devices` - USB device logs (future)
+**Index Structure**: Multi-index strategy (11 specialized indices)
+
+**Existing Indices**:
+- `case_{id}` - Event logs, EDR, Firewall (EVTX, NDJSON, CSV)
+- `case_{id}_browser` - Browser activity (Chrome, Firefox, Edge, WebCache)
+- `case_{id}_execution` - Execution artifacts (Prefetch, Activities, SRUM)
+- `case_{id}_filesystem` - Filesystem timeline (MFT, Thumbcache, Windows Search)
+
+**NEW Indices** (Jan 2026):
+- `case_{id}_useractivity` - User activity (Jump Lists, LNK shortcuts) ⭐
+- `case_{id}_comms` - Communications (PST/OST, Teams/Skype, Notifications) ⭐
+- `case_{id}_network` - Network activity (BITS transfers) ⭐
+- `case_{id}_persistence` - Persistence mechanisms (Scheduled Tasks, WMI) ⭐
+- `case_{id}_devices` - Device history (USB connections, SetupAPI) ⭐
+- `case_{id}_cloud` - Cloud storage (OneDrive operations) ⭐
+- `case_{id}_remote` - Remote sessions (RDP bitmap cache) ⭐
 
 **Benefits**:
-- Faster targeted searches per artifact type
-- Better performance on large datasets
-- Clear separation of concerns
-- Independent retention policies per index
+- Faster targeted searches per artifact category
+- Better performance on large datasets (millions of MFT entries separate from events)
+- Clear separation of concerns (communications vs execution vs persistence)
+- Independent retention policies per index type
+- Dedicated UI pages for each artifact category
+- Specialized aggregations per evidence type
 
 ---
 

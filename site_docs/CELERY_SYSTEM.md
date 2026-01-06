@@ -39,10 +39,22 @@ All services are running and ready to process background tasks!
 
 ### 3. Background Tasks
 
-**File Processing Tasks** (ZIP-centric architecture):
+**File Processing Tasks** (V2.0 Parallel Processing):
 
-1. **`process_uploaded_files`** (queue: `file_processing`)
-   - Entry point for uploaded files
+1. **`ingest_files`** (queue: `ingestion`)
+   - Main orchestrator: staging, hashing, duplicate detection
+   - Queues individual files for parallel processing
+   - Cleans upload folder after staging
+
+2. **`process_individual_file_v2`** ⭐ ACTIVE (queue: `ingestion`)
+   - Parallel file processor (8 workers process simultaneously)
+   - Parser factory system with auto-detection
+   - Automatic routing to correct index (11 indices)
+   - Compresses and moves to storage
+   - Extracts hostname when available
+
+3. **`process_uploaded_files`** (queue: `file_processing`) - LEGACY
+   - Old ZIP processing system
    - ZIP files: Move to storage, create container record, queue extraction
    - Standalone files: Move to staging, create file record, queue parsing
    - SHA256 deduplication (ZIP-level)

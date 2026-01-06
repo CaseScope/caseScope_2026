@@ -85,27 +85,41 @@ retry_count INTEGER DEFAULT 0               -- Number of retry attempts
 7. UPDATE status to "indexed"
 ```
 
-### 3. Multi-Index Routing
+### 3. Multi-Index Routing (11 Indices)
 
-**Automatic routing based on file type/name**:
+**V2 Parser Factory System** (`utils/parser_routing.py`):
+- Automatic routing based on parser type
+- Single source of truth for all 25+ parsers
+- Lazy-loading for performance
+- Centralized in `PARSER_INDEX_MAP`
 
-| Artifact Type | OpenSearch Index | Source Files |
-|--------------|------------------|--------------|
-| Windows Event Logs | `case_X` | `.evtx`, `.ndjson` |
-| Browser History | `case_X_browser` | `History`, `places.sqlite`, `WebCache*.dat` |
-| Program Execution | `case_X_execution` | `.pf` (Prefetch) |
-| Network Activity | `case_X_network` | `SRUDB.dat` (SRUM) |
-| Device Connections | `case_X_devices` | `setupapi.dev.log` |
+**Complete Index Mapping**:
+
+| Index | Artifact Types | Source Files | Parsers |
+|-------|---------------|--------------|---------|
+| `case_X` | Event logs, EDR, Firewall | `.evtx`, `.ndjson`, `.jsonl`, `.csv` | evtx_parser, ndjson_parser, firewall_csv_parser |
+| `case_X_browser` | Browser activity | `History`, `places.sqlite`, `WebCache*.dat` | browser_history_parser, webcache_parser |
+| `case_X_execution` | Execution artifacts | `.pf`, `ActivitiesCache.db`, `SRUDB.dat` | prefetch_parser, activities_parser, srum_parser |
+| `case_X_filesystem` | Filesystem timeline | `$MFT`, `thumbcache_*.db`, `Windows.edb` | eztools_mft_parser, thumbcache_parser, winsearch_parser |
+| `case_X_useractivity` ⭐ | User activity | `*.automaticDestinations-ms`, `.lnk` | eztools_jumplist_parser, eztools_lnk_parser |
+| `case_X_comms` ⭐ | Communications | `.pst`, `.ost`, `main.db`, `wpndatabase.db` | pst_parser, teams_skype_parser, notifications_parser |
+| `case_X_network` ⭐ | Network activity | `qmgr.db` | bits_parser |
+| `case_X_persistence` ⭐ | Persistence | `Tasks/*.xml`, `OBJECTS.DATA` | schtasks_parser, wmi_parser |
+| `case_X_devices` ⭐ | Device history | `setupapi.dev.log` | usb_history_parser, setupapi_parser |
+| `case_X_cloud` ⭐ | Cloud storage | `*.odl`, OneDrive DBs | onedrive_parser |
+| `case_X_remote` ⭐ | Remote sessions | `Cache*.bin`, `.bmc` | rdp_cache_parser |
 
 **Benefits**:
-- Faster, more targeted searches
-- Better performance on large datasets
-- Easier to manage retention/cleanup per artifact type
+- Faster, targeted searches per artifact category
+- Better performance on large datasets (millions of MFT entries separate from event logs)
+- Easier retention/cleanup per artifact type
 - Clear separation of concerns
+- Each page queries only its relevant index
+- 7 new artifact categories for comprehensive forensic coverage
 
 ---
 
-## Parsers (Phase 1-3)
+## Parser Factory System (V2)
 
 ### Phase 1: Core Events (Existing)
 
@@ -624,3 +638,90 @@ CaseScope 2.0's ZIP-centric architecture provides:
 
 **Production ready** for forensic investigations with datasets up to 100GB.
 
+
+---
+
+## Parser Verification & Routing (V2 System)
+
+**Active Task**: `tasks.process_individual_file_v2`  
+**Routing Module**: `app/utils/parser_routing.py`  
+**Detection Module**: `app/parsers/__init__.py`
+
+### Verified Parser Mappings (Jan 6, 2026)
+
+All 25+ parsers verified routing to correct indices:
+
+**Events & Logs** → `case_X`
+- EVTX, NDJSON, EDR, Firewall CSV
+
+**Browser** → `case_X_browser`
+- Chrome/Firefox History, IE/Edge WebCache
+
+**Execution** → `case_X_execution`
+- Prefetch, Activities Cache, SRUM
+
+**Filesystem** → `case_X_filesystem`
+- MFT, Thumbcache, Windows Search
+
+**User Activity** → `case_X_useractivity` ⭐
+- Jump Lists, LNK Shortcuts
+
+**Communications** → `case_X_comms` ⭐
+- PST/OST Email, Teams/Skype, Notifications
+
+**Network** → `case_X_network` ⭐
+- BITS Transfers
+
+**Persistence** → `case_X_persistence` ⭐
+- Scheduled Tasks, WMI Subscriptions
+
+**Devices** → `case_X_devices` ⭐
+- USB History, SetupAPI
+
+**Cloud** → `case_X_cloud` ⭐
+- OneDrive Sync
+
+**Remote** → `case_X_remote` ⭐
+- RDP Bitmap Cache
+
+### How V2 Automatic Routing Works
+
+```python
+# 1. Detect parser type from filename/path
+parser_type = detect_parser_type("archive.pst", "")
+# Returns: 'pst'
+
+# 2. Get parser function (lazy-loaded)
+parser_func = get_parser('pst')
+# Returns: pst_parser.parse_pst_file
+
+# 3. Get target index
+index_name = get_index_name('pst', 4)
+# Returns: 'case_4_comms'
+
+# 4. Parse and index
+events = list(parser_func(file_path))
+indexer.bulk_index(index_name, events, ...)
+```
+
+### Monitoring Log Messages
+
+```
+[Worker abc12345] Processing archive.pst
+Using pst parser for archive.pst
+Source system: DESKTOP-WIN10
+Indexing 5,678 events to case_4_comms
+Moved to storage: archive.pst → archive.pst.gz  
+[Worker abc12345] Completed archive.pst: 5,678 events
+```
+
+### Benefits of V2 System
+
+- ✅ 80% code reduction (500+ lines → 100 lines)
+- ✅ Single source of truth for routing (`parser_routing.py`)
+- ✅ Auto-detects all 25+ file types
+- ✅ Logs parser and index for debugging
+- ✅ Easy to add new parsers (update routing map only)
+- ✅ Eliminates routing errors (was sending to wrong indices in V1)
+
+---

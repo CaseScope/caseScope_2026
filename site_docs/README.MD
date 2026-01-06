@@ -1,6 +1,8 @@
 # CaseScope 2026 - Technical Documentation
 
-**Last Updated**: December 29, 2025
+**Last Updated**: January 6, 2026  
+**Version**: 2.0.0  
+**Status**: Production Ready
 
 ## Quick Navigation
 
@@ -49,24 +51,30 @@
 - `casescope-new.service` - Flask web application (Gunicorn, 4 workers, HTTPS)
 - `casescope-workers.service` - Celery background workers (8 concurrent, configurable)
 
-**File Processing**:
-- ZIP-centric architecture (v2.0)
-- Virtual file tracking
-- Multi-index routing (5 specialized indexes)
-- GZIP compression
-- Zero deletion policy
+**File Processing** (V2.0):
+- Parser factory system with auto-detection (25+ parsers)
+- Parallel processing (8 workers, configurable)
+- Multi-index routing (11 specialized indices)
+- GZIP compression for all files
+- Zero deletion policy (everything archived)
+- Upload folder cleanup after staging
+- MFT hostname extraction
 
 ---
 
 ## Key Features
 
-### File Processing
-- ✅ Chunked web upload (5MB chunks, 500ms delay)
-- ✅ Bulk upload folder monitoring
-- ✅ ZIP auto-extraction with virtual file tracking
-- ✅ Multi-index routing (events, browser, execution, network, devices)
-- ✅ Real-time progress tracking with active file display
-- ✅ Automatic GZIP compression
+### File Processing & Parsers (V2.0)
+- ✅ Chunked web upload (5MB chunks, staging modal with progress)
+- ✅ Parallel processing (8 workers, configurable parallelism)
+- ✅ ZIP auto-extraction to staging folders
+- ✅ Parser factory system (25+ parsers, auto-detection, lazy-loading)
+- ✅ Multi-index routing (11 specialized indices)
+- ✅ Real-time progress tracking with worker file display
+- ✅ Automatic GZIP compression (all files)
+- ✅ Upload folder cleanup after staging
+- ✅ Hostname extraction (MFT, EVTX, NDJSON)
+- ✅ SHA256 duplicate detection with storage verification
 
 ### Event Analysis
 - ✅ Boolean search (AND, OR, NOT, parentheses)
@@ -158,7 +166,54 @@ cp /path/to/files/*.zip /opt/casescope/bulk_upload/{case_id}/
 
 ---
 
-## Recent Updates (v1.5.8 - Jan 3, 2026)
+## Recent Updates
+
+### v2.0.0 - January 6, 2026
+
+**Major Release: Parser Factory & 7 New Artifact Categories**
+
+**Parser System Overhaul**:
+- ✅ V2 parser factory with automatic routing (25+ parsers)
+- ✅ 12 new forensic artifact parsers added
+- ✅ 7 new OpenSearch indices (11 total)
+- ✅ Automatic parser detection from filename/path
+- ✅ Single source of truth for index routing
+- ✅ 80% code reduction (500+ lines → 100 lines)
+
+**New Forensic Artifact Pages** (7 new evidence categories):
+- ✅ User Activity (Jump Lists, LNK shortcuts)
+- ✅ Communications (PST/OST email, Teams/Skype, Notifications)
+- ✅ Network Activity (BITS transfers)
+- ✅ Persistence Mechanisms (Scheduled Tasks, WMI subscriptions)
+- ✅ Device History (USB connections, SetupAPI logs)
+- ✅ Cloud Storage (OneDrive sync operations)
+- ✅ Remote Sessions (RDP bitmap cache)
+
+**NEW Parsers**:
+- thumbcache_parser, bits_parser, winsearch_parser
+- activities_parser, notifications_parser, rdp_cache_parser
+- wmi_parser, pst_parser, schtasks_parser
+- teams_skype_parser, usb_history_parser, onedrive_parser
+
+**Parallel Processing Fixes**:
+- ✅ Fixed missing task registration (7,323 files were stuck)
+- ✅ Fixed UI monitoring (now shows active workers and files)
+- ✅ Upload folder cleanup after staging (was leaving files behind)
+- ✅ MFT hostname extraction from file paths
+
+**Artifact Tracking Dashboard**:
+- ✅ Comprehensive artifact statistics across all 11 indices
+- ✅ Collapsible breakdown on Case Files page
+- ✅ Per-index counts with artifact type distributions
+- ✅ Replaces generic "Total Events" with accurate "Total Artifacts"
+
+**Infrastructure**:
+- ✅ Parser routing module (`utils/parser_routing.py`)
+- ✅ 24 route handlers (7 new artifact pages)
+- ✅ Complete sidebar navigation with icons
+- ✅ All pages functional with API endpoints
+
+### v1.5.9 - January 3, 2026
 
 ### CSV Event Display Fixes
 - ✅ CSV events showing correct Event ID (from 'id' field)
