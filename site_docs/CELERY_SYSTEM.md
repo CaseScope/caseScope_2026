@@ -238,24 +238,28 @@ Prevents OpenSearch bulk timeouts - adjustable per deployment
 ## 📊 Architecture
 
 ```
-User uploads files
+User uploads files (Web or SFTP)
        ↓
-/opt/casescope/bulk_upload/{case_id}/
+/opt/casescope/uploads/web/{case_id}/
+or /opt/casescope/uploads/sftp/{case_id}/
        ↓
 Flask queues task → Redis (broker)
        ↓
 Celery Worker picks up task
        ↓
-[Task: process_uploaded_files]
-  • Extract ZIPs recursively
-  • Validate file types
-  • Move to staging
+[Task: ingest_files]
+  • Scan upload folder
+  • Extract ZIPs to staging
+  • Calculate SHA256 hashes
+  • Check for duplicates
+  • Create file records
        ↓
 /opt/casescope/staging/{case_id}/
        ↓
-[Task: ingest_staged_file]
+[Task: process_individual_file_v2] (8 workers in parallel)
   • Parse file (EVTX, JSON, CSV, etc.)
-  • Bulk load to OpenSearch
+  • Index to OpenSearch
+  • Move to storage
        ↓
 /opt/casescope/storage/case_{case_id}/
        ↓
@@ -285,11 +289,12 @@ Searchable in UI!
 ### For Users:
 
 1. Go to **Case Files** → **Upload Files**
-2. Create folder: `/opt/casescope/bulk_upload/{case_id}/` (Method 3)
-   OR use web upload (Method 1 & 2)
-3. Upload files via SFTP/SCP/direct access OR drag & drop
-4. Click **"Scan for New Files"** (Method 3) OR files auto-process (Method 1 & 2)
-5. Processing happens in background!
+2. Choose upload method:
+   - **Web Upload**: Drag & drop files in browser
+   - **SFTP Upload**: Copy files to `/opt/casescope/uploads/sftp/{case_id}/`
+3. Files appear in "Pending Files" section
+4. Click **"Start Processing"** to begin ingestion
+5. Processing happens in background with parallel workers!
 
 ### For Administrators:
 

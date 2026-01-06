@@ -41,8 +41,8 @@ NEW PARSERS (v2.0):
 PARSER_MAP = {
     'evtx': 'evtx_parser.parse_evtx_file',
     'prefetch': 'dissect_prefetch_parser.parse_prefetch_file',
-    'mft': 'eztools_mft_parser.parse_mft_with_eztools',
-    'jumplist': 'eztools_jumplist_parser.parse_jumplist_with_eztools',
+    'mft': 'eztools_mft_parser.parse_mft_file',
+    'jumplist': 'eztools_jumplist_parser.parse_jumplist_file',
     'lnk': 'lnk_parser.parse_lnk_file',
     'thumbcache': 'thumbcache_parser.parse_thumbcache_file',
     'browser_history': 'browser_history_parser.parse_browser_history_file',
@@ -60,9 +60,10 @@ PARSER_MAP = {
     'schtasks': 'schtasks_parser.parse_scheduled_task_file',
     'setupapi': 'setupapi_parser.parse_setupapi_file',
     'usb': 'usb_history_parser.parse_usb_file',
-    'firewall': 'firewall_csv_parser.parse_firewall_csv_file',
+    'firewall': 'firewall_csv_parser.parse_firewall_csv',
     'ndjson': 'ndjson_parser.parse_ndjson_file',
     'edr': 'ndjson_parser.parse_ndjson_file',
+    'zipcontainer': None,  # Container tracking only, no parser
 }
 
 

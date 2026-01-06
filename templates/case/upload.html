@@ -553,6 +553,11 @@ async function uploadFileChunked(file, onProgress) {
                 const end = Math.min(start + CHUNK_SIZE, file.size);
                 const chunk = file.slice(start, end);
                 
+                // Debug logging for chunk size investigation
+                if (i < 5 || i === totalChunks - 1) {
+                    console.log(`Chunk ${i}: start=${start}, end=${end}, expected_size=${end-start}, actual_blob_size=${chunk.size}`);
+                }
+                
                 const formData = new FormData();
                 formData.append('chunk', chunk);
                 formData.append('chunkIndex', i);
@@ -644,6 +649,12 @@ async function startUpload() {
     // Show progress area
     document.getElementById('uploadProgress').style.display = 'block';
     document.getElementById('uploadBtn').disabled = true;
+    
+    // Disable all remove buttons and clear button during upload
+    const removeButtons = document.querySelectorAll('#filesList button');
+    removeButtons.forEach(btn => btn.disabled = true);
+    const clearButton = document.querySelector('button[onclick="clearFiles()"]');
+    if (clearButton) clearButton.disabled = true;
     
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
@@ -763,6 +774,13 @@ async function startUpload() {
             clearFiles();
             document.getElementById('uploadProgress').style.display = 'none';
             document.getElementById('uploadBtn').disabled = false;
+            
+            // Re-enable remove and clear buttons
+            const removeButtons = document.querySelectorAll('#filesList button');
+            removeButtons.forEach(btn => btn.disabled = false);
+            const clearButton = document.querySelector('button[onclick="clearFiles()"]');
+            if (clearButton) clearButton.disabled = false;
+            
             progressBar.style.width = '0%';
             progressBar.classList.add('progress-bar-animated');
             progressBar.classList.remove('bg-success');
@@ -773,6 +791,14 @@ async function startUpload() {
         progressText.textContent = 'Upload failed: ' + error.message;
         progressBar.classList.remove('progress-bar-animated');
         progressBar.classList.add('bg-danger');
+        
+        // Re-enable buttons on error
+        document.getElementById('uploadBtn').disabled = false;
+        const removeButtons = document.querySelectorAll('#filesList button');
+        removeButtons.forEach(btn => btn.disabled = false);
+        const clearButton = document.querySelector('button[onclick="clearFiles()"]');
+        if (clearButton) clearButton.disabled = false;
+        
         alert('Upload failed: ' + error.message);
     }
 }
@@ -804,7 +830,7 @@ async function scanForFiles() {
             if (data.files_found === 0) {
                 resultsContent.innerHTML = `
                     <div class="text-muted text-center p-3">
-                        <p>No files found in <code>/opt/casescope/bulk_upload/${caseId}/</code></p>
+                        <p>No files found in <code>/opt/casescope/uploads/sftp/${caseId}/</code></p>
                         <p class="text-small">Make sure you've created the folder and uploaded files to it.</p>
                     </div>
                 `;
@@ -1016,6 +1042,16 @@ async function monitorStagingProgress(taskId) {
                     </div>
                 `;
                 
+                // Show ZIP container creation if available
+                if (data.zip_containers_created > 0) {
+                    filesList.innerHTML += `
+                        <div class="staging-file-item">
+                            <span class="staging-file-name">ZIP Containers:</span>
+                            <span class="staging-file-status complete">📦 ${data.zip_containers_created} tracked</span>
+                        </div>
+                    `;
+                }
+                
                 // Show indexed/failed counts if available
                 if (data.indexed || data.failed) {
                     filesList.innerHTML += `
@@ -1024,6 +1060,25 @@ async function monitorStagingProgress(taskId) {
                             <span class="staging-file-status complete">✓ ${data.indexed || 0} indexed, ✗ ${data.failed || 0} failed</span>
                         </div>
                     `;
+                }
+                
+                // Show processing errors (duplicate ZIPs, extraction failures)
+                if (data.processing_errors > 0 && data.errors) {
+                    filesList.innerHTML += `
+                        <div class="staging-file-item">
+                            <span class="staging-file-name">Warnings:</span>
+                            <span class="staging-file-status error">⚠ ${data.processing_errors} issue(s)</span>
+                        </div>
+                    `;
+                    // Show first few errors
+                    data.errors.slice(0, 3).forEach(err => {
+                        filesList.innerHTML += `
+                            <div class="staging-file-item">
+                                <span class="staging-file-name text-small">${err.file}:</span>
+                                <span class="staging-file-status error text-small">${err.error}</span>
+                            </div>
+                        `;
+                    });
                 }
             }
             

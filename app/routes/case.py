@@ -416,43 +416,39 @@ def case_files(case_id=None):
     # Total size - sum from database file_size field (more accurate than filesystem)
     total_size = db.session.query(db.func.sum(CaseFile.file_size)).filter_by(case_id=case_id).scalar() or 0
     
-    # Pending files - files that are being processed (query database, not filesystem)
+    # Pending files - files waiting to be ingested
     # Includes: New (not started), pending, processing, parsing, extracting
     pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
         CaseFile.status.in_(['New', 'pending', 'processing', 'parsing', 'extracting'])
     ).count()
     
-    # Get event count from OpenSearch
-    total_events = 0
-    try:
-        from opensearch_indexer import OpenSearchIndexer
-        indexer = OpenSearchIndexer()
-        index_name = f"case_{case_id}"
-        total_events = indexer.get_event_count(index_name)
-    except Exception as e:
-        logger.error(f"Error getting event count: {e}")
-    
-    # Calculate indexed files (files completely or partially indexed)
+    # Indexed files - files fully indexed (including files with 0 events)
     indexed_files = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['Indexed', 'Partial'])
+        CaseFile.status.in_(['Indexed', 'ZeroEvents'])
     ).count()
     
-    # Calculate files not indexed (ParseFail or Error)
-    not_indexed_files = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['ParseFail', 'Error'])
-    ).count()
+    # Partial indexed files - files partially indexed but not fully
+    partial_indexed_files = CaseFile.query.filter_by(case_id=case_id, status='Partial').count()
     
-    # Calculate files with zero events
-    zero_events_files = CaseFile.query.filter_by(case_id=case_id, status='ZeroEvents').count()
+    # Failed parsing - files where parser exists but failed to parse
+    failed_parsing = CaseFile.query.filter_by(case_id=case_id, status='ParseFail').count()
+    
+    # No parser - files where no parser is available
+    no_parser = CaseFile.query.filter_by(case_id=case_id, status='UnableToParse').count()
+    
+    # Failed files - files which failed for some other reason
+    failed_files = CaseFile.query.filter_by(case_id=case_id, status='Error').count()
     
     stats = {
         'total_files': total_files,
-        'total_events': total_events,
+        'total_space_gb': total_size / (1024**3) if total_size > 0 else 0,
+        'total_artifacts': 0,  # Will be loaded via AJAX
         'indexed_files': indexed_files,
-        'pending_files': pending_files,
-        'not_indexed_files': not_indexed_files,
-        'zero_events_files': zero_events_files,
-        'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
+        'partial_indexed_files': partial_indexed_files,
+        'failed_parsing': failed_parsing,
+        'no_parser': no_parser,
+        'failed_files': failed_files,
+        'pending_files': pending_files
     }
     
     # Pagination parameters
@@ -461,11 +457,39 @@ def case_files(case_id=None):
     per_page = min(per_page, 100)  # Max 100 items per page
     
     # Status filter parameters (comma-separated list of statuses to show)
-    status_filter = request.args.get('statuses', 'New,Indexed,ParseFail,UnableToParse,ZeroEvents,Error,Partial')
+    # Default: Show New, Indexed, and Partial files (hide failures and zero-events by default)
+    status_filter = request.args.get('statuses', 'New,Indexed,Partial')
     enabled_statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
     
     # Search parameter
     search_term = request.args.get('search', '').strip()
+    
+    # Sorting parameters
+    sort_by = request.args.get('sort_by', 'uploaded_at')
+    sort_order = request.args.get('sort_order', 'desc')
+    
+    # Valid sortable columns
+    sortable_columns = {
+        'original_filename': CaseFile.original_filename,
+        'filename': CaseFile.filename,
+        'source_system': CaseFile.source_system,
+        'uploaded_at': CaseFile.uploaded_at,
+        'uploaded_by': CaseFile.uploaded_by,
+        'event_count': CaseFile.event_count,
+        'parser_type': CaseFile.parser_type,
+        'sigma_violations': CaseFile.sigma_violations,
+        'ioc_count': CaseFile.ioc_count,
+        'status': CaseFile.status,
+        'file_size': CaseFile.file_size
+    }
+    
+    # Validate sort column
+    if sort_by not in sortable_columns:
+        sort_by = 'uploaded_at'
+    
+    # Validate sort order
+    if sort_order not in ['asc', 'desc']:
+        sort_order = 'desc'
     
     # Build query with filters
     query = CaseFile.query.filter_by(case_id=case_id)
@@ -484,8 +508,15 @@ def case_files(case_id=None):
             )
         )
     
-    # Apply pagination to filtered query
-    pagination = query.order_by(CaseFile.uploaded_at.desc()).paginate(
+    # Apply sorting
+    sort_column = sortable_columns[sort_by]
+    if sort_order == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+    
+    # Apply pagination to filtered and sorted query
+    pagination = query.paginate(
         page=page, per_page=per_page, error_out=False
     )
     
@@ -500,7 +531,8 @@ def case_files(case_id=None):
     
     return render_template('case/files.html', case=case, stats=stats, files=files, 
                          pagination=pagination, page=page, per_page=per_page,
-                         enabled_statuses=enabled_statuses, search_term=search_term)
+                         enabled_statuses=enabled_statuses, search_term=search_term,
+                         sort_by=sort_by, sort_order=sort_order)
 
 
 @case_bp.route('/<int:case_id>/files/stats', methods=['GET'])
@@ -512,6 +544,8 @@ def case_files_stats(case_id):
     """
     from main import db
     from models import Case, CaseFile
+    from opensearch_indexer import OpenSearchIndexer
+    from opensearchpy.exceptions import NotFoundError
     import os
     
     case = Case.query.get_or_404(case_id)
@@ -528,43 +562,81 @@ def case_files_stats(case_id):
     # Total size - sum from database file_size field
     total_size = db.session.query(db.func.sum(CaseFile.file_size)).filter_by(case_id=case_id).scalar() or 0
     
-    # Pending files - files that are being processed (query database, not filesystem)
+    # Pending files - files waiting to be ingested
     # Includes: New (not started), pending, processing, parsing, extracting
     pending_files = CaseFile.query.filter_by(case_id=case_id).filter(
         CaseFile.status.in_(['New', 'pending', 'processing', 'parsing', 'extracting'])
     ).count()
     
-    # Get event count from OpenSearch
-    total_events = 0
-    try:
-        from opensearch_indexer import OpenSearchIndexer
-        indexer = OpenSearchIndexer()
-        index_name = f"case_{case_id}"
-        total_events = indexer.get_event_count(index_name)
-    except Exception as e:
-        logger.error(f"Error getting event count: {e}")
+    # Indexed files - files fully indexed (including files with 0 events)
+    indexed_files = CaseFile.query.filter_by(case_id=case_id).filter(
+        CaseFile.status.in_(['Indexed', 'ZeroEvents'])
+    ).count()
     
-    # Get file counts by status (processing includes all non-completed statuses)
-    processing_count = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['New', 'pending', 'processing', 'parsing', 'extracting'])
-    ).count()
-    indexed_count = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['Indexed', 'Partial'])
-    ).count()
-    not_indexed_count = CaseFile.query.filter_by(case_id=case_id).filter(
-        CaseFile.status.in_(['ParseFail', 'Error'])
-    ).count()
-    zero_events_count = CaseFile.query.filter_by(case_id=case_id, status='ZeroEvents').count()
+    # Partial indexed files - files partially indexed but not fully
+    partial_indexed_files = CaseFile.query.filter_by(case_id=case_id, status='Partial').count()
+    
+    # Failed parsing - files where parser exists but failed to parse
+    failed_parsing = CaseFile.query.filter_by(case_id=case_id, status='ParseFail').count()
+    
+    # No parser - files where no parser is available
+    no_parser = CaseFile.query.filter_by(case_id=case_id, status='UnableToParse').count()
+    
+    # Failed files - files which failed for some other reason
+    failed_files = CaseFile.query.filter_by(case_id=case_id, status='Error').count()
+    
+    # Get total artifacts count from all OpenSearch indices
+    total_artifacts = 0
+    try:
+        indexer = OpenSearchIndexer()
+        client = indexer.client
+        
+        # Define all indices to query
+        indices_to_query = [
+            f'case_{case_id}',  # events
+            f'case_{case_id}_browser',
+            f'case_{case_id}_execution',
+            f'case_{case_id}_filesystem',
+            f'case_{case_id}_useractivity',
+            f'case_{case_id}_comms',
+            f'case_{case_id}_network',
+            f'case_{case_id}_persistence',
+            f'case_{case_id}_devices',
+            f'case_{case_id}_cloud',
+            f'case_{case_id}_remote'
+        ]
+        
+        for index_name in indices_to_query:
+            try:
+                result = client.count(index=index_name, body={"query": {"match_all": {}}})
+                total_artifacts += result['count']
+            except NotFoundError:
+                # Index doesn't exist yet, skip
+                pass
+            except Exception as e:
+                logger.error(f"Error counting artifacts in {index_name}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error getting total artifacts: {e}")
+    
+    # Get processing count for backwards compatibility
+    processing_count = pending_files
+    
+    # ZIP containers - count of tracked ZIP files (for duplicate prevention)
+    zip_containers = CaseFile.query.filter_by(case_id=case_id, parser_type='zipcontainer').count()
     
     stats = {
         'total_files': total_files,
-        'total_events': total_events,
-        'indexed_files': indexed_count,
+        'total_space_gb': total_size / (1024**3) if total_size > 0 else 0,
+        'total_artifacts': total_artifacts,
+        'indexed_files': indexed_files,
+        'partial_indexed_files': partial_indexed_files,
+        'failed_parsing': failed_parsing,
+        'no_parser': no_parser,
+        'failed_files': failed_files,
         'pending_files': pending_files,
         'processing_files': processing_count,
-        'not_indexed_files': not_indexed_count,
-        'zero_events_files': zero_events_count,
-        'total_size_gb': total_size / (1024**3) if total_size > 0 else 0
+        'zip_containers': zip_containers,
     }
     
     return jsonify({'stats': stats})
@@ -859,11 +931,11 @@ def get_zip_breakdown(case_id, container_id):
     # Get all child files
     children = CaseFile.query.filter_by(parent_file_id=container_id, is_virtual=True).all()
     
-    # Calculate statistics
+    # Calculate statistics (exclude zipcontainer from event counts)
     total_files = len(children)
     indexed_files = len([f for f in children if f.status == 'indexed'])
     failed_files = len([f for f in children if f.status == 'failed'])
-    total_events = sum(f.event_count or 0 for f in children if f.status == 'indexed')
+    total_events = sum(f.event_count or 0 for f in children if f.status == 'indexed' and f.parser_type != 'zipcontainer')
     
     # Breakdown by file type - Indexed
     indexed_by_type = {}
@@ -873,7 +945,9 @@ def get_zip_breakdown(case_id, container_id):
             if ext not in indexed_by_type:
                 indexed_by_type[ext] = {'count': 0, 'events': 0}
             indexed_by_type[ext]['count'] += 1
-            indexed_by_type[ext]['events'] += file.event_count or 0
+            # Don't count zipcontainer events in stats
+            if file.parser_type != 'zipcontainer':
+                indexed_by_type[ext]['events'] += file.event_count or 0
     
     # Breakdown by file type - Failed
     failed_by_type = {}
@@ -1238,22 +1312,25 @@ def files_upload(case_id=None):
 @login_required
 def scan_bulk_upload(case_id):
     """
-    Scan the bulk upload folder for new files and queue them for processing
+    Scan the SFTP upload folder for new files and queue them for processing
+    Uses the same modern processing pipeline as web uploads
     """
     import os
     from audit_logger import log_action
-    from tasks.task_file_upload import process_uploaded_files
+    from tasks.task_ingest_files import ingest_files
+    from utils.file_ingestion import scan_upload_folder
+    from datetime import datetime, timedelta
     
     # Only admins and analysts can scan
     if current_user.role == 'read-only':
         return jsonify({'error': 'You do not have permission to scan for files'}), 403
     
     # Get case
-    from models import Case
+    from models import Case, IngestionProgress
     case = Case.query.get_or_404(case_id)
     
-    # Define paths
-    upload_path = f'/opt/casescope/bulk_upload/{case_id}/'
+    # Use new standardized SFTP upload path
+    upload_path = f'/opt/casescope/uploads/sftp/{case_id}/'
     
     try:
         # Check if upload folder exists
@@ -1264,12 +1341,8 @@ def scan_bulk_upload(case_id):
                 'message': f'Folder not found. Please create: {upload_path}'
             })
         
-        # Scan for files
-        files_found = []
-        for filename in os.listdir(upload_path):
-            file_path = os.path.join(upload_path, filename)
-            if os.path.isfile(file_path):
-                files_found.append(filename)
+        # Use standardized scan function
+        files_found = scan_upload_folder(case_id, 'sftp')
         
         if len(files_found) == 0:
             return jsonify({
@@ -1278,8 +1351,29 @@ def scan_bulk_upload(case_id):
                 'message': f'No files found in {upload_path}'
             })
         
-        # Queue task for background processing
-        task = process_uploaded_files.delay(case_id, files_found)
+        # Check for recent active ingestion (prevent duplicates)
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=5)
+        active_ingestion = IngestionProgress.query.filter(
+            IngestionProgress.case_id == case_id,
+            IngestionProgress.status.in_(['in_progress', 'pending']),
+            IngestionProgress.started_at >= recent_cutoff
+        ).first()
+        
+        if active_ingestion:
+            logger.warning(f"Duplicate processing attempt blocked for case {case_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Processing already in progress for this case',
+                'active_task_id': active_ingestion.task_id
+            }), 409  # Conflict
+        
+        # Queue task using modern ingestion pipeline
+        task = ingest_files.delay(
+            case_id=case_id,
+            user_id=current_user.id,
+            upload_type='sftp',
+            resume=False
+        )
         
         # Audit log
         log_action('scan_bulk_upload',
@@ -1290,7 +1384,7 @@ def scan_bulk_upload(case_id):
                        'scanned_by': current_user.username,
                        'folder': upload_path,
                        'files_found': len(files_found),
-                       'files': files_found,
+                       'upload_type': 'sftp',
                        'task_id': task.id
                    })
         
@@ -1302,7 +1396,7 @@ def scan_bulk_upload(case_id):
         })
         
     except Exception as e:
-        logger.error(f"Error scanning bulk upload folder for case {case_id}: {e}")
+        logger.error(f"Error scanning SFTP upload folder for case {case_id}: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

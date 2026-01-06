@@ -128,15 +128,13 @@ sudo tail -f /opt/casescope/logs/celery_worker.log
 sudo tail -f /opt/casescope/logs/error.log
 ```
 
-### Bulk Upload
+### Bulk Upload (SFTP)
 ```bash
-# Copy files to SFTP folder
+# Copy files to SFTP folder (standardized upload path)
 cp /path/to/files/*.zip /opt/casescope/uploads/sftp/{case_id}/
 
-# Or use bulk_upload directory
-cp /path/to/files/*.zip /opt/casescope/bulk_upload/{case_id}/
-
 # Files await manual processing trigger via web UI
+# Click "Scan for New Files" or "Start Processing" in the upload interface
 ```
 
 ---
@@ -159,7 +157,6 @@ cp /path/to/files/*.zip /opt/casescope/bulk_upload/{case_id}/
 | Temp extraction | `/opt/casescope/staging/{id}/` |
 | Web uploads | `/opt/casescope/uploads/web/{case_id}/` |
 | SFTP uploads | `/opt/casescope/uploads/sftp/{case_id}/` |
-| Bulk upload (legacy) | `/opt/casescope/bulk_upload/{case_id}/` |
 | Logs | `/opt/casescope/logs/` |
 | Database | PostgreSQL `casescope` database |
 | Search indexes | OpenSearch `case_{id}*` indices |

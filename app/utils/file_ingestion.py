@@ -192,12 +192,15 @@ def extract_zip_to_staging(zip_path: str, staging_folder: str, case_id: int) -> 
             status='success' if len(errors) == 0 else 'partial'
         )
         
+        # Consider extraction successful if ANY files were extracted
+        # Even if some individual files had errors, the ZIP is usable
         return {
-            'success': len(errors) == 0,
+            'success': files_extracted > 0,  # Success if we got any files out
             'extracted_folder': extraction_path,
             'files_extracted': files_extracted,
             'nested_zips': nested_zips,
-            'errors': errors
+            'errors': errors,
+            'partial': len(errors) > 0  # Flag partial extraction for logging
         }
         
     except Exception as e:

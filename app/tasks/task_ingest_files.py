@@ -107,6 +107,7 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             # STEP 2: Stage files (extract ZIPs or move directly)
             staged_files = []
             processing_errors = []
+            zip_containers_created = 0
             
             for idx, file_info in enumerate(files_to_process):
                 progress_pct = int((idx / total_files) * 30)  # Staging = 0-30%
@@ -122,9 +123,62 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         'progress': progress_pct,
                         'current_step': step_name,
                         'files_processed': idx,
-                        'total_files': total_files
+                        'total_files': total_files,
+                        'zip_containers_created': zip_containers_created
                     }
                 )
+                
+                # NEW: For ZIP files, track container and check for duplicates BEFORE extraction
+                zip_container_id = None
+                if file_info['is_zip']:
+                    # Calculate ZIP hash before extraction
+                    try:
+                        zip_hash = calculate_sha256(file_info['path'])
+                        zip_size = os.path.getsize(file_info['path'])
+                        
+                        # Check if this ZIP was already uploaded (duplicate detection)
+                        duplicate_zip = CaseFile.query.filter_by(
+                            case_id=case_id,
+                            file_hash=zip_hash,
+                            parser_type='zipcontainer'
+                        ).first()
+                        
+                        if duplicate_zip:
+                            logger.info(f"Duplicate ZIP detected: {file_info['filename']} (hash: {zip_hash[:16]}...)")
+                            processing_errors.append({
+                                'file': file_info['filename'],
+                                'step': 'duplicate_check',
+                                'error': f'Duplicate ZIP - already uploaded on {duplicate_zip.uploaded_at}'
+                            })
+                            # Skip extraction
+                            continue
+                        
+                        # Create container record for ZIP
+                        zip_container = CaseFile(
+                            case_id=case_id,
+                            filename=file_info['filename'],
+                            original_filename=file_info['filename'],
+                            file_type='zip',
+                            file_size=zip_size,
+                            file_path=None,  # Not storing ZIP file
+                            file_hash=zip_hash,
+                            parser_type='zipcontainer',
+                            status='Extracting',
+                            event_count=0,  # Containers don't have events
+                            is_hidden=False,
+                            uploaded_by=user_id,
+                            uploaded_at=datetime.utcnow()
+                        )
+                        db.session.add(zip_container)
+                        db.session.commit()  # Commit so it appears in UI during extraction
+                        
+                        zip_container_id = zip_container.id
+                        zip_containers_created += 1
+                        logger.info(f"Created ZIP container record for {file_info['filename']} (ID: {zip_container_id})")
+                        
+                    except Exception as e:
+                        logger.error(f"Error checking ZIP duplicate: {e}")
+                        # Continue with extraction even if container tracking fails
                 
                 # Stage the file
                 stage_result = stage_file(
@@ -133,13 +187,36 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                     is_zip=file_info['is_zip']
                 )
                 
+                # Update ZIP container status based on extraction result
+                if file_info['is_zip'] and zip_container_id:
+                    try:
+                        zip_container = CaseFile.query.get(zip_container_id)
+                        if zip_container:
+                            if stage_result['success']:
+                                # Check if extraction was partial (had errors but got some files)
+                                if stage_result.get('partial', False):
+                                    zip_container.status = 'Extracted'  # Still mark as extracted
+                                    error_count = len(stage_result.get('errors', []))
+                                    zip_container.error_message = f'Partial extraction: {error_count} file(s) had errors'
+                                    logger.warning(f"Partial extraction for {file_info['filename']}: {error_count} errors")
+                                else:
+                                    zip_container.status = 'Extracted'
+                                zip_container.event_count = stage_result.get('files_extracted', 0)  # Store count of extracted files
+                            else:
+                                zip_container.status = 'ExtractionFail'
+                                zip_container.error_message = stage_result.get('error', 'Unknown extraction error')
+                            db.session.commit()
+                    except Exception as e:
+                        logger.error(f"Error updating ZIP container status: {e}")
+                
                 if stage_result['success']:
                     for staged_file_path in stage_result['staged_files']:
                         staged_files.append({
                             'path': staged_file_path,
                             'original_name': file_info['filename'],
                             'is_from_zip': stage_result['is_zip'],
-                            'zip_folder': stage_result.get('extraction_folder')
+                            'zip_folder': stage_result.get('extraction_folder'),
+                            'zip_container_id': zip_container_id  # Link to container
                         })
                 else:
                     processing_errors.append({
@@ -306,6 +383,10 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                 'success': True,
                 'total_files': len(file_records),
                 'queued_for_processing': len(queued_tasks),
+                'zip_containers_created': zip_containers_created,
+                'duplicates_skipped': duplicates_skipped,
+                'processing_errors': len(processing_errors),
+                'errors': processing_errors[:10] if processing_errors else [],  # First 10 errors for display
                 'message': 'Files queued for parallel processing'
             }
             

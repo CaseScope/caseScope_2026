@@ -211,6 +211,60 @@ def parse_prefetch(filepath):
     return result
 
 
+def parse_prefetch_file(filepath):
+    """
+    Parse prefetch file and yield event(s) for OpenSearch
+    Wrapper around parse_prefetch to match parser factory interface
+    """
+    import os
+    from datetime import datetime
+    
+    try:
+        result = parse_prefetch(filepath)
+        filename = os.path.basename(filepath)
+        
+        # Create main execution event
+        event = {
+            'event_type': 'prefetch',
+            'artifact_type': 'prefetch',
+            'source_file': filename,
+            '@timestamp': result['last_run_times'][0] if result['last_run_times'] else datetime.utcnow().isoformat(),
+            'executable': result['executable'],
+            'prefetch_hash': result['hash'],
+            'run_count': result['run_count'],
+            'compressed': result['compressed'],
+            'version': result['version'],
+            'version_string': result['version_string']
+        }
+        
+        # Add last run times
+        if result['last_run_times']:
+            event['last_run_time'] = result['last_run_times'][0]
+            event['all_run_times'] = result['last_run_times']
+        
+        # Add volume information
+        if result['volumes']:
+            event['volumes'] = result['volumes']
+            event['volume_count'] = len(result['volumes'])
+        
+        # Add file/directory counts
+        event['files_referenced'] = len(result['files'])
+        event['directories_referenced'] = len(result['directories'])
+        
+        # Add referenced files (limit to prevent huge events)
+        if result['files']:
+            event['files'] = result['files'][:100]  # Limit to first 100
+        
+        # Add directories (limit to prevent huge events)  
+        if result['directories']:
+            event['directories'] = result['directories'][:50]  # Limit to first 50
+        
+        yield event
+        
+    except Exception as e:
+        raise Exception(f"Prefetch parsing error: {e}")
+
+
 def print_result(result, show_files=True, show_dirs=False):
     """Pretty print the parsed result"""
     print("=" * 70)

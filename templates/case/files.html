@@ -17,27 +17,22 @@
     </div>
 </div>
 
-<!-- Evidence Artifacts Card -->
+<!-- Case File Statistics Card -->
 <div class="card mb-4">
-    <div class="card-header" style="cursor: pointer;" onclick="toggleArtifactStats()">
-        <div class="d-flex justify-content-between align-items-center">
-            <h3 class="card-title mb-0">📊 Evidence Artifacts</h3>
-            <div class="d-flex align-items-center gap-3">
-                <span id="artifactTotalBadge" class="badge badge-primary" style="font-size: 0.9rem;">
-                    Loading...
-                </span>
-                <span id="artifactToggleIcon" style="font-size: 1.2rem;">▼</span>
-            </div>
-        </div>
+    <div class="card-header">
+        <h3 class="card-title mb-0">📊 Case File Statistics</h3>
     </div>
     
-    <!-- File Summary (Always Visible) -->
-    <div class="card-body border-bottom">
-        <div class="text-muted text-small mb-2">File Management</div>
+    <div class="card-body">
         <div class="stats-row">
             <div class="stat-card">
                 <div class="stat-label">Total Files</div>
-                <div class="stat-value stat-value-primary" id="stat-total-files">{{ stats.total_files }}</div>
+                <div class="stat-value stat-value-primary" id="stat-total-files">-</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Total Space</div>
+                <div class="stat-value stat-value-info" id="stat-total-space">-</div>
             </div>
             
             <div class="stat-card">
@@ -47,34 +42,54 @@
             
             <div class="stat-card">
                 <div class="stat-label">Indexed Files</div>
-                <div class="stat-value stat-value-info" id="stat-indexed-files">{{ stats.indexed_files }}</div>
+                <div class="stat-value stat-value-success" id="stat-indexed-files">-</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Partial Indexed Files</div>
+                <div class="stat-value stat-value-warning" id="stat-partial-indexed-files">-</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Failed Parsing</div>
+                <div class="stat-value stat-value-error" id="stat-failed-parsing">-</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">No Parser</div>
+                <div class="stat-value stat-value-warning" id="stat-no-parser">-</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Failed Files</div>
+                <div class="stat-value stat-value-error" id="stat-failed-files">-</div>
             </div>
             
             <div class="stat-card">
                 <div class="stat-label">Pending Files</div>
-                <div class="stat-value stat-value-warning" id="stat-pending-files">{{ stats.pending_files }}</div>
+                <div class="stat-value stat-value-warning" id="stat-pending-files">-</div>
             </div>
             
             <div class="stat-card">
-                <div class="stat-label">Files Not Indexed</div>
-                <div class="stat-value stat-value-error" id="stat-not-indexed-files">{{ stats.not_indexed_files }}</div>
+                <div class="stat-label">Zip Containers</div>
+                <div class="stat-value stat-value-info" id="stat-zip-containers">-</div>
             </div>
-            
-            <div class="stat-card">
-                <div class="stat-label">Files with 0 Events</div>
-                <div class="stat-value stat-value-warning" id="stat-zero-events-files">{{ stats.zero_events_files }}</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-label">Total Size</div>
-                <div class="stat-value stat-value-info" id="stat-total-size">{{ "%.2f"|format(stats.total_size_gb) }} GB</div>
-            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Artifact Breakdown Card (Collapsible) -->
+<div class="card mb-4">
+    <div class="card-header" style="cursor: pointer;" onclick="toggleArtifactStats()">
+        <div class="d-flex justify-content-between align-items-center">
+            <h3 class="card-title mb-0">📊 Artifact Breakdown by Index</h3>
+            <span id="artifactToggleIcon" style="font-size: 1.2rem;">▼</span>
         </div>
     </div>
     
     <!-- Detailed Artifact Breakdown (Collapsible) -->
     <div id="artifactDetailsSection" class="card-body" style="display: none;">
-        <div class="text-muted text-small mb-3">Artifact counts across all OpenSearch indices - Click index name to view</div>
+        <div class="text-muted text-small mb-3">Artifact counts across all OpenSearch indices</div>
         <div id="artifactBreakdown">
             <div class="text-center p-4">
                 <div class="spinner-border text-primary"></div>
@@ -154,16 +169,66 @@
             <table class="table">
                 <thead>
                     <tr>
-                        <th>Parent ZIP</th>
-                        <th>Filename</th>
-                        <th>System</th>
-                        <th>Uploaded</th>
-                        <th>Uploaded By</th>
-                        <th>Events</th>
-                        <th>Parser</th>
-                        <th>SIGMA</th>
-                        <th>IOCs</th>
-                        <th>Status</th>
+                        <th class="sortable" onclick="sortBy('original_filename')">
+                            Parent ZIP
+                            {% if sort_by == 'original_filename' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('filename')">
+                            Filename
+                            {% if sort_by == 'filename' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('source_system')">
+                            System
+                            {% if sort_by == 'source_system' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('uploaded_at')">
+                            Uploaded
+                            {% if sort_by == 'uploaded_at' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('uploaded_by')">
+                            Uploaded By
+                            {% if sort_by == 'uploaded_by' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('event_count')">
+                            Artifacts
+                            {% if sort_by == 'event_count' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('parser_type')">
+                            Parser
+                            {% if sort_by == 'parser_type' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('sigma_violations')">
+                            SIGMA
+                            {% if sort_by == 'sigma_violations' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('ioc_count')">
+                            IOCs
+                            {% if sort_by == 'ioc_count' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
+                        <th class="sortable" onclick="sortBy('status')">
+                            Status
+                            {% if sort_by == 'status' %}
+                                <span class="sort-indicator">{{ '▼' if sort_order == 'desc' else '▲' }}</span>
+                            {% endif %}
+                        </th>
                     </tr>
                 </thead>
                 <tbody id="filesTableBody">
@@ -200,8 +265,6 @@
                         <td>
                             {% if file.source_system %}
                                 <span class="badge badge-secondary">{{ file.source_system }}</span>
-                            {% elif file.event_count == 0 %}
-                                <span class="text-muted" title="Empty file - no events">Empty</span>
                             {% else %}
                                 <span class="text-muted">-</span>
                             {% endif %}
@@ -348,6 +411,25 @@
 </div>
 {% endblock %}
 
+{% block styles %}
+<style>
+.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sortable:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.sort-indicator {
+    margin-left: 0.3rem;
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+</style>
+{% endblock %}
+
 {% block scripts %}
 <script src="/static/js/zip-expansion.js"></script>
 <script>
@@ -371,15 +453,19 @@ async function updateStats() {
         
         // Update stat cards with animation (with null safety)
         updateStatCard('stat-total-files', stats.total_files || 0);
-        updateStatCard('stat-total-events', formatNumber(stats.total_events || 0));
-        updateStatCard('stat-indexed-files', stats.indexed_files || 0);
-        updateStatCard('stat-pending-files', stats.pending_files || 0);
-        updateStatCard('stat-not-indexed-files', stats.not_indexed_files || 0);
-        updateStatCard('stat-zero-events-files', stats.zero_events_files || 0);
         
-        // Safe conversion to number for total_size_gb
-        const totalSize = Number(stats.total_size_gb) || 0;
-        updateStatCard('stat-total-size', totalSize.toFixed(2) + ' GB');
+        // Safe conversion to number for total_space_gb
+        const totalSpace = Number(stats.total_space_gb) || 0;
+        updateStatCard('stat-total-space', totalSpace.toFixed(2) + ' GB');
+        
+        updateStatCard('stat-total-artifacts', formatNumber(stats.total_artifacts || 0));
+        updateStatCard('stat-indexed-files', stats.indexed_files || 0);
+        updateStatCard('stat-partial-indexed-files', stats.partial_indexed_files || 0);
+        updateStatCard('stat-failed-parsing', stats.failed_parsing || 0);
+        updateStatCard('stat-no-parser', stats.no_parser || 0);
+        updateStatCard('stat-failed-files', stats.failed_files || 0);
+        updateStatCard('stat-pending-files', stats.pending_files || 0);
+        updateStatCard('stat-zip-containers', stats.zip_containers || 0);
         
         // Show/hide processing indicator
         const indicator = document.getElementById('processingIndicator');
@@ -451,7 +537,20 @@ function updateTimestamp() {
 async function refreshFileList() {
     try {
         console.log('📋 Fetching file list...');
-        const response = await fetch(`/case/${caseId}/files/api/list?_=${Date.now()}`, {
+        
+        // Preserve current URL parameters (filters, search, pagination)
+        const currentUrl = new URL(window.location);
+        const apiUrl = new URL(`/case/${caseId}/files/api/list`, window.location.origin);
+        
+        // Copy filter parameters from current URL to API request
+        currentUrl.searchParams.forEach((value, key) => {
+            apiUrl.searchParams.set(key, value);
+        });
+        
+        // Add cache-busting parameter
+        apiUrl.searchParams.set('_', Date.now());
+        
+        const response = await fetch(apiUrl.toString(), {
             headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache'
@@ -496,7 +595,8 @@ async function refreshFileList() {
                 <td>${file.uploaded_by}</td>
                 <td><span class="stat-value-success">${file.event_count.toLocaleString()}</span></td>
                 <td>
-                    ${file.parser_type !== '-' ? `<span class="badge badge-info">${file.parser_type}</span>` : '<span class="text-muted">-</span>'}
+                    ${file.parser_type === 'zipcontainer' ? `<span class="badge badge-warning">ZipContainer</span>` : 
+                      file.parser_type !== '-' ? `<span class="badge badge-info">${file.parser_type}</span>` : '<span class="text-muted">-</span>'}
                 </td>
                 <td>
                     ${file.sigma_violations > 0 ? `<span class="badge badge-error">${file.sigma_violations}</span>` : '<span class="text-muted">0</span>'}
@@ -568,11 +668,32 @@ function applyStatusFilters() {
     window.location.href = url.toString();
 }
 
-// Change page (preserve current filters)
+// Change page (preserve current filters and sorting)
 function changePage(page) {
     const url = new URL(window.location);
     url.searchParams.set('page', page);
-    // Keep existing status filters
+    // Keep existing status filters and sort parameters
+    window.location.href = url.toString();
+}
+
+// Sort by column
+function sortBy(column) {
+    const url = new URL(window.location);
+    const currentSort = url.searchParams.get('sort_by');
+    const currentOrder = url.searchParams.get('sort_order') || 'desc';
+    
+    // If clicking the same column, toggle order
+    if (currentSort === column) {
+        url.searchParams.set('sort_order', currentOrder === 'desc' ? 'asc' : 'desc');
+    } else {
+        // New column, default to descending
+        url.searchParams.set('sort_by', column);
+        url.searchParams.set('sort_order', 'desc');
+    }
+    
+    // Reset to page 1 when sorting changes
+    url.searchParams.set('page', '1');
+    
     window.location.href = url.toString();
 }
 
@@ -581,8 +702,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial stats update
     updateStats();
     
-    // Poll stats every 2 seconds for faster real-time updates
-    setInterval(updateStats, 2000);
+    // Poll stats every 5 seconds for real-time updates
+    setInterval(updateStats, 5000);
     
     // Update timestamp every second
     setInterval(updateTimestamp, 1000);
@@ -617,7 +738,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkbox.addEventListener('change', applyStatusFilters);
     });
     
-    console.log('📊 Real-time stats monitoring active');
+    console.log('📊 Real-time stats monitoring active (polling every 5 seconds)');
 });
 
 // Cleanup on page unload
@@ -728,7 +849,7 @@ async function showZipBreakdown(containerId, filename) {
         html += '<div class="stat-grid mb-4" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">';
         html += `
             <div class="stat-card">
-                <div class="stat-label">Total Events Indexed</div>
+                <div class="stat-label">Total Artifacts Indexed</div>
                 <div class="stat-value stat-value-info">${formatNumber(data.total_events)}</div>
             </div>
             <div class="stat-card">
@@ -743,7 +864,7 @@ async function showZipBreakdown(containerId, filename) {
             html += '<h4 class="mb-3">Indexed Files by Type</h4>';
             html += '<div class="table-container mb-4">';
             html += '<table class="table table-sm">';
-            html += '<thead><tr><th>File Type</th><th>Description</th><th>Count</th><th>Events</th></tr></thead>';
+            html += '<thead><tr><th>File Type</th><th>Description</th><th>Count</th><th>Artifacts</th></tr></thead>';
             html += '<tbody>';
             
             for (const [type, info] of Object.entries(data.indexed_by_type)) {
@@ -820,7 +941,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ============================================================================
-// ARTIFACT STATISTICS (NEW)
+// ARTIFACT BREAKDOWN (Collapsible Section)
 // ============================================================================
 
 let artifactStatsLoaded = false;
@@ -849,10 +970,6 @@ async function loadArtifactStats() {
         if (!response.ok) throw new Error('Failed to load artifact stats');
         
         const data = await response.json();
-        
-        document.getElementById('artifactTotalBadge').textContent = 
-            formatNumber(data.total_artifacts) + ' Total Artifacts';
-        document.getElementById('stat-total-artifacts').textContent = formatNumber(data.total_artifacts);
         
         let html = '';
         const orderedKeys = ['events', 'browser', 'execution', 'filesystem', 'useractivity', 
@@ -919,20 +1036,5 @@ async function loadArtifactStats() {
         `;
     }
 }
-
-// Load on page load
-window.addEventListener('DOMContentLoaded', async () => {
-    try {
-        const response = await fetch(`/case/api/artifact-stats/{{ case.id }}`);
-        if (response.ok) {
-            const data = await response.json();
-            document.getElementById('artifactTotalBadge').textContent = 
-                formatNumber(data.total_artifacts) + ' Total Artifacts';
-            document.getElementById('stat-total-artifacts').textContent = formatNumber(data.total_artifacts);
-        }
-    } catch (error) {
-        console.error('Error loading initial stats:', error);
-    }
-});
 </script>
 {% endblock %}

@@ -317,9 +317,13 @@ CELERY_TASK_ACKS_LATE = True  # Prevent task loss on crash
 ├── staging/
 │   └── case_X/
 │       └── (temporary extraction area, cleared after indexing)
-└── bulk_upload/
-    └── case_X/
-        └── (user upload area, moved to storage)
+└── uploads/
+    ├── web/
+    │   └── case_X/
+    │       └── (web upload queue, moved to storage)
+    └── sftp/
+        └── case_X/
+            └── (SFTP upload queue, moved to storage)
 ```
 
 ### File Lifecycle
@@ -332,7 +336,7 @@ CELERY_TASK_ACKS_LATE = True  # Prevent task loss on crash
 5. On download: Re-extracted on-demand
 
 **Standalone File**:
-1. Uploaded to `bulk_upload/case_X/` or web upload
+1. Uploaded to `uploads/web/case_X/` or `uploads/sftp/case_X/`
 2. Moved to `staging/case_X/`
 3. Parsed and indexed
 4. Compressed with GZIP

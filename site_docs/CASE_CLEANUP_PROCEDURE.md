@@ -167,13 +167,17 @@ rm -rf /opt/casescope/uploads/sftp/{CASE_ID}/
 - Clears pending uploads
 - Files not yet processed will be removed
 
-#### E. `/opt/casescope/bulk_upload/` (Legacy)
-**Purpose:** Legacy bulk upload directory
+#### E. `/opt/casescope/uploads/sftp/` 
+**Purpose:** SFTP upload queue directory
 
 **To Clean:**
 ```bash
-rm -rf /opt/casescope/bulk_upload/{CASE_ID}/
+rm -rf /opt/casescope/uploads/sftp/{CASE_ID}/
 ```
+
+**Effects:**
+- Clears SFTP uploaded files awaiting processing
+- Files not yet processed will be removed
 
 ---
 

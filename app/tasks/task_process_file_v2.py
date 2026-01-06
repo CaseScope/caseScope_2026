@@ -73,7 +73,7 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
             
             if parser_type == 'unknown':
                 logger.warning(f"No parser available for {filename}")
-                file_record.status = 'ParseFail'
+                file_record.status = 'UnableToParse'
                 file_record.error_message = f'No parser available for this file type'
                 db.session.commit()
                 return {'success': False, 'error': 'No parser available'}
@@ -82,23 +82,38 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
             parser_func = get_parser(parser_type)
             if not parser_func:
                 logger.error(f"Failed to load parser {parser_type} for {filename}")
-                file_record.status = 'ParseFail'
-                file_record.error_message = f'Parser {parser_type} failed to load'
+                file_record.status = 'UnableToParse'
+                file_record.parser_type = parser_type
+                file_record.error_message = f'Parser {parser_type} not available or failed to load'
                 db.session.commit()
                 return {'success': False, 'error': 'Parser load failed'}
             
             logger.info(f"Using {parser_type} parser for {filename}")
             
-            # Parse file
+            # Parse file directly (no decompression needed)
             try:
                 events = list(parser_func(file_path))
+            except OSError as e:
+                # File system errors (file not accessible, permissions, etc.)
+                logger.warning(f"Unable to parse {filename}: {e}")
+                file_record.status = 'UnableToParse'
+                file_record.parser_type = parser_type
+                file_record.error_message = str(e)[:500]
+                db.session.commit()
+                return {'success': False, 'error': str(e)}
             except Exception as e:
+                # Parser exists but failed to parse the file
                 logger.error(f"Parser {parser_type} failed for {filename}: {e}")
-                raise
+                file_record.status = 'ParseFail'
+                file_record.parser_type = parser_type
+                file_record.error_message = str(e)[:500]
+                db.session.commit()
+                return {'success': False, 'error': str(e)}
             
             if not events:
                 logger.info(f"No events extracted from {filename}")
                 file_record.status = 'ZeroEvents'
+                file_record.parser_type = parser_type
                 file_record.event_count = 0
                 db.session.commit()
                 return {'success': True, 'file_id': file_id, 'filename': filename, 'event_count': 0, 'status': 'ZeroEvents'}
@@ -115,12 +130,13 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
                     confidence = 'high'
                     logger.info(f"Extracted hostname from {parser_type}: {extracted_hostname}")
             
-            # Check for LNK machine_id
-            if not extracted_hostname and events and parser_type == 'lnk':
+            # Check for machine_id in LNK and JumpList files
+            if not extracted_hostname and events and parser_type in ('lnk', 'jumplist'):
                 extracted_hostname = events[0].get('machine_id')
                 if extracted_hostname:
-                    extraction_method = 'lnk'
+                    extraction_method = parser_type
                     confidence = 'high'
+                    logger.info(f"Extracted hostname from {parser_type} machine_id: {extracted_hostname}")
             
             # Refine source_system based on extraction
             source_system = file_record.source_system  # Initial value from upload
@@ -186,25 +202,20 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
             
             # Update file record
             file_record.status = 'Indexed'
+            file_record.parser_type = parser_type
             file_record.indexed_at = datetime.utcnow()
             file_record.event_count = event_count
             file_record.source_system = source_system
             
-            # Move to storage and compress
+            # Move to storage (no compression - keep original format)
             storage_path = f'/opt/casescope/storage/case_{case_id}'
             os.makedirs(storage_path, exist_ok=True)
             
             if os.path.exists(file_path):
-                compressed_filename = filename + '.gz'
-                compressed_path = os.path.join(storage_path, compressed_filename)
-                
-                with open(file_path, 'rb') as f_in:
-                    with gzip.open(compressed_path, 'wb', compresslevel=6) as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                
-                file_record.file_path = compressed_path
-                os.remove(file_path)
-                logger.info(f"Moved to storage: {filename} → {compressed_filename}")
+                storage_file_path = os.path.join(storage_path, filename)
+                shutil.move(file_path, storage_file_path)
+                file_record.file_path = storage_file_path
+                logger.info(f"Moved to storage: {filename}")
             
             db.session.commit()
             
@@ -220,16 +231,10 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
                 'index': index_name
             }
             
-        except OSError as e:
-            logger.warning(f"Unable to parse {filename}: {e}")
-            file_record.status = 'UnableToParse'
-            file_record.error_message = str(e)[:500]
-            db.session.commit()
-            return {'success': False, 'error': str(e)}
-            
         except Exception as e:
+            # Catch-all for unexpected errors (indexing errors, storage errors, etc.)
             logger.error(f"Error processing {filename}: {e}", exc_info=True)
-            file_record.status = 'ParseFail'
+            file_record.status = 'Error'
             file_record.error_message = str(e)[:500]
             db.session.commit()
             return {'success': False, 'error': str(e)}

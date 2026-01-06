@@ -27,6 +27,9 @@ if app_dir not in sys.path:
 
 logger = logging.getLogger(__name__)
 
+# Import hostname extraction utility
+from utils.archive_detection import extract_hostname_from_filename
+
 # Import celery instance
 from celery_app import celery
 
@@ -364,6 +367,9 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                     
                     # Create container record
                     with app.app_context():
+                        # Extract initial source_system from filename
+                        initial_hostname = extract_hostname_from_filename(filename)
+                        
                         case_file = CaseFile(
                             case_id=case_id,
                             filename=filename,
@@ -377,9 +383,12 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                             parent_file_id=None,
                             uploaded_by=1,  # TODO: Get from session
                             uploaded_at=datetime.utcnow(),
-                            status='extracting',
+                            status='New',
                             extraction_status='pending',
-                            event_count=zip_file_count  # Track file count in ZIP
+                            event_count=zip_file_count,  # Track file count in ZIP
+                            source_system=initial_hostname,
+                            source_system_method='filename' if initial_hostname else None,
+                            source_system_confidence='pending' if initial_hostname else None
                         )
                         db.session.add(case_file)
                         db.session.commit()
@@ -421,6 +430,9 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                     
                     # Create standalone file record
                     with app.app_context():
+                        # Extract initial source_system from filename
+                        initial_hostname = extract_hostname_from_filename(filename)
+                        
                         case_file = CaseFile(
                             case_id=case_id,
                             filename=filename,
@@ -435,8 +447,11 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                             target_index=target_index,
                             uploaded_by=1,
                             uploaded_at=datetime.utcnow(),
-                            status='parsing',
-                            parsing_status='pending'
+                            status='New',
+                            parsing_status='pending',
+                            source_system=initial_hostname,
+                            source_system_method='filename' if initial_hostname else None,
+                            source_system_confidence='pending' if initial_hostname else None
                         )
                         db.session.add(case_file)
                         db.session.commit()
@@ -530,6 +545,7 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
         # Update container status
         with app.app_context():
             container = CaseFile.query.get(container_id)
+            container.status = 'extracting'
             container.extraction_status = 'in_progress'
             db.session.commit()
         
@@ -576,6 +592,9 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                     
                     # Create virtual file record
                     with app.app_context():
+                        # Inherit source_system from container (parent ZIP)
+                        parent_hostname = container.source_system if container else None
+                        
                         virtual_file = CaseFile(
                             case_id=case_id,
                             filename=safe_filename,
@@ -589,9 +608,12 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                             parent_file_id=container_id,  # Link to ZIP container
                             target_index=target_index,
                             source_user=source_user,  # Store extracted username
+                            source_system=parent_hostname,  # Inherit from parent ZIP
+                            source_system_method=container.source_system_method if container else None,
+                            source_system_confidence='pending' if parent_hostname else None,
                             uploaded_by=1,
                             uploaded_at=datetime.utcnow(),
-                            status='parsing',
+                            status='New',
                             extraction_status='completed',
                             parsing_status='pending'
                         )
@@ -684,10 +706,11 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
     
     try:
         # Update file status
+        # Update file record (transition from New to parsing)
         with app.app_context():
             case_file = CaseFile.query.get(file_id)
-            case_file.parsing_status = 'in_progress'
             case_file.status = 'parsing'
+            case_file.parsing_status = 'in_progress'
             db.session.commit()
         
         # Determine parser based on file type
