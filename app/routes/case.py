@@ -1561,3 +1561,173 @@ def api_artifact_stats(case_id):
     except Exception as e:
         logger.error(f"Error getting artifact stats for case {case_id}: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@case_bp.route('/<int:case_id>/review_hostnames')
+@login_required
+def review_hostnames(case_id):
+    """
+    Show files that need hostname review
+    """
+    from main import db
+    from models import Case, CaseFile
+    
+    case = Case.query.get_or_404(case_id)
+    
+    # Access control for viewers
+    if current_user.role == 'read-only':
+        if case.id != current_user.case_assigned:
+            flash('You do not have access to this case', 'error')
+            return redirect(url_for('index'))
+    
+    # Get files needing review
+    files_needing_review = CaseFile.query.filter_by(
+        case_id=case_id,
+        needs_review=True
+    ).order_by(CaseFile.uploaded_at.desc()).all()
+    
+    return render_template('case/review_hostnames.html', 
+                         case=case, 
+                         files_needing_review=files_needing_review)
+
+
+@case_bp.route('/<int:case_id>/update_hostname/<int:file_id>', methods=['POST'])
+@login_required
+def update_hostname(case_id, file_id):
+    """
+    Update hostname for a file and re-index with new hostname
+    """
+    from main import db
+    from models import CaseFile
+    from opensearchpy import OpenSearch
+    from config import Config
+    
+    try:
+        file_record = CaseFile.query.filter_by(
+            id=file_id,
+            case_id=case_id
+        ).first_or_404()
+        
+        data = request.get_json()
+        new_hostname = data.get('hostname', '').strip()
+        
+        if not new_hostname:
+            return jsonify({'success': False, 'error': 'Hostname required'}), 400
+        
+        old_hostname = file_record.source_system
+        
+        # Update database record
+        file_record.source_system = new_hostname
+        file_record.source_system_confidence = 'high'
+        file_record.source_system_method = 'manual'
+        file_record.needs_review = False
+        file_record.suggested_source_system = None
+        db.session.commit()
+        
+        # Update OpenSearch - bulk update all events from this file
+        if file_record.target_index and file_record.event_count > 0:
+            try:
+                client = OpenSearch(
+                    hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}],
+                    use_ssl=Config.OPENSEARCH_USE_SSL,
+                    verify_certs=False,
+                    ssl_show_warn=False,
+                    timeout=30
+                )
+                
+                # Update by query - update all events with this source_file
+                update_query = {
+                    "script": {
+                        "source": "ctx._source.source_system = params.new_hostname",
+                        "params": {
+                            "new_hostname": new_hostname
+                        }
+                    },
+                    "query": {
+                        "term": {
+                            "source_file": file_record.original_filename
+                        }
+                    }
+                }
+                
+                response = client.update_by_query(
+                    index=file_record.target_index,
+                    body=update_query,
+                    conflicts='proceed'
+                )
+                
+                logger.info(f"Updated {response.get('updated', 0)} events with new hostname: {new_hostname}")
+                
+            except Exception as e:
+                logger.error(f"Error updating OpenSearch events: {e}")
+                # Don't fail the whole operation, database is updated
+        
+        return jsonify({
+            'success': True,
+            'old_hostname': old_hostname,
+            'new_hostname': new_hostname
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating hostname: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@case_bp.route('/<int:case_id>/verify_hostname/<int:file_id>', methods=['POST'])
+@login_required
+def verify_hostname(case_id, file_id):
+    """
+    Mark current hostname as verified (no changes)
+    """
+    from main import db
+    from models import CaseFile
+    
+    try:
+        file_record = CaseFile.query.filter_by(
+            id=file_id,
+            case_id=case_id
+        ).first_or_404()
+        
+        # Mark as verified
+        file_record.needs_review = False
+        file_record.source_system_confidence = 'high'
+        file_record.suggested_source_system = None
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"Error verifying hostname: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@case_bp.route('/<int:case_id>/verify_all_hostnames', methods=['POST'])
+@login_required
+def verify_all_hostnames(case_id):
+    """
+    Mark all current hostnames as verified for this case
+    """
+    from main import db
+    from models import CaseFile
+    
+    try:
+        # Update all files needing review
+        updated_count = CaseFile.query.filter_by(
+            case_id=case_id,
+            needs_review=True
+        ).update({
+            'needs_review': False,
+            'source_system_confidence': 'high',
+            'suggested_source_system': None
+        })
+        
+        db.session.commit()
+        
+        return jsonify({'success': True, 'count': updated_count})
+        
+    except Exception as e:
+        logger.error(f"Error verifying all hostnames: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500

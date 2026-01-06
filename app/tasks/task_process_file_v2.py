@@ -103,12 +103,61 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
                 db.session.commit()
                 return {'success': True, 'file_id': file_id, 'filename': filename, 'event_count': 0, 'status': 'ZeroEvents'}
             
-            # Extract hostname/computer from first event
-            source_system = None
+            # Extract hostname/computer from first event with refinement logic
+            extracted_hostname = None
+            extraction_method = None
+            confidence = 'low'
+            
             if events:
-                source_system = events[0].get('computer') or events[0].get('ComputerName') or normalize_event_computer(events[0])
-                if source_system:
-                    logger.info(f"Source system: {source_system}")
+                extracted_hostname = events[0].get('computer') or events[0].get('ComputerName') or normalize_event_computer(events[0])
+                if extracted_hostname:
+                    extraction_method = 'evtx' if parser_type == 'evtx' else parser_type
+                    confidence = 'high'
+                    logger.info(f"Extracted hostname from {parser_type}: {extracted_hostname}")
+            
+            # Check for LNK machine_id
+            if not extracted_hostname and events and parser_type == 'lnk':
+                extracted_hostname = events[0].get('machine_id')
+                if extracted_hostname:
+                    extraction_method = 'lnk'
+                    confidence = 'high'
+            
+            # Refine source_system based on extraction
+            source_system = file_record.source_system  # Initial value from upload
+            
+            if extracted_hostname:
+                # Found hostname in artifacts
+                if file_record.source_system_confidence == 'pending':
+                    # Was waiting for extraction - use it
+                    source_system = extracted_hostname
+                    file_record.source_system_method = extraction_method
+                    file_record.source_system_confidence = confidence
+                    file_record.needs_review = False
+                    logger.info(f"Refined source_system from 'pending' to '{source_system}'")
+                    
+                elif file_record.source_system and file_record.source_system != extracted_hostname:
+                    # Mismatch between initial guess and extracted
+                    logger.warning(f"Hostname mismatch: file_record={file_record.source_system}, extracted={extracted_hostname}")
+                    file_record.suggested_source_system = extracted_hostname
+                    file_record.needs_review = True
+                    # Keep using the initially specified one for now
+                    
+                elif not file_record.source_system:
+                    # No initial value, use extracted
+                    source_system = extracted_hostname
+                    file_record.source_system_method = extraction_method
+                    file_record.source_system_confidence = confidence
+                    
+            else:
+                # Couldn't extract from artifacts
+                if file_record.source_system_confidence == 'pending':
+                    # Fall back to whatever we have (likely filename)
+                    file_record.source_system_confidence = 'medium'
+                    file_record.source_system_method = 'filename'
+                    file_record.needs_review = True  # User should confirm
+                    logger.info(f"No hostname in artifacts, using initial value: {source_system}")
+            
+            logger.info(f"Final source_system: {source_system} (confidence: {file_record.source_system_confidence})")
             
             # Get target index
             index_name = get_index_name(parser_type, case_id)
@@ -125,7 +174,8 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
                     events=iter(chunk),
                     chunk_size=chunk_size,
                     case_id=case_id,
-                    source_file=filename
+                    source_file=filename,
+                    source_system=source_system
                 )
                 
                 # Progress logging for large files

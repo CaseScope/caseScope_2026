@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}Review Hostnames - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">🔍 Review Hostnames</h1>
+        <p class="content-subtitle">{{ case.name }}</p>
+    </div>
+    <div>
+        <a href="{{ url_for('case.case_files', case_id=case.id) }}" class="btn btn-secondary">
+            Back to Case Files
+        </a>
+    </div>
+</div>
+
+{% if files_needing_review|length == 0 %}
+<div class="card">
+    <div class="card-body text-center p-5">
+        <div class="mb-4">
+            <span style="font-size: 4em;">✅</span>
+        </div>
+        <h3 class="mb-3">All Hostnames Verified!</h3>
+        <p class="text-muted">All files have high-confidence hostname assignments.</p>
+        <a href="{{ url_for('case.case_files', case_id=case.id) }}" class="btn btn-primary mt-3">
+            Return to Case Files
+        </a>
+    </div>
+</div>
+{% else %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Files Requiring Hostname Review</h2>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning mb-4">
+            <strong>⚠️ {{ files_needing_review|length }} file(s) need hostname verification</strong>
+            <p class="mt-2 mb-0">These files have uncertain or conflicting hostname information. Please review and update as needed.</p>
+        </div>
+        
+        {% for file in files_needing_review %}
+        <div class="hostname-review-card mb-4">
+            <div class="hostname-review-header">
+                <div>
+                    <h4 class="mb-1">{{ file.original_filename }}</h4>
+                    <p class="text-muted text-small mb-0">
+                        Uploaded: {{ file.uploaded_at.strftime('%Y-%m-%d %H:%M:%S') }} | 
+                        Events: {{ file.event_count|default('N/A', true) }} |
+                        Status: <span class="badge badge-{{ 'success' if file.status == 'Indexed' else 'warning' }}">{{ file.status }}</span>
+                    </p>
+                </div>
+                <div>
+                    <span class="badge badge-{{ 'warning' if file.source_system_confidence == 'low' else 'info' if file.source_system_confidence == 'medium' else 'secondary' }}">
+                        Confidence: {{ file.source_system_confidence|upper }}
+                    </span>
+                </div>
+            </div>
+            
+            <div class="hostname-review-body">
+                <div class="grid grid-2">
+                    <!-- Current Hostname -->
+                    <div>
+                        <label class="form-label"><strong>Current Hostname:</strong></label>
+                        <div class="info-box mb-2">
+                            <div class="fw-bold">{{ file.source_system or 'Unknown' }}</div>
+                            <div class="text-small text-muted">
+                                {% if file.source_system_method == 'evtx' %}
+                                    <span class="badge badge-success">✓ From EVTX events</span>
+                                {% elif file.source_system_method == 'lnk' %}
+                                    <span class="badge badge-success">✓ From LNK MachineID</span>
+                                {% elif file.source_system_method == 'filename' %}
+                                    <span class="badge badge-warning">From filename (fallback)</span>
+                                {% elif file.source_system_method == 'manual' %}
+                                    <span class="badge badge-info">User specified</span>
+                                {% elif file.source_system_method == 'path' %}
+                                    <span class="badge badge-warning">From file path</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">Unknown source</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        {% if file.suggested_source_system %}
+                        <div class="alert alert-info">
+                            <strong>💡 Suggested:</strong> {{ file.suggested_source_system }}
+                            <p class="text-small mb-0 mt-1">Found in artifact contents during processing</p>
+                            <button class="btn btn-sm btn-primary mt-2" onclick="useSuggested({{ file.id }}, '{{ file.suggested_source_system }}')">
+                                Use Suggested
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Update Hostname -->
+                    <div>
+                        <label class="form-label"><strong>Update Hostname:</strong></label>
+                        <form id="hostnameForm{{ file.id }}" onsubmit="updateHostname(event, {{ file.id }})">
+                            <input type="text" 
+                                   class="form-control mb-2" 
+                                   id="newHostname{{ file.id }}"
+                                   value="{{ file.suggested_source_system or file.source_system or '' }}"
+                                   placeholder="Enter hostname (e.g., WORKSTATION-01)"
+                                   required>
+                            <div class="button-group">
+                                <button type="submit" class="btn btn-primary">
+                                    Update Hostname
+                                </button>
+                                <button type="button" class="btn btn-success" onclick="markAsVerified({{ file.id }})">
+                                    ✓ Current is Correct
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- File Details -->
+                <details class="mt-3">
+                    <summary class="text-small text-muted" style="cursor: pointer;">View File Details</summary>
+                    <div class="mt-2 text-small">
+                        <table class="table">
+                            <tr>
+                                <td><strong>File Type:</strong></td>
+                                <td>{{ file.parser_type or 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Archive Type:</strong></td>
+                                <td>{{ file.archive_type or 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Index:</strong></td>
+                                <td><code>{{ file.target_index or 'N/A' }}</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Size:</strong></td>
+                                <td>{{ (file.file_size / 1024 / 1024)|round(2) }} MB</td>
+                            </tr>
+                        </table>
+                    </div>
+                </details>
+            </div>
+        </div>
+        {% endfor %}
+        
+        <div class="mt-4">
+            <button class="btn btn-success" onclick="markAllAsVerified()">
+                ✓ Mark All Current Hostnames as Correct
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseId = {{ case.id }};
+
+// Use suggested hostname
+function useSuggested(fileId, suggestedHostname) {
+    document.getElementById(`newHostname${fileId}`).value = suggestedHostname;
+}
+
+// Update hostname for a single file
+async function updateHostname(event, fileId) {
+    event.preventDefault();
+    
+    const newHostname = document.getElementById(`newHostname${fileId}`).value.trim();
+    
+    if (!newHostname) {
+        alert('Please enter a hostname');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/case/${caseId}/update_hostname/${fileId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                hostname: newHostname
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showFlash(`✓ Hostname updated to "${newHostname}" and events re-indexed`, 'success');
+            // Remove the card from view
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
+        } else {
+            showFlash(`Error: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error updating hostname:', error);
+        showFlash('Failed to update hostname', 'error');
+    }
+}
+
+// Mark hostname as verified (keep current)
+async function markAsVerified(fileId) {
+    try {
+        const response = await fetch(`/case/${caseId}/verify_hostname/${fileId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showFlash('✓ Hostname verified', 'success');
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            showFlash(`Error: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error verifying hostname:', error);
+        showFlash('Failed to verify hostname', 'error');
+    }
+}
+
+// Mark all as verified
+async function markAllAsVerified() {
+    if (!confirm('Mark all current hostnames as verified?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/case/${caseId}/verify_all_hostnames`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showFlash(`✓ Verified ${data.count} hostname(s)`, 'success');
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
+        } else {
+            showFlash(`Error: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error verifying hostnames:', error);
+        showFlash('Failed to verify hostnames', 'error');
+    }
+}
+
+// Show flash message
+function showFlash(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} mb-3`;
+    alertDiv.innerHTML = message;
+    alertDiv.style.position = 'fixed';
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.style.minWidth = '300px';
+    
+    document.body.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
+</script>
+
+<style>
+.hostname-review-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.hostname-review-header {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.hostname-review-body {
+    padding: 1rem;
+}
+
+.info-box {
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid #007bff;
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.file-config-container {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.file-config-header {
+    background: #f8f9fa;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.file-config-body {
+    padding: 1rem;
+}
+</style>
+{% endblock %}
+

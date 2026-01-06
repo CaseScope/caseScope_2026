@@ -125,6 +125,14 @@ class CaseFile(db.Model):
     sigma_violations = db.Column(db.Integer, default=0)
     ioc_count = db.Column(db.Integer, default=0)
     
+    # Hostname extraction tracking (new two-phase system)
+    archive_type = db.Column(db.String(50))  # single_host, multi_host, unknown
+    source_system_method = db.Column(db.String(50))  # evtx, lnk, filename, manual, path, ndjson
+    source_system_confidence = db.Column(db.String(20))  # high, medium, low, pending
+    suggested_source_system = db.Column(db.String(200))  # Alternative hostname found during processing
+    user_specified_hostname = db.Column(db.String(200))  # Manually entered by user
+    needs_review = db.Column(db.Boolean, default=False)  # Flag for hostname review
+    
     # Upload tracking
     uploaded_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

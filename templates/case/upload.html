@@ -81,6 +81,35 @@
         <h2 class="card-title">Method 1 & 2: Web Upload (Select or Drag & Drop)</h2>
     </div>
     <div class="card-body">
+        <!-- CyLR Recommendation -->
+        <div class="alert alert-success mb-4">
+            <h4 class="mb-3">✨ Recommended: Use CyLR for Forensic Collections</h4>
+            <p class="mb-2">For best results with hostname tracking and artifact collection, we recommend using <strong>CyLR (Collect Your Live Response)</strong> to create forensic collections.</p>
+            <div class="grid grid-2 mt-3">
+                <div>
+                    <strong>Benefits:</strong>
+                    <ul class="mt-2 mb-0 text-small">
+                        <li>Automatic hostname detection from EVTX logs</li>
+                        <li>Comprehensive artifact collection</li>
+                        <li>Optimized for CaseScope ingestion</li>
+                        <li>Includes Registry, MFT, Prefetch, and more</li>
+                    </ul>
+                </div>
+                <div>
+                    <strong>Download CyLR:</strong>
+                    <div class="mt-2">
+                        <a href="https://github.com/orlikoski/CyLR/releases/latest" target="_blank" class="btn btn-primary btn-sm">
+                            📥 Download from GitHub
+                        </a>
+                    </div>
+                    <p class="text-small mt-2 mb-0">
+                        Open source tool by Alan Orlikoski<br>
+                        <a href="https://github.com/orlikoski/CyLR" target="_blank">Documentation & Usage Guide</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+        
         <div class="mb-4">
             <div class="alert alert-info">
                 <strong>Supported File Types:</strong>
@@ -307,20 +336,113 @@ function updateFilesList() {
     tbody.innerHTML = '';
     
     selectedFiles.forEach((file, index) => {
+        const isZip = file.name.toLowerCase().endsWith('.zip');
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="fw-bold">${file.name}</td>
-            <td>${formatFileSize(file.size)}</td>
-            <td>${getFileType(file.name)}</td>
-            <td><span class="badge badge-secondary">Pending</span></td>
-            <td>
-                <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">
-                    Remove
-                </button>
-            </td>
-        `;
+        
+        // For ZIP files, add archive type and hostname selection
+        if (isZip) {
+            // Initialize file metadata if not exists
+            if (!file.archiveType) {
+                file.archiveType = 'single_host';
+                file.hostnameSource = 'auto';
+                file.manualHostname = extractHostnameFromFilename(file.name);
+            }
+            
+            row.innerHTML = `
+                <td colspan="5">
+                    <div class="file-config-container">
+                        <div class="file-config-header">
+                            <strong>${file.name}</strong>
+                            <span class="text-muted">(${formatFileSize(file.size)})</span>
+                            <button class="btn btn-danger btn-sm float-right" onclick="removeFile(${index})">Remove</button>
+                        </div>
+                        <div class="file-config-body">
+                            <div class="grid grid-2">
+                                <div>
+                                    <label class="form-label"><strong>Archive Type:</strong></label>
+                                    <select class="form-control" onchange="updateFileArchiveType(${index}, this.value)">
+                                        <option value="single_host" ${file.archiveType === 'single_host' ? 'selected' : ''}>Single-Host Collection (CyLR/KAPE)</option>
+                                        <option value="multi_host" ${file.archiveType === 'multi_host' ? 'selected' : ''}>Multi-Host Collection (EDR/Logs)</option>
+                                        <option value="unknown" ${file.archiveType === 'unknown' ? 'selected' : ''}>Unknown/Mixed</option>
+                                    </select>
+                                    <p class="text-small text-muted mt-1">
+                                        ${file.archiveType === 'single_host' ? 'Artifacts from ONE machine - hostname will be extracted or use filename' : 
+                                          file.archiveType === 'multi_host' ? 'Multiple machines - hostname extracted per file' : 
+                                          'Will attempt extraction, mark unresolved as "Unknown"'}
+                                    </p>
+                                </div>
+                                <div id="hostnameConfig${index}" ${file.archiveType !== 'single_host' ? 'style="display:none;"' : ''}>
+                                    <label class="form-label"><strong>Hostname Source:</strong></label>
+                                    <select class="form-control mb-2" onchange="updateHostnameSource(${index}, this.value)">
+                                        <option value="auto" ${file.hostnameSource === 'auto' ? 'selected' : ''}>Auto-detect from artifacts</option>
+                                        <option value="filename" ${file.hostnameSource === 'filename' ? 'selected' : ''}>Use filename: ${extractHostnameFromFilename(file.name)}</option>
+                                        <option value="manual" ${file.hostnameSource === 'manual' ? 'selected' : ''}>Specify manually</option>
+                                    </select>
+                                    <input type="text" 
+                                           id="manualHostname${index}" 
+                                           class="form-control" 
+                                           placeholder="Enter hostname (e.g., WORKSTATION-01)" 
+                                           value="${file.manualHostname || ''}"
+                                           onchange="updateManualHostname(${index}, this.value)"
+                                           ${file.hostnameSource !== 'manual' ? 'style="display:none;"' : ''}>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            `;
+        } else {
+            // Regular files - simple row
+            row.innerHTML = `
+                <td class="fw-bold">${file.name}</td>
+                <td>${formatFileSize(file.size)}</td>
+                <td>${getFileType(file.name)}</td>
+                <td><span class="badge badge-secondary">Ready</span></td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">
+                        Remove
+                    </button>
+                </td>
+            `;
+        }
+        
         tbody.appendChild(row);
     });
+}
+
+// Extract hostname from filename
+function extractHostnameFromFilename(filename) {
+    // Remove extension
+    let name = filename.replace(/\.(zip|7z|tar|gz)$/i, '');
+    // Remove common suffixes
+    name = name.replace(/[-_](collection|forensic|data|export|archive)$/i, '');
+    // Remove dates
+    name = name.replace(/[-_]\d{4}[-_]?\d{2}[-_]?\d{2}$/, '');
+    return name.trim() || 'Unknown';
+}
+
+// Update file archive type
+function updateFileArchiveType(index, archiveType) {
+    selectedFiles[index].archiveType = archiveType;
+    // Show/hide hostname config
+    const hostnameConfig = document.getElementById(`hostnameConfig${index}`);
+    if (hostnameConfig) {
+        hostnameConfig.style.display = archiveType === 'single_host' ? 'block' : 'none';
+    }
+}
+
+// Update hostname source
+function updateHostnameSource(index, source) {
+    selectedFiles[index].hostnameSource = source;
+    const manualInput = document.getElementById(`manualHostname${index}`);
+    if (manualInput) {
+        manualInput.style.display = source === 'manual' ? 'block' : 'none';
+    }
+}
+
+// Update manual hostname
+function updateManualHostname(index, hostname) {
+    selectedFiles[index].manualHostname = hostname;
 }
 
 // Remove file from list
@@ -987,6 +1109,58 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(loadPendingFiles, 10000);
 });
 </script>
+
+<style>
+.file-config-container {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    background: #fafafa;
+}
+
+.file-config-header {
+    background: #f0f0f0;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.file-config-body {
+    padding: 1rem;
+}
+
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+}
+
+.float-right {
+    float: right;
+}
+</style>
 
 <!-- All styles moved to static/css/main.css for better maintainability -->
 {% endblock %}

@@ -112,6 +112,7 @@ class OpenSearchIndexer:
                         
                         # Metadata fields
                         'source_file': {'type': 'keyword'},
+                        'source_system': {'type': 'keyword'},  # Hostname where artifact was collected
                         'file_type': {'type': 'keyword'},
                         'case_id': {'type': 'keyword'},
                         'indexed_at': {'type': 'date'},
@@ -131,7 +132,8 @@ class OpenSearchIndexer:
     
     def bulk_index(self, index_name: str, events: Iterator[Dict[str, Any]], 
                    chunk_size: int = 500, case_id: int = None, 
-                   source_file: str = None, file_type: str = None) -> Dict[str, Any]:
+                   source_file: str = None, file_type: str = None,
+                   source_system: str = None) -> Dict[str, Any]:
         """
         Bulk index events into OpenSearch
         
@@ -142,6 +144,7 @@ class OpenSearchIndexer:
             case_id: Case ID to associate with events
             source_file: Source file name
             file_type: File type (EVTX, NDJSON, CSV, IIS)
+            source_system: Source hostname where artifact was collected
         
         Returns:
             dict: Indexing statistics
@@ -167,6 +170,8 @@ class OpenSearchIndexer:
                     event['source_file'] = source_file
                 if file_type:
                     event['file_type'] = file_type
+                if source_system:
+                    event['source_system'] = source_system
                 
                 # Generate action
                 yield {
