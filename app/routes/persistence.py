@@ -45,7 +45,7 @@ def api_stats(case_id):
             "aggs": {
                 "by_type": {
                     "terms": {
-                        "field": "event_type",
+                        "field": "event_type.keyword",  # Use .keyword subfield for aggregations
                         "size": 10
                     }
                 }
