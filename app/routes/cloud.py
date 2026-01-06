@@ -4,13 +4,10 @@ from flask_login import login_required, current_user
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
 import logging
+from utils.opensearch_client import get_opensearch_client
 
 logger = logging.getLogger(__name__)
 cloud_bp = Blueprint('cloud', __name__, url_prefix='/cloud')
-
-def get_opensearch_client():
-    from config import Config
-    return OpenSearch(hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}], use_ssl=Config.OPENSEARCH_USE_SSL, verify_certs=False, ssl_show_warn=False, timeout=30)
 
 @cloud_bp.route('/')
 @cloud_bp.route('/<int:case_id>')

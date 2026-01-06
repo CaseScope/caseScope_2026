@@ -4,13 +4,10 @@ from flask_login import login_required, current_user
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
 import logging
+from utils.opensearch_client import get_opensearch_client
 
 logger = logging.getLogger(__name__)
 persistence_bp = Blueprint('persistence', __name__, url_prefix='/persistence')
-
-def get_opensearch_client():
-    from config import Config
-    return OpenSearch(hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}], use_ssl=Config.OPENSEARCH_USE_SSL, verify_certs=False, ssl_show_warn=False, timeout=30)
 
 @persistence_bp.route('/')
 @persistence_bp.route('/<int:case_id>')
@@ -65,8 +62,9 @@ def api_stats(case_id):
                 wmi_count += bucket['doc_count']
         
         # For now, mark tasks with suspicious patterns as high risk
-        # TODO: Implement risk scoring based on task patterns
-        high_risk = 0  # Placeholder
+        # Risk scoring: Future enhancement to analyze task patterns
+        # Will evaluate task name, path, and execution patterns
+        high_risk = 0  # Placeholder for risk assessment logic
         
         return jsonify({
             'total': total,

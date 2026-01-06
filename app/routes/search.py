@@ -7,23 +7,12 @@ from flask import Blueprint, render_template, jsonify, request, session
 from flask_login import login_required, current_user
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
+from utils.opensearch_client import get_opensearch_client
 import logging
 
 logger = logging.getLogger(__name__)
 
 search_bp = Blueprint('search', __name__, url_prefix='/search')
-
-
-def get_opensearch_client():
-    """Get OpenSearch client"""
-    from app.config import Config
-    return OpenSearch(
-        hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}],
-        use_ssl=Config.OPENSEARCH_USE_SSL,
-        verify_certs=False,
-        ssl_show_warn=False,
-        timeout=30
-    )
 
 
 @search_bp.route('/')

@@ -4,16 +4,10 @@ from flask_login import login_required, current_user
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
 import logging
+from utils.opensearch_client import get_opensearch_client
 
 logger = logging.getLogger(__name__)
 network_bp = Blueprint('network', __name__, url_prefix='/network')
-
-def get_opensearch_client():
-    from config import Config
-    return OpenSearch(
-        hosts=[{'host': Config.OPENSEARCH_HOST, 'port': Config.OPENSEARCH_PORT}],
-        use_ssl=Config.OPENSEARCH_USE_SSL, verify_certs=False, ssl_show_warn=False, timeout=30
-    )
 
 @network_bp.route('/')
 @network_bp.route('/<int:case_id>')

@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 try:
     result = subprocess.run(['which', 'readpst'], capture_output=True, text=True)
     READPST_AVAILABLE = result.returncode == 0
-except:
+except Exception as e:
+    logger.warning(f"Could not check for readpst availability: {e}")
     READPST_AVAILABLE = False
 
 if not READPST_AVAILABLE:

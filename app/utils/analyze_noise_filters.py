@@ -13,6 +13,7 @@ os.chdir('/opt/casescope/app')
 
 from opensearchpy import OpenSearch
 import json
+from utils.opensearch_client import get_opensearch_client
 from datetime import datetime
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy

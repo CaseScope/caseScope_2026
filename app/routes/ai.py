@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify, current_app, redirect, url_for, f
 from flask_login import login_required, current_user
 from functools import wraps
 import logging
+from utils.opensearch_client import get_opensearch_client
 import json
 from datetime import datetime
 

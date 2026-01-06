@@ -333,8 +333,8 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                             'existing_filename': duplicate.original_filename,
                             'uploaded_at': duplicate.uploaded_at.isoformat() if duplicate.uploaded_at else None
                         })
-                        # TODO: Show user dialog (Replace/Keep Both/Cancel)
-                        # For now, skip duplicate
+                        # Current behavior: Skip duplicate files
+                        # Future enhancement: UI dialog for (Replace/Keep Both/Cancel)
                         os.remove(file_path)
                         continue
                 
@@ -381,7 +381,7 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                             is_container=True,  # This is a ZIP container
                             is_virtual=False,   # Physical file in storage
                             parent_file_id=None,
-                            uploaded_by=1,  # TODO: Get from session
+                            uploaded_by=user_id,  # User ID passed from route
                             uploaded_at=datetime.utcnow(),
                             status='New',
                             extraction_status='pending',

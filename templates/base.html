@@ -47,7 +47,7 @@
                     <span>Case Files</span>
                 </a>
                 
-                <a href="/case/select" class="sidebar-nav-item {% if request.path == '/case/select' %}active{% endif %}">
+                <a href="{{ url_for('case.select_case') }}" class="sidebar-nav-item {% if request.path == '/case/select' %}active{% endif %}">
                     <span class="sidebar-nav-icon">📁</span>
                     <span>Select Case</span>
                 </a>
@@ -144,12 +144,12 @@
                     <span>Settings</span>
                 </a>
                 
-                <a href="/admin/users" class="sidebar-nav-item {% if request.path.startswith('/admin/users') %}active{% endif %}">
+                <a href="{{ url_for('admin.users') }}" class="sidebar-nav-item {% if request.path.startswith('/admin/users') %}active{% endif %}">
                     <span class="sidebar-nav-icon">👥</span>
                     <span>Users</span>
                 </a>
                 
-                <a href="/admin/audit-log" class="sidebar-nav-item {% if request.path.startswith('/admin/audit-log') %}active{% endif %}">
+                <a href="{{ url_for('admin.audit_log') }}" class="sidebar-nav-item {% if request.path.startswith('/admin/audit-log') %}active{% endif %}">
                     <span class="sidebar-nav-icon">📋</span>
                     <span>Audit Log</span>
                 </a>

@@ -6,6 +6,7 @@ Handles login, logout, and session management
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_user, logout_user, login_required, current_user
 from datetime import datetime
+from urllib.parse import urlparse, urljoin
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,10 +61,16 @@ def auth_login():
         logger.info(f"User logged in: {username} (role: {user.role})")
         flash(f'Welcome back, {user.full_name or user.username}!', 'success')
         
-        # Redirect to next page or dashboard
+        # Redirect to next page or dashboard (with security validation)
         next_page = request.args.get('next')
         if next_page:
-            return redirect(next_page)
+            # Validate URL to prevent open redirect attacks
+            # Only allow relative URLs that start with /
+            parsed = urlparse(next_page)
+            if not parsed.netloc and next_page.startswith('/'):
+                return redirect(next_page)
+            else:
+                logger.warning(f"Blocked potentially malicious redirect attempt: {next_page}")
         return redirect(url_for('index'))
     
     return render_template('login.html')

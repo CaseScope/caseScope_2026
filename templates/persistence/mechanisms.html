@@ -8,7 +8,7 @@
 </div>
 {% if not case %}
 <div class="card"><div class="card-body"><div class="placeholder-content">
-    <h3>No Case Selected</h3><a href="/case/select" class="btn btn-primary mt-2">Select Case</a>
+    <h3>No Case Selected</h3><a href="{{ url_for('case.select_case') }}" class="btn btn-primary mt-2">Select Case</a>
 </div></div></div>
 {% else %}
 <div class="card mb-4"><div class="card-header"><h3 class="card-title mb-0">Persistence Summary</h3></div>
