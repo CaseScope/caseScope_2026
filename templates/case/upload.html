@@ -147,6 +147,8 @@
                             <th>File Name</th>
                             <th>Size</th>
                             <th>Type</th>
+                            <th>Archive Type</th>
+                            <th>Hostname Source</th>
                             <th>Status</th>
                             <th style="width: 100px;">Action</th>
                         </tr>
@@ -345,64 +347,60 @@ function updateFilesList() {
             file.manualHostname = extractHostnameFromFilename(file.name);
         }
         
-        // Create main row (consistent structure for all files)
+        // Create single row with all columns
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="fw-bold">${escapeHtml(file.name)}</td>
-            <td>${formatFileSize(file.size)}</td>
-            <td>${getFileType(file.name)}${isZip ? ' <span class="badge badge-info">Archive</span>' : ''}</td>
-            <td><span class="badge badge-secondary">Ready</span></td>
-            <td>
-                <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">
-                    Remove
-                </button>
-            </td>
-        `;
-        tbody.appendChild(row);
         
-        // For ZIP files, add configuration row below
         if (isZip) {
-            const configRow = document.createElement('tr');
-            configRow.innerHTML = `
-                <td colspan="5" style="padding: 0;">
-                    <div class="file-config-container">
-                        <div class="file-config-body">
-                            <div class="grid-2">
-                                <div>
-                                    <label class="form-label"><strong>Archive Type:</strong></label>
-                                    <select class="form-control" onchange="updateFileArchiveType(${index}, this.value)">
-                                        <option value="single_host" ${file.archiveType === 'single_host' ? 'selected' : ''}>Single-Host Collection (CyLR/KAPE)</option>
-                                        <option value="multi_host" ${file.archiveType === 'multi_host' ? 'selected' : ''}>Multi-Host Collection (EDR/Logs)</option>
-                                        <option value="unknown" ${file.archiveType === 'unknown' ? 'selected' : ''}>Unknown/Mixed</option>
-                                    </select>
-                                    <p class="text-small text-muted mt-1">
-                                        ${file.archiveType === 'single_host' ? 'Artifacts from ONE machine - hostname will be extracted or use filename' : 
-                                          file.archiveType === 'multi_host' ? 'Multiple machines - hostname extracted per file' : 
-                                          'Will attempt extraction, mark unresolved as "Unknown"'}
-                                    </p>
-                                </div>
-                                <div id="hostnameConfig${index}" ${file.archiveType !== 'single_host' ? 'style="display:none;"' : ''}>
-                                    <label class="form-label"><strong>Hostname Source:</strong></label>
-                                    <select class="form-control mb-2" onchange="updateHostnameSource(${index}, this.value)">
-                                        <option value="auto" ${file.hostnameSource === 'auto' ? 'selected' : ''}>Auto-detect from artifacts</option>
-                                        <option value="filename" ${file.hostnameSource === 'filename' ? 'selected' : ''}>Use filename: ${escapeHtml(extractHostnameFromFilename(file.name))}</option>
-                                        <option value="manual" ${file.hostnameSource === 'manual' ? 'selected' : ''}>Specify manually</option>
-                                    </select>
-                                    <input type="text" 
-                                           id="manualHostname${index}" 
-                                           class="form-control" 
-                                           placeholder="Enter hostname (e.g., WORKSTATION-01)" 
-                                           value="${escapeHtml(file.manualHostname || '')}"
-                                           onchange="updateManualHostname(${index}, this.value)"
-                                           ${file.hostnameSource !== 'manual' ? 'style="display:none;"' : ''}>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            // ZIP file row with dropdowns
+            row.innerHTML = `
+                <td class="fw-bold">${escapeHtml(file.name)}</td>
+                <td>${formatFileSize(file.size)}</td>
+                <td><span class="badge badge-info">Archive</span></td>
+                <td>
+                    <select class="form-control form-control-sm" onchange="updateFileArchiveType(${index}, this.value)">
+                        <option value="single_host" ${file.archiveType === 'single_host' ? 'selected' : ''}>Single-Host (CyLR/KAPE)</option>
+                        <option value="multi_host" ${file.archiveType === 'multi_host' ? 'selected' : ''}>Multi-Host (EDR/Logs)</option>
+                        <option value="unknown" ${file.archiveType === 'unknown' ? 'selected' : ''}>Unknown/Mixed</option>
+                    </select>
+                </td>
+                <td id="hostnameCell${index}">
+                    ${file.archiveType === 'single_host' ? `
+                        <select class="form-control form-control-sm" onchange="updateHostnameSource(${index}, this.value)">
+                            <option value="auto" ${file.hostnameSource === 'auto' ? 'selected' : ''}>Auto-detect</option>
+                            <option value="filename" ${file.hostnameSource === 'filename' ? 'selected' : ''}>From filename (${escapeHtml(extractHostnameFromFilename(file.name))})</option>
+                            <option value="manual" ${file.hostnameSource === 'manual' ? 'selected' : ''}>Manual</option>
+                        </select>
+                        ${file.hostnameSource === 'manual' ? `
+                            <input type="text" 
+                                   id="manualHostname${index}" 
+                                   class="form-control form-control-sm mt-1" 
+                                   placeholder="Enter hostname" 
+                                   value="${escapeHtml(file.manualHostname || '')}"
+                                   onchange="updateManualHostname(${index}, this.value)">
+                        ` : ''}
+                    ` : '<span class="text-muted text-small">Per-file extraction</span>'}
+                </td>
+                <td><span class="badge badge-secondary">Ready</span></td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">Remove</button>
                 </td>
             `;
-            tbody.appendChild(configRow);
+        } else {
+            // Regular file row
+            row.innerHTML = `
+                <td class="fw-bold">${escapeHtml(file.name)}</td>
+                <td>${formatFileSize(file.size)}</td>
+                <td>${getFileType(file.name)}</td>
+                <td>-</td>
+                <td>-</td>
+                <td><span class="badge badge-secondary">Ready</span></td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">Remove</button>
+                </td>
+            `;
         }
+        
+        tbody.appendChild(row);
     });
 }
 
@@ -428,19 +426,55 @@ function escapeHtml(text) {
 // Update file archive type
 function updateFileArchiveType(index, archiveType) {
     selectedFiles[index].archiveType = archiveType;
-    // Show/hide hostname config
-    const hostnameConfig = document.getElementById(`hostnameConfig${index}`);
-    if (hostnameConfig) {
-        hostnameConfig.style.display = archiveType === 'single_host' ? 'block' : 'none';
+    const file = selectedFiles[index];
+    
+    // Update hostname cell content
+    const hostnameCell = document.getElementById(`hostnameCell${index}`);
+    if (hostnameCell) {
+        if (archiveType === 'single_host') {
+            hostnameCell.innerHTML = `
+                <select class="form-control form-control-sm" onchange="updateHostnameSource(${index}, this.value)">
+                    <option value="auto" ${file.hostnameSource === 'auto' ? 'selected' : ''}>Auto-detect</option>
+                    <option value="filename" ${file.hostnameSource === 'filename' ? 'selected' : ''}>From filename (${escapeHtml(extractHostnameFromFilename(file.name))})</option>
+                    <option value="manual" ${file.hostnameSource === 'manual' ? 'selected' : ''}>Manual</option>
+                </select>
+                ${file.hostnameSource === 'manual' ? `
+                    <input type="text" 
+                           id="manualHostname${index}" 
+                           class="form-control form-control-sm mt-1" 
+                           placeholder="Enter hostname" 
+                           value="${escapeHtml(file.manualHostname || '')}"
+                           onchange="updateManualHostname(${index}, this.value)">
+                ` : ''}
+            `;
+        } else {
+            hostnameCell.innerHTML = '<span class="text-muted text-small">Per-file extraction</span>';
+        }
     }
 }
 
 // Update hostname source
 function updateHostnameSource(index, source) {
     selectedFiles[index].hostnameSource = source;
-    const manualInput = document.getElementById(`manualHostname${index}`);
-    if (manualInput) {
-        manualInput.style.display = source === 'manual' ? 'block' : 'none';
+    const file = selectedFiles[index];
+    const hostnameCell = document.getElementById(`hostnameCell${index}`);
+    
+    if (hostnameCell) {
+        hostnameCell.innerHTML = `
+            <select class="form-control form-control-sm" onchange="updateHostnameSource(${index}, this.value)">
+                <option value="auto" ${source === 'auto' ? 'selected' : ''}>Auto-detect</option>
+                <option value="filename" ${source === 'filename' ? 'selected' : ''}>From filename (${escapeHtml(extractHostnameFromFilename(file.name))})</option>
+                <option value="manual" ${source === 'manual' ? 'selected' : ''}>Manual</option>
+            </select>
+            ${source === 'manual' ? `
+                <input type="text" 
+                       id="manualHostname${index}" 
+                       class="form-control form-control-sm mt-1" 
+                       placeholder="Enter hostname" 
+                       value="${escapeHtml(file.manualHostname || '')}"
+                       onchange="updateManualHostname(${index}, this.value)">
+            ` : ''}
+        `;
     }
 }
 
@@ -624,7 +658,7 @@ async function startUpload() {
         for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i];
             const row = filesList.children[i];
-            const statusCell = row.cells[3];
+            const statusCell = row.cells[5];  // Status is now column 6 (index 5)
             
             // Update status
             statusCell.innerHTML = '<span class="badge badge-info">Uploading...</span>';
