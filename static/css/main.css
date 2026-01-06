@@ -2139,3 +2139,78 @@ tbody tr {
 .staging-file-status.error {
     color: var(--color-error);
 }
+
+/* ============================================================================
+   HOSTNAME TRACKING - FILE UPLOAD CONFIGURATION
+   ============================================================================ */
+
+/* File Configuration Container (for ZIP archive settings) */
+.file-config-container {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm);
+    background: var(--color-bg-tertiary);
+}
+
+.file-config-header {
+    background: var(--color-bg-secondary);
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.file-config-body {
+    padding: var(--spacing-lg);
+}
+
+/* ============================================================================
+   HOSTNAME TRACKING - REVIEW PAGE
+   ============================================================================ */
+
+/* Hostname Review Cards */
+.hostname-review-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-bottom: var(--spacing-lg);
+    background: var(--color-bg-secondary);
+}
+
+.hostname-review-header {
+    background: var(--color-bg-tertiary);
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.hostname-review-body {
+    padding: var(--spacing-lg);
+}
+
+/* Info Box for Hostname Display */
+.info-box {
+    padding: var(--spacing-md);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--color-primary);
+}
+
+/* Button Groups */
+.button-group {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.button-group .btn {
+    margin: 0;
+}
+
+/* Utility: Float Right */
+.float-right {
+    float: right;
+}
