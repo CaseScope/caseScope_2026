@@ -34,11 +34,51 @@ def api_stats(case_id):
     try:
         client = get_opensearch_client()
         index_name = f'case_{case_id}_persistence'
+        
+        # Get total count
         total_response = client.count(index=index_name, body={"query": {"match_all": {}}})
-        return jsonify({'total': total_response.get('count', 0), 'task_count': 0, 'wmi_count': 0, 'high_risk': 0})
+        total = total_response.get('count', 0)
+        
+        # Get breakdown by event_type
+        agg_body = {
+            "size": 0,
+            "aggs": {
+                "by_type": {
+                    "terms": {
+                        "field": "event_type",
+                        "size": 10
+                    }
+                }
+            }
+        }
+        
+        agg_response = client.search(index=index_name, body=agg_body)
+        buckets = agg_response.get('aggregations', {}).get('by_type', {}).get('buckets', [])
+        
+        task_count = 0
+        wmi_count = 0
+        
+        for bucket in buckets:
+            if bucket['key'] == 'scheduled_task':
+                task_count = bucket['doc_count']
+            elif bucket['key'] in ['wmi_subscription', 'wmi_event_filter', 'wmi_consumer']:
+                wmi_count += bucket['doc_count']
+        
+        # For now, mark tasks with suspicious patterns as high risk
+        # TODO: Implement risk scoring based on task patterns
+        high_risk = 0  # Placeholder
+        
+        return jsonify({
+            'total': total,
+            'task_count': task_count,
+            'wmi_count': wmi_count,
+            'high_risk': high_risk
+        })
+        
     except NotFoundError:
         return jsonify({'total': 0, 'task_count': 0, 'wmi_count': 0, 'high_risk': 0})
     except Exception as e:
+        logger.error(f"Error getting persistence stats: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @persistence_bp.route('/api/events/<int:case_id>')
