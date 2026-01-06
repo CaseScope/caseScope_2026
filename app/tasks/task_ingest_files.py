@@ -397,7 +397,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -421,7 +422,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -444,7 +446,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -471,7 +474,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -500,7 +504,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -528,7 +533,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -559,7 +565,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                             if i % 50000 == 0 and i > 0:
                                 logger.info(f"MFT progress: {i}/{len(events)} entries indexed")
@@ -587,7 +594,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -616,7 +624,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
@@ -645,7 +654,8 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
                                 case_id=case_id,
-                                source_file=filename
+                                source_file=filename,
+                                source_system=source_system
                             )
                         
                         event_count = len(events)
