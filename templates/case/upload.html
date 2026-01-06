@@ -337,27 +337,37 @@ function updateFilesList() {
     
     selectedFiles.forEach((file, index) => {
         const isZip = file.name.toLowerCase().endsWith('.zip');
-        const row = document.createElement('tr');
         
-        // For ZIP files, add archive type and hostname selection
+        // Initialize file metadata for ZIP files
+        if (isZip && !file.archiveType) {
+            file.archiveType = 'single_host';
+            file.hostnameSource = 'auto';
+            file.manualHostname = extractHostnameFromFilename(file.name);
+        }
+        
+        // Create main row (consistent structure for all files)
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="fw-bold">${escapeHtml(file.name)}</td>
+            <td>${formatFileSize(file.size)}</td>
+            <td>${getFileType(file.name)}${isZip ? ' <span class="badge badge-info">Archive</span>' : ''}</td>
+            <td><span class="badge badge-secondary">Ready</span></td>
+            <td>
+                <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">
+                    Remove
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+        
+        // For ZIP files, add configuration row below
         if (isZip) {
-            // Initialize file metadata if not exists
-            if (!file.archiveType) {
-                file.archiveType = 'single_host';
-                file.hostnameSource = 'auto';
-                file.manualHostname = extractHostnameFromFilename(file.name);
-            }
-            
-            row.innerHTML = `
-                <td colspan="5">
+            const configRow = document.createElement('tr');
+            configRow.innerHTML = `
+                <td colspan="5" style="padding: 0;">
                     <div class="file-config-container">
-                        <div class="file-config-header">
-                            <strong>${file.name}</strong>
-                            <span class="text-muted">(${formatFileSize(file.size)})</span>
-                            <button class="btn btn-danger btn-sm float-right" onclick="removeFile(${index})">Remove</button>
-                        </div>
                         <div class="file-config-body">
-                            <div class="grid grid-2">
+                            <div class="grid-2">
                                 <div>
                                     <label class="form-label"><strong>Archive Type:</strong></label>
                                     <select class="form-control" onchange="updateFileArchiveType(${index}, this.value)">
@@ -375,14 +385,14 @@ function updateFilesList() {
                                     <label class="form-label"><strong>Hostname Source:</strong></label>
                                     <select class="form-control mb-2" onchange="updateHostnameSource(${index}, this.value)">
                                         <option value="auto" ${file.hostnameSource === 'auto' ? 'selected' : ''}>Auto-detect from artifacts</option>
-                                        <option value="filename" ${file.hostnameSource === 'filename' ? 'selected' : ''}>Use filename: ${extractHostnameFromFilename(file.name)}</option>
+                                        <option value="filename" ${file.hostnameSource === 'filename' ? 'selected' : ''}>Use filename: ${escapeHtml(extractHostnameFromFilename(file.name))}</option>
                                         <option value="manual" ${file.hostnameSource === 'manual' ? 'selected' : ''}>Specify manually</option>
                                     </select>
                                     <input type="text" 
                                            id="manualHostname${index}" 
                                            class="form-control" 
                                            placeholder="Enter hostname (e.g., WORKSTATION-01)" 
-                                           value="${file.manualHostname || ''}"
+                                           value="${escapeHtml(file.manualHostname || '')}"
                                            onchange="updateManualHostname(${index}, this.value)"
                                            ${file.hostnameSource !== 'manual' ? 'style="display:none;"' : ''}>
                                 </div>
@@ -391,22 +401,8 @@ function updateFilesList() {
                     </div>
                 </td>
             `;
-        } else {
-            // Regular files - simple row
-            row.innerHTML = `
-                <td class="fw-bold">${file.name}</td>
-                <td>${formatFileSize(file.size)}</td>
-                <td>${getFileType(file.name)}</td>
-                <td><span class="badge badge-secondary">Ready</span></td>
-                <td>
-                    <button class="btn btn-danger btn-sm" onclick="removeFile(${index})">
-                        Remove
-                    </button>
-                </td>
-            `;
+            tbody.appendChild(configRow);
         }
-        
-        tbody.appendChild(row);
     });
 }
 
@@ -419,6 +415,14 @@ function extractHostnameFromFilename(filename) {
     // Remove dates
     name = name.replace(/[-_]\d{4}[-_]?\d{2}[-_]?\d{2}$/, '');
     return name.trim() || 'Unknown';
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Update file archive type
