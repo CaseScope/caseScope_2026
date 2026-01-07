@@ -99,4 +99,10 @@ try:
 except Exception as e:
     logger.warning(f"⚠ Could not load task_process_file_v2: {e}")
 
+try:
+    from tasks import task_automated_detection
+    logger.info("✓ Registered automated detection tasks")
+except Exception as e:
+    logger.warning(f"⚠ Could not load task_automated_detection: {e}")
+
 logger.info("✓ Celery tasks registered")

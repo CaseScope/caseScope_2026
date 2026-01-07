@@ -1858,3 +1858,119 @@ def tag_noise_status(task_id):
     except Exception as e:
         logger.error(f"Error checking noise tagging status: {e}")
         return jsonify({'error': str(e), 'state': 'FAILURE'}), 500
+
+
+# ============================================================================
+# AUTOMATED THREAT DETECTION
+# ============================================================================
+
+@hunting_bp.route('/api/automated_detection', methods=['POST'])
+@login_required
+def api_automated_detection():
+    """
+    Start automated threat detection using all 30 patterns
+    """
+    try:
+        case_id = session.get('selected_case_id')
+        if not case_id:
+            return jsonify({'success': False, 'error': 'No case selected'}), 400
+        
+        # Check permissions
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Read-only users cannot run detection
+        if current_user.role == 'read-only':
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        # Get tier from request (0 = all, 1-3 = specific tier)
+        data = request.get_json() or {}
+        tier = data.get('tier', 0)  # 0 = all tiers
+        
+        # Import task
+        from tasks.task_automated_detection import run_automated_detection
+        
+        # Start background task
+        task = run_automated_detection.delay(case_id, current_user.id, tier)
+        
+        log_action(
+            action='automated_detection_started',
+            resource_type='case',
+            resource_id=case_id,
+            resource_name=case.name,
+            details={'task_id': task.id, 'tier': tier, 'total_patterns': 30 if tier == 0 else 10}
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Automated detection started',
+            'patterns_count': 30 if tier == 0 else 10
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting automated detection: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@hunting_bp.route('/api/automated_detection/status/<task_id>')
+@login_required
+def api_automated_detection_status(task_id):
+    """
+    Check status of automated detection task
+    """
+    try:
+        from celery.result import AsyncResult
+        from tasks.task_automated_detection import run_automated_detection
+        
+        task = AsyncResult(task_id, app=run_automated_detection.app)
+        
+        if task.state == 'PENDING':
+            response = {
+                'state': 'PENDING',
+                'status': 'Task is queued...',
+                'progress': 0,
+                'findings_count': 0
+            }
+        elif task.state == 'PROGRESS':
+            response = {
+                'state': 'PROGRESS',
+                'status': task.info.get('status', 'Processing...'),
+                'progress': task.info.get('progress', 0),
+                'current_pattern': task.info.get('current_pattern', ''),
+                'pattern_number': task.info.get('pattern_number', 0),
+                'total_patterns': task.info.get('total_patterns', 30),
+                'findings_count': task.info.get('findings_count', 0),
+                'errors_count': task.info.get('errors_count', 0)
+            }
+        elif task.state == 'SUCCESS':
+            result = task.result
+            response = {
+                'state': 'SUCCESS',
+                'status': 'Detection complete!',
+                'progress': 100,
+                'patterns_checked': result.get('patterns_checked', 0),
+                'findings_count': result.get('findings_count', 0),
+                'errors_count': result.get('errors_count', 0),
+                'findings': result.get('findings', []),
+                'report': result.get('report', ''),
+                'case_name': result.get('case_name', '')
+            }
+        elif task.state == 'FAILURE':
+            response = {
+                'state': 'FAILURE',
+                'status': 'Task failed',
+                'error': str(task.info)
+            }
+        else:
+            response = {
+                'state': task.state,
+                'status': str(task.info)
+            }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking detection status: {e}", exc_info=True)
+        return jsonify({'state': 'FAILURE', 'error': str(e)}), 500
