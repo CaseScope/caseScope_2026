@@ -1906,7 +1906,7 @@ def api_automated_detection():
             'success': True,
             'task_id': task.id,
             'message': 'Automated detection started',
-            'patterns_count': 30 if tier == 0 else 10
+            'patterns_count': 80 if tier == 0 else 10
         })
         
     except Exception as e:

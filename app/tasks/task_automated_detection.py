@@ -81,7 +81,7 @@ def run_automated_detection(self, case_id, user_id, tier=0, clear_previous=False
                     'progress': progress,
                     'current_pattern': pattern['name'],
                     'pattern_number': i + 1,
-                    'total_patterns': total_patterns,
+                    'total_patterns': 80 if tier == 0 else 10,
                     'findings_count': len(findings),
                     'errors_count': len(errors)
                 }

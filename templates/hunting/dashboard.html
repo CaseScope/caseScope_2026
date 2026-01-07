@@ -54,7 +54,7 @@
         <h3 class="card-title">🤖 AI / Regex Hunting</h3>
     </div>
     <div class="card-body">
-        <p class="text-secondary mb-3">AI-powered threat detection and pattern matching using 10,006 intelligence patterns</p>
+        <p class="text-secondary mb-3">AI-powered threat detection with 10,006 RAG patterns + 80 automated detection rules</p>
         <div class="d-flex gap-3 flex-wrap">
             <button class="btn btn-success" onclick="console.log('Button clicked'); console.log('openAiModal exists:', typeof openAiModal); if (typeof openAiModal !== 'undefined') { openAiModal(); setTimeout(() => switchTab('hunt'), 100); } else { alert('AI Assistant not loaded. Check browser console.'); }">
                 🤖 AI Hunt Assistant
@@ -2338,7 +2338,7 @@ let automatedDetectionInterval = null;
 
 function startAutomatedDetection() {
     // Show tier selection modal first
-    const tier = confirm('Run ALL 30 detection patterns?\n\nOK = All patterns (comprehensive, ~6 minutes)\nCancel = Tier 1 only (10 critical patterns, ~2 minutes)');
+    const tier = confirm('Run ALL 80 detection patterns?\n\nOK = All patterns (comprehensive, ~15 seconds)\nCancel = Tier 1 only (10 critical patterns, ~5 seconds)');
     
     // Disable button
     const btn = document.getElementById('btnAutomatedDetection');
