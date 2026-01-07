@@ -550,6 +550,227 @@ def api_ai_chat():
 
 
 # ============================================================================
+# Threat Hunting with Question
+# ============================================================================
+
+@ai_bp.route('/api/ai/hunt_question', methods=['POST'])
+@login_required
+@admin_required
+@require_ai
+def api_ai_hunt_question():
+    """
+    AI-assisted threat hunting from plain English question
+    
+    This is the main interface for questions like:
+    - "Do you see signs of brute force attempts?"
+    - "Is there evidence of pass the hash being used?"
+    
+    The AI will:
+    1. Use RAG to retrieve relevant attack patterns from 10,006 sources
+    2. Generate targeted OpenSearch queries
+    3. Execute queries against the case
+    4. Analyze results and provide findings
+    
+    Request:
+        {
+            "question": "Do you see signs of brute force?",
+            "case_id": 123
+        }
+    
+    Response:
+        {
+            "success": true,
+            "question": "...",
+            "confidence": "high/medium/low",
+            "summary": "...",
+            "patterns_used": [...],
+            "findings": [...],
+            "events": [...],
+            "techniques_found": [...]
+        }
+    """
+    start_time = datetime.utcnow()
+    
+    try:
+        # Get case ID from session (like other hunting endpoints)
+        from flask import session
+        case_id = session.get('selected_case_id')
+        
+        if not case_id:
+            return jsonify({'error': 'No case selected. Please select a case first.'}), 400
+        
+        data = request.get_json()
+        question = data.get('question', '').strip()
+        
+        if not question:
+            return jsonify({'error': 'Question is required'}), 400
+        
+        logger.info(f"AI Hunt Question from {current_user.username}: {question}")
+        
+        # 1. Get relevant patterns from vector store (using enhanced 10K+ patterns)
+        vector_store = get_vector_store()
+        patterns = vector_store.search(question, k=AI_RAG_TOP_K * 2)  # Get more patterns for hunting
+        
+        # Build comprehensive context
+        pattern_context = "\n\n".join([
+            f"[{p['source'].upper()}] {p.get('metadata', {}).get('title') or p['id']}\n{p['content'][:400]}"
+            for p in patterns[:10]  # Use top 10
+        ])
+        
+        # 2. Generate OpenSearch queries using LLM with RAG context
+        llm_client = get_llm_client()
+        
+        # Get available fields from OpenSearch
+        index_fields = [
+            'event_id', 'normalized_event_id', 'normalized_timestamp',
+            'normalized_computer', 'normalized_username', 'search_blob',
+            'file_type', 'source_file', 'case_id', 'event_data_fields'
+        ]
+        
+        # Generate primary query
+        dsl_query = llm_client.generate_opensearch_dsl(
+            question=question,
+            index_fields=index_fields,
+            patterns_context=pattern_context
+        )
+        
+        # Create response with the generated query
+        response = [{
+            'description': 'Primary detection query based on hunt question',
+            'dsl': dsl_query
+        }]
+        
+        # 3. Execute queries and collect events
+        os_client = get_opensearch_client()
+        all_events = []
+        queries_executed = []
+        
+        for idx, hunt_query in enumerate(response[:3]):  # Max 3 queries
+            try:
+                dsl = hunt_query.get('dsl', {})
+                description = hunt_query.get('description', f'Query {idx + 1}')
+                
+                logger.info(f"Executing hunt query {idx + 1}: {description}")
+                logger.info(f"Original DSL: {json.dumps(dsl, indent=2)}")
+                
+                # Add case filter
+                if 'query' not in dsl:
+                    dsl['query'] = {}
+                
+                if 'bool' not in dsl['query']:
+                    original = dsl['query']
+                    dsl['query'] = {'bool': {'must': [original]}}
+                
+                if 'must' not in dsl['query']['bool']:
+                    dsl['query']['bool']['must'] = []
+                
+                dsl['query']['bool']['must'].append({'term': {'case_id': case_id}})
+                dsl['size'] = 20  # Limit per query
+                
+                logger.info(f"Modified DSL with case filter: {json.dumps(dsl, indent=2)}")
+                
+                # Execute
+                search_result = os_client.client.search(
+                    index=f'case_{case_id}',  # Use specific case index
+                    body=dsl
+                )
+                
+                logger.info(f"Query {idx + 1} returned {search_result['hits']['total']['value']} total hits")
+                
+                events = [hit['_source'] for hit in search_result['hits']['hits']]
+                all_events.extend(events)
+                
+                queries_executed.append({
+                    'description': description,
+                    'event_count': len(events),
+                    'total_hits': search_result['hits']['total']['value']
+                })
+                
+            except Exception as e:
+                logger.error(f"Hunt query {idx} failed: {e}", exc_info=True)
+                queries_executed.append({
+                    'description': f"{description} (FAILED)",
+                    'event_count': 0,
+                    'total_hits': 0,
+                    'error': str(e)
+                })
+                continue
+        
+        # 4. Analyze findings with LLM
+        if all_events:
+            analysis = llm_client.analyze_events(
+                events=all_events[:50],  # Limit for token budget
+                question=question,
+                patterns_context=pattern_context
+            )
+        else:
+            analysis = f"No events found matching the hunt criteria for: {question}"
+        
+        # Calculate confidence based on patterns and events
+        confidence = 'low'
+        if all_events:
+            if len(all_events) >= 10:
+                confidence = 'high'
+            elif len(all_events) >= 3:
+                confidence = 'medium'
+        
+        # Extract MITRE techniques from patterns
+        techniques_found = set()
+        for p in patterns[:10]:
+            metadata = p.get('metadata', {})
+            if 'technique_id' in metadata:
+                techniques_found.add(metadata['technique_id'])
+            if 'techniques' in metadata and isinstance(metadata['techniques'], list):
+                techniques_found.update(metadata['techniques'])
+        
+        # Execution time
+        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action(
+            'ai_hunt_question',
+            resource_type='hunt',
+            resource_id=case_id,
+            resource_name='AI Threat Hunt',
+            details={
+                'question': question,
+                'events_found': len(all_events),
+                'patterns_used': len(patterns),
+                'confidence': confidence
+            }
+        )
+        
+        return jsonify({
+            'success': True,
+            'question': question,
+            'confidence': confidence,
+            'summary': analysis,
+            'patterns_used': [
+                {
+                    'id': p['id'],
+                    'source': p['source'],
+                    'title': p.get('metadata', {}).get('title') or p.get('metadata', {}).get('name'),
+                    'score': p['score']
+                }
+                for p in patterns[:10]
+            ],
+            'queries_executed': queries_executed,
+            'events': all_events[:50],  # Limit returned events
+            'event_count': len(all_events),
+            'techniques_found': list(techniques_found),
+            'execution_time_ms': round(execution_time, 2)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"AI hunt question error: {e}", exc_info=True)
+        return jsonify({
+            'error': 'AI hunt question failed',
+            'message': str(e)
+        }), 500
+
+
+# ============================================================================
 # IOC Extraction
 # ============================================================================
 

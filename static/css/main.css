@@ -1745,6 +1745,37 @@ tbody tr {
     border-left-color: var(--color-danger);
 }
 
+/* Threat Hunt Styles */
+.hunt-section {
+    padding: var(--spacing-md);
+}
+
+.hunt-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.hunt-analysis {
+    padding: 1rem;
+    background: rgba(0, 20, 40, 0.6);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--color-primary);
+    white-space: pre-wrap;
+    line-height: 1.6;
+}
+
+.event-card {
+    background: var(--color-bg-secondary);
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+}
+
+.event-card:hover {
+    border-color: var(--color-primary);
+}
+
 .dsl-preview {
     background: var(--color-bg-secondary);
     padding: 1rem;

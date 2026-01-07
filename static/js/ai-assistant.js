@@ -4,7 +4,7 @@
  */
 
 let chatHistory = [];
-let currentTab = 'chat';
+let currentTab = 'hunt';
 
 // ============================================================================
 // Modal Management
@@ -520,6 +520,201 @@ function displayIOCCategory(categoryId, listId, items) {
 function clearIOCResults() {
     document.getElementById('iocInput').value = '';
     document.getElementById('iocResults').style.display = 'none';
+}
+
+// ============================================================================
+// Threat Hunting Functions
+// ============================================================================
+
+function setHuntQuestion(question) {
+    document.getElementById('huntQuestion').value = question;
+}
+
+async function executeHunt() {
+    const questionInput = document.getElementById('huntQuestion');
+    const question = questionInput.value.trim();
+    
+    if (!question) {
+        alert('Please enter a hunting question');
+        return;
+    }
+    
+    // Show loading
+    document.getElementById('huntLoading').style.display = 'block';
+    document.getElementById('huntResults').style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/ai/hunt_question', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                question: question
+            })
+        });
+        
+        const data = await response.json();
+        
+        // Hide loading
+        document.getElementById('huntLoading').style.display = 'none';
+        
+        if (data.success) {
+            displayHuntResults(data);
+        } else {
+            document.getElementById('huntResults').style.display = 'block';
+            document.getElementById('huntSummary').innerHTML = `
+                <div class="alert alert-danger">
+                    Error: ${data.error || data.message || 'Hunt failed'}
+                </div>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('huntLoading').style.display = 'none';
+        document.getElementById('huntResults').style.display = 'block';
+        document.getElementById('huntSummary').innerHTML = `
+            <div class="alert alert-danger">Error: ${error.message}</div>
+        `;
+    }
+}
+
+function displayHuntResults(data) {
+    document.getElementById('huntResults').style.display = 'block';
+    
+    // Summary
+    const confidenceBadge = data.confidence === 'high' ? 'badge-error' : 
+                           data.confidence === 'medium' ? 'badge-warning' : 'badge-info';
+    
+    let summaryHTML = `
+        <div class="mb-3">
+            <span class="badge ${confidenceBadge}">${data.confidence.toUpperCase()} CONFIDENCE</span>
+            <span class="badge badge-secondary ml-2">${data.event_count} events found</span>
+            <span class="badge badge-secondary ml-2">${data.execution_time_ms.toFixed(0)}ms</span>
+        </div>
+        <div class="hunt-analysis">
+            ${data.summary.replace(/\n/g, '<br>')}
+        </div>
+    `;
+    
+    // Add MITRE techniques found
+    if (data.techniques_found && data.techniques_found.length > 0) {
+        summaryHTML += '<div class="mt-3"><strong>MITRE ATT&CK Techniques Detected:</strong><br>';
+        data.techniques_found.forEach(tech => {
+            summaryHTML += `<span class="badge badge-info mr-1">${tech}</span>`;
+        });
+        summaryHTML += '</div>';
+    }
+    
+    document.getElementById('huntSummary').innerHTML = summaryHTML;
+    
+    // Patterns used (showing source diversity)
+    if (data.patterns_used && data.patterns_used.length > 0) {
+        let patternsHTML = '<div class="mb-2"><strong>Retrieved from 10,006 patterns across sources:</strong></div>';
+        patternsHTML += '<div class="grid grid-2">';
+        
+        data.patterns_used.forEach(p => {
+            const sourceColor = getSourceColor(p.source);
+            patternsHTML += `
+                <div class="card p-2 mb-2" style="border-left: 3px solid ${sourceColor};">
+                    <div class="text-small text-muted">[${p.source.toUpperCase()}]</div>
+                    <div class="fw-bold">${p.title}</div>
+                    <div class="text-small text-muted">Similarity: ${(p.score * 100).toFixed(1)}%</div>
+                </div>
+            `;
+        });
+        patternsHTML += '</div>';
+        document.getElementById('huntPatterns').innerHTML = patternsHTML;
+    }
+    
+    // Queries executed
+    if (data.queries_executed && data.queries_executed.length > 0) {
+        let findingsHTML = '<div class="mb-3"><strong>Detection Queries Executed:</strong></div>';
+        data.queries_executed.forEach((q, idx) => {
+            const statusClass = q.error ? 'border-danger' : (q.event_count > 0 ? 'border-success' : 'border-secondary');
+            findingsHTML += `
+                <div class="card p-2 mb-2" style="border-left: 3px solid var(--color-${statusClass});">
+                    <div class="fw-bold">${idx + 1}. ${q.description}</div>
+                    <div class="text-small text-muted">Found ${q.event_count} events (${q.total_hits} total matches)</div>
+                    ${q.error ? `<div class="text-small text-danger">Error: ${q.error}</div>` : ''}
+                </div>
+            `;
+        });
+        document.getElementById('huntFindings').innerHTML = findingsHTML;
+    } else {
+        document.getElementById('huntFindings').innerHTML = '<div class="text-muted">No detection queries were executed</div>';
+    }
+    
+    // Debug: Log full response
+    console.log('[Hunt Results] Full data:', data);
+    
+    // Events
+    document.getElementById('huntEventCount').textContent = data.event_count;
+    
+    let eventsHTML = '';
+    if (data.events && data.events.length > 0) {
+        data.events.forEach((event, idx) => {
+            eventsHTML += `
+                <div class="event-card mb-2">
+                    <div class="grid grid-4 mb-2">
+                        <div>
+                            <div class="text-small text-muted">Event ID</div>
+                            <div class="fw-bold">${event.event_id || event.normalized_event_id || 'N/A'}</div>
+                        </div>
+                        <div>
+                            <div class="text-small text-muted">Computer</div>
+                            <div class="fw-bold">${event.normalized_computer || 'N/A'}</div>
+                        </div>
+                        <div>
+                            <div class="text-small text-muted">User</div>
+                            <div class="fw-bold">${event.normalized_username || 'N/A'}</div>
+                        </div>
+                        <div>
+                            <div class="text-small text-muted">Timestamp</div>
+                            <div class="fw-bold">${formatTimestamp(event.normalized_timestamp || event.timestamp)}</div>
+                        </div>
+                    </div>
+                    <details class="text-small">
+                        <summary class="cursor-pointer">Event Details</summary>
+                        <pre class="mt-2" style="font-size: 11px;">${JSON.stringify(event, null, 2)}</pre>
+                    </details>
+                </div>
+            `;
+        });
+    } else {
+        eventsHTML = '<p class="text-muted text-center">No matching events found in this case.</p>';
+    }
+    
+    document.getElementById('huntEvents').innerHTML = eventsHTML;
+}
+
+function clearHuntResults() {
+    document.getElementById('huntQuestion').value = '';
+    document.getElementById('huntResults').style.display = 'none';
+}
+
+function getSourceColor(source) {
+    const colors = {
+        'sigma': '#4A90E2',
+        'mitre': '#E74C3C',
+        'mitre_car': '#F39C12',
+        'atomic_red_team': '#9B59B6',
+        'threat_hunter_playbook': '#1ABC9C',
+        'splunk_security_content': '#34495E',
+        'elastic_detection_rules': '#00BFA5',
+        'dfir_report': '#E91E63',
+        'detection_as_code': '#FF5722',
+        'red_canary_report': '#FF9800',
+        'specialized_patterns': '#795548'
+    };
+    return colors[source] || '#95A5A6';
+}
+
+function formatTimestamp(ts) {
+    if (!ts) return 'N/A';
+    try {
+        const date = new Date(ts);
+        return date.toLocaleString();
+    } catch (e) {
+        return ts;
+    }
 }
 
 // ============================================================================

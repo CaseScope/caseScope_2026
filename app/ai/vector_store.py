@@ -278,6 +278,23 @@ Description: {description}
         
         return patterns
     
+    def add_patterns(self, patterns: List[Dict], source: str) -> int:
+        """
+        Generic method to add patterns from any source
+        
+        Args:
+            patterns: List of pattern dicts with 'pattern_id', 'content', 'metadata'
+            source: Source identifier (e.g., 'mitre_car', 'atomic_red_team')
+        
+        Returns: Number of patterns added
+        """
+        if not patterns:
+            return 0
+        
+        self._batch_insert(patterns, source)
+        logger.info(f"Added {len(patterns)} patterns from {source}")
+        return len(patterns)
+    
     def get_stats(self) -> Dict:
         """Get collection statistics"""
         conn = self._get_connection()

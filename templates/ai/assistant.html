@@ -10,15 +10,124 @@
         </div>
         
         <div class="modal-tabs">
-            <button class="modal-tab active" data-tab="chat">💬 Chat</button>
+            <button class="modal-tab active" data-tab="hunt">🎯 Threat Hunt</button>
+            <button class="modal-tab" data-tab="chat">💬 Chat</button>
             <button class="modal-tab" data-tab="query">🔍 Natural Language Query</button>
             <button class="modal-tab" data-tab="analyze">📊 Event Analysis</button>
-            <button class="modal-tab" data-tab="ioc">🎯 IOC Extraction</button>
+            <button class="modal-tab" data-tab="ioc">🔗 IOC Extraction</button>
         </div>
         
         <div class="modal-body" style="flex: 1; overflow-y: auto;">
+            <!-- Threat Hunt Tab -->
+            <div id="hunt-tab" class="modal-tab-content active">
+                <div class="hunt-section">
+                    <div class="mb-3">
+                        <h3 class="text-primary">🎯 AI-Assisted Threat Hunting</h3>
+                        <p class="text-muted">Ask plain English questions and let AI hunt through your case data using 10,006 threat intelligence patterns.</p>
+                    </div>
+                    
+                    <!-- Suggested Hunt Questions -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Suggested Hunt Questions:</label>
+                        <div class="hunt-suggestions">
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Do you see signs of brute force attempts?')">
+                                🔓 Brute Force Attempts
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Is there evidence of pass the hash being used?')">
+                                🔑 Pass the Hash
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Find lateral movement activity')">
+                                ➡️ Lateral Movement
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Detect credential dumping')">
+                                💾 Credential Dumping
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Look for Kerberoasting attempts')">
+                                🎫 Kerberoasting
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Do you see Cobalt Strike activity?')">
+                                🎯 Cobalt Strike
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Find Mimikatz usage')">
+                                🔓 Mimikatz
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Detect PowerShell obfuscation')">
+                                📜 PowerShell Obfuscation
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Look for privilege escalation')">
+                                ⬆️ Privilege Escalation
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary mb-2" onclick="setHuntQuestion('Find ransomware indicators')">
+                                🔒 Ransomware
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Hunt Question Input -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Or ask your own question:</label>
+                        <textarea 
+                            id="huntQuestion" 
+                            class="form-input" 
+                            rows="2" 
+                            placeholder="Example: Do you see signs of DCSync attacks? Are there web shells deployed?"
+                        ></textarea>
+                    </div>
+                    
+                    <!-- Hunt Button -->
+                    <div class="mb-4">
+                        <button class="btn btn-primary btn-lg" onclick="executeHunt()">
+                            🚀 Start Hunt
+                        </button>
+                        <button class="btn btn-secondary ml-2" onclick="clearHuntResults()">
+                            Clear Results
+                        </button>
+                    </div>
+                    
+                    <!-- Hunt Results -->
+                    <div id="huntResults" style="display: none;">
+                        <div class="card mb-3" style="border-left: 4px solid var(--primary-color);">
+                            <div class="card-body">
+                                <h4 class="mb-2">🔍 Hunt Summary</h4>
+                                <div id="huntSummary"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Patterns Used -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h4 class="mb-2">📚 Intelligence Patterns Retrieved</h4>
+                                <div id="huntPatterns"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Findings -->
+                        <div class="card mb-3" id="huntFindingsCard">
+                            <div class="card-body">
+                                <h4 class="mb-2">🎯 Findings</h4>
+                                <div id="huntFindings"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Events Found -->
+                        <div class="card">
+                            <div class="card-body">
+                                <h4 class="mb-2">📋 Evidence Events (<span id="huntEventCount">0</span>)</h4>
+                                <div id="huntEvents"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Loading Indicator -->
+                    <div id="huntLoading" style="display: none;" class="text-center mt-4">
+                        <div class="spinner"></div>
+                        <p class="text-muted mt-2">Hunting through case data with 10,006 threat intelligence patterns...</p>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Chat Tab -->
-            <div id="chat-tab" class="modal-tab-content active">
+            <div id="chat-tab" class="modal-tab-content">
                 <div class="chat-container">
                     <div class="chat-messages" id="chatMessages">
                         <div class="chat-message assistant">

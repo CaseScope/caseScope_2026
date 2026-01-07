@@ -4,6 +4,13 @@
 
 {% block header_title %}Threat Hunting{% endblock %}
 
+{% block head %}
+<!-- Force load AI Assistant JavaScript -->
+<script>
+    console.log('[Hunting Page] Loading AI assistant dependencies');
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="content-header">
     <div>
@@ -47,20 +54,20 @@
         <h3 class="card-title">🤖 AI / Regex Hunting</h3>
     </div>
     <div class="card-body">
-        <p class="text-secondary mb-3">AI-powered threat detection and pattern matching</p>
+        <p class="text-secondary mb-3">AI-powered threat detection and pattern matching using 10,006 intelligence patterns</p>
         <div class="d-flex gap-3 flex-wrap">
-            <button class="btn btn-primary" onclick="checkEDRAndExtract()">IOC Extract</button>
-            <button class="btn btn-secondary" disabled>
+            <button class="btn btn-success" onclick="console.log('Button clicked'); console.log('openAiModal exists:', typeof openAiModal); if (typeof openAiModal !== 'undefined') { openAiModal(); setTimeout(() => switchTab('hunt'), 100); } else { alert('AI Assistant not loaded. Check browser console.'); }">
+                🤖 AI Hunt Assistant
+            </button>
+            <button id="btnExtractEDR" class="btn btn-primary" onclick="checkEDRAndExtract()">IOC Extract</button>
+            <button class="btn btn-primary" onclick="openAiModal(); setTimeout(() => { switchTab('hunt'); document.getElementById('huntQuestion').value = 'Show me PowerShell execution, LSASS access, suspicious logins, and lateral movement activity'; }, 100);">
                 MITRE ATT&CK
-                <span class="badge badge-warning" style="margin-left: 8px;">Soon</span>
             </button>
-            <button class="btn btn-secondary" disabled>
+            <button class="btn btn-primary" onclick="openAiModal(); setTimeout(() => { switchTab('hunt'); document.getElementById('huntQuestion').value = 'Detect behavioral anomalies and suspicious patterns'; }, 100);">
                 Behavioral
-                <span class="badge badge-warning" style="margin-left: 8px;">Soon</span>
             </button>
-            <button class="btn btn-secondary" disabled>
+            <button class="btn btn-primary" onclick="openAiModal(); setTimeout(() => { switchTab('hunt'); document.getElementById('huntQuestion').value = 'Find network-based attacks and lateral movement'; }, 100);">
                 Network
-                <span class="badge badge-warning" style="margin-left: 8px;">Soon</span>
             </button>
         </div>
     </div>
@@ -2200,4 +2207,10 @@ function formatFileSize(bytes) {
 {% endif %}
 </script>
 
+{% endblock %}
+
+{% block scripts %}
+<!-- Explicitly load AI Assistant modal and JavaScript -->
+{% include 'ai/assistant.html' %}
+<script src="/static/js/ai-assistant.js?v=20260106"></script>
 {% endblock %}
