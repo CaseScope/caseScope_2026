@@ -302,11 +302,12 @@ AI_AUTO_DETECT = True
 # Ollama connection
 OLLAMA_HOST = 'http://localhost:11434'
 
-# Models (Q4_K_M quantization for Tesla P4 8GB VRAM)
+# Models (Q5_K_M quantization optimized for Tesla A2 16GB VRAM)
+# Tesla A2: 7B Q5_K_M provides better quality than Q4 with same speed
+# 14B models are 3.3x slower on A2 due to 60W TDP limitation
 # For CPU-only systems, use: 'qwen2.5:3b'
-# For 16GB+ GPU, use: 'qwen2.5:14b-instruct-q5_k_m'
-LLM_MODEL_CHAT = 'qwen2.5:7b-instruct-q4_k_m'      # Chat and analysis
-LLM_MODEL_CODE = 'qwen2.5-coder:7b-instruct-q4_k_m' # DSL generation
+LLM_MODEL_CHAT = 'qwen2.5:7b-instruct-q5_k_m'      # Chat and analysis (Q5 = better quality)
+LLM_MODEL_CODE = 'qwen2.5-coder:7b-instruct-q5_k_m' # DSL generation (Q5 = better accuracy)
 
 # Embedding model (runs on CPU via FastEmbed)
 EMBEDDING_MODEL = 'BAAI/bge-small-en-v1.5'
