@@ -1,6 +1,17 @@
 {
-  "version": "3.4.0",
+  "version": "3.5.0",
   "changelog": [
+    {
+      "version": "3.5.0",
+      "date": "2026-01-09",
+      "changes": [
+        "User Management page under System menu (admin only)",
+        "User list with Username, Permission Level, Created By, Created On, Status",
+        "Create new user with password validation",
+        "Edit existing user (click row to edit)",
+        "Delete user with confirmation modal (admin only)"
+      ]
+    },
     {
       "version": "3.4.0",
       "date": "2026-01-09",

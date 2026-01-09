@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">{% if is_new %}➕{% else %}✏️{% endif %}</span>
+            {{ 'Create User' if is_new else 'Edit User' }}
+        </h1>
+        <p class="page-subtitle">
+            {% if is_new %}
+                Add a new user to the system
+            {% else %}
+                {{ user.username }} - {{ user.full_name }}
+            {% endif %}
+        </p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">👤</span>
+        <span class="card-title">User Details</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('main.user_create') if is_new else url_for('main.user_edit', user_id=user.id) }}" class="case-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username <span class="required">*</span></label>
+                    {% if is_new %}
+                    <input type="text" id="username" name="username" class="form-input" required 
+                           placeholder="Enter username" value="{{ request.form.get('username', '') }}">
+                    {% else %}
+                    <input type="text" id="username" class="form-input" value="{{ user.username }}" disabled>
+                    <span class="form-hint">Username cannot be changed</span>
+                    {% endif %}
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="full_name">Full Name <span class="required">*</span></label>
+                    <input type="text" id="full_name" name="full_name" class="form-input" required 
+                           placeholder="Enter full name" 
+                           value="{{ request.form.get('full_name', '') if is_new else user.full_name }}">
+                </div>
+            </div>
+            
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label" for="email">Email <span class="required">*</span></label>
+                    <input type="email" id="email" name="email" class="form-input" required 
+                           placeholder="Enter email address"
+                           value="{{ request.form.get('email', '') if is_new else user.email }}">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="permission_level">Permission Level <span class="required">*</span></label>
+                    <select id="permission_level" name="permission_level" class="form-input">
+                        {% for value, label in PermissionLevel.choices() %}
+                            <option value="{{ value }}" 
+                                {% if is_new %}
+                                    {% if request.form.get('permission_level') == value %}selected{% endif %}
+                                {% else %}
+                                    {% if user.permission_level == value %}selected{% endif %}
+                                {% endif %}>
+                                {{ label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            {% if not is_new %}
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}>
+                    Account Active
+                </label>
+                <span class="form-hint">Uncheck to disable this user's access</span>
+            </div>
+            {% endif %}
+            
+            <div class="form-section-title">
+                {% if is_new %}Password{% else %}Change Password (Optional){% endif %}
+            </div>
+            
+            <div class="password-requirements">
+                <h4>Password Requirements</h4>
+                <ul>
+                    <li>Minimum {{ UserSettings.PASSWORD_MIN_LENGTH }} characters</li>
+                    {% if UserSettings.PASSWORD_REQUIRE_UPPERCASE %}
+                    <li>At least one uppercase letter</li>
+                    {% endif %}
+                    {% if UserSettings.PASSWORD_REQUIRE_LOWERCASE %}
+                    <li>At least one lowercase letter</li>
+                    {% endif %}
+                    {% if UserSettings.PASSWORD_REQUIRE_DIGIT %}
+                    <li>At least one digit</li>
+                    {% endif %}
+                    {% if UserSettings.PASSWORD_REQUIRE_SPECIAL %}
+                    <li>At least one special character</li>
+                    {% endif %}
+                </ul>
+            </div>
+            
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label" for="password">
+                        {% if is_new %}Password <span class="required">*</span>{% else %}New Password{% endif %}
+                    </label>
+                    <input type="password" id="password" name="{% if is_new %}password{% else %}new_password{% endif %}" 
+                           class="form-input" {% if is_new %}required{% endif %}
+                           placeholder="{% if is_new %}Enter password{% else %}Leave blank to keep current{% endif %}">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="confirm_password">
+                        Confirm Password {% if is_new %}<span class="required">*</span>{% endif %}
+                    </label>
+                    <input type="password" id="confirm_password" name="confirm_password" class="form-input" 
+                           {% if is_new %}required{% endif %}
+                           placeholder="Confirm password">
+                </div>
+            </div>
+            
+            {% if not is_new %}
+            <div class="form-section-title">Account Information</div>
+            
+            <div class="info-list">
+                <div class="info-row">
+                    <span class="info-label">Created By</span>
+                    <span class="info-value">{{ user.created_by or 'System' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Created At</span>
+                    <span class="info-value">{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Last Updated</span>
+                    <span class="info-value">{{ user.updated_at.strftime('%Y-%m-%d %H:%M') if user.updated_at else '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Last Login</span>
+                    <span class="info-value">{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</span>
+                </div>
+            </div>
+            {% endif %}
+            
+            <div class="form-actions">
+                <a href="{{ url_for('main.users') }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">
+                    {% if is_new %}Create User{% else %}Save Changes{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

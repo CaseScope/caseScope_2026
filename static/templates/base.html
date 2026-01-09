@@ -59,7 +59,7 @@
                     <span class="nav-item-icon">🗂️</span>
                     <span class="nav-item-text">Cases</span>
                 </a>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Users' else '' }}">
+                <a href="{{ url_for('main.users') }}" class="nav-item {{ 'active' if page_title in ['Users', 'Create User', 'Edit User'] else '' }}">
                     <span class="nav-item-icon">👥</span>
                     <span class="nav-item-text">Users</span>
                 </a>

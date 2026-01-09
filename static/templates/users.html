@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">👥</span>
+            Users
+        </h1>
+        <p class="page-subtitle">Manage system users and permissions</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.user_create') }}" class="btn btn-primary">
+            <span>+ New User</span>
+        </a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="table-container">
+    <div class="table-header">
+        <span class="table-title">All Users ({{ users|length }})</span>
+        <div class="table-actions">
+            <input type="text" class="table-search" placeholder="Search users..." id="userSearch" onkeyup="filterUsers()">
+        </div>
+    </div>
+    
+    <table id="usersTable">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Permission Level</th>
+                <th>Created By</th>
+                <th>Created On</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if users %}
+                {% for user in users %}
+                <tr class="user-row" data-user-id="{{ user.id }}">
+                    <td onclick="editUser({{ user.id }})" class="clickable-cell">
+                        <span class="user-name-link">{{ user.username }}</span>
+                        <span class="user-fullname text-muted text-small">{{ user.full_name }}</span>
+                    </td>
+                    <td onclick="editUser({{ user.id }})" class="clickable-cell">
+                        {% if user.permission_level == 'administrator' %}
+                            <span class="badge badge-success">Administrator</span>
+                        {% elif user.permission_level == 'analyst' %}
+                            <span class="badge badge-info">Analyst</span>
+                        {% else %}
+                            <span class="badge badge-muted">Viewer</span>
+                        {% endif %}
+                    </td>
+                    <td onclick="editUser({{ user.id }})" class="clickable-cell">{{ user.created_by or 'System' }}</td>
+                    <td onclick="editUser({{ user.id }})" class="clickable-cell">{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
+                    <td onclick="editUser({{ user.id }})" class="clickable-cell">
+                        {% if user.is_active %}
+                            <span class="badge badge-success">Active</span>
+                        {% else %}
+                            <span class="badge badge-danger">Disabled</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-right">
+                        {% if user.id != current_user.id %}
+                        <button type="button" class="btn btn-danger btn-sm" onclick="confirmDelete({{ user.id }}, '{{ user.username }}')">
+                            🗑️ Delete
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                        No users found.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 class="modal-title">⚠️ Confirm Delete</h3>
+            <button type="button" class="modal-close" onclick="closeDeleteModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete user <strong id="deleteUsername"></strong>?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+            <form id="deleteForm" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-danger">Delete User</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editUser(userId) {
+    window.location.href = '/users/' + userId + '/edit';
+}
+
+function filterUsers() {
+    const input = document.getElementById('userSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('usersTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        let match = false;
+        
+        for (let j = 0; j < cells.length; j++) {
+            if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                match = true;
+                break;
+            }
+        }
+        
+        rows[i].style.display = match ? '' : 'none';
+    }
+}
+
+function confirmDelete(userId, username) {
+    document.getElementById('deleteUsername').textContent = username;
+    document.getElementById('deleteForm').action = '/users/' + userId + '/delete';
+    document.getElementById('deleteModal').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteModal').style.display = 'none';
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeDeleteModal();
+    }
+});
+
+// Close modal on overlay click
+document.getElementById('deleteModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeDeleteModal();
+    }
+});
+</script>
+{% endblock %}

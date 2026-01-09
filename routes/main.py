@@ -315,3 +315,196 @@ def change_password():
     
     flash('Password changed successfully', 'success')
     return redirect(url_for('main.profile'))
+
+
+def admin_required(f):
+    """Decorator to require administrator permission"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_administrator:
+            flash('Administrator access required', 'error')
+            return redirect(url_for('main.index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@main_bp.route('/users')
+@login_required
+@admin_required
+def users():
+    """User Management - list all users"""
+    all_users = User.query.order_by(User.created_at.desc()).all()
+    return render_template(
+        'users.html',
+        page_title='Users',
+        users=all_users,
+        PermissionLevel=PermissionLevel
+    )
+
+
+@main_bp.route('/users/new', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def user_create():
+    """Create new user"""
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        full_name = request.form.get('full_name', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        permission_level = request.form.get('permission_level', PermissionLevel.VIEWER)
+        
+        # Validate required fields
+        if not username:
+            flash('Username is required', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None, 
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        if not full_name:
+            flash('Full name is required', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        if not email:
+            flash('Email is required', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        if not password:
+            flash('Password is required', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        # Validate password requirements
+        is_valid, error_msg = User.validate_password(password)
+        if not is_valid:
+            flash(error_msg, 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        # Check if email already exists
+        if User.query.filter_by(email=email).first():
+            flash('Email already exists', 'error')
+            return render_template('user_edit.html', page_title='Create User', user=None,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+        
+        # Validate permission level
+        if permission_level not in PermissionLevel.all():
+            permission_level = PermissionLevel.VIEWER
+        
+        # Create user
+        user = User(
+            username=username,
+            full_name=full_name,
+            email=email,
+            permission_level=permission_level,
+            created_by=current_user.username
+        )
+        user.set_password(password)
+        
+        db.session.add(user)
+        db.session.commit()
+        
+        flash(f'User "{username}" created successfully', 'success')
+        return redirect(url_for('main.users'))
+    
+    return render_template('user_edit.html', page_title='Create User', user=None,
+                           PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=True)
+
+
+@main_bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def user_edit(user_id):
+    """Edit existing user"""
+    user = User.query.get_or_404(user_id)
+    
+    if request.method == 'POST':
+        full_name = request.form.get('full_name', '').strip()
+        email = request.form.get('email', '').strip()
+        permission_level = request.form.get('permission_level', user.permission_level)
+        is_active = request.form.get('is_active') == 'on'
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validate required fields
+        if not full_name:
+            flash('Full name is required', 'error')
+            return render_template('user_edit.html', page_title='Edit User', user=user,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
+        
+        if not email:
+            flash('Email is required', 'error')
+            return render_template('user_edit.html', page_title='Edit User', user=user,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
+        
+        # Check if email is taken by another user
+        existing_user = User.query.filter(User.email == email, User.id != user.id).first()
+        if existing_user:
+            flash('Email already in use by another user', 'error')
+            return render_template('user_edit.html', page_title='Edit User', user=user,
+                                   PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
+        
+        # Validate permission level
+        if permission_level not in PermissionLevel.all():
+            permission_level = user.permission_level
+        
+        # Update user
+        user.full_name = full_name
+        user.email = email
+        user.permission_level = permission_level
+        user.is_active = is_active
+        
+        # Update password if provided
+        if new_password:
+            if new_password != confirm_password:
+                flash('Passwords do not match', 'error')
+                return render_template('user_edit.html', page_title='Edit User', user=user,
+                                       PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
+            
+            is_valid, error_msg = User.validate_password(new_password)
+            if not is_valid:
+                flash(error_msg, 'error')
+                return render_template('user_edit.html', page_title='Edit User', user=user,
+                                       PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
+            
+            user.set_password(new_password)
+        
+        db.session.commit()
+        flash(f'User "{user.username}" updated successfully', 'success')
+        return redirect(url_for('main.users'))
+    
+    return render_template('user_edit.html', page_title='Edit User', user=user,
+                           PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
+
+
+@main_bp.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def user_delete(user_id):
+    """Delete a user"""
+    user = User.query.get_or_404(user_id)
+    
+    # Prevent deleting yourself
+    if user.id == current_user.id:
+        flash('You cannot delete your own account', 'error')
+        return redirect(url_for('main.users'))
+    
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+    
+    flash(f'User "{username}" deleted successfully', 'success')
+    return redirect(url_for('main.users'))
