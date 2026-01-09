@@ -419,12 +419,12 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
             from parsers.prefetch_parser_dissect import parse_prefetch_file as parse_prefetch_dissect, DISSECT_AVAILABLE as PREFETCH_AVAILABLE
             from parsers.eztools_jumplist_parser import parse_jumplist_file, JLECMD_AVAILABLE
             from parsers.eztools_mft_parser import parse_mft_file as parse_mft_eztools, MFTECMD_AVAILABLE
-            from opensearch_indexer import OpenSearchIndexer
-            from config import Config
+            from utils.event_store import get_event_store
+            from config import Config, CLICKHOUSE_BATCH_SIZE
             from utils.event_normalization import normalize_event_computer
             
-            indexer = OpenSearchIndexer()
-            index_name = f'case_{case_id}'
+            event_store = get_event_store()
+            chunk_size = CLICKHOUSE_BATCH_SIZE
             
             for idx, file_data in enumerate(file_records):
                 file_record = file_data['record']
@@ -469,15 +469,13 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to OpenSearch in chunks
-                        chunk_size = 500
+                        # Index to ClickHouse in chunks
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=index_name,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
                                 source_system=source_system
                             )
@@ -494,15 +492,13 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to OpenSearch in chunks
-                        chunk_size = 500
+                        # Index to ClickHouse in chunks
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=index_name,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
                                 source_system=source_system
                             )
@@ -518,15 +514,13 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to OpenSearch in chunks
-                        chunk_size = 500
+                        # Index to ClickHouse in chunks
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=index_name,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
                                 source_system=source_system
                             )
@@ -545,17 +539,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to case_X_execution
-                        execution_index = f'case_{case_id}_execution'
-                        chunk_size = 100
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=execution_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='prefetch',
                                 source_system=source_system
                             )
                         
@@ -575,17 +567,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = events[0].get('machine_id') or normalize_event_computer(events[0])
                         
-                        # Index to case_X_execution
-                        execution_index = f'case_{case_id}_execution'
-                        chunk_size = 100
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=execution_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='prefetch',
                                 source_system=source_system
                             )
                         
@@ -604,17 +594,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = events[0].get('machine_id') or normalize_event_computer(events[0])
                         
-                        # Index to case_X_execution
-                        execution_index = f'case_{case_id}_execution'
-                        chunk_size = 100
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=execution_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='prefetch',
                                 source_system=source_system
                             )
                         
@@ -636,17 +624,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                             if source_system:
                                 logger.info(f"MFT hostname: {source_system}")
                         
-                        # Index to case_X_filesystem (NEW index type)
-                        filesystem_index = f'case_{case_id}_filesystem'
-                        chunk_size = 500
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=filesystem_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='mft',
                                 source_system=source_system
                             )
                             if i % 50000 == 0 and i > 0:
@@ -665,17 +651,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to case_X_browser
-                        browser_index = f'case_{case_id}_browser'
-                        chunk_size = 500
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=browser_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='browser',
                                 source_system=source_system
                             )
                         
@@ -695,17 +679,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to case_X_browser
-                        browser_index = f'case_{case_id}_browser'
-                        chunk_size = 500
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=browser_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='browser',
                                 source_system=source_system
                             )
                         
@@ -725,17 +707,15 @@ def ingest_files(self, case_id: int, user_id: int, upload_type: str = 'web',
                         if events:
                             source_system = normalize_event_computer(events[0])
                         
-                        # Index to case_X_network
-                        network_index = f'case_{case_id}_network'
-                        chunk_size = 500
+                        # Index events
                         for i in range(0, len(events), chunk_size):
                             chunk = events[i:i + chunk_size]
-                            indexer.bulk_index(
-                                index_name=network_index,
+                            event_store.bulk_index(
+                                case_id=case_id,
                                 events=iter(chunk),
                                 chunk_size=chunk_size,
-                                case_id=case_id,
                                 source_file=filename,
+                                file_type='srum',
                                 source_system=source_system
                             )
                         

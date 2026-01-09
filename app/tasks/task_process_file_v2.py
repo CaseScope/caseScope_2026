@@ -38,7 +38,7 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
     """
     from main import app, db
     from models import CaseFile
-    from opensearch_indexer import OpenSearchIndexer
+    from utils.event_store import get_event_store
     from utils.event_normalization import normalize_event_computer
     from utils.parser_routing import get_index_name
     from parsers import detect_parser_type, get_parser
@@ -175,22 +175,22 @@ def process_individual_file_v2(self, case_id, file_id, file_path):
             
             logger.info(f"Final source_system: {source_system} (confidence: {file_record.source_system_confidence})")
             
-            # Get target index
+            # Get target index (for logging, ClickHouse uses single table)
             index_name = get_index_name(parser_type, case_id)
-            logger.info(f"Indexing {len(events)} events to {index_name}")
+            logger.info(f"Indexing {len(events)} events (type={parser_type})")
             
-            # Index events
-            indexer = OpenSearchIndexer()
-            chunk_size = 500
+            # Index events using event store abstraction
+            event_store = get_event_store()
+            chunk_size = 5000  # ClickHouse handles larger chunks efficiently
             
             for i in range(0, len(events), chunk_size):
                 chunk = events[i:i + chunk_size]
-                indexer.bulk_index(
-                    index_name=index_name,
+                event_store.bulk_index(
+                    case_id=case_id,
                     events=iter(chunk),
                     chunk_size=chunk_size,
-                    case_id=case_id,
                     source_file=filename,
+                    file_type=parser_type,
                     source_system=source_system
                 )
                 

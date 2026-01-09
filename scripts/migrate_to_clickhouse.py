@@ -60,15 +60,15 @@ class OpenSearchToClickHouseMigrator:
             timeout=60
         )
         
-        # Initialize ClickHouse client
+        # Initialize ClickHouse client (connect without database first for setup)
         self.ch_client = Client(
             host=CLICKHOUSE_HOST,
             port=CLICKHOUSE_PORT,
-            database=CLICKHOUSE_DATABASE,
             user=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD or '',
             settings={'max_block_size': 100000}
         )
+        self.ch_database = CLICKHOUSE_DATABASE
         
         self.stats = {
             'indices_processed': 0,
@@ -79,8 +79,6 @@ class OpenSearchToClickHouseMigrator:
     
     def init_clickhouse_schema(self):
         """Create ClickHouse database and tables"""
-        from app.config import CLICKHOUSE_DATABASE
-        
         logger.info("Initializing ClickHouse schema...")
         
         if self.dry_run:
@@ -88,14 +86,14 @@ class OpenSearchToClickHouseMigrator:
             return
         
         # Create database
-        self.ch_client.execute(f"CREATE DATABASE IF NOT EXISTS {CLICKHOUSE_DATABASE}")
+        self.ch_client.execute(f"CREATE DATABASE IF NOT EXISTS {self.ch_database}")
         
         # Drop existing table to ensure clean schema
-        self.ch_client.execute(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events")
+        self.ch_client.execute(f"DROP TABLE IF EXISTS {self.ch_database}.events")
         
         # Create main events table
         self.ch_client.execute(f"""
-            CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DATABASE}.events (
+            CREATE TABLE IF NOT EXISTS {self.ch_database}.events (
                 -- Core identifiers
                 case_id UInt32,
                 doc_id String DEFAULT generateUUIDv4(),
@@ -310,13 +308,11 @@ class OpenSearchToClickHouseMigrator:
         if not batch or self.dry_run:
             return
         
-        from app.config import CLICKHOUSE_DATABASE
-        
         columns = list(batch[0].keys())
         values = [[row[col] for col in columns] for row in batch]
         
         self.ch_client.execute(
-            f"INSERT INTO {CLICKHOUSE_DATABASE}.events ({', '.join(columns)}) VALUES",
+            f"INSERT INTO {self.ch_database}.events ({', '.join(columns)}) VALUES",
             values
         )
     
@@ -371,14 +367,12 @@ class OpenSearchToClickHouseMigrator:
     
     def verify_migration(self, case_id: int = None):
         """Verify event counts match between OpenSearch and ClickHouse"""
-        from app.config import CLICKHOUSE_DATABASE
-        
         logger.info("Verifying migration...")
         
         indices = self.get_opensearch_indices(case_id)
         
         for index_name in indices:
-            case_id = self.extract_case_id(index_name)
+            idx_case_id = self.extract_case_id(index_name)
             
             # OpenSearch count
             try:
@@ -388,8 +382,8 @@ class OpenSearchToClickHouseMigrator:
             
             # ClickHouse count for this case
             ch_result = self.ch_client.execute(
-                f"SELECT count() FROM {CLICKHOUSE_DATABASE}.events WHERE case_id = %(case_id)s",
-                {'case_id': case_id}
+                f"SELECT count() FROM {self.ch_database}.events WHERE case_id = %(case_id)s",
+                {'case_id': idx_case_id}
             )
             ch_count = ch_result[0][0] if ch_result else 0
             

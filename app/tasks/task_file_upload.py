@@ -165,58 +165,8 @@ def calculate_file_hash(file_path):
         return None
 
 
-def update_container_status(container_id):
-    """
-    Update ZIP container status and event count after child files are processed
-    
-    Checks if all child files are indexed, and if so:
-    - Updates container status to 'indexed'
-    - Updates container event_count to cumulative total from all children
-    
-    Args:
-        container_id: CaseFile ID of the ZIP container
-    """
-    from main import app, db
-    from models import CaseFile
-    
-    with app.app_context():
-        try:
-            container = CaseFile.query.get(container_id)
-            if not container or not container.is_container:
-                return
-            
-            # Get all child files
-            children = CaseFile.query.filter_by(parent_file_id=container_id).all()
-            
-            if not children:
-                return
-            
-            # Check if all children are indexed
-            all_indexed = all(child.status == 'indexed' for child in children)
-            any_failed = any(child.status == 'failed' for child in children)
-            
-            # Calculate cumulative event count from all children
-            total_events = sum(child.event_count or 0 for child in children)
-            
-            # Update container
-            if all_indexed:
-                container.status = 'indexed'
-                container.event_count = total_events
-                logger.info(f"ZIP container {container.filename} fully indexed: {total_events} total events from {len(children)} files")
-            elif any_failed:
-                container.status = 'partial'  # Some files failed
-                container.event_count = total_events
-                logger.warning(f"ZIP container {container.filename} partially indexed: some files failed")
-            else:
-                # Still processing
-                container.event_count = total_events  # Update running total
-            
-            db.session.commit()
-            
-        except Exception as e:
-            logger.error(f"Error updating container status for container_id={container_id}: {e}")
-            import traceback
-            traceback.print_exc()
+# NOTE: update_container_status() removed - parent_file_id column was dropped in phase1 migration
+# Container status is now tracked differently (see task_ingest_files.py)
 
 
 def compress_file_gzip(source_path, keep_original=False):
@@ -247,7 +197,7 @@ def compress_file_gzip(source_path, keep_original=False):
 
 
 @celery.task(bind=True, name='tasks.process_uploaded_files', queue='file_processing')
-def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
+def process_uploaded_files(self, case_id, files_list, user_id=1, source_dir='bulk_upload'):
     """
     NEW ZIP-CENTRIC WORKFLOW
     ========================
@@ -260,6 +210,7 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
     Args:
         case_id: Case ID
         files_list: List of filenames
+        user_id: User ID who initiated the upload (default: 1 for system)
         source_dir: Source directory name ('bulk_upload' for SFTP, 'staging' for web uploads)
     
     Returns:
@@ -380,8 +331,7 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                             file_hash=file_hash,
                             is_container=True,  # This is a ZIP container
                             is_virtual=False,   # Physical file in storage
-                            parent_file_id=None,
-                            uploaded_by=user_id,  # User ID passed from route
+                            uploaded_by=user_id,
                             uploaded_at=datetime.utcnow(),
                             status='New',
                             extraction_status='pending',
@@ -443,9 +393,8 @@ def process_uploaded_files(self, case_id, files_list, source_dir='bulk_upload'):
                             file_hash=file_hash,
                             is_container=False,  # Not a ZIP
                             is_virtual=False,    # Physical file
-                            parent_file_id=None,
                             target_index=target_index,
-                            uploaded_by=1,
+                            uploaded_by=user_id,
                             uploaded_at=datetime.utcnow(),
                             status='New',
                             parsing_status='pending',
@@ -605,7 +554,6 @@ def extract_and_process_zip(self, case_id, container_id, zip_path, zip_filename)
                             file_hash=file_hash,
                             is_container=False,
                             is_virtual=True,  # Virtual file (from ZIP)
-                            parent_file_id=container_id,  # Link to ZIP container
                             target_index=target_index,
                             source_user=source_user,  # Store extracted username
                             source_system=parent_hostname,  # Inherit from parent ZIP
@@ -698,9 +646,8 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
     """
     from main import app, db
     from models import CaseFile
-    from opensearch_indexer import OpenSearchIndexer
-    from config import (OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL,
-                       OPENSEARCH_BULK_CHUNK_SIZE)
+    from utils.event_store import get_event_store
+    from config import CLICKHOUSE_BATCH_SIZE
     
     logger.info(f"Parsing file_id={file_id}, target_index={target_index}")
     
@@ -721,12 +668,9 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
         total_failed = 0
         source_system = None
         
-        # Initialize OpenSearch indexer
-        indexer = OpenSearchIndexer(
-            host=OPENSEARCH_HOST,
-            port=OPENSEARCH_PORT,
-            use_ssl=OPENSEARCH_USE_SSL
-        )
+        # Initialize event store (ClickHouse or OpenSearch based on config)
+        event_store = get_event_store()
+        chunk_size = CLICKHOUSE_BATCH_SIZE
         
         # PHASE 2: PARSE based on file type
         if file_ext == '.evtx':
@@ -740,7 +684,6 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             
             # Parse and index in chunks
             chunk = []
-            chunk_size = 5000
             
             for event in parse_evtx_file(file_path):
                 chunk.append(event)
@@ -752,11 +695,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                 
                 # Index chunk
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='EVTX'
                     )
@@ -766,11 +708,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             
             # Index remaining
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='EVTX'
                 )
@@ -784,7 +725,6 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             logger.info(f"Parsing NDJSON: {filename}")
             
             chunk = []
-            chunk_size = 5000
             
             for event in parse_ndjson_file(file_path):
                 chunk.append(event)
@@ -793,11 +733,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     source_system = event.get('normalized_computer') or event.get('host', {}).get('hostname')
                 
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='NDJSON'
                     )
@@ -806,11 +745,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     chunk = []
             
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='NDJSON'
                 )
@@ -824,7 +762,6 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             logger.info(f"Parsing CSV/Firewall: {filename}")
             
             chunk = []
-            chunk_size = 5000
             
             for event in parse_firewall_csv(file_path):
                 chunk.append(event)
@@ -839,11 +776,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     )
                 
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='CSV'
                     )
@@ -853,11 +789,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             
             # Index remaining chunk
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='CSV'
                 )
@@ -872,7 +807,6 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             logger.info(f"Parsing browser history: {filename}")
             
             chunk = []
-            chunk_size = 5000
             
             for event in parse_browser_history_file(file_path):
                 chunk.append(event)
@@ -881,11 +815,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     source_system = event.get('computer')
                 
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='BrowserHistory'
                     )
@@ -894,11 +827,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     chunk = []
             
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='BrowserHistory'
                 )
@@ -915,17 +847,15 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             logger.info(f"Parsing WebCache ESE: {filename}")
             
             chunk = []
-            chunk_size = 5000
             
             for event in parse_webcache_file(file_path):
                 chunk.append(event)
                 
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='WebCache'
                     )
@@ -934,11 +864,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     chunk = []
             
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='WebCache'
                 )
@@ -956,11 +885,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             
             for event in parse_prefetch_file(file_path):
                 chunk = [event]
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='Prefetch'
                 )
@@ -977,17 +905,15 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             logger.info(f"Parsing SRUM: {filename}")
             
             chunk = []
-            chunk_size = 5000
             
             for event in parse_srum_file(file_path):
                 chunk.append(event)
                 
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='SRUM'
                     )
@@ -996,11 +922,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     chunk = []
             
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='SRUM'
                 )
@@ -1014,17 +939,15 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             logger.info(f"Parsing setupapi.dev.log: {filename}")
             
             chunk = []
-            chunk_size = 1000
             
             for event in parse_setupapi_file(file_path):
                 chunk.append(event)
                 
                 if len(chunk) >= chunk_size:
-                    stats = indexer.bulk_index(
-                        index_name=target_index,
-                        events=iter(chunk),
-                        chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                    stats = event_store.bulk_index(
                         case_id=case_id,
+                        events=iter(chunk),
+                        chunk_size=chunk_size,
                         source_file=filename,
                         file_type='DeviceLog'
                     )
@@ -1033,11 +956,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
                     chunk = []
             
             if chunk:
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='DeviceLog'
                 )
@@ -1055,11 +977,10 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             
             for event in parse_lnk_file(file_path):
                 chunk = [event]
-                stats = indexer.bulk_index(
-                    index_name=target_index,
-                    events=iter(chunk),
-                    chunk_size=OPENSEARCH_BULK_CHUNK_SIZE,
+                stats = event_store.bulk_index(
                     case_id=case_id,
+                    events=iter(chunk),
+                    chunk_size=chunk_size,
                     source_file=filename,
                     file_type='LNK'
                 )
@@ -1105,10 +1026,6 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             case_file.event_count = total_indexed
             case_file.indexed_at = datetime.utcnow()
             db.session.commit()
-            
-            # If this is a virtual file (from ZIP), update parent container status/counts
-            if case_file.is_virtual and case_file.parent_file_id:
-                update_container_status(case_file.parent_file_id)
         
         logger.info(f"Indexed {total_indexed} events from {filename} to {target_index}")
         
@@ -1131,10 +1048,6 @@ def parse_and_index_file(self, case_id, file_id, file_path, target_index):
             case_file.error_message = str(e)
             case_file.retry_count = (case_file.retry_count or 0) + 1
             db.session.commit()
-            
-            # If this is a virtual file (from ZIP), update parent container status/counts
-            if case_file.is_virtual and case_file.parent_file_id:
-                update_container_status(case_file.parent_file_id)
         
         return {
             'status': 'failed',
