@@ -28,6 +28,7 @@
         <thead>
             <tr>
                 <th>Case Name</th>
+                <th>Company</th>
                 <th>ID</th>
                 <th>EDR Report</th>
                 <th>Created By</th>
@@ -43,6 +44,7 @@
                     <td>
                         <a href="#" class="case-name-link">{{ case.name }}</a>
                     </td>
+                    <td>{{ case.company }}</td>
                     <td class="text-muted text-small">{{ case.uuid[:8] }}...</td>
                     <td>
                         {% if case.edr_report %}
@@ -75,7 +77,7 @@
                 {% endfor %}
             {% else %}
                 <tr>
-                    <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                    <td colspan="8" class="text-center text-muted" style="padding: 40px;">
                         No cases found. Create your first case to get started.
                     </td>
                 </tr>
