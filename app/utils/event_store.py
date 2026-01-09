@@ -74,11 +74,11 @@ class ClickHouseEventStore(EventStore):
     """ClickHouse implementation of EventStore"""
     
     def __init__(self):
-        from app.config import (
+        from config import (
             CLICKHOUSE_HOST, CLICKHOUSE_PORT, CLICKHOUSE_DATABASE,
             CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
         )
-        from app.clickhouse_client import ClickHouseSearcher, ClickHouseIndexer
+        from clickhouse_client import ClickHouseSearcher, ClickHouseIndexer
         
         self.searcher = ClickHouseSearcher(
             host=CLICKHOUSE_HOST,
@@ -180,7 +180,7 @@ class OpenSearchEventStore(EventStore):
     """OpenSearch implementation of EventStore (legacy)"""
     
     def __init__(self):
-        from app.config import OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL
+        from config import OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL
         from opensearchpy import OpenSearch
         
         self.client = OpenSearch(
@@ -324,8 +324,8 @@ class OpenSearchEventStore(EventStore):
     def bulk_index(self, case_id: int, events: Iterator[Dict[str, Any]],
                    chunk_size: int = 500, source_file: str = None,
                    file_type: str = None, source_system: str = None) -> Dict[str, Any]:
-        from app.opensearch_indexer import OpenSearchIndexer
-        from app.config import OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL
+        from opensearch_indexer import OpenSearchIndexer
+        from config import OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USE_SSL
         
         indexer = OpenSearchIndexer(
             host=OPENSEARCH_HOST,
@@ -380,7 +380,7 @@ def get_event_store() -> EventStore:
     global _event_store
     
     if _event_store is None:
-        from app.config import EVENT_STORAGE_BACKEND
+        from config import EVENT_STORAGE_BACKEND
         
         if EVENT_STORAGE_BACKEND == 'clickhouse':
             logger.info("Using ClickHouse event store")

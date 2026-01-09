@@ -176,6 +176,7 @@ class IngestionProgress(db.Model):
     error_message = db.Column(db.Text)
     can_resume = db.Column(db.Boolean, default=True)
     completed_at = db.Column(db.DateTime)
+    task_id = db.Column(db.String(255), index=True)  # Celery task ID for tracking
     
     # Relationships
     case = db.relationship('Case', backref='ingestion_progress')
@@ -587,6 +588,7 @@ class ActiveTask(db.Model):
     # Timing
     started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     completed_at = db.Column(db.DateTime)
+    task_id = db.Column(db.String(255), index=True)  # Celery task ID for tracking
     
     # Results (stored as JSON)
     result_data = db.Column(db.JSON)

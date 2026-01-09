@@ -197,17 +197,10 @@ def hunt_sigma(case_id, user_id, clear_previous=True):
                 'rules_matched': {}
             }
         
-        # Group files by parent ZIP
-        files_by_zip = {}
-        standalone_files = []
-        
-        for case_file in evtx_files:
-            if case_file.parent_file_id:
-                if case_file.parent_file_id not in files_by_zip:
-                    files_by_zip[case_file.parent_file_id] = []
-                files_by_zip[case_file.parent_file_id].append(case_file)
-            else:
-                standalone_files.append(case_file)
+        # NOTE: parent_file_id was removed in phase1 migration
+        # All files are now treated as standalone (no ZIP grouping)
+        files_by_zip = {}  # No longer used
+        standalone_files = list(evtx_files)  # All files are standalone
         
         total_files = len(evtx_files)
         files_checked = 0

@@ -522,12 +522,10 @@ def case_files(case_id=None):
     
     files = pagination.items
     
-    # For each container (ZIP), get child count
+    # NOTE: parent_file_id was removed in phase1 migration
+    # Child count tracking is no longer available via database relationship
     for file in files:
-        if file.is_container:
-            file.child_count = CaseFile.query.filter_by(parent_file_id=file.id).count()
-        else:
-            file.child_count = 0
+        file.child_count = 0
     
     return render_template('case/files.html', case=case, stats=stats, files=files, 
                          pagination=pagination, page=page, per_page=per_page,
@@ -690,12 +688,9 @@ def case_files_list_api(case_id):
 def get_zip_contents(case_id, container_id):
     """
     API endpoint to fetch contents of a ZIP container
-    Supports pagination for large ZIPs
     
-    Query params:
-    - page: Page number (default 1)
-    - per_page: Items per page (default 50, max 100)
-    - group_by: 'system' to group by source_system
+    NOTE: Parent-child file relationships (parent_file_id) were removed in phase1 migration.
+    This endpoint now returns an empty result as ZIP content tracking is no longer available.
     """
     from models import Case, CaseFile
     
@@ -709,80 +704,14 @@ def get_zip_contents(case_id, container_id):
     # Get container
     container = CaseFile.query.filter_by(id=container_id, case_id=case_id, is_container=True).first_or_404()
     
-    # Pagination params
-    page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 50, type=int), 100)
-    group_by = request.args.get('group_by', None)
-    
-    # Get virtual files for this container
-    query = CaseFile.query.filter_by(parent_file_id=container_id, is_virtual=True)
-    
-    # Group by system if requested
-    if group_by == 'system':
-        # Get all files grouped by source_system
-        all_files = query.order_by(CaseFile.source_system, CaseFile.original_filename).all()
-        
-        # Group files
-        grouped = {}
-        for file in all_files:
-            system = file.source_system or 'Unknown'
-            if system not in grouped:
-                grouped[system] = []
-            grouped[system].append({
-                'id': file.id,
-                'filename': file.original_filename,
-                'file_type': file.file_type,
-                'file_size': file.file_size,
-                'event_count': file.event_count,
-                'status': file.status,
-                'target_index': file.target_index,
-                'error_message': file.error_message
-            })
-        
-        return jsonify({
-            'container_id': container_id,
-            'container_name': container.original_filename,
-            'total_files': len(all_files),
-            'grouped': True,
-            'systems': [{
-                'system': system,
-                'file_count': len(files),
-                'files': files
-            } for system, files in grouped.items()]
-        })
-    
-    else:
-        # Paginated flat list
-        pagination = query.order_by(CaseFile.original_filename).paginate(
-            page=page, per_page=per_page, error_out=False
-        )
-        
-        files_data = [{
-            'id': file.id,
-            'filename': file.original_filename,
-            'file_type': file.file_type,
-            'file_size': file.file_size,
-            'event_count': file.event_count,
-            'status': file.status,
-            'source_system': file.source_system or '-',
-            'parser_type': file.parser_type or '-',
-            'target_index': file.target_index,
-            'error_message': file.error_message,
-            'parsing_status': file.parsing_status,
-            'indexing_status': file.indexing_status
-        } for file in pagination.items]
-        
-        return jsonify({
-            'container_id': container_id,
-            'container_name': container.original_filename,
-            'page': page,
-            'per_page': per_page,
-            'total_files': pagination.total,
-            'total_pages': pagination.pages,
-            'has_next': pagination.has_next,
-            'has_prev': pagination.has_prev,
-            'files': files_data
-        })
+    # NOTE: parent_file_id was removed - ZIP content tracking is no longer available
+    return jsonify({
+        'container_id': container_id,
+        'container_name': container.original_filename,
+        'total_files': 0,
+        'files': [],
+        'message': 'ZIP content tracking not available in current version'
+    })
 
 
 @case_bp.route('/<int:case_id>/files/active-tasks', methods=['GET'])
@@ -857,17 +786,10 @@ def get_active_tasks(case_id):
                             # Get file from database
                             file = CaseFile.query.get(file_id)
                             if file:
-                                # Get parent ZIP name if this is a virtual file
-                                parent_zip_name = None
-                                if file.is_virtual and file.parent_file_id:
-                                    parent = CaseFile.query.get(file.parent_file_id)
-                                    if parent:
-                                        parent_zip_name = parent.filename
-                                
                                 active_files.append({
                                     'filename': file.filename,
                                     'original_filename': file.original_filename or file.filename,
-                                    'parent_zip': parent_zip_name,
+                                    'parent_zip': None,  # parent_file_id removed in phase1
                                     'is_virtual': file.is_virtual,
                                     'worker': worker_name.split('@')[0] if '@' in worker_name else worker_name
                                 })
@@ -913,10 +835,11 @@ def get_active_tasks(case_id):
 def get_zip_breakdown(case_id, container_id):
     """
     API endpoint to get detailed breakdown of ZIP container files
-    Shows statistics by file type, status, and events
+    
+    NOTE: Parent-child file relationships (parent_file_id) were removed in phase1 migration.
+    This endpoint returns empty results as ZIP content tracking is no longer available.
     """
     from models import Case, CaseFile
-    from sqlalchemy import func
     
     case = Case.query.get_or_404(case_id)
     
@@ -928,48 +851,18 @@ def get_zip_breakdown(case_id, container_id):
     # Get container
     container = CaseFile.query.filter_by(id=container_id, case_id=case_id, is_container=True).first_or_404()
     
-    # Get all child files
-    children = CaseFile.query.filter_by(parent_file_id=container_id, is_virtual=True).all()
-    
-    # Calculate statistics (exclude zipcontainer from event counts)
-    total_files = len(children)
-    indexed_files = len([f for f in children if f.status == 'indexed'])
-    failed_files = len([f for f in children if f.status == 'failed'])
-    total_events = sum(f.event_count or 0 for f in children if f.status == 'indexed' and f.parser_type != 'zipcontainer')
-    
-    # Breakdown by file type - Indexed
-    indexed_by_type = {}
-    for file in children:
-        if file.status == 'indexed':
-            ext = file.file_type or 'unknown'
-            if ext not in indexed_by_type:
-                indexed_by_type[ext] = {'count': 0, 'events': 0}
-            indexed_by_type[ext]['count'] += 1
-            # Don't count zipcontainer events in stats
-            if file.parser_type != 'zipcontainer':
-                indexed_by_type[ext]['events'] += file.event_count or 0
-    
-    # Breakdown by file type - Failed
-    failed_by_type = {}
-    for file in children:
-        if file.status == 'failed':
-            ext = file.file_type or 'unknown'
-            if ext not in failed_by_type:
-                failed_by_type[ext] = {'count': 0, 'sample_error': None}
-            failed_by_type[ext]['count'] += 1
-            if not failed_by_type[ext]['sample_error'] and file.error_message:
-                failed_by_type[ext]['sample_error'] = file.error_message
-    
+    # NOTE: parent_file_id was removed - ZIP content tracking is no longer available
     return jsonify({
         'container_id': container_id,
         'container_name': container.original_filename,
         'container_status': container.status,
-        'total_files': total_files,
-        'indexed_files': indexed_files,
-        'failed_files': failed_files,
-        'total_events': total_events,
-        'indexed_by_type': indexed_by_type,
-        'failed_by_type': failed_by_type
+        'total_files': 0,
+        'indexed_files': 0,
+        'failed_files': 0,
+        'total_events': 0,
+        'indexed_by_type': {},
+        'failed_by_type': {},
+        'message': 'ZIP content tracking not available in current version'
     })
 
 
@@ -1004,22 +897,19 @@ def download_file(case_id, file_id):
     file_record = CaseFile.query.filter_by(id=file_id, case_id=case_id).first_or_404()
     
     # VIRTUAL FILE: Extract from parent ZIP
+    # NOTE: parent_file_id was removed in phase1 migration
+    # Virtual file downloads from ZIP are no longer supported
     if file_record.is_virtual:
-        # Get parent container
-        if not file_record.parent_file_id:
-            return jsonify({'error': 'Virtual file has no parent container'}), 500
-        
-        parent = CaseFile.query.get(file_record.parent_file_id)
-        if not parent or not parent.is_container:
-            return jsonify({'error': 'Parent container not found'}), 500
-        
-        zip_path = parent.file_path
-        if not os.path.exists(zip_path):
-            return jsonify({'error': 'Parent ZIP file not found on disk'}), 404
-        
+        return jsonify({
+            'error': 'Virtual file download not available',
+            'message': 'Parent-child file relationships were removed. Download the original ZIP file instead.'
+        }), 501
+    
+    # The following code is now unreachable for virtual files but kept for reference
+    if False:  # Dead code - virtual file ZIP extraction
         try:
             # Find the file in ZIP (match by original filename)
-            with zipfile.ZipFile(zip_path, 'r') as zf:
+            with zipfile.ZipFile('', 'r') as zf:
                 # Find matching file in ZIP
                 target_file = None
                 for zip_info in zf.namelist():
@@ -1208,11 +1098,11 @@ def retry_file_processing(case_id, file_id):
 def retry_failed_in_container(case_id, container_id):
     """
     Retry all failed files in a ZIP container
-    Batch retry for convenience
+    
+    NOTE: Parent-child file relationships (parent_file_id) were removed in phase1 migration.
+    This endpoint is no longer functional.
     """
     from models import Case, CaseFile
-    from main import db
-    from tasks.task_file_upload import parse_and_index_file
     
     case = Case.query.get_or_404(case_id)
     
@@ -1220,17 +1110,15 @@ def retry_failed_in_container(case_id, container_id):
     if current_user.role == 'read-only':
         return jsonify({'error': 'Permission denied'}), 403
     
-    # Get container
-    container = CaseFile.query.filter_by(id=container_id, case_id=case_id, is_container=True).first_or_404()
+    # NOTE: parent_file_id was removed - cannot find child files in container
+    return jsonify({
+        'error': 'Feature not available',
+        'message': 'Parent-child file relationships were removed. Use individual file retry instead.'
+    }), 501
     
-    # Get failed files in this container
-    failed_files = CaseFile.query.filter_by(
-        parent_file_id=container_id,
-        is_virtual=True
-    ).filter(CaseFile.status.in_(['failed', 'error'])).all()
-    
-    if not failed_files:
-        return jsonify({'error': 'No failed files to retry'}), 400
+    # Dead code below - kept for reference
+    if False:
+        failed_files = []
     
     retried = 0
     errors = []
