@@ -1184,7 +1184,18 @@ tbody td {
 .ml-3 { margin-left: 16px; }
 
 /* ========================================
-   Modal Styles
+   Modal Styles (DEFAULT)
+   ----------------------------------------
+   This is the default modal style for the
+   site. Use these classes unless otherwise
+   specified for a specific use case.
+   
+   Structure:
+   - .modal-overlay (dark backdrop)
+   - .modal-container (white/card box)
+   - .modal-header (title + close button)
+   - .modal-body (main content)
+   - .modal-footer (action buttons)
    ======================================== */
 .modal-overlay {
   position: fixed;
