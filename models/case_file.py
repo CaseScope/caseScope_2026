@@ -18,6 +18,54 @@ class ExtractionStatus:
         return [cls.NA, cls.PENDING, cls.FULL, cls.PARTIAL, cls.FAIL]
 
 
+class FileStatus:
+    """File processing status"""
+    NEW = 'new'              # File uploaded, not yet processed
+    QUEUED = 'queued'        # Queued for parsing
+    INGESTING = 'ingesting'  # Currently being parsed
+    ERROR = 'error'          # Error during processing
+    DONE = 'done'            # Processing complete
+    
+    @classmethod
+    def all(cls):
+        return [cls.NEW, cls.QUEUED, cls.INGESTING, cls.ERROR, cls.DONE]
+    
+    @classmethod
+    def choices(cls):
+        return [
+            (cls.NEW, 'New'),
+            (cls.QUEUED, 'Queued'),
+            (cls.INGESTING, 'Ingesting'),
+            (cls.ERROR, 'Error'),
+            (cls.DONE, 'Done')
+        ]
+
+
+class IngestionStatus:
+    """Ingestion/parsing result status"""
+    NOT_DONE = 'not_done'      # Not yet processed
+    FULL = 'full'              # Fully indexed
+    PARTIAL = 'partial'        # Partially indexed
+    NO_PARSER = 'no_parser'    # No parser available for this file type
+    PARSE_ERROR = 'parse_error'  # Parser exists but failed
+    ERROR = 'error'            # General error (can't read file, etc.)
+    
+    @classmethod
+    def all(cls):
+        return [cls.NOT_DONE, cls.FULL, cls.PARTIAL, cls.NO_PARSER, cls.PARSE_ERROR, cls.ERROR]
+    
+    @classmethod
+    def choices(cls):
+        return [
+            (cls.NOT_DONE, 'Not Done'),
+            (cls.FULL, 'Full'),
+            (cls.PARTIAL, 'Partial'),
+            (cls.NO_PARSER, 'No Parser'),
+            (cls.PARSE_ERROR, 'Parse Error'),
+            (cls.ERROR, 'Error')
+        ]
+
+
 class CaseFile(db.Model):
     """Model for tracking files associated with a case
     
@@ -54,8 +102,20 @@ class CaseFile(db.Model):
     # Archive extraction status
     extraction_status = db.Column(db.String(20), nullable=False, default='n/a')  # n/a, pending, full, partial, fail
     
-    # Processing status
-    status = db.Column(db.String(50), nullable=False, default='pending')  # pending, processing, completed, error
+    # Processing status (workflow state)
+    status = db.Column(db.String(50), nullable=False, default='new')  # new, queued, ingesting, error, done
+    
+    # Ingestion result status
+    ingestion_status = db.Column(db.String(50), nullable=False, default='not_done')  # not_done, full, partial, no_parser, parse_error, error
+    
+    # Parser type used (e.g., EVTX, HuntressNDJSON, Registry, etc.)
+    parser_type = db.Column(db.String(50), nullable=True)
+    
+    # Event counts from parsing
+    events_indexed = db.Column(db.Integer, nullable=False, default=0)
+    
+    # Error message if parsing failed
+    error_message = db.Column(db.Text, nullable=True)
     
     # Timestamps
     uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -88,9 +148,50 @@ class CaseFile(db.Model):
             'is_extracted': self.is_extracted,
             'extraction_status': self.extraction_status,
             'status': self.status,
+            'ingestion_status': self.ingestion_status,
+            'parser_type': self.parser_type,
+            'events_indexed': self.events_indexed,
+            'error_message': self.error_message,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'processed_at': self.processed_at.isoformat() if self.processed_at else None,
             'uploaded_by': self.uploaded_by
+        }
+    
+    @staticmethod
+    def get_stats(case_uuid):
+        """Get file statistics for a case"""
+        from sqlalchemy import func
+        
+        base_query = CaseFile.query.filter_by(case_uuid=case_uuid)
+        
+        total = base_query.count()
+        
+        # Status counts
+        done_count = base_query.filter_by(status=FileStatus.DONE).count()
+        error_count = base_query.filter_by(status=FileStatus.ERROR).count()
+        pending_count = base_query.filter(
+            CaseFile.status.in_([FileStatus.NEW, FileStatus.QUEUED, FileStatus.INGESTING])
+        ).count()
+        
+        # Ingestion status counts
+        full_count = base_query.filter_by(ingestion_status=IngestionStatus.FULL).count()
+        partial_count = base_query.filter_by(ingestion_status=IngestionStatus.PARTIAL).count()
+        no_parser_count = base_query.filter_by(ingestion_status=IngestionStatus.NO_PARSER).count()
+        parse_error_count = base_query.filter_by(ingestion_status=IngestionStatus.PARSE_ERROR).count()
+        ingestion_error_count = base_query.filter_by(ingestion_status=IngestionStatus.ERROR).count()
+        
+        # Completed = done + error (files that have been processed)
+        completed = done_count + error_count
+        
+        return {
+            'total': total,
+            'completed': completed,
+            'pending': pending_count,
+            'fully_indexed': full_count,
+            'partially_indexed': partial_count,
+            'no_parser': no_parser_count,
+            'parse_error': parse_error_count,
+            'error': ingestion_error_count
         }
     
     @staticmethod

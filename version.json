@@ -1,6 +1,21 @@
 {
-  "version": "3.15.1",
+  "version": "3.16.0",
   "changelog": [
+    {
+      "version": "3.16.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Case Files page with full parsing pipeline integration",
+        "File Statistics tile with auto-refresh (5s): total, completed, indexed, errors",
+        "Processing Progress tile with worker status display",
+        "Paginated file list with search (25/50/100/200 per page)",
+        "New CaseFile fields: ingestion_status, parser_type, events_indexed, error_message",
+        "FileStatus workflow: new -> queued -> ingesting -> done/error",
+        "IngestionStatus: full, partial, no_parser, parse_error, error",
+        "Automatic parsing triggered after file ingestion completes",
+        "API endpoints: /api/files/stats, /api/files/list, /api/files/progress"
+      ]
+    },
     {
       "version": "3.15.1",
       "date": "2026-01-09",

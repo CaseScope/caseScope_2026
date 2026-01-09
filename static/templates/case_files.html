@@ -9,11 +9,383 @@
         </h1>
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
-</div>
-
-<div class="card">
-    <div class="card-body" style="padding: 40px; text-align: center;">
-        <p class="text-muted">File management coming soon...</p>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_upload') }}" class="btn btn-primary">
+            <span>📤 Upload Files</span>
+        </a>
     </div>
 </div>
+
+<!-- Statistics Tile -->
+<div class="tile-row">
+    <div class="tile tile-stats">
+        <div class="tile-header">
+            <h3 class="tile-title">📊 File Statistics</h3>
+            <span class="tile-refresh" id="stats-refresh">Auto-refresh: 5s</span>
+        </div>
+        <div class="tile-body">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-value" id="stat-total">-</span>
+                    <span class="stat-label">Total Files</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="stat-completed">-</span>
+                    <span class="stat-label">Completed</span>
+                </div>
+                <div class="stat-item stat-success">
+                    <span class="stat-value" id="stat-fully-indexed">-</span>
+                    <span class="stat-label">Fully Indexed</span>
+                </div>
+                <div class="stat-item stat-warning">
+                    <span class="stat-value" id="stat-partially-indexed">-</span>
+                    <span class="stat-label">Partially Indexed</span>
+                </div>
+                <div class="stat-item stat-muted">
+                    <span class="stat-value" id="stat-no-parser">-</span>
+                    <span class="stat-label">No Parser</span>
+                </div>
+                <div class="stat-item stat-danger">
+                    <span class="stat-value" id="stat-parse-error">-</span>
+                    <span class="stat-label">Parse Error</span>
+                </div>
+                <div class="stat-item stat-danger">
+                    <span class="stat-value" id="stat-error">-</span>
+                    <span class="stat-label">Error</span>
+                </div>
+                <div class="stat-item stat-info">
+                    <span class="stat-value" id="stat-pending">-</span>
+                    <span class="stat-label">Pending</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress Tile -->
+<div class="tile-row">
+    <div class="tile tile-progress" id="progress-tile">
+        <div class="tile-header">
+            <h3 class="tile-title">⚙️ Processing Progress</h3>
+            <span class="tile-status" id="progress-status">Idle</span>
+        </div>
+        <div class="tile-body">
+            <div class="progress-main">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                </div>
+                <div class="progress-text">
+                    <span id="progress-current">0</span> / <span id="progress-total">0</span> Files
+                </div>
+            </div>
+            <div class="worker-list" id="worker-list">
+                <div class="worker-empty">No active workers</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- File List Tile -->
+<div class="tile-row">
+    <div class="tile tile-files">
+        <div class="tile-header">
+            <h3 class="tile-title">📁 File List</h3>
+            <div class="tile-controls">
+                <input type="text" class="table-search" placeholder="Search files..." id="file-search" onkeyup="debounceSearch()">
+                <select class="page-size-select" id="page-size" onchange="changePageSize()">
+                    <option value="25" selected>25 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                    <option value="200">200 per page</option>
+                </select>
+            </div>
+        </div>
+        <div class="tile-body file-table-container">
+            <table class="file-table" id="file-table">
+                <thead>
+                    <tr>
+                        <th>Parent</th>
+                        <th>Filename</th>
+                        <th>Size</th>
+                        <th>Hostname</th>
+                        <th>Type</th>
+                        <th>Upload</th>
+                        <th>Uploaded By</th>
+                        <th>Uploaded</th>
+                        <th>Status</th>
+                        <th>Ingestion</th>
+                    </tr>
+                </thead>
+                <tbody id="file-tbody">
+                    <tr>
+                        <td colspan="10" class="text-center text-muted" style="padding: 40px;">
+                            Loading files...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="tile-footer">
+            <div class="pagination-info">
+                Showing <span id="showing-start">0</span> - <span id="showing-end">0</span> of <span id="total-files">0</span> files
+            </div>
+            <div class="pagination-controls">
+                <button class="btn btn-secondary btn-sm" id="btn-prev" onclick="prevPage()" disabled>← Prev</button>
+                <span class="page-indicator">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
+                <button class="btn btn-secondary btn-sm" id="btn-next" onclick="nextPage()" disabled>Next →</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseUuid = '{{ case.uuid }}';
+let currentPage = 1;
+let perPage = 25;
+let searchQuery = '';
+let searchTimeout = null;
+let statsInterval = null;
+let progressInterval = null;
+
+// Format file size
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Get status badge HTML
+function getStatusBadge(status) {
+    const badges = {
+        'new': '<span class="badge badge-info">New</span>',
+        'queued': '<span class="badge badge-warning">Queued</span>',
+        'ingesting': '<span class="badge badge-warning">Ingesting</span>',
+        'done': '<span class="badge badge-success">Done</span>',
+        'error': '<span class="badge badge-danger">Error</span>'
+    };
+    return badges[status] || '<span class="badge badge-muted">' + status + '</span>';
+}
+
+// Get ingestion status badge HTML
+function getIngestionBadge(status) {
+    const badges = {
+        'not_done': '<span class="badge badge-muted">Not Done</span>',
+        'full': '<span class="badge badge-success">Full</span>',
+        'partial': '<span class="badge badge-warning">Partial</span>',
+        'no_parser': '<span class="badge badge-muted">No Parser</span>',
+        'parse_error': '<span class="badge badge-danger">Parse Error</span>',
+        'error': '<span class="badge badge-danger">Error</span>'
+    };
+    return badges[status] || '<span class="badge badge-muted">' + status + '</span>';
+}
+
+// Load file statistics
+function loadStats() {
+    fetch('/api/files/stats/' + caseUuid)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('stat-total').textContent = data.total;
+                document.getElementById('stat-completed').textContent = data.completed;
+                document.getElementById('stat-fully-indexed').textContent = data.fully_indexed;
+                document.getElementById('stat-partially-indexed').textContent = data.partially_indexed;
+                document.getElementById('stat-no-parser').textContent = data.no_parser;
+                document.getElementById('stat-parse-error').textContent = data.parse_error;
+                document.getElementById('stat-error').textContent = data.error;
+                document.getElementById('stat-pending').textContent = data.pending;
+            }
+        })
+        .catch(err => console.error('Error loading stats:', err));
+}
+
+// Load processing progress
+function loadProgress() {
+    fetch('/api/files/progress/' + caseUuid)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const processed = data.processed_files;
+                const total = data.total_files;
+                const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+                
+                document.getElementById('progress-bar').style.width = percent + '%';
+                document.getElementById('progress-current').textContent = processed;
+                document.getElementById('progress-total').textContent = total;
+                
+                const statusEl = document.getElementById('progress-status');
+                const progressTile = document.getElementById('progress-tile');
+                
+                if (data.is_processing) {
+                    statusEl.textContent = 'Processing...';
+                    statusEl.className = 'tile-status status-active';
+                    progressTile.classList.add('processing');
+                } else if (processed === total && total > 0) {
+                    statusEl.textContent = 'Complete';
+                    statusEl.className = 'tile-status status-complete';
+                    progressTile.classList.remove('processing');
+                } else {
+                    statusEl.textContent = 'Idle';
+                    statusEl.className = 'tile-status';
+                    progressTile.classList.remove('processing');
+                }
+                
+                // Update worker list
+                const workerList = document.getElementById('worker-list');
+                if (data.workers && data.workers.length > 0) {
+                    workerList.innerHTML = data.workers.map(w => 
+                        `<div class="worker-item">
+                            <span class="worker-name">${w.worker}</span>
+                            <span class="worker-file">${w.file}</span>
+                        </div>`
+                    ).join('');
+                } else {
+                    workerList.innerHTML = '<div class="worker-empty">No active workers</div>';
+                }
+            }
+        })
+        .catch(err => console.error('Error loading progress:', err));
+}
+
+// Load file list
+function loadFiles() {
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: perPage,
+        search: searchQuery
+    });
+    
+    fetch('/api/files/list/' + caseUuid + '?' + params.toString())
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                renderFileTable(data.files);
+                updatePagination(data);
+            } else {
+                showError('Error loading files: ' + data.error);
+            }
+        })
+        .catch(err => {
+            console.error('Error loading files:', err);
+            showError('Error loading files');
+        });
+}
+
+// Render file table
+function renderFileTable(files) {
+    const tbody = document.getElementById('file-tbody');
+    
+    if (files.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="10" class="text-center text-muted" style="padding: 40px;">
+                    ${searchQuery ? 'No files match your search' : 'No files found. Upload files to get started.'}
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = files.map(f => `
+        <tr class="file-row" data-file-id="${f.id}" title="${f.error_message || ''}">
+            <td class="text-muted text-small">${f.parent_filename || '-'}</td>
+            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 50)}</td>
+            <td>${formatSize(f.file_size)}</td>
+            <td>${f.hostname}</td>
+            <td>${f.file_type}</td>
+            <td>${f.upload_source === 'web' ? '🌐 Web' : '📁 Local'}</td>
+            <td>${f.uploaded_by}</td>
+            <td>${f.uploaded_at}</td>
+            <td>${getStatusBadge(f.status)}</td>
+            <td>${getIngestionBadge(f.ingestion_status)}</td>
+        </tr>
+    `).join('');
+}
+
+// Truncate filename
+function truncateFilename(filename, maxLen) {
+    if (filename.length <= maxLen) return filename;
+    const ext = filename.includes('.') ? '.' + filename.split('.').pop() : '';
+    const name = filename.substring(0, filename.length - ext.length);
+    const truncated = name.substring(0, maxLen - ext.length - 3) + '...';
+    return truncated + ext;
+}
+
+// Update pagination controls
+function updatePagination(data) {
+    document.getElementById('current-page').textContent = data.page;
+    document.getElementById('total-pages').textContent = data.total_pages;
+    document.getElementById('total-files').textContent = data.total;
+    
+    const start = data.total > 0 ? ((data.page - 1) * data.per_page) + 1 : 0;
+    const end = Math.min(data.page * data.per_page, data.total);
+    document.getElementById('showing-start').textContent = start;
+    document.getElementById('showing-end').textContent = end;
+    
+    document.getElementById('btn-prev').disabled = data.page <= 1;
+    document.getElementById('btn-next').disabled = data.page >= data.total_pages;
+}
+
+// Show error message
+function showError(message) {
+    const tbody = document.getElementById('file-tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="10" class="text-center text-danger" style="padding: 40px;">
+                ${message}
+            </td>
+        </tr>
+    `;
+}
+
+// Pagination functions
+function prevPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        loadFiles();
+    }
+}
+
+function nextPage() {
+    currentPage++;
+    loadFiles();
+}
+
+function changePageSize() {
+    perPage = parseInt(document.getElementById('page-size').value);
+    currentPage = 1;
+    loadFiles();
+}
+
+// Debounced search
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        searchQuery = document.getElementById('file-search').value.trim();
+        currentPage = 1;
+        loadFiles();
+    }, 300);
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    // Initial loads
+    loadStats();
+    loadProgress();
+    loadFiles();
+    
+    // Set up auto-refresh intervals
+    statsInterval = setInterval(loadStats, 5000);
+    progressInterval = setInterval(loadProgress, 2000);
+});
+
+// Cleanup on page leave
+window.addEventListener('beforeunload', function() {
+    clearInterval(statsInterval);
+    clearInterval(progressInterval);
+});
+</script>
 {% endblock %}

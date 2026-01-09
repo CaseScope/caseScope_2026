@@ -56,10 +56,18 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     Returns:
         Dict with parsing results
     """
-    from parsers import process_file
+    from parsers import process_file, get_registry
     from utils.clickhouse import get_fresh_client
     
     logger.info(f"Processing file: {file_path} for case {case_id}")
+    
+    # Mark file as ingesting
+    if case_file_id:
+        _update_case_file_status(
+            case_file_id=case_file_id,
+            status='ingesting',
+            ingestion_status='not_done'
+        )
     
     # Update task state
     self.update_state(state='PROCESSING', meta={
@@ -68,6 +76,32 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     })
     
     try:
+        # Check if file exists
+        if not os.path.exists(file_path):
+            if case_file_id:
+                _update_case_file_status(
+                    case_file_id=case_file_id,
+                    status='error',
+                    ingestion_status='error',
+                    error_message='File not found on disk'
+                )
+            return {'success': False, 'error': 'File not found'}
+        
+        # Check if we have a parser for this file
+        registry = get_registry()
+        artifact_type = registry.detect_type(file_path)
+        
+        if not artifact_type:
+            # No parser available
+            if case_file_id:
+                _update_case_file_status(
+                    case_file_id=case_file_id,
+                    status='done',
+                    ingestion_status='no_parser',
+                    parser_type=None
+                )
+            return {'success': True, 'events_count': 0, 'artifact_type': None, 'message': 'No parser available'}
+        
         # Get fresh ClickHouse client for this task
         client = get_fresh_client()
         
@@ -82,25 +116,49 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
         # Update case_file status in PostgreSQL
         if case_file_id:
-            _update_case_file_status(
-                case_file_id=case_file_id,
-                status='completed' if result.success else 'error',
-                events_count=result.events_count,
-                errors=result.errors,
-            )
+            if result.success:
+                ingestion_status = 'full' if result.events_count > 0 else 'full'
+                if result.warnings:
+                    ingestion_status = 'partial'
+                _update_case_file_status(
+                    case_file_id=case_file_id,
+                    status='done',
+                    ingestion_status=ingestion_status,
+                    events_count=result.events_count,
+                    parser_type=result.artifact_type
+                )
+            else:
+                _update_case_file_status(
+                    case_file_id=case_file_id,
+                    status='error',
+                    ingestion_status='parse_error',
+                    events_count=result.events_count,
+                    parser_type=result.artifact_type,
+                    error_message='; '.join(result.errors) if result.errors else 'Unknown parse error'
+                )
         
         return result.to_dict()
         
     except SoftTimeLimitExceeded:
         logger.warning(f"Task soft time limit exceeded for {file_path}")
         if case_file_id:
-            _update_case_file_status(case_file_id, 'timeout', errors=['Task timeout'])
+            _update_case_file_status(
+                case_file_id=case_file_id,
+                status='error',
+                ingestion_status='error',
+                error_message='Task timeout'
+            )
         raise
         
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
         if case_file_id:
-            _update_case_file_status(case_file_id, 'error', errors=[str(e)])
+            _update_case_file_status(
+                case_file_id=case_file_id,
+                status='error',
+                ingestion_status='error',
+                error_message=str(e)
+            )
         raise
 
 
@@ -344,11 +402,22 @@ def get_case_stats_task(case_id: int) -> Dict[str, Any]:
 
 # Helper functions
 
-def _update_case_file_status(case_file_id: int, status: str, 
-                            events_count: int = 0, errors: List[str] = None):
+def _update_case_file_status(case_file_id: int, status: str = None, 
+                            ingestion_status: str = None,
+                            events_count: int = None,
+                            parser_type: str = None,
+                            error_message: str = None,
+                            errors: List[str] = None):
     """Update CaseFile status in PostgreSQL
     
-    Must be called within Flask app context.
+    Args:
+        case_file_id: ID of the CaseFile to update
+        status: Workflow status (new, queued, ingesting, error, done)
+        ingestion_status: Parsing result (not_done, full, partial, no_parser, parse_error, error)
+        events_count: Number of events indexed
+        parser_type: Parser type used (e.g., EVTX, HuntressNDJSON)
+        error_message: Error message if parsing failed
+        errors: Legacy list of errors (converted to error_message)
     """
     try:
         from app import create_app
@@ -359,11 +428,25 @@ def _update_case_file_status(case_file_id: int, status: str,
         with app.app_context():
             cf = CaseFile.query.get(case_file_id)
             if cf:
-                cf.status = status
-                cf.processed_at = datetime.utcnow()
-                # Store events count and errors in a JSON field if needed
+                if status is not None:
+                    cf.status = status
+                if ingestion_status is not None:
+                    cf.ingestion_status = ingestion_status
+                if events_count is not None:
+                    cf.events_indexed = events_count
+                if parser_type is not None:
+                    cf.parser_type = parser_type
+                if error_message is not None:
+                    cf.error_message = error_message
+                elif errors:
+                    cf.error_message = '; '.join(errors)
+                
+                # Set processed_at when done or error
+                if status in ('done', 'error'):
+                    cf.processed_at = datetime.utcnow()
+                
                 db.session.commit()
-                logger.debug(f"Updated CaseFile {case_file_id} status to {status}")
+                logger.debug(f"Updated CaseFile {case_file_id}: status={status}, ingestion={ingestion_status}")
     except Exception as e:
         logger.warning(f"Could not update CaseFile status: {e}")
 

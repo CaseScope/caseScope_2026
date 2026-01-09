@@ -678,6 +678,50 @@ def ingest_files():
             errors.append(f'Database error: {str(e)}')
         
         # =============================================
+        # PHASE 6: Trigger parsing for all staged files
+        # =============================================
+        yield json.dumps({'stage': 'parsing', 'message': 'Queuing files for parsing...'}) + '\n'
+        
+        try:
+            from tasks.celery_tasks import parse_file_task
+            from models.case import Case
+            
+            case = Case.get_by_uuid(case_uuid)
+            if case:
+                # Get all pending files for this case
+                pending_files = CaseFile.query.filter_by(
+                    case_uuid=case_uuid,
+                    status='new'
+                ).filter(
+                    CaseFile.is_archive == False  # Don't parse ZIP files themselves
+                ).all()
+                
+                queued_count = 0
+                for cf in pending_files:
+                    if cf.file_path and os.path.exists(cf.file_path):
+                        cf.status = 'queued'
+                        db.session.flush()
+                        
+                        parse_file_task.delay(
+                            file_path=cf.file_path,
+                            case_id=case.id,
+                            source_host=cf.hostname or '',
+                            case_file_id=cf.id,
+                        )
+                        queued_count += 1
+                
+                db.session.commit()
+                yield json.dumps({
+                    'stage': 'parsing_queued',
+                    'queued_count': queued_count
+                }) + '\n'
+        except Exception as e:
+            yield json.dumps({
+                'stage': 'parsing_error',
+                'error': str(e)
+            }) + '\n'
+        
+        # =============================================
         # COMPLETE
         # =============================================
         yield json.dumps({
@@ -698,3 +742,188 @@ def ingest_files():
             'X-Accel-Buffering': 'no'
         }
     )
+
+
+# ============================================
+# File Management API Endpoints
+# ============================================
+
+@api_bp.route('/files/stats/<case_uuid>')
+@login_required
+def get_file_stats(case_uuid):
+    """Get file statistics for a case"""
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        stats = CaseFile.get_stats(case_uuid)
+        stats['success'] = True
+        stats['case_uuid'] = case_uuid
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/list/<case_uuid>')
+@login_required
+def get_file_list(case_uuid):
+    """Get paginated file list for a case"""
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 25, type=int)
+        search = request.args.get('search', '', type=str).strip()
+        
+        # Limit per_page to reasonable values
+        per_page = min(max(per_page, 10), 200)
+        
+        # Build query
+        query = CaseFile.query.filter_by(case_uuid=case_uuid)
+        
+        # Apply search filter
+        if search:
+            search_filter = f'%{search}%'
+            query = query.filter(
+                db.or_(
+                    CaseFile.filename.ilike(search_filter),
+                    CaseFile.hostname.ilike(search_filter),
+                    CaseFile.file_type.ilike(search_filter),
+                    CaseFile.uploaded_by.ilike(search_filter),
+                    CaseFile.parser_type.ilike(search_filter)
+                )
+            )
+        
+        # Order by uploaded_at desc
+        query = query.order_by(CaseFile.uploaded_at.desc())
+        
+        # Get total count before pagination
+        total = query.count()
+        
+        # Apply pagination
+        files = query.offset((page - 1) * per_page).limit(per_page).all()
+        
+        # Build file list with parent filename lookup
+        file_list = []
+        parent_cache = {}
+        
+        for cf in files:
+            # Get parent filename if exists
+            parent_filename = None
+            if cf.parent_id:
+                if cf.parent_id not in parent_cache:
+                    parent = CaseFile.query.get(cf.parent_id)
+                    parent_cache[cf.parent_id] = parent.filename if parent else None
+                parent_filename = parent_cache[cf.parent_id]
+            
+            file_list.append({
+                'id': cf.id,
+                'parent_filename': parent_filename,
+                'filename': cf.filename,
+                'file_size': cf.file_size,
+                'hostname': cf.hostname or '-',
+                'file_type': cf.file_type or '-',
+                'upload_source': cf.upload_source,
+                'uploaded_by': cf.uploaded_by,
+                'uploaded_at': cf.uploaded_at.strftime('%Y-%m-%d %H:%M') if cf.uploaded_at else '-',
+                'status': cf.status,
+                'ingestion_status': cf.ingestion_status,
+                'parser_type': cf.parser_type or '-',
+                'events_indexed': cf.events_indexed,
+                'error_message': cf.error_message
+            })
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'files': file_list,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total + per_page - 1) // per_page
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/progress/<case_uuid>')
+@login_required
+def get_processing_progress(case_uuid):
+    """Get processing progress for a case"""
+    try:
+        from tasks.celery_tasks import celery_app
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get file counts
+        total_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
+            CaseFile.is_archive == False
+        ).count()
+        
+        processed_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
+            CaseFile.is_archive == False,
+            CaseFile.status.in_(['done', 'error'])
+        ).count()
+        
+        queued_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
+            CaseFile.is_archive == False,
+            CaseFile.status == 'queued'
+        ).count()
+        
+        ingesting_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
+            CaseFile.is_archive == False,
+            CaseFile.status == 'ingesting'
+        ).count()
+        
+        # Get active workers processing this case
+        workers = []
+        try:
+            # Get active tasks
+            inspect = celery_app.control.inspect()
+            active = inspect.active() or {}
+            
+            for worker_name, tasks in active.items():
+                for task in tasks:
+                    if task.get('name') == 'tasks.parse_file':
+                        args = task.get('args', [])
+                        kwargs = task.get('kwargs', {})
+                        
+                        # Check if this task is for our case
+                        case_file_id = kwargs.get('case_file_id') or (args[3] if len(args) > 3 else None)
+                        if case_file_id:
+                            cf = CaseFile.query.get(case_file_id)
+                            if cf and cf.case_uuid == case_uuid:
+                                workers.append({
+                                    'worker': worker_name.split('@')[-1],
+                                    'file': cf.filename,
+                                    'task_id': task.get('id')
+                                })
+        except Exception:
+            # Celery inspect may fail if no workers
+            pass
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'total_files': total_files,
+            'processed_files': processed_files,
+            'queued_files': queued_files,
+            'ingesting_files': ingesting_files,
+            'workers': workers,
+            'is_processing': queued_files > 0 or ingesting_files > 0
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
