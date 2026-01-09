@@ -460,12 +460,13 @@ celery_app.conf.beat_schedule = {
 }
 
 
-# Task routing (optional - for multiple queues)
-celery_app.conf.task_routes = {
-    'tasks.parse_file': {'queue': 'parsing'},
-    'tasks.process_case_files': {'queue': 'parsing'},
-    'tasks.process_staging_directory': {'queue': 'parsing'},
-    'tasks.delete_case_events': {'queue': 'maintenance'},
-    'tasks.update_hayabusa_rules': {'queue': 'maintenance'},
-    'tasks.get_case_stats': {'queue': 'default'},
-}
+# Task routing (disabled for now - all tasks go to default queue)
+# To enable separate queues, start workers with: celery -A tasks worker -Q parsing,maintenance,default
+# celery_app.conf.task_routes = {
+#     'tasks.parse_file': {'queue': 'parsing'},
+#     'tasks.process_case_files': {'queue': 'parsing'},
+#     'tasks.process_staging_directory': {'queue': 'parsing'},
+#     'tasks.delete_case_events': {'queue': 'maintenance'},
+#     'tasks.update_hayabusa_rules': {'queue': 'maintenance'},
+#     'tasks.get_case_stats': {'queue': 'default'},
+# }

@@ -523,7 +523,7 @@ def ingest_files():
                     is_archive=True,
                     is_extracted=False,
                     extraction_status=extraction_status,
-                    status='pending',
+                    status='new',
                     uploaded_by=uploaded_by
                 )
                 db.session.add(zip_record)
@@ -637,7 +637,7 @@ def ingest_files():
                     is_archive=pf['is_archive'],
                     is_extracted=pf['is_extracted'],
                     extraction_status=ExtractionStatus.NA,
-                    status='pending',
+                    status='new',
                     uploaded_by=uploaded_by
                 )
                 
