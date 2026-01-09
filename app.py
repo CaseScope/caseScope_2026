@@ -74,10 +74,12 @@ def create_app():
     
     # Create database tables
     with app.app_context():
+        # Import all models so they're registered before create_all
+        from models.user import User
+        from models.case import Case
         db.create_all()
         
         # Create default admin user if not exists
-        from models.user import User
         from config import PermissionLevel
         
         admin = User.query.filter_by(username=UserSettings.DEFAULT_ADMIN_USERNAME).first()

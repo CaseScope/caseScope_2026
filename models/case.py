@@ -1,0 +1,107 @@
+"""Case Model for CaseScope"""
+import uuid
+from datetime import datetime
+from models.database import db
+
+
+class CaseStatus:
+    """Case Status Options"""
+    NEW = 'new'
+    ASSIGNED = 'assigned'
+    IN_PROGRESS = 'in_progress'
+    IN_REVIEW = 'in_review'
+    FINISHED = 'finished'
+    ARCHIVED = 'archived'
+    
+    @classmethod
+    def choices(cls):
+        """Return list of status choices for forms"""
+        return [
+            (cls.NEW, 'New'),
+            (cls.ASSIGNED, 'Assigned'),
+            (cls.IN_PROGRESS, 'In Progress'),
+            (cls.IN_REVIEW, 'In Review'),
+            (cls.FINISHED, 'Finished'),
+            (cls.ARCHIVED, 'Archived')
+        ]
+    
+    @classmethod
+    def all(cls):
+        """Return all status values"""
+        return [cls.NEW, cls.ASSIGNED, cls.IN_PROGRESS, cls.IN_REVIEW, cls.FINISHED, cls.ARCHIVED]
+
+
+class Case(db.Model):
+    """Case model for forensic case management
+    
+    Uses UUID for obfuscation - no sequential IDs exposed.
+    """
+    __tablename__ = 'cases'
+    
+    # Primary key - internal integer for DB efficiency
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Public UUID for external references (obfuscation)
+    uuid = db.Column(db.String(36), unique=True, nullable=False, index=True, default=lambda: str(uuid.uuid4()))
+    
+    # Case name - mandatory
+    name = db.Column(db.String(255), nullable=False, index=True)
+    
+    # Description
+    description = db.Column(db.Text, nullable=True)
+    
+    # EDR Report
+    edr_report = db.Column(db.Text, nullable=True)
+    
+    # Status
+    status = db.Column(
+        db.String(50),
+        nullable=False,
+        default=CaseStatus.NEW,
+        index=True
+    )
+    
+    # Tracking fields
+    created_by = db.Column(db.String(80), nullable=False)  # Username of creator
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Assignment
+    assigned_to = db.Column(db.String(80), nullable=True, index=True)  # Username assigned to
+    assigned_at = db.Column(db.DateTime, nullable=True)  # When assignment was made
+    
+    def __repr__(self):
+        return f'<Case {self.uuid}: {self.name}>'
+    
+    def assign_to(self, username):
+        """Assign case to a user"""
+        self.assigned_to = username
+        self.assigned_at = datetime.utcnow()
+        if self.status == CaseStatus.NEW:
+            self.status = CaseStatus.ASSIGNED
+    
+    def to_dict(self):
+        """Convert case to dictionary for API responses"""
+        return {
+            'uuid': self.uuid,
+            'name': self.name,
+            'description': self.description,
+            'edr_report': self.edr_report,
+            'status': self.status,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'assigned_to': self.assigned_to,
+            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None
+        }
+    
+    @staticmethod
+    def get_by_uuid(case_uuid):
+        """Get case by UUID"""
+        return Case.query.filter_by(uuid=case_uuid).first()
+    
+    @staticmethod
+    def get_status_display(status):
+        """Get display name for status"""
+        status_map = dict(CaseStatus.choices())
+        return status_map.get(status, status)

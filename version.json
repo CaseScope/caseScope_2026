@@ -1,6 +1,15 @@
 {
-  "version": "3.1.0",
+  "version": "3.2.0",
   "changelog": [
+    {
+      "version": "3.2.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Added Case model with UUID for obfuscation",
+        "Case status workflow (New, Assigned, In Progress, In Review, Finished, Archived)",
+        "Case assignment tracking"
+      ]
+    },
     {
       "version": "3.1.0",
       "date": "2026-01-09",
