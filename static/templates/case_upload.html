@@ -756,13 +756,26 @@
                     item.status = 'Uploaded';
                     renderQueue();
                 }
-                closeProgressModal();
+                // Don't close modal - will continue with next stage
             }
             
             // ========================================
             // PREFLIGHT: Check for duplicates
             // ========================================
             ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking duplicates...';
+            
+            // Show modal if not already visible (folder-only uploads)
+            if (!hasWebFiles) {
+                showProgressModal();
+            }
+            
+            // Show a brief "checking" message
+            hideAllStages();
+            document.getElementById('stageUpload').style.display = 'block';
+            document.getElementById('uploadFileProgress').textContent = 'Checking for duplicates...';
+            document.getElementById('uploadFilename').textContent = '';
+            document.getElementById('uploadProgressPercent').textContent = '';
+            document.querySelector('#stageUpload .progress-bar').style.width = '100%';
             
             const allFiles = uploadQueue.map(item => ({
                 name: item.name,
@@ -792,6 +805,7 @@
             
             // If duplicates found, show modal and wait for user
             if (preflightResult.has_duplicates) {
+                closeProgressModal();  // Hide progress modal while user decides
                 ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
                 showDuplicateModal(preflightResult.duplicates);
                 return; // Will continue via proceedWithIngestion()

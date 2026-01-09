@@ -125,3 +125,26 @@ class CaseFile(db.Model):
             case_uuid=case_uuid,
             is_extracted=False
         ).order_by(CaseFile.uploaded_at.desc()).all()
+    
+    @staticmethod
+    def find_by_hash(sha256_hash, case_uuid=None):
+        """Find existing file by hash, optionally within a specific case"""
+        query = CaseFile.query.filter_by(sha256_hash=sha256_hash)
+        if case_uuid:
+            query = query.filter_by(case_uuid=case_uuid)
+        return query.first()
+    
+    @staticmethod
+    def find_duplicates_by_hashes(hash_list, case_uuid=None):
+        """Find all existing files matching a list of hashes
+        
+        Returns dict mapping hash -> CaseFile record
+        """
+        query = CaseFile.query.filter(CaseFile.sha256_hash.in_(hash_list))
+        if case_uuid:
+            query = query.filter_by(case_uuid=case_uuid)
+        
+        results = {}
+        for cf in query.all():
+            results[cf.sha256_hash] = cf
+        return results
