@@ -366,10 +366,18 @@ class FirewallLogParser(BaseParser):
 class HuntressParser(BaseParser):
     """Parser for Huntress EDR NDJSON exports
     
-    Handles JSON/NDJSON formatted Huntress detection and telemetry data
+    Handles ECS (Elastic Common Schema) formatted JSON/NDJSON from Huntress.
+    Supports process telemetry, detections, and other event types.
+    
+    Field mapping follows Huntress ECS schema:
+    - host.hostname -> source_host
+    - process.* -> process fields
+    - process.user.* -> user fields
+    - event.* -> event metadata
+    - account/organization -> extra_fields
     """
     
-    VERSION = '1.0.0'
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'huntress'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
@@ -378,6 +386,18 @@ class HuntressParser(BaseParser):
     @property
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
+    
+    def _get_nested(self, data: Dict, *keys, default=None):
+        """Safely retrieve nested dictionary value"""
+        current = data
+        for key in keys:
+            if isinstance(current, dict):
+                current = current.get(key)
+            else:
+                return default
+            if current is None:
+                return default
+        return current
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is a Huntress NDJSON export"""
@@ -393,7 +413,7 @@ class HuntressParser(BaseParser):
         if not filename.endswith(('.json', '.ndjson', '.jsonl')):
             return False
         
-        # Check content for Huntress markers
+        # Check content for Huntress/ECS markers
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 for i, line in enumerate(f):
@@ -404,7 +424,14 @@ class HuntressParser(BaseParser):
                         continue
                     try:
                         obj = json.loads(line)
-                        # Look for Huntress-specific fields
+                        # Look for Huntress-specific ECS fields
+                        if 'agent' in obj and 'host' in obj and 'process' in obj:
+                            # ECS format with agent/host/process
+                            return True
+                        if 'organization' in obj or 'account' in obj:
+                            # Huntress org structure
+                            return True
+                        # Legacy flat field check
                         if any(k in obj for k in ['huntress_', 'agent_id', 'organization_id', 'incident_report']):
                             return True
                     except json.JSONDecodeError:
@@ -415,13 +442,13 @@ class HuntressParser(BaseParser):
         return False
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse Huntress NDJSON file"""
+        """Parse Huntress NDJSON file with ECS field mapping"""
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
         
         source_file = os.path.basename(file_path)
-        hostname = self.extract_hostname(file_path)
+        default_hostname = self.extract_hostname(file_path)
         
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -432,75 +459,9 @@ class HuntressParser(BaseParser):
                     
                     try:
                         event = json.loads(line)
-                        
-                        # Get timestamp
-                        timestamp = None
-                        for ts_field in ['timestamp', 'created_at', 'detected_at', 'event_time', '@timestamp']:
-                            if ts_field in event:
-                                timestamp = self.parse_timestamp(event[ts_field])
-                                if timestamp:
-                                    break
-                        
-                        if not timestamp:
-                            timestamp = datetime.now()
-                        
-                        # Extract host
-                        host = (
-                            event.get('hostname') or 
-                            event.get('computer_name') or 
-                            event.get('agent_hostname') or
-                            hostname
-                        )
-                        
-                        # Extract normalized fields
-                        username = event.get('username') or event.get('user') or event.get('account_name')
-                        process_name = event.get('process_name') or event.get('image') or event.get('exe')
-                        command_line = event.get('command_line') or event.get('cmdline')
-                        
-                        # Detection info
-                        rule_title = event.get('detection_name') or event.get('rule_name') or event.get('alert_name')
-                        rule_level = event.get('severity') or event.get('risk_level')
-                        
-                        # MITRE mapping
-                        mitre_tactics = []
-                        mitre_tags = []
-                        
-                        if 'mitre' in event:
-                            mitre = event['mitre']
-                            if isinstance(mitre, dict):
-                                mitre_tactics = mitre.get('tactics', [])
-                                mitre_tags = mitre.get('techniques', [])
-                        
-                        if 'tactics' in event:
-                            mitre_tactics = event['tactics'] if isinstance(event['tactics'], list) else [event['tactics']]
-                        if 'techniques' in event:
-                            mitre_tags = event['techniques'] if isinstance(event['techniques'], list) else [event['techniques']]
-                        
-                        yield ParsedEvent(
-                            case_id=self.case_id,
-                            artifact_type=self.artifact_type,
-                            timestamp=timestamp,
-                            source_file=source_file,
-                            source_path=file_path,
-                            source_host=host,
-                            case_file_id=self.case_file_id,
-                            username=self.safe_str(username),
-                            process_name=self.safe_str(process_name),
-                            command_line=self.safe_str(command_line),
-                            process_id=self.safe_int(event.get('pid') or event.get('process_id')),
-                            parent_process=self.safe_str(event.get('parent_process') or event.get('parent_image')),
-                            parent_pid=self.safe_int(event.get('ppid') or event.get('parent_pid')),
-                            target_path=self.safe_str(event.get('target_path') or event.get('file_path')),
-                            src_ip=self.validate_ip(event.get('src_ip') or event.get('source_ip')),
-                            dst_ip=self.validate_ip(event.get('dst_ip') or event.get('dest_ip')),
-                            rule_title=rule_title,
-                            rule_level=rule_level,
-                            mitre_tactics=mitre_tactics,
-                            mitre_tags=mitre_tags,
-                            raw_json=line,
-                            search_blob=self.build_search_blob(event),
-                            parser_version=self.parser_version,
-                        )
+                        parsed = self._parse_ecs_event(event, source_file, file_path, default_hostname, line)
+                        if parsed:
+                            yield parsed
                         
                     except json.JSONDecodeError as e:
                         self.warnings.append(f"JSON parse error on line {line_num}: {e}")
@@ -510,6 +471,307 @@ class HuntressParser(BaseParser):
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"Huntress parse error: {e}")
+    
+    def _parse_ecs_event(self, event: Dict, source_file: str, file_path: str, 
+                         default_hostname: str, raw_line: str) -> Optional[ParsedEvent]:
+        """Parse a single Huntress ECS-formatted event"""
+        
+        # === TIMESTAMP ===
+        timestamp = None
+        # ECS @timestamp first
+        if '@timestamp' in event:
+            timestamp = self.parse_timestamp(event['@timestamp'])
+        # Fallback to other common fields
+        if not timestamp:
+            for ts_field in ['event_recorded_at', 'timestamp', 'created_at', 'detected_at', 'event_time']:
+                if ts_field in event:
+                    val = event[ts_field]
+                    # Handle epoch milliseconds
+                    if isinstance(val, (int, float)) and val > 1000000000000:
+                        try:
+                            timestamp = datetime.utcfromtimestamp(val / 1000)
+                            break
+                        except:
+                            pass
+                    else:
+                        timestamp = self.parse_timestamp(val)
+                        if timestamp:
+                            break
+        if not timestamp:
+            timestamp = datetime.now()
+        
+        # === HOST ===
+        host = self._get_nested(event, 'host', 'hostname') or \
+               self._get_nested(event, 'host', 'name') or \
+               event.get('hostname') or \
+               event.get('computer_name') or \
+               default_hostname
+        
+        host_ip = self._get_nested(event, 'host', 'ip')
+        host_domain = self._get_nested(event, 'host', 'domain', default='')
+        host_os_full = self._get_nested(event, 'host', 'os', 'full', default='')
+        host_os_version = self._get_nested(event, 'host', 'os', 'version', default='')
+        host_arch = self._get_nested(event, 'host', 'architecture', default='')
+        host_mac = self._get_nested(event, 'host', 'mac', default=[])
+        
+        # === PROCESS ===
+        proc = event.get('process', {})
+        process_name = proc.get('name', '')
+        process_path = proc.get('executable', '')
+        process_id = self.safe_int(proc.get('pid'))
+        command_line = proc.get('command_line', '')
+        working_dir = proc.get('working_directory', '')
+        entity_id = proc.get('entity_id', '')
+        
+        # Process hashes
+        proc_hash = proc.get('hash', {})
+        file_hash_md5 = proc_hash.get('md5', '')
+        file_hash_sha1 = proc_hash.get('sha1', '')
+        file_hash_sha256 = proc_hash.get('sha256', '')
+        
+        # Process PE info
+        pe = proc.get('pe', {})
+        pe_size = self.safe_int(pe.get('size'))
+        pe_original_name = pe.get('original_file_name', '')
+        pe_imphash = pe.get('imphash', '')
+        pe_compile_time = pe.get('compile_time', '')
+        
+        # Code signature
+        code_sig = proc.get('code_signature', {})
+        sig_exists = code_sig.get('exists', False)
+        sig_valid = code_sig.get('valid', False)
+        sig_subject = code_sig.get('subject_name', '')
+        sig_issuer = code_sig.get('issuer_name', '')
+        
+        # Process elevation/privileges
+        elevated = proc.get('elevated', False)
+        elevation_type = proc.get('elevation_type')
+        mandatory_label = proc.get('mandatory_label', '')
+        logon_id = proc.get('logon_id')
+        
+        # === PARENT PROCESS ===
+        parent = proc.get('parent') or {}
+        parent_name = parent.get('name', '') or parent.get('executable', '')
+        parent_pid = self.safe_int(parent.get('pid'))
+        parent_cmdline = parent.get('command_line', '')
+        parent_entity_id = parent.get('entity_id', '')
+        
+        # Parent hashes
+        parent_hash = parent.get('hash') or {}
+        parent_md5 = parent_hash.get('md5', '')
+        parent_sha256 = parent_hash.get('sha256', '')
+        
+        # Parent code signature
+        parent_sig = parent.get('code_signature') or {}
+        parent_sig_valid = parent_sig.get('valid', False)
+        parent_sig_subject = parent_sig.get('subject_name', '')
+        
+        # === GRANDPARENT PROCESS ===
+        grandparent = parent.get('parent') or {}
+        grandparent_name = grandparent.get('name', '')
+        grandparent_cmdline = grandparent.get('command_line', '')
+        
+        # === USER ===
+        user = proc.get('user', {})
+        username = user.get('name', '')
+        domain = user.get('domain', '')
+        sid = user.get('id', '')
+        user_type = user.get('type', '')
+        
+        # === EVENT METADATA ===
+        evt = event.get('event', {})
+        event_kind = evt.get('kind', '')
+        event_category = evt.get('category', '')
+        event_type = evt.get('type', [])
+        if isinstance(event_type, list):
+            event_type = ','.join(event_type)
+        
+        # === ACCOUNT/ORGANIZATION ===
+        account = event.get('account', {})
+        account_id = account.get('id')
+        account_name = account.get('name', '')
+        
+        org = event.get('organization', {})
+        org_id = org.get('id')
+        org_name = org.get('name', '')
+        
+        # === AGENT ===
+        agent = event.get('agent', {})
+        agent_id = agent.get('id')
+        agent_version = agent.get('version', '')
+        agent_url = agent.get('url', '')
+        
+        # === DETECTION INFO ===
+        # Check for detection/alert fields
+        labels = event.get('labels', {}) or {}
+        rule_title = labels.get('detection_name') or labels.get('rule_name') or ''
+        rule_level = labels.get('severity') or labels.get('risk_level') or ''
+        
+        # MITRE from labels or direct
+        mitre_tactics = []
+        mitre_tags = []
+        if 'mitre' in event:
+            mitre = event['mitre']
+            if isinstance(mitre, dict):
+                mitre_tactics = mitre.get('tactics', [])
+                mitre_tags = mitre.get('techniques', [])
+        
+        # === NETWORK (if present) ===
+        src_ip = self.validate_ip(event.get('source', {}).get('ip') or event.get('src_ip'))
+        dst_ip = self.validate_ip(event.get('destination', {}).get('ip') or event.get('dst_ip'))
+        src_port = self.safe_int(event.get('source', {}).get('port'))
+        dst_port = self.safe_int(event.get('destination', {}).get('port'))
+        
+        # === BUILD SEARCH BLOB ===
+        search_parts = [
+            # Process info
+            process_name, process_path, command_line, working_dir,
+            str(process_id) if process_id else '',
+            # Hashes
+            file_hash_md5, file_hash_sha1, file_hash_sha256,
+            # Signature
+            sig_subject, sig_issuer,
+            # Parent
+            parent_name, parent_cmdline, parent_md5, parent_sha256, parent_sig_subject,
+            # Grandparent
+            grandparent_name, grandparent_cmdline,
+            # User
+            username, domain, sid,
+            # Host
+            host, host_domain, host_ip or '', host_os_full,
+            # Organization
+            account_name, org_name,
+            # Event
+            event_kind, event_category, event_type,
+            # PE
+            pe_original_name, pe_imphash,
+            # Entity IDs (for correlation)
+            entity_id, parent_entity_id,
+        ]
+        search_blob = ' '.join(str(p) for p in search_parts if p)
+        
+        # === EXTRA FIELDS (comprehensive) ===
+        extra = {
+            # Event metadata
+            'event_kind': event_kind,
+            'event_category': event_category,
+            'event_type': event_type,
+            'ecs_version': self._get_nested(event, 'ecs', 'version', default=''),
+            # Host extended
+            'host_domain': host_domain,
+            'host_ip': host_ip,
+            'host_os': host_os_full,
+            'host_os_version': host_os_version,
+            'host_arch': host_arch,
+            'host_mac': host_mac if isinstance(host_mac, list) else [host_mac] if host_mac else [],
+            # Process extended
+            'entity_id': entity_id,
+            'working_directory': working_dir,
+            'args': proc.get('args', []),
+            'args_count': proc.get('args_count'),
+            'command_length': proc.get('command_length'),
+            'elevated': elevated,
+            'elevation_type': elevation_type,
+            'mandatory_label': mandatory_label,
+            'logon_id': logon_id,
+            'total_parents': proc.get('total_parents'),
+            'exit_code': proc.get('exit_code'),
+            'pid_spoofed': proc.get('pid_spoofed', False),
+            # PE info
+            'pe_original_name': pe_original_name,
+            'pe_imphash': pe_imphash,
+            'pe_exphash': pe.get('exphash', ''),
+            'pe_compile_time': pe_compile_time,
+            'pe_size': pe_size,
+            'pe_arch': pe.get('arch', ''),
+            'pe_temp_dir': pe.get('temp_dir', False),
+            # Code signature
+            'sig_exists': sig_exists,
+            'sig_valid': sig_valid,
+            'sig_subject': sig_subject,
+            'sig_issuer': sig_issuer,
+            'sig_serial': code_sig.get('serial', ''),
+            # Parent extended
+            'parent_entity_id': parent_entity_id,
+            'parent_cmdline': parent_cmdline,
+            'parent_md5': parent_md5,
+            'parent_sha256': parent_sha256,
+            'parent_sig_valid': parent_sig_valid,
+            'parent_sig_subject': parent_sig_subject,
+            # Grandparent
+            'grandparent_name': grandparent_name,
+            'grandparent_cmdline': grandparent_cmdline,
+            # User extended
+            'user_type': user_type,
+            'user_roles': user.get('roles', ''),
+            # Account/Org
+            'account_id': account_id,
+            'account_name': account_name,
+            'account_subdomain': account.get('subdomain', ''),
+            'org_id': org_id,
+            'org_name': org_name,
+            # Agent
+            'agent_id': agent_id,
+            'agent_version': agent_version,
+            'agent_url': agent_url,
+            # Timing
+            'host_started_at': proc.get('host_started_at'),
+            'host_terminated_at': proc.get('host_terminated_at'),
+            'event_recorded_at': event.get('event_recorded_at'),
+            # Reputation
+            'rep_count': proc.get('rep_count'),
+            'run_count': proc.get('run_count'),
+            'cmd_hash': proc.get('cmd_hash', ''),
+        }
+        # Remove None/empty values to save space
+        extra = {k: v for k, v in extra.items() if v is not None and v != '' and v != []}
+        
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=host,
+            case_file_id=self.case_file_id,
+            # Event metadata
+            event_id=entity_id,
+            channel=event_category,
+            provider='huntress',
+            level=event_kind,
+            # User
+            username=self.safe_str(username),
+            domain=self.safe_str(domain),
+            sid=self.safe_str(sid),
+            logon_type=elevation_type,
+            # Process
+            process_name=self.safe_str(process_name),
+            process_path=self.safe_str(process_path),
+            process_id=process_id,
+            parent_process=self.safe_str(parent_name),
+            parent_pid=parent_pid,
+            command_line=self.safe_str(command_line),
+            # File/PE hashes
+            file_hash_md5=self.safe_str(file_hash_md5),
+            file_hash_sha1=self.safe_str(file_hash_sha1),
+            file_hash_sha256=self.safe_str(file_hash_sha256),
+            file_size=pe_size,
+            # Network
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            # Detection
+            rule_title=rule_title,
+            rule_level=rule_level,
+            mitre_tactics=mitre_tactics,
+            mitre_tags=mitre_tags,
+            # Full data
+            raw_json=raw_line,
+            search_blob=search_blob,
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
 
 
 class GenericJSONParser(BaseParser):

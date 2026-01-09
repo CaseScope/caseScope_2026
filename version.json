@@ -1,6 +1,18 @@
 {
-  "version": "3.12.0",
+  "version": "3.13.0",
   "changelog": [
+    {
+      "version": "3.13.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Enhanced HuntressParser v2.0 with full ECS field mapping",
+        "Captures all process fields: pid, name, path, hashes (MD5/SHA1/SHA256), signatures, PE metadata",
+        "Captures user fields: name, domain, SID, logon_id, elevation_type",
+        "Captures host, account, organization, and agent metadata",
+        "Parent and grandparent process chain with full details",
+        "Comprehensive search_blob and extra_fields for hunting"
+      ]
+    },
     {
       "version": "3.12.0",
       "date": "2026-01-09",
