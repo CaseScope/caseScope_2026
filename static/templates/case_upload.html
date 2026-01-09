@@ -1,0 +1,546 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📤</span>
+            Upload Files
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+</div>
+
+<!-- Upload Methods -->
+<div class="grid grid-2">
+    <!-- Web Upload Card -->
+    <div class="card upload-card">
+        <div class="card-header">
+            <span class="card-icon">🌐</span>
+            <h3 class="card-title">Web Upload</h3>
+        </div>
+        <div class="card-body">
+            <p class="upload-description">Upload files directly from your browser. Supports large files with chunked uploads and auto-resume.</p>
+            <div class="upload-dropzone" id="dropzone">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">📁</span>
+                    <p class="dropzone-text">Drag & drop files here</p>
+                    <p class="dropzone-subtext">or click to browse</p>
+                </div>
+                <input type="file" id="fileInput" multiple style="display: none;">
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder Upload Card -->
+    <div class="card upload-card">
+        <div class="card-header">
+            <span class="card-icon">📂</span>
+            <h3 class="card-title">Local Folder Upload</h3>
+        </div>
+        <div class="card-body">
+            <p class="upload-description">Upload files via SFTP or direct copy to the server folder below:</p>
+            <div class="folder-path-box">
+                <code class="folder-path" id="sftpPath">/opt/casescope/uploads/sftp/{{ case.uuid }}</code>
+                <button class="btn btn-sm btn-secondary" onclick="copyPath()" title="Copy path">
+                    <span id="copyIcon">📋</span>
+                </button>
+            </div>
+            <button class="btn btn-primary scan-btn" id="scanBtn" onclick="scanFolder()">
+                <span class="btn-icon">🔍</span>
+                Scan for Files
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Queue -->
+<div class="card mt-4">
+    <div class="card-header">
+        <span class="card-icon">📋</span>
+        <h3 class="card-title">Upload Queue</h3>
+        <span class="queue-count" id="queueCount">0 files</span>
+    </div>
+    <div class="table-container upload-queue-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Size</th>
+                    <th>Type</th>
+                    <th>Host</th>
+                    <th class="text-center">Remove</th>
+                    <th class="text-center">Status</th>
+                </tr>
+            </thead>
+            <tbody id="queueBody">
+                <tr class="queue-empty-row" id="emptyRow">
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                        No files in queue. Add files using Web Upload or scan a folder.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="queue-actions" id="queueActions" style="display: none;">
+        <button class="btn btn-secondary" onclick="clearQueue()">
+            <span class="btn-icon">🗑️</span>
+            Clear Queue
+        </button>
+        <button class="btn btn-success" id="ingestBtn" onclick="startIngestion()">
+            <span class="btn-icon">⚡</span>
+            Ingest Files
+        </button>
+    </div>
+</div>
+
+<!-- Upload Progress Modal (hidden by default) -->
+<div class="modal-overlay" id="uploadModal" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 class="modal-title">Uploading Files</h3>
+        </div>
+        <div class="modal-body">
+            <div class="upload-progress-info">
+                <p>Uploading <span id="uploadFilename">-</span></p>
+                <p class="text-muted text-small" id="uploadProgress">0%</p>
+            </div>
+            <div class="progress">
+                <div class="progress-bar" id="uploadProgressBar" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Constants
+    const CASE_UUID = '{{ case.uuid }}';
+    const FILE_TYPES = ['CyLR', 'Huntress NDJSON', 'IIS Log', 'Sonicwall CSV', 'Other'];
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+    
+    // Queue state
+    let uploadQueue = [];
+    let isIngesting = false;
+    let queueIdCounter = 0;
+
+    // File type detection patterns
+    const TYPE_PATTERNS = {
+        'CyLR': /cylr|triage/i,
+        'Huntress NDJSON': /huntress.*\.ndjson$|\.ndjson$/i,
+        'IIS Log': /iis.*\.log$|u_ex\d+\.log$/i,
+        'Sonicwall CSV': /sonicwall.*\.csv$|firewall.*\.csv$/i
+    };
+
+    // Host detection patterns
+    const HOST_PATTERNS = [
+        /^([A-Za-z0-9_-]+)[-_](?:cylr|triage|huntress|backup)/i,
+        /^([A-Za-z0-9_-]+)[-_]\d{4}[-_]\d{2}/i,
+        /^([A-Za-z0-9_-]+)_/i,
+        /^([A-Za-z0-9-]+)\./i
+    ];
+
+    // Detect file type from filename
+    function detectFileType(filename) {
+        for (const [type, pattern] of Object.entries(TYPE_PATTERNS)) {
+            if (pattern.test(filename)) {
+                return type;
+            }
+        }
+        return 'Other';
+    }
+
+    // Detect host from filename
+    function detectHost(filename) {
+        for (const pattern of HOST_PATTERNS) {
+            const match = filename.match(pattern);
+            if (match && match[1]) {
+                return match[1].toUpperCase();
+            }
+        }
+        return '';
+    }
+
+    // Format file size
+    function formatSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // Generate type dropdown HTML
+    function createTypeDropdown(id, selectedType) {
+        let html = `<select class="form-input queue-select" id="type-${id}" onchange="updateQueueItem(${id}, 'type', this.value)">`;
+        for (const type of FILE_TYPES) {
+            const selected = type === selectedType ? 'selected' : '';
+            html += `<option value="${type}" ${selected}>${type}</option>`;
+        }
+        html += '</select>';
+        return html;
+    }
+
+    // Add file to queue
+    function addToQueue(file, source = 'web') {
+        const id = queueIdCounter++;
+        const detectedType = detectFileType(file.name);
+        const detectedHost = detectHost(file.name);
+        
+        const queueItem = {
+            id: id,
+            file: file,
+            name: file.name,
+            size: file.size,
+            type: detectedType,
+            host: detectedHost,
+            source: source,
+            status: 'Queued'
+        };
+        
+        uploadQueue.push(queueItem);
+        renderQueue();
+    }
+
+    // Add file info from folder scan
+    function addFolderFileToQueue(fileInfo) {
+        const id = queueIdCounter++;
+        const detectedType = detectFileType(fileInfo.name);
+        const detectedHost = detectHost(fileInfo.name);
+        
+        const queueItem = {
+            id: id,
+            file: null, // File exists on server already
+            name: fileInfo.name,
+            size: fileInfo.size,
+            type: detectedType,
+            host: detectedHost,
+            source: 'folder',
+            path: fileInfo.path,
+            status: 'Uploaded' // Already on server
+        };
+        
+        uploadQueue.push(queueItem);
+        renderQueue();
+    }
+
+    // Remove from queue
+    function removeFromQueue(id) {
+        if (isIngesting) return;
+        uploadQueue = uploadQueue.filter(item => item.id !== id);
+        renderQueue();
+    }
+
+    // Update queue item
+    function updateQueueItem(id, field, value) {
+        const item = uploadQueue.find(i => i.id === id);
+        if (item) {
+            item[field] = value;
+        }
+    }
+
+    // Render queue table
+    function renderQueue() {
+        const tbody = document.getElementById('queueBody');
+        const emptyRow = document.getElementById('emptyRow');
+        const queueActions = document.getElementById('queueActions');
+        const queueCount = document.getElementById('queueCount');
+        
+        // Update count
+        queueCount.textContent = `${uploadQueue.length} file${uploadQueue.length !== 1 ? 's' : ''}`;
+        
+        if (uploadQueue.length === 0) {
+            tbody.innerHTML = `
+                <tr class="queue-empty-row" id="emptyRow">
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                        No files in queue. Add files using Web Upload or scan a folder.
+                    </td>
+                </tr>
+            `;
+            queueActions.style.display = 'none';
+            return;
+        }
+        
+        queueActions.style.display = 'flex';
+        
+        let html = '';
+        for (const item of uploadQueue) {
+            const statusClass = getStatusClass(item.status);
+            const removeDisabled = isIngesting ? 'disabled' : '';
+            
+            html += `
+                <tr class="queue-row" data-id="${item.id}">
+                    <td class="queue-filename">
+                        <span class="filename-text">${escapeHtml(item.name)}</span>
+                        <span class="filename-source badge badge-muted">${item.source}</span>
+                    </td>
+                    <td class="queue-size">${formatSize(item.size)}</td>
+                    <td class="queue-type">
+                        ${createTypeDropdown(item.id, item.type)}
+                    </td>
+                    <td class="queue-host">
+                        <input type="text" class="form-input queue-input" 
+                               id="host-${item.id}" 
+                               value="${escapeHtml(item.host)}" 
+                               placeholder="Enter hostname"
+                               onchange="updateQueueItem(${item.id}, 'host', this.value)">
+                    </td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-danger" 
+                                onclick="removeFromQueue(${item.id})" 
+                                ${removeDisabled}
+                                title="Remove from queue">✕</button>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge ${statusClass}">${item.status}</span>
+                    </td>
+                </tr>
+            `;
+        }
+        
+        tbody.innerHTML = html;
+    }
+
+    // Get status badge class
+    function getStatusClass(status) {
+        switch (status) {
+            case 'Queued': return 'badge-info';
+            case 'Uploading': return 'badge-warning';
+            case 'Uploaded': return 'badge-success';
+            default: return 'badge-muted';
+        }
+    }
+
+    // Escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Copy SFTP path
+    function copyPath() {
+        const path = document.getElementById('sftpPath').textContent;
+        navigator.clipboard.writeText(path).then(() => {
+            const icon = document.getElementById('copyIcon');
+            icon.textContent = '✓';
+            setTimeout(() => { icon.textContent = '📋'; }, 2000);
+        });
+    }
+
+    // Scan folder for files
+    async function scanFolder() {
+        const btn = document.getElementById('scanBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
+        
+        try {
+            const response = await fetch(`/api/upload/scan/${CASE_UUID}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.files.length === 0) {
+                    alert('No files found in the upload folder.');
+                } else {
+                    for (const fileInfo of data.files) {
+                        // Check if file already in queue
+                        const exists = uploadQueue.some(item => 
+                            item.source === 'folder' && item.path === fileInfo.path
+                        );
+                        if (!exists) {
+                            addFolderFileToQueue(fileInfo);
+                        }
+                    }
+                }
+            } else {
+                alert('Error scanning folder: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Scan error:', err);
+            alert('Error scanning folder. Please try again.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔍</span> Scan for Files';
+        }
+    }
+
+    // Clear queue
+    function clearQueue() {
+        if (isIngesting) return;
+        if (confirm('Clear all files from the queue?')) {
+            uploadQueue = [];
+            renderQueue();
+        }
+    }
+
+    // Upload a single chunk
+    async function uploadChunk(file, chunkIndex, totalChunks, uploadId) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('chunkIndex', chunkIndex);
+        formData.append('totalChunks', totalChunks);
+        formData.append('uploadId', uploadId);
+        formData.append('filename', file.name);
+        formData.append('caseUuid', CASE_UUID);
+        
+        const response = await fetch('/api/upload/chunk', {
+            method: 'POST',
+            body: formData
+        });
+        
+        return response.json();
+    }
+
+    // Upload file with chunking
+    async function uploadFile(queueItem) {
+        if (queueItem.source === 'folder') {
+            // File already on server
+            return true;
+        }
+        
+        const file = queueItem.file;
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Update UI
+        queueItem.status = 'Uploading';
+        renderQueue();
+        showUploadModal(file.name);
+        
+        try {
+            for (let i = 0; i < totalChunks; i++) {
+                const result = await uploadChunk(file, i, totalChunks, uploadId);
+                if (!result.success) {
+                    throw new Error(result.error || 'Upload failed');
+                }
+                
+                const progress = Math.round(((i + 1) / totalChunks) * 100);
+                updateUploadProgress(progress);
+            }
+            
+            queueItem.status = 'Uploaded';
+            renderQueue();
+            return true;
+        } catch (err) {
+            console.error('Upload error:', err);
+            queueItem.status = 'Error';
+            renderQueue();
+            return false;
+        }
+    }
+
+    // Show upload progress modal
+    function showUploadModal(filename) {
+        document.getElementById('uploadFilename').textContent = filename;
+        document.getElementById('uploadProgress').textContent = '0%';
+        document.getElementById('uploadProgressBar').style.width = '0%';
+        document.getElementById('uploadModal').style.display = 'flex';
+    }
+
+    // Update upload progress
+    function updateUploadProgress(percent) {
+        document.getElementById('uploadProgress').textContent = percent + '%';
+        document.getElementById('uploadProgressBar').style.width = percent + '%';
+    }
+
+    // Hide upload modal
+    function hideUploadModal() {
+        document.getElementById('uploadModal').style.display = 'none';
+    }
+
+    // Start ingestion process
+    async function startIngestion() {
+        if (isIngesting || uploadQueue.length === 0) return;
+        
+        isIngesting = true;
+        const ingestBtn = document.getElementById('ingestBtn');
+        ingestBtn.disabled = true;
+        ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Ingesting...';
+        
+        // Upload web files first
+        for (const item of uploadQueue) {
+            if (item.source === 'web' && item.status === 'Queued') {
+                await uploadFile(item);
+            }
+        }
+        
+        hideUploadModal();
+        
+        // Prepare ingestion data
+        const files = uploadQueue.map(item => ({
+            name: item.name,
+            type: item.type,
+            host: item.host,
+            source: item.source,
+            path: item.path || null
+        }));
+        
+        try {
+            const response = await fetch('/api/upload/ingest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    caseUuid: CASE_UUID,
+                    files: files
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                alert(`Successfully queued ${result.count} file(s) for ingestion.`);
+                uploadQueue = [];
+                renderQueue();
+            } else {
+                alert('Ingestion error: ' + (result.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Ingestion error:', err);
+            alert('Error starting ingestion. Please try again.');
+        } finally {
+            isIngesting = false;
+            ingestBtn.disabled = false;
+            ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
+        }
+    }
+
+    // Dropzone setup
+    document.addEventListener('DOMContentLoaded', function() {
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        
+        // Click to browse
+        dropzone.addEventListener('click', () => fileInput.click());
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => addToQueue(file, 'web'));
+            fileInput.value = ''; // Reset input
+        });
+        
+        // Drag and drop
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+        
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+        
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files);
+            files.forEach(file => addToQueue(file, 'web'));
+        });
+    });
+</script>
+{% endblock %}

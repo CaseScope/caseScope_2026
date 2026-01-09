@@ -1,6 +1,18 @@
 {
-  "version": "3.5.0",
+  "version": "3.6.0",
   "changelog": [
+    {
+      "version": "3.6.0",
+      "date": "2026-01-09",
+      "changes": [
+        "File Upload page under Cases menu",
+        "Web upload with chunked uploads for large files and auto-resume",
+        "Local folder upload via SFTP path with folder scan",
+        "Upload queue with file type detection (CyLR, Huntress NDJSON, IIS Log, Sonicwall CSV)",
+        "Host detection from filename patterns",
+        "Drag & drop file upload support"
+      ]
+    },
     {
       "version": "3.5.0",
       "date": "2026-01-09",

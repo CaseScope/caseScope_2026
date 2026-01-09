@@ -149,6 +149,15 @@ def case_dashboard():
     return render_template('case_dashboard.html', page_title='Case Dashboard', case=case)
 
 
+@main_bp.route('/case/upload')
+@login_required
+@case_required
+def case_upload():
+    """Upload Files - upload files for the active case"""
+    case = get_active_case()
+    return render_template('case_upload.html', page_title='Upload Files', case=case)
+
+
 @main_bp.route('/case/files')
 @login_required
 @case_required

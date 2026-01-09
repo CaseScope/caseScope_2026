@@ -1399,3 +1399,161 @@ tbody td {
 .clickable-cell:hover .user-name-link {
   color: var(--accent-info);
 }
+
+/* ========================================
+   File Upload Styles
+   ======================================== */
+.upload-card .card-body {
+  padding: 20px;
+}
+
+.upload-description {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.upload-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--border-radius-lg);
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background-color: var(--bg-tertiary);
+}
+
+.upload-dropzone:hover,
+.upload-dropzone.dragover {
+  border-color: var(--accent-primary);
+  background-color: rgba(76, 154, 255, 0.1);
+}
+
+.dropzone-content {
+  pointer-events: none;
+}
+
+.dropzone-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.dropzone-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.dropzone-subtext {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.folder-path-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.folder-path {
+  flex: 1;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  color: var(--accent-primary);
+  word-break: break-all;
+}
+
+.scan-btn {
+  width: 100%;
+}
+
+.btn-icon {
+  margin-right: 6px;
+}
+
+/* Queue Table Styles */
+.upload-queue-table {
+  border: none;
+  box-shadow: none;
+}
+
+.queue-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+  background-color: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.queue-row {
+  transition: background-color var(--transition-fast);
+}
+
+.queue-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.queue-filename {
+  max-width: 300px;
+}
+
+.filename-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.filename-source {
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.queue-size {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.queue-select,
+.queue-input {
+  padding: 6px 10px;
+  font-size: 12px;
+  width: 100%;
+  min-width: 120px;
+}
+
+.queue-select {
+  cursor: pointer;
+}
+
+.queue-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+/* Upload Progress */
+.upload-progress-info {
+  margin-bottom: 16px;
+}
+
+.upload-progress-info p {
+  margin: 0;
+}
+
+.upload-progress-info .text-small {
+  margin-top: 4px;
+}

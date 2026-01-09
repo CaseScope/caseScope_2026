@@ -34,6 +34,10 @@
                     <span class="nav-item-icon">📁</span>
                     <span class="nav-item-text">Dashboard</span>
                 </a>
+                <a href="{{ url_for('main.case_upload') }}" class="nav-item {{ 'active' if page_title == 'Upload Files' else '' }}">
+                    <span class="nav-item-icon">📤</span>
+                    <span class="nav-item-text">Upload Files</span>
+                </a>
                 <a href="{{ url_for('main.case_files') }}" class="nav-item {{ 'active' if page_title == 'Case Files' else '' }}">
                     <span class="nav-item-icon">📄</span>
                     <span class="nav-item-text">Files</span>
