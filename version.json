@@ -1,6 +1,17 @@
 {
-  "version": "3.9.0",
+  "version": "3.10.0",
   "changelog": [
+    {
+      "version": "3.10.0",
+      "date": "2026-01-09",
+      "changes": [
+        "ClickHouse integration for event storage",
+        "Added clickhouse-connect Python client",
+        "ClickHouse utility module with connection management",
+        "Helper functions: insert_events, query_events, search_events",
+        "Event statistics and health check utilities"
+      ]
+    },
     {
       "version": "3.9.0",
       "date": "2026-01-09",

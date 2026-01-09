@@ -25,6 +25,13 @@ class Config:
     # Server
     HOST = '0.0.0.0'
     PORT = 443
+    
+    # ClickHouse
+    CLICKHOUSE_HOST = os.environ.get('CLICKHOUSE_HOST') or 'localhost'
+    CLICKHOUSE_PORT = int(os.environ.get('CLICKHOUSE_PORT', 8123))
+    CLICKHOUSE_DATABASE = os.environ.get('CLICKHOUSE_DATABASE') or 'casescope'
+    CLICKHOUSE_USER = os.environ.get('CLICKHOUSE_USER') or 'default'
+    CLICKHOUSE_PASSWORD = os.environ.get('CLICKHOUSE_PASSWORD') or ''
 
 
 class UserSettings:
