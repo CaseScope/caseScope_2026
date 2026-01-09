@@ -852,9 +852,13 @@ class JumpListParser(BaseParser):
 
 
 class MFTParser(BaseParser):
-    """Parser for NTFS MFT ($MFT) files using dissect.ntfs"""
+    """Parser for NTFS MFT ($MFT) files using dissect.ntfs
     
-    VERSION = '1.0.0'
+    Extracts file metadata including all MACB timestamps, file sizes,
+    and directory structure from the Master File Table.
+    """
+    
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'mft'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
@@ -871,8 +875,8 @@ class MFTParser(BaseParser):
         self.max_entries = max_entries
         
         try:
-            from dissect.ntfs import MFT
-            self._mft_class = MFT
+            from dissect.ntfs import Mft
+            self._mft_class = Mft
         except ImportError:
             raise ImportError("dissect.ntfs not installed. Install with: pip install dissect.ntfs")
     
@@ -898,7 +902,7 @@ class MFTParser(BaseParser):
             return False
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse MFT file"""
+        """Parse MFT file using dissect.ntfs"""
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
@@ -907,89 +911,105 @@ class MFTParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            from dissect.ntfs import MFT
+            from dissect.ntfs import Mft
+            from dissect.ntfs.attr import ATTRIBUTE_TYPE_CODE
             
-            mft = MFT(open(file_path, 'rb'))
-            count = 0
-            
-            for entry in mft.entries():
-                if count >= self.max_entries:
-                    self.warnings.append(f"Reached max entries limit ({self.max_entries})")
-                    break
+            with open(file_path, 'rb') as fh:
+                mft = Mft(fh)
+                count = 0
                 
-                try:
-                    if not entry.is_file() and not entry.is_dir():
-                        continue
+                for record in mft.segments():
+                    if count >= self.max_entries:
+                        self.warnings.append(f"Reached max entries limit ({self.max_entries})")
+                        break
                     
-                    # Get filename
-                    filename = None
-                    for fn in entry.filenames():
-                        if fn.namespace != 2:  # Skip DOS names
-                            filename = str(fn.filename)
-                            break
-                    
-                    if not filename:
-                        continue
-                    
-                    # Get path if available
-                    full_path = None
                     try:
-                        full_path = str(entry.path())
-                    except:
-                        full_path = filename
-                    
-                    # Get timestamps
-                    si_timestamps = {}
-                    fn_timestamps = {}
-                    
-                    if hasattr(entry, 'standard_information') and entry.standard_information():
-                        si = entry.standard_information()
-                        si_timestamps = {
-                            'si_created': si.creation_time,
-                            'si_modified': si.modification_time,
-                            'si_accessed': si.access_time,
-                            'si_changed': si.change_time,
+                        # Get filename
+                        filename = record.filename
+                        if not filename:
+                            continue
+                        
+                        # Get record number
+                        record_number = record.segment if hasattr(record, 'segment') else None
+                        
+                        # Determine if file or directory
+                        is_directory = record.is_dir()
+                        
+                        # Get file size
+                        file_size = None
+                        try:
+                            file_size = record.size()
+                        except:
+                            file_size = 0
+                        
+                        # Get STANDARD_INFORMATION timestamps
+                        si_created = None
+                        si_modified = None
+                        si_accessed = None
+                        si_changed = None
+                        
+                        si_col = record.attributes.get(ATTRIBUTE_TYPE_CODE.STANDARD_INFORMATION)
+                        if si_col:
+                            si = si_col[0]
+                            si_created = si.creation_time if hasattr(si, 'creation_time') else None
+                            si_modified = si.last_modification_time if hasattr(si, 'last_modification_time') else None
+                            si_accessed = si.last_access_time if hasattr(si, 'last_access_time') else None
+                            si_changed = si.last_change_time if hasattr(si, 'last_change_time') else None
+                        
+                        # Use modification time as primary timestamp
+                        timestamp = si_modified or si_created or si_accessed or datetime.now()
+                        if not isinstance(timestamp, datetime):
+                            timestamp = self.parse_timestamp(str(timestamp)) or datetime.now()
+                        
+                        # Build raw data with all timestamps
+                        raw_data = {
+                            'filename': filename,
+                            'record_number': record_number,
+                            'is_directory': is_directory,
+                            'file_size': file_size,
+                            'si_created': str(si_created) if si_created else None,
+                            'si_modified': str(si_modified) if si_modified else None,
+                            'si_accessed': str(si_accessed) if si_accessed else None,
+                            'si_changed': str(si_changed) if si_changed else None,
                         }
-                    
-                    # Use modification time as primary
-                    timestamp = si_timestamps.get('si_modified') or datetime.now()
-                    if not isinstance(timestamp, datetime):
-                        timestamp = self.parse_timestamp(str(timestamp)) or datetime.now()
-                    
-                    # Get size
-                    file_size = None
-                    if hasattr(entry, 'data_size'):
-                        file_size = entry.data_size()
-                    
-                    raw_data = {
-                        'filename': filename,
-                        'full_path': full_path,
-                        'entry_number': entry.entry_number if hasattr(entry, 'entry_number') else None,
-                        'is_directory': entry.is_dir(),
-                        'file_size': file_size,
-                        'timestamps': {k: str(v) for k, v in si_timestamps.items() if v},
-                    }
-                    
-                    yield ParsedEvent(
-                        case_id=self.case_id,
-                        artifact_type=self.artifact_type,
-                        timestamp=timestamp,
-                        source_file=source_file,
-                        source_path=file_path,
-                        source_host=hostname,
-                        case_file_id=self.case_file_id,
-                        target_path=full_path,
-                        file_size=file_size,
-                        raw_json=json.dumps(raw_data, default=str),
-                        search_blob=f"{filename} {full_path or ''}",
-                        parser_version=self.parser_version,
-                    )
-                    
-                    count += 1
-                    
-                except Exception as e:
-                    self.warnings.append(f"Error processing MFT entry: {e}")
-                    
+                        raw_data = {k: v for k, v in raw_data.items() if v is not None}
+                        
+                        # Build extra fields
+                        extra = {
+                            'record_number': record_number,
+                            'is_directory': is_directory,
+                            'si_created': str(si_created) if si_created else None,
+                            'si_accessed': str(si_accessed) if si_accessed else None,
+                            'si_changed': str(si_changed) if si_changed else None,
+                        }
+                        extra = {k: v for k, v in extra.items() if v is not None}
+                        
+                        # Search blob
+                        search_parts = [filename]
+                        if record_number:
+                            search_parts.append(str(record_number))
+                        
+                        yield ParsedEvent(
+                            case_id=self.case_id,
+                            artifact_type=self.artifact_type,
+                            timestamp=timestamp,
+                            source_file=source_file,
+                            source_path=file_path,
+                            source_host=hostname,
+                            case_file_id=self.case_file_id,
+                            target_path=self.safe_str(filename),
+                            file_size=file_size,
+                            raw_json=json.dumps(raw_data, default=str),
+                            search_blob=' '.join(str(p) for p in search_parts if p),
+                            extra_fields=json.dumps(extra, default=str),
+                            parser_version=self.parser_version,
+                        )
+                        
+                        count += 1
+                        
+                    except Exception as e:
+                        self.warnings.append(f"Error processing MFT record: {e}")
+                        
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"MFT parse error: {e}")

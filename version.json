@@ -1,6 +1,17 @@
 {
-  "version": "3.13.4",
+  "version": "3.13.5",
   "changelog": [
+    {
+      "version": "3.13.5",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed MFTParser v2.0 to use dissect.ntfs Mft API",
+        "Extracts MACB timestamps from STANDARD_INFORMATION",
+        "Captures record_number, is_directory, file_size",
+        "Tested with $MFT (100 records)",
+        "Verified ClickHouse indexing"
+      ]
+    },
     {
       "version": "3.13.4",
       "date": "2026-01-09",
