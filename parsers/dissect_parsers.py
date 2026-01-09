@@ -862,17 +862,17 @@ class MFTParser(BaseParser):
     ARTIFACT_TYPE = 'mft'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 max_entries: int = 100000):
+                 max_entries: int = None):
         """Initialize MFT parser
         
         Args:
             case_id: ClickHouse case_id
             source_host: Hostname
             case_file_id: Optional FK to case_files
-            max_entries: Maximum MFT entries to process (MFT can be huge)
+            max_entries: Maximum MFT entries to process (None = no limit, process all)
         """
         super().__init__(case_id, source_host, case_file_id)
-        self.max_entries = max_entries
+        self.max_entries = max_entries  # None = no limit for complete DFIR analysis
         
         try:
             from dissect.ntfs import Mft
@@ -919,7 +919,7 @@ class MFTParser(BaseParser):
                 count = 0
                 
                 for record in mft.segments():
-                    if count >= self.max_entries:
+                    if self.max_entries and count >= self.max_entries:
                         self.warnings.append(f"Reached max entries limit ({self.max_entries})")
                         break
                     
