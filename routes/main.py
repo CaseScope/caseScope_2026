@@ -163,3 +163,27 @@ def case_hunting():
     """Hunting - threat hunting for the active case"""
     case = get_active_case()
     return render_template('case_hunting.html', page_title='Hunting', case=case)
+
+
+@main_bp.route('/case/edr-report', methods=['GET', 'POST'])
+@login_required
+@case_required
+def case_edr_report():
+    """View or add EDR report for the active case"""
+    case = get_active_case()
+    
+    if request.method == 'POST':
+        new_report = request.form.get('edr_report', '').strip()
+        if new_report:
+            if case.edr_report:
+                # Append new report with separator
+                case.edr_report = case.edr_report + '\n\n*** NEW REPORT ***\n\n' + new_report
+            else:
+                case.edr_report = new_report
+            db.session.commit()
+            flash('EDR Report added successfully', 'success')
+        else:
+            flash('EDR Report content cannot be empty', 'error')
+        return redirect(url_for('main.case_edr_report'))
+    
+    return render_template('case_edr_report.html', page_title='EDR Report', case=case)

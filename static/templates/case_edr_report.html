@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📊</span>
+            EDR Report
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_dashboard') }}" class="btn btn-secondary">← Back to Dashboard</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+{% if case.edr_report %}
+<!-- Existing Report(s) -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">📄</span>
+        <span class="card-title">Current EDR Report</span>
+    </div>
+    <div class="card-body" style="padding: 20px;">
+        <div class="edr-report-content">
+            {{ case.edr_report | replace('\n\n*** NEW REPORT ***\n\n', '<div class="edr-report-separator">*** NEW REPORT ***</div>') | safe | replace('\n', '<br>') }}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Add New Report -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">➕</span>
+        <span class="card-title">{% if case.edr_report %}Add Another Report{% else %}Add EDR Report{% endif %}</span>
+    </div>
+    <div class="card-body" style="padding: 20px;">
+        <form method="POST" action="{{ url_for('main.case_edr_report') }}">
+            <div class="form-group">
+                <label class="form-label" for="edr_report">
+                    {% if case.edr_report %}
+                        New Report Content
+                        <span class="text-muted text-small">(will be appended with separator)</span>
+                    {% else %}
+                        Report Content
+                    {% endif %}
+                </label>
+                <textarea id="edr_report" name="edr_report" class="form-input form-textarea" 
+                          placeholder="Paste EDR report content here..." rows="15" required></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    {% if case.edr_report %}Add Report{% else %}Save Report{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

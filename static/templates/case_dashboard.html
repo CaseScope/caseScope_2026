@@ -11,6 +11,19 @@
     </div>
 </div>
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
 <div class="card">
     <div class="card-header">
         <span class="card-icon">📋</span>
@@ -18,25 +31,85 @@
     </div>
     <div class="card-body" style="padding: 20px;">
         <div class="grid grid-2">
-            <div>
-                <p><strong>Case Name:</strong> {{ case.name }}</p>
-                <p><strong>Company:</strong> {{ case.company }}</p>
-                <p><strong>Status:</strong> {{ case.status }}</p>
-                <p><strong>Created By:</strong> {{ case.created_by }}</p>
-                <p><strong>Created:</strong> {{ case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else '-' }}</p>
+            <div class="info-list">
+                <div class="info-row">
+                    <span class="info-label">Case Name:</span>
+                    <span class="info-value">{{ case.name }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Company:</span>
+                    <span class="info-value">{{ case.company }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Status:</span>
+                    <span class="info-value">
+                        {% if case.status == 'new' %}
+                            <span class="badge badge-info">New</span>
+                        {% elif case.status == 'assigned' %}
+                            <span class="badge badge-warning">Assigned</span>
+                        {% elif case.status == 'in_progress' %}
+                            <span class="badge badge-warning">In Progress</span>
+                        {% elif case.status == 'in_review' %}
+                            <span class="badge badge-info">In Review</span>
+                        {% elif case.status == 'finished' %}
+                            <span class="badge badge-success">Finished</span>
+                        {% elif case.status == 'archived' %}
+                            <span class="badge badge-muted">Archived</span>
+                        {% else %}
+                            {{ case.status }}
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Created By:</span>
+                    <span class="info-value">{{ case.created_by }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Created:</span>
+                    <span class="info-value">{{ case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else '-' }}</span>
+                </div>
             </div>
-            <div>
-                <p><strong>Assigned To:</strong> {{ case.assigned_to or '-' }}</p>
-                <p><strong>Router IPs:</strong> {{ case.router_ips or '-' }}</p>
-                <p><strong>VPN IPs:</strong> {{ case.vpn_ips or '-' }}</p>
-                <p><strong>EDR Report:</strong> {% if case.edr_report %}Yes{% else %}No{% endif %}</p>
+            <div class="info-list">
+                <div class="info-row">
+                    <span class="info-label">Assigned To:</span>
+                    <span class="info-value">{{ case.assigned_to or '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Router IPs:</span>
+                    <span class="info-value">{{ case.router_ips or '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">VPN IPs:</span>
+                    <span class="info-value">{{ case.vpn_ips or '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">EDR Report:</span>
+                    <span class="info-value">
+                        {% if case.edr_report %}
+                            <span class="badge badge-success">Yes</span>
+                            <a href="{{ url_for('main.case_edr_report') }}" class="btn btn-sm btn-secondary ml-2">View Report</a>
+                        {% else %}
+                            <span class="badge badge-muted">No</span>
+                            <a href="{{ url_for('main.case_edr_report') }}" class="btn btn-sm btn-primary ml-2">Add Report</a>
+                        {% endif %}
+                    </span>
+                </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Description Section -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">📝</span>
+        <span class="card-title">Description</span>
+    </div>
+    <div class="card-body" style="padding: 20px;">
         {% if case.description %}
-        <div class="mt-4">
-            <p><strong>Description:</strong></p>
-            <p class="text-muted">{{ case.description }}</p>
-        </div>
+            <div class="description-content">{{ case.description }}</div>
+        {% else %}
+            <p class="text-muted">No description provided for this case.</p>
         {% endif %}
     </div>
 </div>
