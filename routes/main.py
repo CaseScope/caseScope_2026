@@ -187,3 +187,45 @@ def case_edr_report():
         return redirect(url_for('main.case_edr_report'))
     
     return render_template('case_edr_report.html', page_title='EDR Report', case=case)
+
+
+@main_bp.route('/case/edit', methods=['GET', 'POST'])
+@login_required
+@case_required
+def case_edit():
+    """Edit the active case"""
+    case = get_active_case()
+    
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        company = request.form.get('company', '').strip()
+        description = request.form.get('description', '').strip()
+        router_ips = request.form.get('router_ips', '').strip()
+        vpn_ips = request.form.get('vpn_ips', '').strip()
+        status = request.form.get('status', '').strip()
+        assigned_to = request.form.get('assigned_to', '').strip()
+        
+        # Validate mandatory fields
+        if not name:
+            flash('Case name is required', 'error')
+            return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)
+        
+        if not company:
+            flash('Company is required', 'error')
+            return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)
+        
+        # Update the case
+        case.name = name
+        case.company = company
+        case.description = description or None
+        case.router_ips = router_ips or None
+        case.vpn_ips = vpn_ips or None
+        if status in CaseStatus.all():
+            case.status = status
+        case.assigned_to = assigned_to or None
+        
+        db.session.commit()
+        flash('Case updated successfully', 'success')
+        return redirect(url_for('main.case_dashboard'))
+    
+    return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)

@@ -9,6 +9,9 @@
         </h1>
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_edit') }}" class="btn btn-secondary">✏️ Edit Case</a>
+    </div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
