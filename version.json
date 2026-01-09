@@ -1,6 +1,19 @@
 {
-  "version": "3.8.0",
+  "version": "3.9.0",
   "changelog": [
+    {
+      "version": "3.9.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Duplicate file detection with SHA256 hash checking",
+        "Pre-flight duplicate check before ingestion",
+        "User prompt to reingest or skip duplicate files",
+        "ZIP files recorded in database with hash and extraction status",
+        "Extraction status tracking: full, partial, fail",
+        "Duplicate extracted files automatically deleted",
+        "Enhanced completion summary with duplicate/failure stats"
+      ]
+    },
     {
       "version": "3.8.0",
       "date": "2026-01-09",

@@ -11,7 +11,7 @@ from flask_login import login_required, current_user
 from models.database import db
 from models.user import User
 from models.case import Case
-from models.case_file import CaseFile
+from models.case_file import CaseFile, ExtractionStatus
 from config import Config
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -280,6 +280,79 @@ def upload_chunk():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/upload/preflight', methods=['POST'])
+@login_required
+def preflight_check():
+    """Check for duplicate files before ingestion
+    
+    Calculates hashes for all files and checks against existing records.
+    Returns list of duplicates for user confirmation.
+    """
+    try:
+        data = request.get_json()
+        case_uuid = data.get('caseUuid')
+        files = data.get('files', [])
+        
+        if not case_uuid:
+            return jsonify({'success': False, 'error': 'Case UUID required'}), 400
+        
+        if not files:
+            return jsonify({'success': False, 'error': 'No files to check'}), 400
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        web_path, sftp_path, _ = ensure_upload_dirs(case_uuid)
+        
+        duplicates = []
+        file_hashes = {}  # Map filename -> hash for later use
+        
+        for file_info in files:
+            filename = file_info.get('name')
+            source = file_info.get('source', 'web')
+            
+            # Determine source path
+            if source == 'folder':
+                source_path = file_info.get('path')
+            else:
+                source_path = os.path.join(web_path, filename)
+            
+            if not source_path or not os.path.exists(source_path):
+                continue
+            
+            # Calculate hash
+            try:
+                file_hash = CaseFile.calculate_sha256(source_path)
+                file_hashes[filename] = file_hash
+                
+                # Check for existing file with same hash
+                existing = CaseFile.find_by_hash(file_hash)
+                if existing:
+                    duplicates.append({
+                        'new_file': filename,
+                        'new_hash': file_hash,
+                        'existing_file': existing.filename,
+                        'existing_hash': existing.sha256_hash,
+                        'existing_case': existing.case_uuid,
+                        'uploaded_at': existing.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
+                        'source': source
+                    })
+            except Exception as e:
+                # Hash calculation failed - will handle during ingestion
+                pass
+        
+        return jsonify({
+            'success': True,
+            'duplicates': duplicates,
+            'file_hashes': file_hashes,
+            'has_duplicates': len(duplicates) > 0
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/upload/ingest', methods=['POST'])
 @login_required
 def ingest_files():
@@ -288,6 +361,8 @@ def ingest_files():
     data = request.get_json()
     case_uuid = data.get('caseUuid')
     files = data.get('files', [])
+    skip_files = data.get('skipFiles', [])  # Files user chose not to reingest
+    file_hashes = data.get('fileHashes', {})  # Pre-calculated hashes from preflight
     uploaded_by = current_user.username
     
     # Validate upfront
@@ -309,9 +384,13 @@ def ingest_files():
         
         ingested_count = 0
         extracted_count = 0
+        duplicates_skipped = 0
+        duplicates_deleted = 0
+        extraction_failures = []
         errors = []
         processed_files = []  # Track files for hash stage
         zip_files = []  # Track zip files for extraction stage
+        zip_records = {}  # Map zip filename -> CaseFile record
         non_zip_files = []  # Track non-zip files for move stage
         
         # =============================================
@@ -320,6 +399,11 @@ def ingest_files():
         for file_info in files:
             filename = file_info.get('name')
             source = file_info.get('source', 'web')
+            
+            # Skip files user chose not to reingest
+            if filename in skip_files:
+                duplicates_skipped += 1
+                continue
             
             if source == 'folder':
                 source_path = file_info.get('path')
@@ -337,7 +421,8 @@ def ingest_files():
                 'name': filename,
                 'source_path': source_path,
                 'file_info': file_info,
-                'is_zip': is_zip
+                'is_zip': is_zip,
+                'hash': file_hashes.get(filename)  # May be None if not pre-calculated
             }
             
             if is_zip:
@@ -358,27 +443,41 @@ def ingest_files():
                     'filename': zf['name']
                 }) + '\n'
                 
-                try:
-                    source_path = zf['source_path']
-                    filename = zf['name']
-                    file_info = zf['file_info']
-                    
-                    # Create extraction directory: staging/case_uuid/zipname/
-                    extract_dir = os.path.join(staging_path, filename)
-                    os.makedirs(extract_dir, exist_ok=True)
-                    
+                source_path = zf['source_path']
+                filename = zf['name']
+                file_info = zf['file_info']
+                
+                # Calculate hash if not already done
+                zip_hash = zf.get('hash')
+                if not zip_hash:
                     try:
-                        shutil.chown(extract_dir, user='casescope', group='casescope')
-                    except (PermissionError, LookupError):
-                        pass
-                    
-                    # Extract directly from source path (don't move zip to staging)
+                        zip_hash = CaseFile.calculate_sha256(source_path)
+                    except Exception as e:
+                        errors.append(f'Error hashing {filename}: {str(e)}')
+                        continue
+                
+                # Get file size before extraction
+                zip_size = os.path.getsize(source_path)
+                
+                # Create extraction directory: staging/case_uuid/zipname/
+                extract_dir = os.path.join(staging_path, filename)
+                os.makedirs(extract_dir, exist_ok=True)
+                
+                try:
+                    shutil.chown(extract_dir, user='casescope', group='casescope')
+                except (PermissionError, LookupError):
+                    pass
+                
+                # Attempt extraction
+                extraction_status = ExtractionStatus.FAIL
+                extracted_file_count = 0
+                
+                try:
                     with zipfile.ZipFile(source_path, 'r') as zfile:
                         zfile.extractall(extract_dir)
+                    extraction_status = ExtractionStatus.FULL
                     
-                    # Zip will be deleted during cleanup of upload directories
-                    
-                    # Track extracted files only (zip itself is not kept)
+                    # Track extracted files
                     for root, dirs, extracted_files_list in os.walk(extract_dir):
                         for extracted_name in extracted_files_list:
                             extracted_path = os.path.join(root, extracted_name)
@@ -389,18 +488,48 @@ def ingest_files():
                                 'original_filename': extracted_name,
                                 'file_info': file_info,
                                 'is_archive': CaseFile.is_zip_file(extracted_path),
-                                'is_extracted': False,  # These are the actual files now
-                                'parent_id': None,
-                                'source_zip': filename  # Track which zip it came from
+                                'is_extracted': True,
+                                'parent_zip': filename
                             })
-                    
-                    ingested_count += 1
+                            extracted_file_count += 1
                     
                 except zipfile.BadZipFile:
-                    # Not a valid zip, treat as regular file
+                    extraction_status = ExtractionStatus.FAIL
+                    extraction_failures.append(f'{filename}: Invalid ZIP file')
+                    # Treat as regular file
                     non_zip_files.append(zf)
                 except Exception as e:
-                    errors.append(f'Error extracting {zf["name"]}: {str(e)}')
+                    # Check if partial extraction occurred
+                    extracted_count_check = sum(1 for _ in os.walk(extract_dir) for _ in _[2])
+                    if extracted_count_check > 0:
+                        extraction_status = ExtractionStatus.PARTIAL
+                        extraction_failures.append(f'{filename}: Partial extraction - {str(e)}')
+                    else:
+                        extraction_status = ExtractionStatus.FAIL
+                        extraction_failures.append(f'{filename}: {str(e)}')
+                
+                # Record ZIP file in database (even if extraction failed)
+                zip_record = CaseFile(
+                    case_uuid=case_uuid,
+                    parent_id=None,
+                    filename=filename,
+                    original_filename=filename,
+                    file_path=None,  # ZIP is deleted after extraction
+                    file_size=zip_size,
+                    sha256_hash=zip_hash,
+                    hostname=file_info.get('host', ''),
+                    file_type=file_info.get('type', 'Other'),
+                    upload_source=file_info.get('source', 'web'),
+                    is_archive=True,
+                    is_extracted=False,
+                    extraction_status=extraction_status,
+                    status='pending',
+                    uploaded_by=uploaded_by
+                )
+                db.session.add(zip_record)
+                db.session.flush()
+                zip_records[filename] = zip_record
+                ingested_count += 1
         
         # =============================================
         # PHASE 3: Move non-zip files to staging
@@ -444,7 +573,8 @@ def ingest_files():
                         'file_info': file_info,
                         'is_archive': False,
                         'is_extracted': False,
-                        'parent_id': None
+                        'parent_zip': None,
+                        'hash': nzf.get('hash')
                     })
                     
                     ingested_count += 1
@@ -468,18 +598,34 @@ def ingest_files():
             try:
                 file_path = pf['path']
                 file_size = os.path.getsize(file_path)
-                sha256_hash = CaseFile.calculate_sha256(file_path)
                 
-                # Track source zip in filename if from extraction
-                source_zip = pf.get('source_zip')
+                # Use pre-calculated hash or calculate now
+                sha256_hash = pf.get('hash')
+                if not sha256_hash:
+                    sha256_hash = CaseFile.calculate_sha256(file_path)
+                
+                # Check for duplicate
+                existing = CaseFile.find_by_hash(sha256_hash)
+                if existing:
+                    # Duplicate found - delete the file and skip recording
+                    os.remove(file_path)
+                    duplicates_deleted += 1
+                    continue
+                
+                # Get parent ZIP record if this is an extracted file
+                parent_id = None
+                parent_zip = pf.get('parent_zip')
+                if parent_zip and parent_zip in zip_records:
+                    parent_id = zip_records[parent_zip].id
+                
+                # Build filename with zip prefix for extracted files
                 display_filename = pf['filename']
-                if source_zip:
-                    # Prefix with zip name for context
-                    display_filename = f"{source_zip}/{pf['filename']}"
+                if parent_zip:
+                    display_filename = f"{parent_zip}/{pf['filename']}"
                 
                 case_file = CaseFile(
                     case_uuid=case_uuid,
-                    parent_id=None,  # No parent tracking - zip is deleted
+                    parent_id=parent_id,
                     filename=display_filename,
                     original_filename=pf['original_filename'],
                     file_path=file_path,
@@ -489,7 +635,8 @@ def ingest_files():
                     file_type=pf['file_info'].get('type', 'Other'),
                     upload_source=pf['file_info'].get('source', 'web'),
                     is_archive=pf['is_archive'],
-                    is_extracted=(source_zip is not None),
+                    is_extracted=pf['is_extracted'],
+                    extraction_status=ExtractionStatus.NA,
                     status='pending',
                     uploaded_by=uploaded_by
                 )
@@ -497,7 +644,7 @@ def ingest_files():
                 db.session.add(case_file)
                 db.session.flush()
                 
-                if source_zip:
+                if parent_zip:
                     extracted_count += 1
                     
             except Exception as e:
@@ -537,6 +684,9 @@ def ingest_files():
             'stage': 'complete',
             'ingested': ingested_count,
             'extracted': extracted_count,
+            'duplicates_skipped': duplicates_skipped,
+            'duplicates_deleted': duplicates_deleted,
+            'extraction_failures': extraction_failures,
             'errors': errors
         }) + '\n'
     

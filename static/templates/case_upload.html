@@ -236,6 +236,23 @@
         </div>
     </div>
 </div>
+
+<!-- Duplicate Confirmation Modal -->
+<div class="modal-overlay" id="duplicateModal" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3 class="modal-title">⚠️ Duplicate Files Detected</h3>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted mb-3">The following files have already been ingested. Choose which to reingest:</p>
+            <div class="duplicate-list" id="duplicateList"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="skipAllDuplicates()">Skip All Duplicates</button>
+            <button class="btn btn-primary" onclick="proceedWithIngestion()">Continue</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -249,6 +266,11 @@
     let uploadQueue = [];
     let isIngesting = false;
     let queueIdCounter = 0;
+    
+    // Duplicate handling state
+    let pendingDuplicates = [];
+    let skipFiles = [];
+    let fileHashes = {};
 
     // File type detection patterns
     const TYPE_PATTERNS = {
@@ -623,6 +645,67 @@
     }
 
     // ========================================
+    // Duplicate Modal Functions
+    // ========================================
+    
+    function showDuplicateModal(duplicates) {
+        pendingDuplicates = duplicates;
+        skipFiles = [];
+        
+        let html = '';
+        for (const dup of duplicates) {
+            const dupId = `dup-${dup.new_hash.substring(0, 8)}`;
+            html += `
+                <div class="duplicate-item" id="${dupId}">
+                    <div class="duplicate-header">
+                        <label class="duplicate-checkbox">
+                            <input type="checkbox" id="chk-${dupId}" checked onchange="toggleDuplicate('${dup.new_file}', this.checked)">
+                            <span class="duplicate-filename">${escapeHtml(dup.new_file)}</span>
+                        </label>
+                    </div>
+                    <div class="duplicate-details">
+                        <p class="text-small text-muted">
+                            Hash: <code>${dup.new_hash.substring(0, 16)}...</code>
+                        </p>
+                        <p class="text-small">
+                            Matches: <strong>${escapeHtml(dup.existing_file)}</strong>
+                            <span class="text-muted">uploaded ${dup.uploaded_at}</span>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        document.getElementById('duplicateList').innerHTML = html;
+        document.getElementById('duplicateModal').style.display = 'flex';
+    }
+    
+    function closeDuplicateModal() {
+        document.getElementById('duplicateModal').style.display = 'none';
+    }
+    
+    function toggleDuplicate(filename, reingest) {
+        if (reingest) {
+            skipFiles = skipFiles.filter(f => f !== filename);
+        } else {
+            if (!skipFiles.includes(filename)) {
+                skipFiles.push(filename);
+            }
+        }
+    }
+    
+    function skipAllDuplicates() {
+        skipFiles = pendingDuplicates.map(d => d.new_file);
+        closeDuplicateModal();
+        continueIngestion();
+    }
+    
+    function proceedWithIngestion() {
+        closeDuplicateModal();
+        continueIngestion();
+    }
+
+    // ========================================
     // Main Ingestion Process
     // ========================================
     
@@ -632,20 +715,22 @@
         isIngesting = true;
         const ingestBtn = document.getElementById('ingestBtn');
         ingestBtn.disabled = true;
-        ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+        ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
         
-        showProgressModal();
+        // Reset state
+        skipFiles = [];
+        fileHashes = {};
         
         // Separate files by source
         const webFiles = uploadQueue.filter(f => f.source === 'web' && f.status === 'Queued');
-        const folderFiles = uploadQueue.filter(f => f.source === 'folder');
         const hasWebFiles = webFiles.length > 0;
         
         try {
             // ========================================
-            // STAGE 1: Upload web files (skip for folder-only)
+            // STAGE 1: Upload web files first (needed for preflight hash check)
             // ========================================
             if (hasWebFiles) {
+                showProgressModal();
                 showStage('upload');
                 const totalFiles = webFiles.length;
                 
@@ -671,8 +756,67 @@
                     item.status = 'Uploaded';
                     renderQueue();
                 }
+                closeProgressModal();
             }
             
+            // ========================================
+            // PREFLIGHT: Check for duplicates
+            // ========================================
+            ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking duplicates...';
+            
+            const allFiles = uploadQueue.map(item => ({
+                name: item.name,
+                type: item.type,
+                host: item.host,
+                source: item.source,
+                path: item.path || null
+            }));
+            
+            const preflightResponse = await fetch('/api/upload/preflight', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    caseUuid: CASE_UUID,
+                    files: allFiles
+                })
+            });
+            
+            const preflightResult = await preflightResponse.json();
+            
+            if (!preflightResult.success) {
+                throw new Error(preflightResult.error || 'Preflight check failed');
+            }
+            
+            // Store file hashes for later use
+            fileHashes = preflightResult.file_hashes || {};
+            
+            // If duplicates found, show modal and wait for user
+            if (preflightResult.has_duplicates) {
+                ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
+                showDuplicateModal(preflightResult.duplicates);
+                return; // Will continue via proceedWithIngestion()
+            }
+            
+            // No duplicates, continue directly
+            await continueIngestion();
+            
+        } catch (err) {
+            console.error('Ingestion error:', err);
+            alert('Error during ingestion: ' + err.message);
+            isIngesting = false;
+            ingestBtn.disabled = false;
+            ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
+        }
+    }
+    
+    async function continueIngestion() {
+        const ingestBtn = document.getElementById('ingestBtn');
+        ingestBtn.disabled = true;
+        ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+        
+        showProgressModal();
+        
+        try {
             // Prepare file list for server processing
             const allFiles = uploadQueue.map(item => ({
                 name: item.name,
@@ -683,14 +827,16 @@
             }));
             
             // ========================================
-            // STAGE 2-5: Server-side processing
+            // Server-side processing with skip list
             // ========================================
             const response = await fetch('/api/upload/ingest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     caseUuid: CASE_UUID,
-                    files: allFiles
+                    files: allFiles,
+                    skipFiles: skipFiles,
+                    fileHashes: fileHashes
                 })
             });
             
@@ -705,7 +851,7 @@
                 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
-                buffer = lines.pop(); // Keep incomplete line in buffer
+                buffer = lines.pop();
                 
                 for (const line of lines) {
                     if (!line.trim()) continue;
@@ -718,7 +864,6 @@
                 }
             }
             
-            // Process any remaining buffer
             if (buffer.trim()) {
                 try {
                     const update = JSON.parse(buffer);
@@ -757,11 +902,38 @@
             case 'complete':
                 uploadQueue = [];
                 renderQueue();
-                showComplete(`
-                    <p><strong>${update.ingested}</strong> files ingested</p>
-                    <p><strong>${update.extracted}</strong> files extracted from archives</p>
-                    ${update.errors.length > 0 ? `<p class="text-warning">${update.errors.length} errors</p>` : ''}
-                `);
+                
+                let statsHtml = `<p><strong>${update.ingested}</strong> files ingested</p>`;
+                
+                if (update.extracted > 0) {
+                    statsHtml += `<p><strong>${update.extracted}</strong> files extracted from archives</p>`;
+                }
+                
+                if (update.duplicates_skipped > 0) {
+                    statsHtml += `<p class="text-muted"><strong>${update.duplicates_skipped}</strong> duplicates skipped (user choice)</p>`;
+                }
+                
+                if (update.duplicates_deleted > 0) {
+                    statsHtml += `<p class="text-warning"><strong>${update.duplicates_deleted}</strong> duplicate files deleted</p>`;
+                }
+                
+                if (update.extraction_failures && update.extraction_failures.length > 0) {
+                    statsHtml += `<p class="text-danger"><strong>${update.extraction_failures.length}</strong> extraction failures:</p>`;
+                    statsHtml += '<ul class="text-small text-danger">';
+                    for (const fail of update.extraction_failures.slice(0, 5)) {
+                        statsHtml += `<li>${escapeHtml(fail)}</li>`;
+                    }
+                    if (update.extraction_failures.length > 5) {
+                        statsHtml += `<li>...and ${update.extraction_failures.length - 5} more</li>`;
+                    }
+                    statsHtml += '</ul>';
+                }
+                
+                if (update.errors && update.errors.length > 0) {
+                    statsHtml += `<p class="text-warning"><strong>${update.errors.length}</strong> errors</p>`;
+                }
+                
+                showComplete(statsHtml);
                 break;
             case 'error':
                 alert('Error: ' + update.message);

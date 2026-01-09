@@ -5,6 +5,19 @@ from datetime import datetime
 from models.database import db
 
 
+class ExtractionStatus:
+    """Extraction status for archive files"""
+    NA = 'n/a'          # Not an archive
+    PENDING = 'pending'  # Not yet extracted
+    FULL = 'full'        # Fully extracted successfully
+    PARTIAL = 'partial'  # Partially extracted (some files failed)
+    FAIL = 'fail'        # Failed to extract at all
+    
+    @classmethod
+    def all(cls):
+        return [cls.NA, cls.PENDING, cls.FULL, cls.PARTIAL, cls.FAIL]
+
+
 class CaseFile(db.Model):
     """Model for tracking files associated with a case
     
@@ -25,7 +38,7 @@ class CaseFile(db.Model):
     # File information
     filename = db.Column(db.String(512), nullable=False)
     original_filename = db.Column(db.String(512), nullable=False)  # Original name before any renaming
-    file_path = db.Column(db.String(1024), nullable=False)  # Full path in staging
+    file_path = db.Column(db.String(1024), nullable=True)  # Full path in staging (null if deleted/not kept)
     file_size = db.Column(db.BigInteger, nullable=False, default=0)
     sha256_hash = db.Column(db.String(64), nullable=False, index=True)
     
@@ -37,6 +50,9 @@ class CaseFile(db.Model):
     upload_source = db.Column(db.String(20), nullable=False, default='web')  # web, folder
     is_archive = db.Column(db.Boolean, nullable=False, default=False)  # True if this is a zip/archive
     is_extracted = db.Column(db.Boolean, nullable=False, default=False)  # True if extracted from archive
+    
+    # Archive extraction status
+    extraction_status = db.Column(db.String(20), nullable=False, default='n/a')  # n/a, pending, full, partial, fail
     
     # Processing status
     status = db.Column(db.String(50), nullable=False, default='pending')  # pending, processing, completed, error
@@ -70,6 +86,7 @@ class CaseFile(db.Model):
             'upload_source': self.upload_source,
             'is_archive': self.is_archive,
             'is_extracted': self.is_extracted,
+            'extraction_status': self.extraction_status,
             'status': self.status,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'processed_at': self.processed_at.isoformat() if self.processed_at else None,
