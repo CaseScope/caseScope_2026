@@ -522,21 +522,37 @@
     // Progress Modal Functions
     // ========================================
     
+    // Safe element access helper
+    function safeSetText(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+    }
+    
+    function safeSetStyle(id, prop, value) {
+        const el = document.getElementById(id);
+        if (el) el.style[prop] = value;
+    }
+    
+    function safeQuerySetText(selector, text) {
+        const el = document.querySelector(selector);
+        if (el) el.textContent = text;
+    }
+    
     function showProgressModal() {
-        document.getElementById('progressModal').style.display = 'flex';
-        document.getElementById('modalFooter').style.display = 'none';
+        safeSetStyle('progressModal', 'display', 'flex');
+        safeSetStyle('modalFooter', 'display', 'none');
         hideAllStages();
     }
     
     function closeProgressModal() {
-        document.getElementById('progressModal').style.display = 'none';
+        safeSetStyle('progressModal', 'display', 'none');
         hideAllStages();
     }
     
     function hideAllStages() {
         const stages = ['stageUpload', 'stageExtract', 'stageMove', 'stageHash', 'stageCleanup', 'stageComplete'];
         stages.forEach(id => {
-            document.getElementById(id).style.display = 'none';
+            safeSetStyle(id, 'display', 'none');
         });
         // Reset stage indicators
         document.querySelectorAll('.progress-stage').forEach(el => {
@@ -546,7 +562,8 @@
     
     function showStage(stageName) {
         hideAllStages();
-        document.getElementById('stage' + stageName.charAt(0).toUpperCase() + stageName.slice(1)).style.display = 'block';
+        const stageId = 'stage' + stageName.charAt(0).toUpperCase() + stageName.slice(1);
+        safeSetStyle(stageId, 'display', 'block');
         
         // Update stage indicators
         const stageOrder = ['upload', 'extract', 'move', 'hash', 'cleanup'];
@@ -563,60 +580,61 @@
     }
     
     function updateUploadProgress(fileNum, fileTotal, fileName, chunkNum, chunkTotal) {
-        document.getElementById('uploadFileName').textContent = fileName;
-        document.getElementById('uploadFileNum').textContent = fileNum;
-        document.getElementById('uploadFileTotal').textContent = fileTotal;
-        document.getElementById('uploadChunkNum').textContent = chunkNum;
-        document.getElementById('uploadChunkTotal').textContent = chunkTotal;
+        safeSetText('uploadFileName', fileName);
+        safeSetText('uploadFileNum', fileNum);
+        safeSetText('uploadFileTotal', fileTotal);
+        safeSetText('uploadChunkNum', chunkNum);
+        safeSetText('uploadChunkTotal', chunkTotal);
         
         const filePercent = Math.round((fileNum / fileTotal) * 100);
         const chunkPercent = Math.round((chunkNum / chunkTotal) * 100);
         
-        document.getElementById('uploadFilePercent').textContent = filePercent + '%';
-        document.getElementById('uploadFileBar').style.width = filePercent + '%';
-        document.getElementById('uploadChunkPercent').textContent = chunkPercent + '%';
-        document.getElementById('uploadChunkBar').style.width = chunkPercent + '%';
+        safeSetText('uploadFilePercent', filePercent + '%');
+        safeSetStyle('uploadFileBar', 'width', filePercent + '%');
+        safeSetText('uploadChunkPercent', chunkPercent + '%');
+        safeSetStyle('uploadChunkBar', 'width', chunkPercent + '%');
     }
     
     function resetChunkProgress() {
-        document.getElementById('uploadChunkNum').textContent = '0';
-        document.getElementById('uploadChunkPercent').textContent = '0%';
-        document.getElementById('uploadChunkBar').style.width = '0%';
+        safeSetText('uploadChunkNum', '0');
+        safeSetText('uploadChunkPercent', '0%');
+        safeSetStyle('uploadChunkBar', 'width', '0%');
     }
     
     function updateExtractProgress(fileNum, fileTotal, fileName) {
-        document.getElementById('extractFileName').textContent = fileName;
-        document.getElementById('extractFileNum').textContent = fileNum;
-        document.getElementById('extractFileTotal').textContent = fileTotal;
+        safeSetText('extractFileName', fileName);
+        safeSetText('extractFileNum', fileNum);
+        safeSetText('extractFileTotal', fileTotal);
         const percent = Math.round((fileNum / fileTotal) * 100);
-        document.getElementById('extractPercent').textContent = percent + '%';
-        document.getElementById('extractBar').style.width = percent + '%';
+        safeSetText('extractPercent', percent + '%');
+        safeSetStyle('extractBar', 'width', percent + '%');
     }
     
     function updateMoveProgress(fileNum, fileTotal, fileName) {
-        document.getElementById('moveFileName').textContent = fileName;
-        document.getElementById('moveFileNum').textContent = fileNum;
-        document.getElementById('moveFileTotal').textContent = fileTotal;
+        safeSetText('moveFileName', fileName);
+        safeSetText('moveFileNum', fileNum);
+        safeSetText('moveFileTotal', fileTotal);
         const percent = Math.round((fileNum / fileTotal) * 100);
-        document.getElementById('movePercent').textContent = percent + '%';
-        document.getElementById('moveBar').style.width = percent + '%';
+        safeSetText('movePercent', percent + '%');
+        safeSetStyle('moveBar', 'width', percent + '%');
     }
     
     function updateHashProgress(fileNum, fileTotal, fileName) {
-        document.getElementById('hashFileName').textContent = fileName;
-        document.getElementById('hashFileNum').textContent = fileNum;
-        document.getElementById('hashFileTotal').textContent = fileTotal;
+        safeSetText('hashFileName', fileName);
+        safeSetText('hashFileNum', fileNum);
+        safeSetText('hashFileTotal', fileTotal);
         const percent = Math.round((fileNum / fileTotal) * 100);
-        document.getElementById('hashPercent').textContent = percent + '%';
-        document.getElementById('hashBar').style.width = percent + '%';
+        safeSetText('hashPercent', percent + '%');
+        safeSetStyle('hashBar', 'width', percent + '%');
     }
     
     function showComplete(stats) {
         hideAllStages();
         document.querySelectorAll('.progress-stage').forEach(el => el.classList.add('completed'));
-        document.getElementById('stageComplete').style.display = 'block';
-        document.getElementById('completeStats').innerHTML = stats;
-        document.getElementById('modalFooter').style.display = 'flex';
+        safeSetStyle('stageComplete', 'display', 'block');
+        const completeStats = document.getElementById('completeStats');
+        if (completeStats) completeStats.innerHTML = stats;
+        safeSetStyle('modalFooter', 'display', 'flex');
     }
 
     // ========================================
@@ -771,9 +789,9 @@
             
             // Show a brief "checking" message
             hideAllStages();
-            document.getElementById('stageUpload').style.display = 'block';
-            document.getElementById('uploadFileName').textContent = 'Checking for duplicates...';
-            document.getElementById('uploadFileBar').style.width = '100%';
+            safeSetStyle('stageUpload', 'display', 'block');
+            safeSetText('uploadFileName', 'Checking for duplicates...');
+            safeSetStyle('uploadFileBar', 'width', '100%');
             
             const allFiles = uploadQueue.map(item => ({
                 name: item.name,
@@ -914,12 +932,11 @@
             case 'parsing':
                 // Show cleanup stage with parsing message
                 showStage('cleanup');
-                document.querySelector('#stageCleanup .progress-heading').textContent = 'Queuing Files for Parsing...';
+                safeQuerySetText('#stageCleanup .progress-heading', 'Queuing Files for Parsing...');
                 break;
             case 'parsing_queued':
                 // Update with queued count
-                document.querySelector('#stageCleanup .progress-heading').textContent = 
-                    `Queued ${update.queued_count} files for parsing`;
+                safeQuerySetText('#stageCleanup .progress-heading', `Queued ${update.queued_count} files for parsing`);
                 break;
             case 'parsing_error':
                 console.warn('Parsing queue error:', update.error);
