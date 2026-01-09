@@ -685,6 +685,7 @@ def ingest_files():
         try:
             from tasks.celery_tasks import parse_file_task
             from models.case import Case
+            from utils.progress import init_progress
             
             case = Case.get_by_uuid(case_uuid)
             if case:
@@ -696,19 +697,25 @@ def ingest_files():
                     CaseFile.is_archive == False  # Don't parse ZIP files themselves
                 ).all()
                 
+                # Count files to be queued
+                files_to_queue = [cf for cf in pending_files if cf.file_path and os.path.exists(cf.file_path)]
+                
+                # Initialize Redis progress tracking for this batch
+                if files_to_queue:
+                    init_progress(case_uuid, len(files_to_queue))
+                
                 queued_count = 0
-                for cf in pending_files:
-                    if cf.file_path and os.path.exists(cf.file_path):
-                        cf.status = 'queued'
-                        db.session.flush()
-                        
-                        parse_file_task.delay(
-                            file_path=cf.file_path,
-                            case_id=case.id,
-                            source_host=cf.hostname or '',
-                            case_file_id=cf.id,
-                        )
-                        queued_count += 1
+                for cf in files_to_queue:
+                    cf.status = 'queued'
+                    db.session.flush()
+                    
+                    parse_file_task.delay(
+                        file_path=cf.file_path,
+                        case_id=case.id,
+                        source_host=cf.hostname or '',
+                        case_file_id=cf.id,
+                    )
+                    queued_count += 1
                 
                 db.session.commit()
                 yield json.dumps({
@@ -861,31 +868,26 @@ def get_processing_progress(case_uuid):
     """Get processing progress for a case"""
     try:
         from tasks.celery_tasks import celery_app
+        from utils.progress import get_progress
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
-        # Get file counts
-        total_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
-            CaseFile.is_archive == False
-        ).count()
+        # Get progress from Redis (tracks current batch)
+        progress = get_progress(case_uuid)
         
-        processed_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
-            CaseFile.is_archive == False,
-            CaseFile.status.in_(['done', 'error'])
-        ).count()
-        
-        queued_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
-            CaseFile.is_archive == False,
-            CaseFile.status == 'queued'
-        ).count()
-        
-        ingesting_files = CaseFile.query.filter_by(case_uuid=case_uuid).filter(
-            CaseFile.is_archive == False,
-            CaseFile.status == 'ingesting'
-        ).count()
+        if progress:
+            # Active batch in progress
+            total_files = progress.get('total', 0)
+            processed_files = progress.get('completed', 0)
+            is_processing = progress.get('status') == 'processing'
+        else:
+            # No active batch - idle state
+            total_files = 0
+            processed_files = 0
+            is_processing = False
         
         # Get active workers processing this case
         workers = []
@@ -919,10 +921,8 @@ def get_processing_progress(case_uuid):
             'case_uuid': case_uuid,
             'total_files': total_files,
             'processed_files': processed_files,
-            'queued_files': queued_files,
-            'ingesting_files': ingesting_files,
             'workers': workers,
-            'is_processing': queued_files > 0 or ingesting_files > 0
+            'is_processing': is_processing
         })
         
     except Exception as e:

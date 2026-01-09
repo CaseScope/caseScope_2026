@@ -495,8 +495,17 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                     if new_path:
                         cf.file_path = new_path
                 
+                # Get case_uuid before commit for progress tracking
+                case_uuid = cf.case_uuid
+                
                 db.session.commit()
                 logger.debug(f"Updated CaseFile {case_file_id}: status={status}, ingestion={ingestion_status}")
+                
+                # Increment progress counter when file processing completes
+                if status in ('done', 'error'):
+                    from utils.progress import increment_progress
+                    increment_progress(case_uuid)
+                    
     except Exception as e:
         logger.warning(f"Could not update CaseFile status: {e}")
 
