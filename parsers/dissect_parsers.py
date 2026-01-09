@@ -30,24 +30,23 @@ logger = logging.getLogger(__name__)
 
 
 class PrefetchParser(BaseParser):
-    """Parser for Windows Prefetch files using dissect.prefetch"""
+    """Parser for Windows Prefetch files using dissect.target
     
-    VERSION = '1.0.0'
+    Extracts execution timestamps, loaded files, and run counts from
+    Windows Prefetch files (.pf).
+    """
+    
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'prefetch'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
         super().__init__(case_id, source_host, case_file_id)
         
         try:
-            from dissect.target.plugins.os.windows.prefetch import PrefetchFile
-            self._prefetch_class = PrefetchFile
+            from dissect.target.plugins.os.windows.prefetch import Prefetch
+            self._prefetch_class = Prefetch
         except ImportError:
-            try:
-                # Alternative import path
-                from dissect.prefetch import Prefetch
-                self._prefetch_class = Prefetch
-            except ImportError:
-                raise ImportError("dissect.prefetch not installed. Install with: pip install dissect.target")
+            raise ImportError("dissect.target not installed. Install with: pip install dissect.target")
     
     @property
     def artifact_type(self) -> str:
@@ -71,7 +70,7 @@ class PrefetchParser(BaseParser):
             return False
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse Prefetch file"""
+        """Parse Prefetch file using dissect.target"""
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
@@ -80,81 +79,120 @@ class PrefetchParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            from dissect.prefetch import Prefetch
+            from dissect.target.plugins.os.windows.prefetch import Prefetch
             
-            pf = Prefetch(open(file_path, 'rb'))
-            
-            # Extract executable name from prefetch filename
-            # Format: PROGRAM.EXE-HASH.pf
-            exe_name = source_file.rsplit('-', 1)[0] if '-' in source_file else source_file
-            exe_name = exe_name.replace('.pf', '').replace('.PF', '')
-            
-            # Get all run times
-            run_times = list(pf.timestamps) if hasattr(pf, 'timestamps') else []
-            run_count = pf.run_count if hasattr(pf, 'run_count') else len(run_times)
-            
-            # Get loaded files/volumes
-            loaded_files = []
-            if hasattr(pf, 'filenames'):
-                loaded_files = list(pf.filenames)
-            elif hasattr(pf, 'files'):
-                loaded_files = [f.path for f in pf.files]
-            
-            # Create an event for each execution time
-            for i, run_time in enumerate(run_times):
-                timestamp = run_time if isinstance(run_time, datetime) else self.parse_timestamp(str(run_time))
-                if not timestamp:
-                    timestamp = datetime.now()
+            with open(file_path, 'rb') as fh:
+                pf = Prefetch(fh)
                 
-                raw_data = {
-                    'executable': exe_name,
-                    'run_count': run_count,
-                    'run_index': i + 1,
-                    'total_runs': len(run_times),
-                    'loaded_files': loaded_files[:50],  # Limit to first 50
-                    'loaded_file_count': len(loaded_files),
-                }
+                # Extract executable name from header or filename
+                exe_name = ''
+                if hasattr(pf, 'header') and hasattr(pf.header, 'name'):
+                    # Decode UTF-16LE name from header
+                    try:
+                        exe_name = pf.header.name.decode('utf-16-le').rstrip('\x00')
+                    except:
+                        pass
                 
-                yield ParsedEvent(
-                    case_id=self.case_id,
-                    artifact_type=self.artifact_type,
-                    timestamp=timestamp,
-                    source_file=source_file,
-                    source_path=file_path,
-                    source_host=hostname,
-                    case_file_id=self.case_file_id,
-                    process_name=exe_name,
-                    raw_json=json.dumps(raw_data, default=str),
-                    search_blob=f"{exe_name} {' '.join(loaded_files[:20])}",
-                    extra_fields=json.dumps({
+                if not exe_name:
+                    # Fallback: extract from filename (PROGRAM.EXE-HASH.pf)
+                    exe_name = source_file.rsplit('-', 1)[0] if '-' in source_file else source_file
+                    exe_name = exe_name.replace('.pf', '').replace('.PF', '')
+                
+                # Get all run times
+                run_times = []
+                if hasattr(pf, 'latest_timestamp') and pf.latest_timestamp:
+                    run_times.append(pf.latest_timestamp)
+                if hasattr(pf, 'previous_timestamps') and pf.previous_timestamps:
+                    run_times.extend(pf.previous_timestamps)
+                
+                # Get run count from fn structure
+                run_count = 0
+                if hasattr(pf, 'fn') and hasattr(pf.fn, 'run_count'):
+                    run_count = pf.fn.run_count
+                if run_count == 0:
+                    run_count = len(run_times)
+                
+                # Get loaded files from metrics
+                loaded_files = []
+                if hasattr(pf, 'metrics'):
+                    try:
+                        loaded_files = list(pf.metrics)
+                    except:
+                        pass
+                
+                # Get prefetch version
+                pf_version = pf.version if hasattr(pf, 'version') else 0
+                
+                # Create an event for each execution time
+                for i, run_time in enumerate(run_times):
+                    timestamp = run_time if isinstance(run_time, datetime) else self.parse_timestamp(str(run_time))
+                    if not timestamp:
+                        timestamp = datetime.now()
+                    
+                    raw_data = {
+                        'executable': exe_name,
                         'run_count': run_count,
-                        'loaded_files': loaded_files[:100],
-                    }, default=str),
-                    parser_version=self.parser_version,
-                )
-            
-            # If no run times, create a single event with current time
-            if not run_times:
-                raw_data = {
-                    'executable': exe_name,
-                    'run_count': run_count,
-                    'loaded_files': loaded_files[:50],
-                    'loaded_file_count': len(loaded_files),
-                }
+                        'run_index': i + 1,
+                        'total_runs': len(run_times),
+                        'prefetch_version': pf_version,
+                        'loaded_files': loaded_files[:50],
+                        'loaded_file_count': len(loaded_files),
+                    }
+                    
+                    # Build search blob with loaded files
+                    search_parts = [exe_name] + loaded_files[:30]
+                    
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=timestamp,
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        process_name=exe_name,
+                        raw_json=json.dumps(raw_data, default=str),
+                        search_blob=' '.join(search_parts),
+                        extra_fields=json.dumps({
+                            'run_count': run_count,
+                            'run_index': i + 1,
+                            'total_runs': len(run_times),
+                            'prefetch_version': pf_version,
+                            'loaded_files': loaded_files[:100],
+                        }, default=str),
+                        parser_version=self.parser_version,
+                    )
                 
-                yield ParsedEvent(
-                    case_id=self.case_id,
-                    artifact_type=self.artifact_type,
-                    timestamp=datetime.now(),
-                    source_file=source_file,
-                    source_path=file_path,
-                    source_host=hostname,
-                    case_file_id=self.case_file_id,
-                    process_name=exe_name,
-                    raw_json=json.dumps(raw_data, default=str),
-                    search_blob=f"{exe_name} {' '.join(loaded_files[:20])}",
-                    parser_version=self.parser_version,
-                )
+                # If no run times, create a single event with current time
+                if not run_times:
+                    raw_data = {
+                        'executable': exe_name,
+                        'run_count': run_count,
+                        'prefetch_version': pf_version,
+                        'loaded_files': loaded_files[:50],
+                        'loaded_file_count': len(loaded_files),
+                    }
+                    
+                    search_parts = [exe_name] + loaded_files[:30]
+                    
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=datetime.now(),
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        process_name=exe_name,
+                        raw_json=json.dumps(raw_data, default=str),
+                        search_blob=' '.join(search_parts),
+                        extra_fields=json.dumps({
+                            'run_count': run_count,
+                            'prefetch_version': pf_version,
+                            'loaded_files': loaded_files[:100],
+                        }, default=str),
+                        parser_version=self.parser_version,
+                    )
                 
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")

@@ -1,6 +1,15 @@
 {
-  "version": "3.13.0",
+  "version": "3.13.1",
   "changelog": [
+    {
+      "version": "3.13.1",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed PrefetchParser v2.0 to use dissect.target API",
+        "Proper extraction of execution timestamps, run counts, loaded files",
+        "Tested and verified ClickHouse indexing"
+      ]
+    },
     {
       "version": "3.13.0",
       "date": "2026-01-09",
