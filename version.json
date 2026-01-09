@@ -1,6 +1,15 @@
 {
-  "version": "3.16.1",
+  "version": "3.17.0",
   "changelog": [
+    {
+      "version": "3.17.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Auto-move files from staging to storage after ingestion completes",
+        "Preserves directory structure: staging/{case}/{path} -> storage/{case}/{path}",
+        "Updates file_path in database after successful move"
+      ]
+    },
     {
       "version": "3.16.1",
       "date": "2026-01-09",

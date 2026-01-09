@@ -7,6 +7,7 @@ Provides asynchronous processing for:
 - Case event deletion
 """
 import os
+import shutil
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -402,6 +403,49 @@ def get_case_stats_task(case_id: int) -> Dict[str, Any]:
 
 # Helper functions
 
+def _move_file_to_storage(file_path: str) -> Optional[str]:
+    """Move a file from staging to storage, preserving path structure.
+    
+    Args:
+        file_path: Current file path in staging
+        
+    Returns:
+        New file path in storage, or None if move failed
+    """
+    if not file_path:
+        return None
+    
+    # Check if file is in staging
+    staging_prefix = Config.STAGING_FOLDER
+    if not file_path.startswith(staging_prefix):
+        logger.debug(f"File not in staging, skipping move: {file_path}")
+        return file_path  # Already not in staging, return as-is
+    
+    # Check if source file exists
+    if not os.path.exists(file_path):
+        logger.warning(f"Source file not found for move: {file_path}")
+        return None
+    
+    # Build storage path by replacing staging prefix with storage prefix
+    relative_path = file_path[len(staging_prefix):].lstrip(os.sep)
+    storage_path = os.path.join(Config.STORAGE_FOLDER, relative_path)
+    
+    try:
+        # Create destination directory if needed
+        storage_dir = os.path.dirname(storage_path)
+        os.makedirs(storage_dir, exist_ok=True)
+        
+        # Move the file
+        shutil.move(file_path, storage_path)
+        logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
+        
+        return storage_path
+        
+    except Exception as e:
+        logger.error(f"Failed to move file to storage: {file_path} -> {storage_path}: {e}")
+        return None
+
+
 def _update_case_file_status(case_file_id: int, status: str = None, 
                             ingestion_status: str = None,
                             events_count: int = None,
@@ -444,6 +488,12 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 # Set processed_at when done or error
                 if status in ('done', 'error'):
                     cf.processed_at = datetime.utcnow()
+                
+                # Move file from staging to storage when done successfully
+                if status == 'done' and cf.file_path:
+                    new_path = _move_file_to_storage(cf.file_path)
+                    if new_path:
+                        cf.file_path = new_path
                 
                 db.session.commit()
                 logger.debug(f"Updated CaseFile {case_file_id}: status={status}, ingestion={ingestion_status}")
