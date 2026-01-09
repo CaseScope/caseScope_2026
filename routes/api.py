@@ -1,11 +1,12 @@
 """API routes for CaseScope"""
 import os
+import json
 import platform
 import subprocess
 import shutil
 import zipfile
 from datetime import datetime
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response, stream_with_context
 from flask_login import login_required, current_user
 from models.database import db
 from models.user import User
@@ -279,210 +280,293 @@ def upload_chunk():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def process_single_file(source_path, case_uuid, staging_path, file_info, uploaded_by, parent_id=None):
-    """Process a single file: move to staging, calculate hash, create DB record
-    
-    Returns: CaseFile record or None on error
-    """
-    filename = os.path.basename(source_path)
-    file_size = os.path.getsize(source_path)
-    
-    # Determine destination path
-    if parent_id:
-        # This is an extracted file - path already set by caller
-        dest_path = source_path
-    else:
-        dest_path = os.path.join(staging_path, filename)
-        
-        # Avoid filename collisions
-        if os.path.exists(dest_path):
-            base, ext = os.path.splitext(filename)
-            counter = 1
-            while os.path.exists(dest_path):
-                dest_path = os.path.join(staging_path, f'{base}_{counter}{ext}')
-                counter += 1
-        
-        # Move file to staging
-        shutil.move(source_path, dest_path)
-    
-    # Calculate SHA256 hash
-    sha256_hash = CaseFile.calculate_sha256(dest_path)
-    
-    # Check if file is a zip archive
-    is_archive = CaseFile.is_zip_file(dest_path)
-    
-    # Create database record
-    case_file = CaseFile(
-        case_uuid=case_uuid,
-        parent_id=parent_id,
-        filename=os.path.basename(dest_path),
-        original_filename=filename,
-        file_path=dest_path,
-        file_size=file_size,
-        sha256_hash=sha256_hash,
-        hostname=file_info.get('host', ''),
-        file_type=file_info.get('type', 'Other'),
-        upload_source=file_info.get('source', 'web'),
-        is_archive=is_archive,
-        is_extracted=(parent_id is not None),
-        status='pending',
-        uploaded_by=uploaded_by
-    )
-    
-    db.session.add(case_file)
-    db.session.flush()  # Get the ID assigned
-    
-    # Set file ownership
-    try:
-        shutil.chown(dest_path, user='casescope', group='casescope')
-    except (PermissionError, LookupError):
-        pass
-    
-    return case_file
-
-
-def extract_and_process_zip(zip_file_record, staging_path, file_info, uploaded_by):
-    """Extract zip file and process all extracted files
-    
-    Returns: List of CaseFile records for extracted files
-    """
-    extracted_files = []
-    zip_path = zip_file_record.file_path
-    
-    # Create extraction directory: staging/case_uuid/zipfile.ext/
-    extract_dir = os.path.join(staging_path, zip_file_record.original_filename)
-    os.makedirs(extract_dir, exist_ok=True)
-    
-    try:
-        shutil.chown(extract_dir, user='casescope', group='casescope')
-    except (PermissionError, LookupError):
-        pass
-    
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            # Extract all files
-            zf.extractall(extract_dir)
-            
-            # Walk through extracted files and create records
-            for root, dirs, files in os.walk(extract_dir):
-                for filename in files:
-                    extracted_path = os.path.join(root, filename)
-                    file_size = os.path.getsize(extracted_path)
-                    sha256_hash = CaseFile.calculate_sha256(extracted_path)
-                    
-                    # Relative path within extraction folder
-                    rel_path = os.path.relpath(extracted_path, extract_dir)
-                    
-                    # Create database record for extracted file
-                    extracted_file = CaseFile(
-                        case_uuid=zip_file_record.case_uuid,
-                        parent_id=zip_file_record.id,
-                        filename=rel_path,  # Preserve folder structure in filename
-                        original_filename=filename,
-                        file_path=extracted_path,
-                        file_size=file_size,
-                        sha256_hash=sha256_hash,
-                        hostname=file_info.get('host', ''),
-                        file_type=file_info.get('type', 'Other'),
-                        upload_source=file_info.get('source', 'web'),
-                        is_archive=CaseFile.is_zip_file(extracted_path),
-                        is_extracted=True,
-                        status='pending',
-                        uploaded_by=uploaded_by
-                    )
-                    
-                    db.session.add(extracted_file)
-                    extracted_files.append(extracted_file)
-                    
-                    # Set file ownership
-                    try:
-                        shutil.chown(extracted_path, user='casescope', group='casescope')
-                    except (PermissionError, LookupError):
-                        pass
-    
-    except zipfile.BadZipFile:
-        # Not a valid zip file - mark as not an archive
-        zip_file_record.is_archive = False
-    
-    return extracted_files
-
-
 @api_bp.route('/upload/ingest', methods=['POST'])
 @login_required
 def ingest_files():
-    """Process and ingest files: move to staging, extract zips, create DB records"""
-    try:
-        data = request.get_json()
-        case_uuid = data.get('caseUuid')
-        files = data.get('files', [])
+    """Process and ingest files with streaming progress updates"""
+    # Get request data before entering generator (request context needed)
+    data = request.get_json()
+    case_uuid = data.get('caseUuid')
+    files = data.get('files', [])
+    uploaded_by = current_user.username
+    
+    # Validate upfront
+    if not case_uuid:
+        return jsonify({'success': False, 'error': 'Case UUID required'}), 400
+    
+    if not files:
+        return jsonify({'success': False, 'error': 'No files to ingest'}), 400
+    
+    case = Case.get_by_uuid(case_uuid)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    def generate_progress():
+        """Generator that yields NDJSON progress updates"""
+        from flask import current_app
         
-        if not case_uuid:
-            return jsonify({'success': False, 'error': 'Case UUID required'}), 400
-        
-        if not files:
-            return jsonify({'success': False, 'error': 'No files to ingest'}), 400
-        
-        # Verify case exists
-        case = Case.get_by_uuid(case_uuid)
-        if not case:
-            return jsonify({'success': False, 'error': 'Case not found'}), 404
-        
-        # Get directory paths
         web_path, sftp_path, staging_path = ensure_upload_dirs(case_uuid)
         
-        uploaded_by = current_user.username
         ingested_count = 0
         extracted_count = 0
         errors = []
+        processed_files = []  # Track files for hash stage
+        zip_files = []  # Track zip files for extraction stage
+        non_zip_files = []  # Track non-zip files for move stage
         
+        # =============================================
+        # PHASE 1: Identify files and check existence
+        # =============================================
         for file_info in files:
-            try:
-                filename = file_info.get('name')
-                source = file_info.get('source', 'web')
+            filename = file_info.get('name')
+            source = file_info.get('source', 'web')
+            
+            if source == 'folder':
+                source_path = file_info.get('path')
+            else:
+                source_path = os.path.join(web_path, filename)
+            
+            if not source_path or not os.path.exists(source_path):
+                errors.append(f'File not found: {filename}')
+                continue
+            
+            # Check if it's a zip file
+            is_zip = CaseFile.is_zip_file(source_path)
+            
+            file_data = {
+                'name': filename,
+                'source_path': source_path,
+                'file_info': file_info,
+                'is_zip': is_zip
+            }
+            
+            if is_zip:
+                zip_files.append(file_data)
+            else:
+                non_zip_files.append(file_data)
+        
+        # =============================================
+        # PHASE 2: Extract ZIP files directly to staging
+        # =============================================
+        if zip_files:
+            total_zips = len(zip_files)
+            for idx, zf in enumerate(zip_files):
+                yield json.dumps({
+                    'stage': 'extract',
+                    'current': idx + 1,
+                    'total': total_zips,
+                    'filename': zf['name']
+                }) + '\n'
                 
-                # Determine source path
-                if source == 'folder':
-                    source_path = file_info.get('path')
-                    if not source_path or not os.path.exists(source_path):
-                        errors.append(f'File not found: {filename}')
-                        continue
-                else:
-                    # Web upload - file should be in web upload dir
-                    source_path = os.path.join(web_path, filename)
-                    if not os.path.exists(source_path):
-                        errors.append(f'File not found: {filename}')
-                        continue
-                
-                # Process the file
-                case_file = process_single_file(
-                    source_path, case_uuid, staging_path, 
-                    file_info, uploaded_by
-                )
-                
-                if case_file:
+                try:
+                    source_path = zf['source_path']
+                    filename = zf['name']
+                    file_info = zf['file_info']
+                    
+                    # Create extraction directory
+                    extract_dir = os.path.join(staging_path, filename)
+                    os.makedirs(extract_dir, exist_ok=True)
+                    
+                    try:
+                        shutil.chown(extract_dir, user='casescope', group='casescope')
+                    except (PermissionError, LookupError):
+                        pass
+                    
+                    # Move zip file to staging first
+                    dest_zip_path = os.path.join(staging_path, filename)
+                    if os.path.exists(dest_zip_path):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(dest_zip_path):
+                            dest_zip_path = os.path.join(staging_path, f'{base}_{counter}{ext}')
+                            counter += 1
+                    
+                    shutil.move(source_path, dest_zip_path)
+                    
+                    # Extract contents
+                    with zipfile.ZipFile(dest_zip_path, 'r') as zfile:
+                        zfile.extractall(extract_dir)
+                    
+                    # Track the parent zip file for hash stage
+                    processed_files.append({
+                        'path': dest_zip_path,
+                        'filename': os.path.basename(dest_zip_path),
+                        'original_filename': filename,
+                        'file_info': file_info,
+                        'is_archive': True,
+                        'is_extracted': False,
+                        'parent_id': None
+                    })
+                    
+                    # Track extracted files
+                    for root, dirs, extracted_files_list in os.walk(extract_dir):
+                        for extracted_name in extracted_files_list:
+                            extracted_path = os.path.join(root, extracted_name)
+                            rel_path = os.path.relpath(extracted_path, extract_dir)
+                            processed_files.append({
+                                'path': extracted_path,
+                                'filename': rel_path,
+                                'original_filename': extracted_name,
+                                'file_info': file_info,
+                                'is_archive': CaseFile.is_zip_file(extracted_path),
+                                'is_extracted': True,
+                                'parent_zip': filename
+                            })
+                    
                     ingested_count += 1
                     
-                    # If it's a zip file, extract and process contents
-                    if case_file.is_archive:
-                        extracted = extract_and_process_zip(
-                            case_file, staging_path, file_info, uploaded_by
-                        )
-                        extracted_count += len(extracted)
+                except zipfile.BadZipFile:
+                    # Not a valid zip, treat as regular file
+                    non_zip_files.append(zf)
+                except Exception as e:
+                    errors.append(f'Error extracting {zf["name"]}: {str(e)}')
+        
+        # =============================================
+        # PHASE 3: Move non-zip files to staging
+        # =============================================
+        if non_zip_files:
+            total_non_zip = len(non_zip_files)
+            for idx, nzf in enumerate(non_zip_files):
+                yield json.dumps({
+                    'stage': 'move',
+                    'current': idx + 1,
+                    'total': total_non_zip,
+                    'filename': nzf['name']
+                }) + '\n'
+                
+                try:
+                    source_path = nzf['source_path']
+                    filename = nzf['name']
+                    file_info = nzf['file_info']
+                    
+                    dest_path = os.path.join(staging_path, filename)
+                    
+                    # Handle collisions
+                    if os.path.exists(dest_path):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(dest_path):
+                            dest_path = os.path.join(staging_path, f'{base}_{counter}{ext}')
+                            counter += 1
+                    
+                    shutil.move(source_path, dest_path)
+                    
+                    try:
+                        shutil.chown(dest_path, user='casescope', group='casescope')
+                    except (PermissionError, LookupError):
+                        pass
+                    
+                    processed_files.append({
+                        'path': dest_path,
+                        'filename': os.path.basename(dest_path),
+                        'original_filename': filename,
+                        'file_info': file_info,
+                        'is_archive': False,
+                        'is_extracted': False,
+                        'parent_id': None
+                    })
+                    
+                    ingested_count += 1
+                    
+                except Exception as e:
+                    errors.append(f'Error moving {nzf["name"]}: {str(e)}')
+        
+        # =============================================
+        # PHASE 4: Calculate hashes and record metadata
+        # =============================================
+        total_processed = len(processed_files)
+        parent_zip_ids = {}  # Map zip filename to DB id
+        
+        for idx, pf in enumerate(processed_files):
+            yield json.dumps({
+                'stage': 'hash',
+                'current': idx + 1,
+                'total': total_processed,
+                'filename': pf['filename']
+            }) + '\n'
             
+            try:
+                file_path = pf['path']
+                file_size = os.path.getsize(file_path)
+                sha256_hash = CaseFile.calculate_sha256(file_path)
+                
+                # Determine parent_id for extracted files
+                parent_id = None
+                if pf['is_extracted'] and pf.get('parent_zip') in parent_zip_ids:
+                    parent_id = parent_zip_ids[pf['parent_zip']]
+                
+                case_file = CaseFile(
+                    case_uuid=case_uuid,
+                    parent_id=parent_id,
+                    filename=pf['filename'],
+                    original_filename=pf['original_filename'],
+                    file_path=file_path,
+                    file_size=file_size,
+                    sha256_hash=sha256_hash,
+                    hostname=pf['file_info'].get('host', ''),
+                    file_type=pf['file_info'].get('type', 'Other'),
+                    upload_source=pf['file_info'].get('source', 'web'),
+                    is_archive=pf['is_archive'],
+                    is_extracted=pf['is_extracted'],
+                    status='pending',
+                    uploaded_by=uploaded_by
+                )
+                
+                db.session.add(case_file)
+                db.session.flush()
+                
+                # Track zip file IDs for parent linking
+                if pf['is_archive'] and not pf['is_extracted']:
+                    parent_zip_ids[pf['original_filename']] = case_file.id
+                
+                if pf['is_extracted']:
+                    extracted_count += 1
+                    
             except Exception as e:
-                errors.append(f'Error processing {file_info.get("name", "unknown")}: {str(e)}')
+                errors.append(f'Error hashing {pf["filename"]}: {str(e)}')
+        
+        # =============================================
+        # PHASE 5: Cleanup upload directories
+        # =============================================
+        yield json.dumps({'stage': 'cleanup'}) + '\n'
+        
+        try:
+            # Clean up web upload directory
+            for f in os.listdir(web_path):
+                fpath = os.path.join(web_path, f)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+            
+            # Clean up sftp upload directory
+            for f in os.listdir(sftp_path):
+                fpath = os.path.join(sftp_path, f)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+        except Exception as e:
+            errors.append(f'Cleanup error: {str(e)}')
         
         # Commit all database changes
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            errors.append(f'Database error: {str(e)}')
         
-        return jsonify({
-            'success': True,
-            'count': ingested_count,
-            'extracted_count': extracted_count,
-            'errors': errors,
-            'message': f'Ingested {ingested_count} files, extracted {extracted_count} files from archives'
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        # =============================================
+        # COMPLETE
+        # =============================================
+        yield json.dumps({
+            'stage': 'complete',
+            'ingested': ingested_count,
+            'extracted': extracted_count,
+            'errors': errors
+        }) + '\n'
+    
+    return Response(
+        stream_with_context(generate_progress()),
+        mimetype='application/x-ndjson',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )

@@ -1,6 +1,18 @@
 {
-  "version": "3.7.0",
+  "version": "3.8.0",
   "changelog": [
+    {
+      "version": "3.8.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Multi-stage progress modal for file ingestion",
+        "Real-time streaming progress updates via NDJSON",
+        "Stage indicators: Upload, Extract, Stage, Hash, Cleanup",
+        "Chunk-level progress for web uploads",
+        "Visual stage completion tracking",
+        "Animated progress bars and completion state"
+      ]
+    },
     {
       "version": "3.7.0",
       "date": "2026-01-09",

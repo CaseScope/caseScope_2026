@@ -94,20 +94,145 @@
     </div>
 </div>
 
-<!-- Upload Progress Modal (hidden by default) -->
-<div class="modal-overlay" id="uploadModal" style="display: none;">
-    <div class="modal-container">
+<!-- Multi-Stage Progress Modal -->
+<div class="modal-overlay" id="progressModal" style="display: none;">
+    <div class="modal-container modal-progress">
         <div class="modal-header">
-            <h3 class="modal-title">Uploading Files</h3>
+            <h3 class="modal-title" id="modalTitle">Processing Files</h3>
         </div>
         <div class="modal-body">
-            <div class="upload-progress-info">
-                <p>Uploading <span id="uploadFilename">-</span></p>
-                <p class="text-muted text-small" id="uploadProgress">0%</p>
+            <!-- Stage indicator -->
+            <div class="progress-stages" id="progressStages">
+                <div class="progress-stage" data-stage="upload">
+                    <span class="stage-icon">📤</span>
+                    <span class="stage-label">Upload</span>
+                </div>
+                <div class="progress-stage" data-stage="extract">
+                    <span class="stage-icon">📦</span>
+                    <span class="stage-label">Extract</span>
+                </div>
+                <div class="progress-stage" data-stage="move">
+                    <span class="stage-icon">📁</span>
+                    <span class="stage-label">Stage</span>
+                </div>
+                <div class="progress-stage" data-stage="hash">
+                    <span class="stage-icon">🔐</span>
+                    <span class="stage-label">Hash</span>
+                </div>
+                <div class="progress-stage" data-stage="cleanup">
+                    <span class="stage-icon">🧹</span>
+                    <span class="stage-label">Cleanup</span>
+                </div>
             </div>
-            <div class="progress">
-                <div class="progress-bar" id="uploadProgressBar" style="width: 0%"></div>
+            
+            <!-- Progress content area -->
+            <div class="progress-content" id="progressContent">
+                <!-- Stage 1: Upload -->
+                <div class="progress-section" id="stageUpload" style="display: none;">
+                    <p class="progress-heading">Uploading Files to Server</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">File:</span>
+                        <span class="progress-value" id="uploadFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>File <span id="uploadFileNum">0</span> of <span id="uploadFileTotal">0</span></span>
+                            <span id="uploadFilePercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" id="uploadFileBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="progress-bar-wrapper mt-2">
+                        <div class="progress-bar-label">
+                            <span>Chunk <span id="uploadChunkNum">0</span> of <span id="uploadChunkTotal">0</span></span>
+                            <span id="uploadChunkPercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar bg-info" id="uploadChunkBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Stage 2: Extract -->
+                <div class="progress-section" id="stageExtract" style="display: none;">
+                    <p class="progress-heading">Extracting ZIP Archives</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">Archive:</span>
+                        <span class="progress-value" id="extractFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>Archive <span id="extractFileNum">0</span> of <span id="extractFileTotal">0</span></span>
+                            <span id="extractPercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar bg-warning" id="extractBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Stage 3: Move -->
+                <div class="progress-section" id="stageMove" style="display: none;">
+                    <p class="progress-heading">ZIP files extracted to staging, moving other files...</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">File:</span>
+                        <span class="progress-value" id="moveFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>File <span id="moveFileNum">0</span> of <span id="moveFileTotal">0</span></span>
+                            <span id="movePercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar bg-success" id="moveBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Stage 4: Hash -->
+                <div class="progress-section" id="stageHash" style="display: none;">
+                    <p class="progress-heading">Recording Metadata &amp; Calculating Hashes</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">File:</span>
+                        <span class="progress-value" id="hashFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>File <span id="hashFileNum">0</span> of <span id="hashFileTotal">0</span></span>
+                            <span id="hashPercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" id="hashBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Stage 5: Cleanup -->
+                <div class="progress-section" id="stageCleanup" style="display: none;">
+                    <p class="progress-heading">Cleaning Up Upload Folders</p>
+                    <div class="progress-detail">
+                        <span class="progress-value text-muted">Removing temporary files...</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress">
+                            <div class="progress-bar bg-info progress-bar-animated" id="cleanupBar" style="width: 100%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Complete -->
+                <div class="progress-section" id="stageComplete" style="display: none;">
+                    <div class="progress-complete">
+                        <span class="complete-icon">✓</span>
+                        <p class="progress-heading">Ingestion Complete!</p>
+                        <div class="complete-stats" id="completeStats"></div>
+                    </div>
+                </div>
             </div>
+        </div>
+        <div class="modal-footer" id="modalFooter" style="display: none;">
+            <button class="btn btn-primary" onclick="closeProgressModal()">Close</button>
         </div>
     </div>
 </div>
@@ -211,14 +336,14 @@
         
         const queueItem = {
             id: id,
-            file: null, // File exists on server already
+            file: null,
             name: fileInfo.name,
             size: fileInfo.size,
             type: detectedType,
             host: detectedHost,
             source: 'folder',
             path: fileInfo.path,
-            status: 'Uploaded' // Already on server
+            status: 'Uploaded'
         };
         
         uploadQueue.push(queueItem);
@@ -243,16 +368,14 @@
     // Render queue table
     function renderQueue() {
         const tbody = document.getElementById('queueBody');
-        const emptyRow = document.getElementById('emptyRow');
         const queueActions = document.getElementById('queueActions');
         const queueCount = document.getElementById('queueCount');
         
-        // Update count
         queueCount.textContent = `${uploadQueue.length} file${uploadQueue.length !== 1 ? 's' : ''}`;
         
         if (uploadQueue.length === 0) {
             tbody.innerHTML = `
-                <tr class="queue-empty-row" id="emptyRow">
+                <tr class="queue-empty-row">
                     <td colspan="6" class="text-center text-muted" style="padding: 40px;">
                         No files in queue. Add files using Web Upload or scan a folder.
                     </td>
@@ -344,7 +467,6 @@
                     alert('No files found in the upload folder.');
                 } else {
                     for (const fileInfo of data.files) {
-                        // Check if file already in queue
                         const exists = uploadQueue.some(item => 
                             item.source === 'folder' && item.path === fileInfo.path
                         );
@@ -374,7 +496,111 @@
         }
     }
 
-    // Upload a single chunk
+    // ========================================
+    // Progress Modal Functions
+    // ========================================
+    
+    function showProgressModal() {
+        document.getElementById('progressModal').style.display = 'flex';
+        document.getElementById('modalFooter').style.display = 'none';
+        hideAllStages();
+    }
+    
+    function closeProgressModal() {
+        document.getElementById('progressModal').style.display = 'none';
+        hideAllStages();
+    }
+    
+    function hideAllStages() {
+        const stages = ['stageUpload', 'stageExtract', 'stageMove', 'stageHash', 'stageCleanup', 'stageComplete'];
+        stages.forEach(id => {
+            document.getElementById(id).style.display = 'none';
+        });
+        // Reset stage indicators
+        document.querySelectorAll('.progress-stage').forEach(el => {
+            el.classList.remove('active', 'completed');
+        });
+    }
+    
+    function showStage(stageName) {
+        hideAllStages();
+        document.getElementById('stage' + stageName.charAt(0).toUpperCase() + stageName.slice(1)).style.display = 'block';
+        
+        // Update stage indicators
+        const stageOrder = ['upload', 'extract', 'move', 'hash', 'cleanup'];
+        const currentIndex = stageOrder.indexOf(stageName);
+        
+        document.querySelectorAll('.progress-stage').forEach((el, idx) => {
+            el.classList.remove('active', 'completed');
+            if (idx < currentIndex) {
+                el.classList.add('completed');
+            } else if (idx === currentIndex) {
+                el.classList.add('active');
+            }
+        });
+    }
+    
+    function updateUploadProgress(fileNum, fileTotal, fileName, chunkNum, chunkTotal) {
+        document.getElementById('uploadFileName').textContent = fileName;
+        document.getElementById('uploadFileNum').textContent = fileNum;
+        document.getElementById('uploadFileTotal').textContent = fileTotal;
+        document.getElementById('uploadChunkNum').textContent = chunkNum;
+        document.getElementById('uploadChunkTotal').textContent = chunkTotal;
+        
+        const filePercent = Math.round((fileNum / fileTotal) * 100);
+        const chunkPercent = Math.round((chunkNum / chunkTotal) * 100);
+        
+        document.getElementById('uploadFilePercent').textContent = filePercent + '%';
+        document.getElementById('uploadFileBar').style.width = filePercent + '%';
+        document.getElementById('uploadChunkPercent').textContent = chunkPercent + '%';
+        document.getElementById('uploadChunkBar').style.width = chunkPercent + '%';
+    }
+    
+    function resetChunkProgress() {
+        document.getElementById('uploadChunkNum').textContent = '0';
+        document.getElementById('uploadChunkPercent').textContent = '0%';
+        document.getElementById('uploadChunkBar').style.width = '0%';
+    }
+    
+    function updateExtractProgress(fileNum, fileTotal, fileName) {
+        document.getElementById('extractFileName').textContent = fileName;
+        document.getElementById('extractFileNum').textContent = fileNum;
+        document.getElementById('extractFileTotal').textContent = fileTotal;
+        const percent = Math.round((fileNum / fileTotal) * 100);
+        document.getElementById('extractPercent').textContent = percent + '%';
+        document.getElementById('extractBar').style.width = percent + '%';
+    }
+    
+    function updateMoveProgress(fileNum, fileTotal, fileName) {
+        document.getElementById('moveFileName').textContent = fileName;
+        document.getElementById('moveFileNum').textContent = fileNum;
+        document.getElementById('moveFileTotal').textContent = fileTotal;
+        const percent = Math.round((fileNum / fileTotal) * 100);
+        document.getElementById('movePercent').textContent = percent + '%';
+        document.getElementById('moveBar').style.width = percent + '%';
+    }
+    
+    function updateHashProgress(fileNum, fileTotal, fileName) {
+        document.getElementById('hashFileName').textContent = fileName;
+        document.getElementById('hashFileNum').textContent = fileNum;
+        document.getElementById('hashFileTotal').textContent = fileTotal;
+        const percent = Math.round((fileNum / fileTotal) * 100);
+        document.getElementById('hashPercent').textContent = percent + '%';
+        document.getElementById('hashBar').style.width = percent + '%';
+    }
+    
+    function showComplete(stats) {
+        hideAllStages();
+        document.querySelectorAll('.progress-stage').forEach(el => el.classList.add('completed'));
+        document.getElementById('stageComplete').style.display = 'block';
+        document.getElementById('completeStats').innerHTML = stats;
+        document.getElementById('modalFooter').style.display = 'flex';
+    }
+
+    // ========================================
+    // Chunk Upload Functions
+    // ========================================
+    
     async function uploadChunk(file, chunkIndex, totalChunks, uploadId) {
         const start = chunkIndex * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, file.size);
@@ -396,135 +622,170 @@
         return response.json();
     }
 
-    // Upload file with chunking
-    async function uploadFile(queueItem) {
-        if (queueItem.source === 'folder') {
-            // File already on server
-            return true;
-        }
-        
-        const file = queueItem.file;
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        
-        // Update UI
-        queueItem.status = 'Uploading';
-        renderQueue();
-        showUploadModal(file.name);
-        
-        try {
-            for (let i = 0; i < totalChunks; i++) {
-                const result = await uploadChunk(file, i, totalChunks, uploadId);
-                if (!result.success) {
-                    throw new Error(result.error || 'Upload failed');
-                }
-                
-                const progress = Math.round(((i + 1) / totalChunks) * 100);
-                updateUploadProgress(progress);
-            }
-            
-            queueItem.status = 'Uploaded';
-            renderQueue();
-            return true;
-        } catch (err) {
-            console.error('Upload error:', err);
-            queueItem.status = 'Error';
-            renderQueue();
-            return false;
-        }
-    }
-
-    // Show upload progress modal
-    function showUploadModal(filename) {
-        document.getElementById('uploadFilename').textContent = filename;
-        document.getElementById('uploadProgress').textContent = '0%';
-        document.getElementById('uploadProgressBar').style.width = '0%';
-        document.getElementById('uploadModal').style.display = 'flex';
-    }
-
-    // Update upload progress
-    function updateUploadProgress(percent) {
-        document.getElementById('uploadProgress').textContent = percent + '%';
-        document.getElementById('uploadProgressBar').style.width = percent + '%';
-    }
-
-    // Hide upload modal
-    function hideUploadModal() {
-        document.getElementById('uploadModal').style.display = 'none';
-    }
-
-    // Start ingestion process
+    // ========================================
+    // Main Ingestion Process
+    // ========================================
+    
     async function startIngestion() {
         if (isIngesting || uploadQueue.length === 0) return;
         
         isIngesting = true;
         const ingestBtn = document.getElementById('ingestBtn');
         ingestBtn.disabled = true;
-        ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Ingesting...';
+        ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
         
-        // Upload web files first
-        for (const item of uploadQueue) {
-            if (item.source === 'web' && item.status === 'Queued') {
-                await uploadFile(item);
-            }
-        }
+        showProgressModal();
         
-        hideUploadModal();
-        
-        // Prepare ingestion data
-        const files = uploadQueue.map(item => ({
-            name: item.name,
-            type: item.type,
-            host: item.host,
-            source: item.source,
-            path: item.path || null
-        }));
+        // Separate files by source
+        const webFiles = uploadQueue.filter(f => f.source === 'web' && f.status === 'Queued');
+        const folderFiles = uploadQueue.filter(f => f.source === 'folder');
+        const hasWebFiles = webFiles.length > 0;
         
         try {
+            // ========================================
+            // STAGE 1: Upload web files (skip for folder-only)
+            // ========================================
+            if (hasWebFiles) {
+                showStage('upload');
+                const totalFiles = webFiles.length;
+                
+                for (let fileIdx = 0; fileIdx < webFiles.length; fileIdx++) {
+                    const item = webFiles[fileIdx];
+                    const file = item.file;
+                    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+                    const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    
+                    item.status = 'Uploading';
+                    renderQueue();
+                    resetChunkProgress();
+                    
+                    for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                        updateUploadProgress(fileIdx + 1, totalFiles, file.name, chunkIdx + 1, totalChunks);
+                        
+                        const result = await uploadChunk(file, chunkIdx, totalChunks, uploadId);
+                        if (!result.success) {
+                            throw new Error(result.error || 'Upload failed');
+                        }
+                    }
+                    
+                    item.status = 'Uploaded';
+                    renderQueue();
+                }
+            }
+            
+            // Prepare file list for server processing
+            const allFiles = uploadQueue.map(item => ({
+                name: item.name,
+                type: item.type,
+                host: item.host,
+                source: item.source,
+                path: item.path || null
+            }));
+            
+            // ========================================
+            // STAGE 2-5: Server-side processing
+            // ========================================
             const response = await fetch('/api/upload/ingest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     caseUuid: CASE_UUID,
-                    files: files
+                    files: allFiles
                 })
             });
             
-            const result = await response.json();
+            // Stream progress updates
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
             
-            if (result.success) {
-                alert(`Successfully queued ${result.count} file(s) for ingestion.`);
-                uploadQueue = [];
-                renderQueue();
-            } else {
-                alert('Ingestion error: ' + (result.error || 'Unknown error'));
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep incomplete line in buffer
+                
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const update = JSON.parse(line);
+                        handleProgressUpdate(update);
+                    } catch (e) {
+                        console.log('Parse error:', line);
+                    }
+                }
             }
+            
+            // Process any remaining buffer
+            if (buffer.trim()) {
+                try {
+                    const update = JSON.parse(buffer);
+                    handleProgressUpdate(update);
+                } catch (e) {}
+            }
+            
         } catch (err) {
             console.error('Ingestion error:', err);
-            alert('Error starting ingestion. Please try again.');
+            alert('Error during ingestion: ' + err.message);
+            closeProgressModal();
         } finally {
             isIngesting = false;
             ingestBtn.disabled = false;
             ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
         }
     }
+    
+    function handleProgressUpdate(update) {
+        switch (update.stage) {
+            case 'extract':
+                showStage('extract');
+                updateExtractProgress(update.current, update.total, update.filename);
+                break;
+            case 'move':
+                showStage('move');
+                updateMoveProgress(update.current, update.total, update.filename);
+                break;
+            case 'hash':
+                showStage('hash');
+                updateHashProgress(update.current, update.total, update.filename);
+                break;
+            case 'cleanup':
+                showStage('cleanup');
+                break;
+            case 'complete':
+                uploadQueue = [];
+                renderQueue();
+                showComplete(`
+                    <p><strong>${update.ingested}</strong> files ingested</p>
+                    <p><strong>${update.extracted}</strong> files extracted from archives</p>
+                    ${update.errors.length > 0 ? `<p class="text-warning">${update.errors.length} errors</p>` : ''}
+                `);
+                break;
+            case 'error':
+                alert('Error: ' + update.message);
+                closeProgressModal();
+                break;
+        }
+    }
 
-    // Dropzone setup
+    // ========================================
+    // Dropzone Setup
+    // ========================================
+    
     document.addEventListener('DOMContentLoaded', function() {
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         
-        // Click to browse
         dropzone.addEventListener('click', () => fileInput.click());
         
-        // File input change
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             files.forEach(file => addToQueue(file, 'web'));
-            fileInput.value = ''; // Reset input
+            fileInput.value = '';
         });
         
-        // Drag and drop
         dropzone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropzone.classList.add('dragover');
@@ -537,7 +798,6 @@
         dropzone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropzone.classList.remove('dragover');
-            
             const files = Array.from(e.dataTransfer.files);
             files.forEach(file => addToQueue(file, 'web'));
         });
