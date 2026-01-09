@@ -363,7 +363,7 @@ def ingest_files():
                     filename = zf['name']
                     file_info = zf['file_info']
                     
-                    # Create extraction directory
+                    # Create extraction directory: staging/case_uuid/zipname/
                     extract_dir = os.path.join(staging_path, filename)
                     os.makedirs(extract_dir, exist_ok=True)
                     
@@ -372,33 +372,13 @@ def ingest_files():
                     except (PermissionError, LookupError):
                         pass
                     
-                    # Move zip file to staging first
-                    dest_zip_path = os.path.join(staging_path, filename)
-                    if os.path.exists(dest_zip_path):
-                        base, ext = os.path.splitext(filename)
-                        counter = 1
-                        while os.path.exists(dest_zip_path):
-                            dest_zip_path = os.path.join(staging_path, f'{base}_{counter}{ext}')
-                            counter += 1
-                    
-                    shutil.move(source_path, dest_zip_path)
-                    
-                    # Extract contents
-                    with zipfile.ZipFile(dest_zip_path, 'r') as zfile:
+                    # Extract directly from source path (don't move zip to staging)
+                    with zipfile.ZipFile(source_path, 'r') as zfile:
                         zfile.extractall(extract_dir)
                     
-                    # Track the parent zip file for hash stage
-                    processed_files.append({
-                        'path': dest_zip_path,
-                        'filename': os.path.basename(dest_zip_path),
-                        'original_filename': filename,
-                        'file_info': file_info,
-                        'is_archive': True,
-                        'is_extracted': False,
-                        'parent_id': None
-                    })
+                    # Zip will be deleted during cleanup of upload directories
                     
-                    # Track extracted files
+                    # Track extracted files only (zip itself is not kept)
                     for root, dirs, extracted_files_list in os.walk(extract_dir):
                         for extracted_name in extracted_files_list:
                             extracted_path = os.path.join(root, extracted_name)
@@ -409,8 +389,9 @@ def ingest_files():
                                 'original_filename': extracted_name,
                                 'file_info': file_info,
                                 'is_archive': CaseFile.is_zip_file(extracted_path),
-                                'is_extracted': True,
-                                'parent_zip': filename
+                                'is_extracted': False,  # These are the actual files now
+                                'parent_id': None,
+                                'source_zip': filename  # Track which zip it came from
                             })
                     
                     ingested_count += 1
@@ -475,7 +456,6 @@ def ingest_files():
         # PHASE 4: Calculate hashes and record metadata
         # =============================================
         total_processed = len(processed_files)
-        parent_zip_ids = {}  # Map zip filename to DB id
         
         for idx, pf in enumerate(processed_files):
             yield json.dumps({
@@ -490,15 +470,17 @@ def ingest_files():
                 file_size = os.path.getsize(file_path)
                 sha256_hash = CaseFile.calculate_sha256(file_path)
                 
-                # Determine parent_id for extracted files
-                parent_id = None
-                if pf['is_extracted'] and pf.get('parent_zip') in parent_zip_ids:
-                    parent_id = parent_zip_ids[pf['parent_zip']]
+                # Track source zip in filename if from extraction
+                source_zip = pf.get('source_zip')
+                display_filename = pf['filename']
+                if source_zip:
+                    # Prefix with zip name for context
+                    display_filename = f"{source_zip}/{pf['filename']}"
                 
                 case_file = CaseFile(
                     case_uuid=case_uuid,
-                    parent_id=parent_id,
-                    filename=pf['filename'],
+                    parent_id=None,  # No parent tracking - zip is deleted
+                    filename=display_filename,
                     original_filename=pf['original_filename'],
                     file_path=file_path,
                     file_size=file_size,
@@ -507,7 +489,7 @@ def ingest_files():
                     file_type=pf['file_info'].get('type', 'Other'),
                     upload_source=pf['file_info'].get('source', 'web'),
                     is_archive=pf['is_archive'],
-                    is_extracted=pf['is_extracted'],
+                    is_extracted=(source_zip is not None),
                     status='pending',
                     uploaded_by=uploaded_by
                 )
@@ -515,11 +497,7 @@ def ingest_files():
                 db.session.add(case_file)
                 db.session.flush()
                 
-                # Track zip file IDs for parent linking
-                if pf['is_archive'] and not pf['is_extracted']:
-                    parent_zip_ids[pf['original_filename']] = case_file.id
-                
-                if pf['is_extracted']:
+                if source_zip:
                     extracted_count += 1
                     
             except Exception as e:
