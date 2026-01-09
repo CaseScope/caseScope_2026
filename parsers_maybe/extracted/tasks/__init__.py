@@ -1,0 +1,39 @@
+"""CaseScope Tasks Package
+
+Celery tasks for asynchronous processing.
+
+Usage:
+    # Start Celery worker
+    celery -A tasks worker --loglevel=info
+    
+    # Start Celery Beat for scheduled tasks
+    celery -A tasks beat --loglevel=info
+    
+    # Queue a file for parsing
+    from tasks import parse_file_task
+    result = parse_file_task.delay('/path/to/file.evtx', case_id=123)
+    
+    # Process all pending files for a case
+    from tasks import process_case_files_task
+    result = process_case_files_task.delay(case_uuid='abc-123')
+"""
+
+from tasks.celery_tasks import (
+    celery_app,
+    parse_file_task,
+    process_case_files_task,
+    process_staging_directory_task,
+    delete_case_events_task,
+    update_hayabusa_rules_task,
+    get_case_stats_task,
+)
+
+__all__ = [
+    'celery_app',
+    'parse_file_task',
+    'process_case_files_task',
+    'process_staging_directory_task',
+    'delete_case_events_task',
+    'update_hayabusa_rules_task',
+    'get_case_stats_task',
+]

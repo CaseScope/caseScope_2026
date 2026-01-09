@@ -141,22 +141,22 @@ def get_event_stats(case_id):
     if total == 0:
         return {
             'total': 0,
-            'by_file_type': {},
+            'by_artifact_type': {},
             'by_channel': {},
             'earliest': None,
             'latest': None
         }
     
-    # By file_type
-    file_type_result = client.query(
-        """SELECT file_type, count() as cnt 
+    # By artifact_type
+    artifact_type_result = client.query(
+        """SELECT artifact_type, count() as cnt 
            FROM events 
            WHERE case_id = {case_id:UInt32} 
-           GROUP BY file_type 
+           GROUP BY artifact_type 
            ORDER BY cnt DESC""",
         parameters={'case_id': case_id}
     )
-    by_file_type = {row[0]: row[1] for row in file_type_result.result_rows}
+    by_artifact_type = {row[0]: row[1] for row in artifact_type_result.result_rows}
     
     # By channel
     channel_result = client.query(
@@ -182,7 +182,7 @@ def get_event_stats(case_id):
     
     return {
         'total': total,
-        'by_file_type': by_file_type,
+        'by_artifact_type': by_artifact_type,
         'by_channel': by_channel,
         'earliest': earliest,
         'latest': latest

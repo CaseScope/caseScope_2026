@@ -1,6 +1,19 @@
 {
-  "version": "3.10.0",
+  "version": "3.11.0",
   "changelog": [
+    {
+      "version": "3.11.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Full parsing pipeline with modular parser framework",
+        "12 artifact parsers: EVTX, Prefetch, Registry, LNK, JumpList, MFT, SRUM, IIS, Firewall, Huntress, JSON, CSV",
+        "Hayabusa v3.7.0 for EVTX parsing with 4800+ Sigma rules",
+        "Dissect framework for forensic artifact parsing",
+        "Celery tasks for async file processing",
+        "Parsing API routes at /api/parsing/",
+        "New ClickHouse schema optimized for DFIR with detection fields"
+      ]
+    },
     {
       "version": "3.10.0",
       "date": "2026-01-09",

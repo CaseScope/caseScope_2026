@@ -1,0 +1,416 @@
+"""Parsing API Routes for CaseScope
+
+Provides endpoints for:
+- Triggering file parsing
+- Checking parse status
+- Managing parsing tasks
+"""
+import os
+import logging
+from flask import Blueprint, jsonify, request
+from flask_login import login_required, current_user
+
+from models.database import db
+from models.case import Case
+from models.case_file import CaseFile
+from config import Config
+
+logger = logging.getLogger(__name__)
+
+parsing_bp = Blueprint('parsing', __name__, url_prefix='/api/parsing')
+
+
+@parsing_bp.route('/detect-type', methods=['POST'])
+@login_required
+def detect_file_type():
+    """Detect the artifact type of a file
+    
+    Request JSON:
+        file_path: Path to the file
+        
+    Returns:
+        JSON with detected artifact type
+    """
+    try:
+        from parsers import get_registry
+        
+        data = request.get_json()
+        file_path = data.get('file_path')
+        
+        if not file_path:
+            return jsonify({'success': False, 'error': 'file_path required'}), 400
+        
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'File not found'}), 404
+        
+        registry = get_registry()
+        artifact_type = registry.detect_type(file_path)
+        
+        return jsonify({
+            'success': True,
+            'file_path': file_path,
+            'artifact_type': artifact_type,
+            'parseable': artifact_type is not None,
+        })
+        
+    except Exception as e:
+        logger.exception("Error detecting file type")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/parsers', methods=['GET'])
+@login_required
+def list_parsers():
+    """List all available parsers
+    
+    Returns:
+        JSON with parser information
+    """
+    try:
+        from parsers import get_registry
+        
+        registry = get_registry()
+        parsers = registry.list_parsers()
+        
+        return jsonify({
+            'success': True,
+            'parsers': parsers,
+            'count': len(parsers),
+        })
+        
+    except Exception as e:
+        logger.exception("Error listing parsers")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/process/file', methods=['POST'])
+@login_required
+def process_single_file():
+    """Queue a single file for parsing
+    
+    Request JSON:
+        case_uuid: Case UUID
+        case_file_id: CaseFile ID
+        
+    Returns:
+        JSON with task ID
+    """
+    try:
+        from tasks import parse_file_task
+        
+        data = request.get_json()
+        case_uuid = data.get('case_uuid')
+        case_file_id = data.get('case_file_id')
+        
+        if not case_uuid:
+            return jsonify({'success': False, 'error': 'case_uuid required'}), 400
+        
+        if not case_file_id:
+            return jsonify({'success': False, 'error': 'case_file_id required'}), 400
+        
+        # Get case
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get case file
+        case_file = CaseFile.query.get(case_file_id)
+        if not case_file or case_file.case_uuid != case_uuid:
+            return jsonify({'success': False, 'error': 'CaseFile not found'}), 404
+        
+        if not case_file.file_path or not os.path.exists(case_file.file_path):
+            return jsonify({'success': False, 'error': 'File not found on disk'}), 404
+        
+        # Update status
+        case_file.status = 'queued'
+        db.session.commit()
+        
+        # Queue task
+        task = parse_file_task.delay(
+            file_path=case_file.file_path,
+            case_id=case.id,
+            source_host=case_file.hostname or '',
+            case_file_id=case_file.id,
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'case_file_id': case_file.id,
+            'filename': case_file.filename,
+        })
+        
+    except Exception as e:
+        logger.exception("Error queuing file for parsing")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/process/case', methods=['POST'])
+@login_required
+def process_case_files():
+    """Queue all pending files for a case
+    
+    Request JSON:
+        case_uuid: Case UUID
+        file_ids: Optional list of specific file IDs
+        
+    Returns:
+        JSON with queued task info
+    """
+    try:
+        from tasks import process_case_files_task
+        
+        data = request.get_json()
+        case_uuid = data.get('case_uuid')
+        file_ids = data.get('file_ids')
+        
+        if not case_uuid:
+            return jsonify({'success': False, 'error': 'case_uuid required'}), 400
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Queue task
+        task = process_case_files_task.delay(
+            case_uuid=case_uuid,
+            file_ids=file_ids,
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'case_uuid': case_uuid,
+        })
+        
+    except Exception as e:
+        logger.exception("Error queuing case files for parsing")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/process/staging', methods=['POST'])
+@login_required
+def process_staging_directory():
+    """Process all files in a case's staging directory
+    
+    Request JSON:
+        case_uuid: Case UUID
+        
+    Returns:
+        JSON with queued task info
+    """
+    try:
+        from tasks import process_staging_directory_task
+        
+        data = request.get_json()
+        case_uuid = data.get('case_uuid')
+        
+        if not case_uuid:
+            return jsonify({'success': False, 'error': 'case_uuid required'}), 400
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Check staging directory exists
+        staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
+        if not os.path.isdir(staging_path):
+            return jsonify({'success': False, 'error': 'Staging directory not found'}), 404
+        
+        # Queue task
+        task = process_staging_directory_task.delay(
+            case_uuid=case_uuid,
+            staging_path=staging_path,
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'case_uuid': case_uuid,
+            'staging_path': staging_path,
+        })
+        
+    except Exception as e:
+        logger.exception("Error queuing staging directory for parsing")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/task/<task_id>', methods=['GET'])
+@login_required
+def get_task_status(task_id):
+    """Get status of a parsing task
+    
+    Args:
+        task_id: Celery task ID
+        
+    Returns:
+        JSON with task status
+    """
+    try:
+        from tasks import celery_app
+        
+        result = celery_app.AsyncResult(task_id)
+        
+        response = {
+            'task_id': task_id,
+            'status': result.status,
+            'ready': result.ready(),
+        }
+        
+        if result.ready():
+            if result.successful():
+                response['result'] = result.result
+            else:
+                response['error'] = str(result.result) if result.result else 'Unknown error'
+        elif result.status == 'PROCESSING':
+            response['meta'] = result.info
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.exception(f"Error getting task status: {task_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/stats/<case_uuid>', methods=['GET'])
+@login_required
+def get_case_event_stats(case_uuid):
+    """Get event statistics for a case
+    
+    Args:
+        case_uuid: Case UUID
+        
+    Returns:
+        JSON with event statistics
+    """
+    try:
+        from utils.clickhouse import get_event_stats
+        
+        # Get case
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        stats = get_event_stats(case.id)
+        stats['success'] = True
+        stats['case_uuid'] = case_uuid
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.exception(f"Error getting stats for case: {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/delete-events/<case_uuid>', methods=['DELETE'])
+@login_required
+def delete_case_events(case_uuid):
+    """Delete all events for a case from ClickHouse
+    
+    Args:
+        case_uuid: Case UUID
+        
+    Returns:
+        JSON with deletion status
+    """
+    try:
+        from tasks import delete_case_events_task
+        
+        # Get case
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Queue deletion task
+        task = delete_case_events_task.delay(case_id=case.id)
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'case_uuid': case_uuid,
+            'message': 'Event deletion queued',
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error deleting events for case: {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/files/<case_uuid>', methods=['GET'])
+@login_required
+def get_case_file_status(case_uuid):
+    """Get parsing status of all files for a case
+    
+    Args:
+        case_uuid: Case UUID
+        
+    Returns:
+        JSON with file statuses
+    """
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get all case files
+        files = CaseFile.query.filter_by(case_uuid=case_uuid).order_by(CaseFile.uploaded_at.desc()).all()
+        
+        # Group by status
+        status_counts = {}
+        file_list = []
+        
+        for cf in files:
+            status_counts[cf.status] = status_counts.get(cf.status, 0) + 1
+            file_list.append({
+                'id': cf.id,
+                'filename': cf.filename,
+                'file_type': cf.file_type,
+                'hostname': cf.hostname,
+                'status': cf.status,
+                'file_size': cf.file_size,
+                'uploaded_at': cf.uploaded_at.isoformat() if cf.uploaded_at else None,
+                'processed_at': cf.processed_at.isoformat() if cf.processed_at else None,
+            })
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'total_files': len(files),
+            'status_counts': status_counts,
+            'files': file_list,
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting file status for case: {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/update-rules', methods=['POST'])
+@login_required
+def update_hayabusa_rules():
+    """Update Hayabusa detection rules
+    
+    Returns:
+        JSON with update task info
+    """
+    try:
+        from tasks import update_hayabusa_rules_task
+        
+        # Admin only
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        task = update_hayabusa_rules_task.delay()
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Rule update queued',
+        })
+        
+    except Exception as e:
+        logger.exception("Error queuing rule update")
+        return jsonify({'success': False, 'error': str(e)}), 500

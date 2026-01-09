@@ -72,10 +72,12 @@ def create_app():
     from routes.main import main_bp
     from routes.auth import auth_bp
     from routes.api import api_bp
+    from routes.parsing import parsing_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(parsing_bp)
     
     # Create database tables
     with app.app_context():

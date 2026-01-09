@@ -17,6 +17,8 @@ class Config:
     STORAGE_FOLDER = os.path.join(BASE_DIR, 'storage')
     STAGING_FOLDER = os.path.join(BASE_DIR, 'staging')
     LOG_FOLDER = os.path.join(BASE_DIR, 'logs')
+    BIN_FOLDER = os.path.join(BASE_DIR, 'bin')
+    RULES_FOLDER = os.path.join(BASE_DIR, 'rules')
     
     # SSL
     SSL_CERT = os.environ.get('SSL_CERT') or '/opt/casescope/ssl/cert.pem'
@@ -32,6 +34,24 @@ class Config:
     CLICKHOUSE_DATABASE = os.environ.get('CLICKHOUSE_DATABASE') or 'casescope'
     CLICKHOUSE_USER = os.environ.get('CLICKHOUSE_USER') or 'default'
     CLICKHOUSE_PASSWORD = os.environ.get('CLICKHOUSE_PASSWORD') or ''
+    CLICKHOUSE_USE_BUFFER = True  # Use buffer table for faster ingestion
+    
+    # Redis / Celery
+    REDIS_HOST = os.environ.get('REDIS_HOST') or 'localhost'
+    REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+    REDIS_DB = int(os.environ.get('REDIS_DB', 0))
+    CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL') or f'redis://localhost:6379/0'
+    CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND') or f'redis://localhost:6379/0'
+    
+    # Hayabusa Configuration
+    HAYABUSA_BIN = os.environ.get('HAYABUSA_BIN') or os.path.join(BASE_DIR, 'bin', 'hayabusa')
+    HAYABUSA_RULES = os.environ.get('HAYABUSA_RULES') or os.path.join(BASE_DIR, 'rules')
+    HAYABUSA_PROFILE = os.environ.get('HAYABUSA_PROFILE') or 'all-field-info'
+    HAYABUSA_MIN_LEVEL = os.environ.get('HAYABUSA_MIN_LEVEL') or 'informational'
+    
+    # Parser Configuration
+    PARSER_BATCH_SIZE = int(os.environ.get('PARSER_BATCH_SIZE', 10000))
+    PARSER_MAX_MFT_ENTRIES = int(os.environ.get('PARSER_MAX_MFT_ENTRIES', 100000))
 
 
 class UserSettings:
