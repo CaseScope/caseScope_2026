@@ -3,12 +3,14 @@ import os
 import platform
 import subprocess
 import shutil
+import zipfile
 from datetime import datetime
 from flask import Blueprint, jsonify, request
-from flask_login import login_required
+from flask_login import login_required, current_user
 from models.database import db
 from models.user import User
 from models.case import Case
+from models.case_file import CaseFile
 from config import Config
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -141,25 +143,28 @@ def dashboard_stats():
 WEB_UPLOAD_DIR = '/opt/casescope/uploads/web'
 SFTP_UPLOAD_DIR = '/opt/casescope/uploads/sftp'
 CHUNK_TEMP_DIR = '/opt/casescope/uploads/temp'
+STAGING_DIR = '/opt/casescope/staging'
 
 
 def ensure_upload_dirs(case_uuid):
     """Ensure upload directories exist for a case"""
     web_path = os.path.join(WEB_UPLOAD_DIR, case_uuid)
     sftp_path = os.path.join(SFTP_UPLOAD_DIR, case_uuid)
+    staging_path = os.path.join(STAGING_DIR, case_uuid)
     
     os.makedirs(web_path, exist_ok=True)
     os.makedirs(sftp_path, exist_ok=True)
+    os.makedirs(staging_path, exist_ok=True)
     os.makedirs(CHUNK_TEMP_DIR, exist_ok=True)
     
     # Set permissions to casescope user
-    try:
-        shutil.chown(web_path, user='casescope', group='casescope')
-        shutil.chown(sftp_path, user='casescope', group='casescope')
-    except (PermissionError, LookupError):
-        pass  # May not have permission to chown
+    for path in [web_path, sftp_path, staging_path]:
+        try:
+            shutil.chown(path, user='casescope', group='casescope')
+        except (PermissionError, LookupError):
+            pass  # May not have permission to chown
     
-    return web_path, sftp_path
+    return web_path, sftp_path, staging_path
 
 
 @api_bp.route('/upload/scan/<case_uuid>')
@@ -172,7 +177,7 @@ def scan_upload_folder(case_uuid):
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
-        _, sftp_path = ensure_upload_dirs(case_uuid)
+        _, sftp_path, _ = ensure_upload_dirs(case_uuid)
         
         files = []
         if os.path.exists(sftp_path):
@@ -218,7 +223,7 @@ def upload_chunk():
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
         # Ensure directories exist
-        web_path, _ = ensure_upload_dirs(case_uuid)
+        web_path, _, _ = ensure_upload_dirs(case_uuid)
         
         # Create temp directory for this upload
         temp_dir = os.path.join(CHUNK_TEMP_DIR, upload_id)
@@ -274,10 +279,138 @@ def upload_chunk():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def process_single_file(source_path, case_uuid, staging_path, file_info, uploaded_by, parent_id=None):
+    """Process a single file: move to staging, calculate hash, create DB record
+    
+    Returns: CaseFile record or None on error
+    """
+    filename = os.path.basename(source_path)
+    file_size = os.path.getsize(source_path)
+    
+    # Determine destination path
+    if parent_id:
+        # This is an extracted file - path already set by caller
+        dest_path = source_path
+    else:
+        dest_path = os.path.join(staging_path, filename)
+        
+        # Avoid filename collisions
+        if os.path.exists(dest_path):
+            base, ext = os.path.splitext(filename)
+            counter = 1
+            while os.path.exists(dest_path):
+                dest_path = os.path.join(staging_path, f'{base}_{counter}{ext}')
+                counter += 1
+        
+        # Move file to staging
+        shutil.move(source_path, dest_path)
+    
+    # Calculate SHA256 hash
+    sha256_hash = CaseFile.calculate_sha256(dest_path)
+    
+    # Check if file is a zip archive
+    is_archive = CaseFile.is_zip_file(dest_path)
+    
+    # Create database record
+    case_file = CaseFile(
+        case_uuid=case_uuid,
+        parent_id=parent_id,
+        filename=os.path.basename(dest_path),
+        original_filename=filename,
+        file_path=dest_path,
+        file_size=file_size,
+        sha256_hash=sha256_hash,
+        hostname=file_info.get('host', ''),
+        file_type=file_info.get('type', 'Other'),
+        upload_source=file_info.get('source', 'web'),
+        is_archive=is_archive,
+        is_extracted=(parent_id is not None),
+        status='pending',
+        uploaded_by=uploaded_by
+    )
+    
+    db.session.add(case_file)
+    db.session.flush()  # Get the ID assigned
+    
+    # Set file ownership
+    try:
+        shutil.chown(dest_path, user='casescope', group='casescope')
+    except (PermissionError, LookupError):
+        pass
+    
+    return case_file
+
+
+def extract_and_process_zip(zip_file_record, staging_path, file_info, uploaded_by):
+    """Extract zip file and process all extracted files
+    
+    Returns: List of CaseFile records for extracted files
+    """
+    extracted_files = []
+    zip_path = zip_file_record.file_path
+    
+    # Create extraction directory: staging/case_uuid/zipfile.ext/
+    extract_dir = os.path.join(staging_path, zip_file_record.original_filename)
+    os.makedirs(extract_dir, exist_ok=True)
+    
+    try:
+        shutil.chown(extract_dir, user='casescope', group='casescope')
+    except (PermissionError, LookupError):
+        pass
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Extract all files
+            zf.extractall(extract_dir)
+            
+            # Walk through extracted files and create records
+            for root, dirs, files in os.walk(extract_dir):
+                for filename in files:
+                    extracted_path = os.path.join(root, filename)
+                    file_size = os.path.getsize(extracted_path)
+                    sha256_hash = CaseFile.calculate_sha256(extracted_path)
+                    
+                    # Relative path within extraction folder
+                    rel_path = os.path.relpath(extracted_path, extract_dir)
+                    
+                    # Create database record for extracted file
+                    extracted_file = CaseFile(
+                        case_uuid=zip_file_record.case_uuid,
+                        parent_id=zip_file_record.id,
+                        filename=rel_path,  # Preserve folder structure in filename
+                        original_filename=filename,
+                        file_path=extracted_path,
+                        file_size=file_size,
+                        sha256_hash=sha256_hash,
+                        hostname=file_info.get('host', ''),
+                        file_type=file_info.get('type', 'Other'),
+                        upload_source=file_info.get('source', 'web'),
+                        is_archive=CaseFile.is_zip_file(extracted_path),
+                        is_extracted=True,
+                        status='pending',
+                        uploaded_by=uploaded_by
+                    )
+                    
+                    db.session.add(extracted_file)
+                    extracted_files.append(extracted_file)
+                    
+                    # Set file ownership
+                    try:
+                        shutil.chown(extracted_path, user='casescope', group='casescope')
+                    except (PermissionError, LookupError):
+                        pass
+    
+    except zipfile.BadZipFile:
+        # Not a valid zip file - mark as not an archive
+        zip_file_record.is_archive = False
+    
+    return extracted_files
+
+
 @api_bp.route('/upload/ingest', methods=['POST'])
 @login_required
 def ingest_files():
-    """Queue files for ingestion processing"""
+    """Process and ingest files: move to staging, extract zips, create DB records"""
     try:
         data = request.get_json()
         case_uuid = data.get('caseUuid')
@@ -294,19 +427,62 @@ def ingest_files():
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
-        # For now, just log the ingestion request
-        # In the future, this will queue Celery tasks for processing
+        # Get directory paths
+        web_path, sftp_path, staging_path = ensure_upload_dirs(case_uuid)
+        
+        uploaded_by = current_user.username
         ingested_count = 0
+        extracted_count = 0
+        errors = []
+        
         for file_info in files:
-            # TODO: Create ingestion task for each file
-            # This will be implemented when we add the parsers
-            ingested_count += 1
+            try:
+                filename = file_info.get('name')
+                source = file_info.get('source', 'web')
+                
+                # Determine source path
+                if source == 'folder':
+                    source_path = file_info.get('path')
+                    if not source_path or not os.path.exists(source_path):
+                        errors.append(f'File not found: {filename}')
+                        continue
+                else:
+                    # Web upload - file should be in web upload dir
+                    source_path = os.path.join(web_path, filename)
+                    if not os.path.exists(source_path):
+                        errors.append(f'File not found: {filename}')
+                        continue
+                
+                # Process the file
+                case_file = process_single_file(
+                    source_path, case_uuid, staging_path, 
+                    file_info, uploaded_by
+                )
+                
+                if case_file:
+                    ingested_count += 1
+                    
+                    # If it's a zip file, extract and process contents
+                    if case_file.is_archive:
+                        extracted = extract_and_process_zip(
+                            case_file, staging_path, file_info, uploaded_by
+                        )
+                        extracted_count += len(extracted)
+            
+            except Exception as e:
+                errors.append(f'Error processing {file_info.get("name", "unknown")}: {str(e)}')
+        
+        # Commit all database changes
+        db.session.commit()
         
         return jsonify({
             'success': True,
             'count': ingested_count,
-            'message': f'Queued {ingested_count} files for ingestion'
+            'extracted_count': extracted_count,
+            'errors': errors,
+            'message': f'Ingested {ingested_count} files, extracted {extracted_count} files from archives'
         })
         
     except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500

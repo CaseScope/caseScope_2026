@@ -82,6 +82,7 @@ def create_app():
         # Import all models so they're registered before create_all
         from models.user import User
         from models.case import Case
+        from models.case_file import CaseFile
         db.create_all()
         
         # Create default admin user if not exists

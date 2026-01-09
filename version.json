@@ -1,6 +1,18 @@
 {
-  "version": "3.6.0",
+  "version": "3.7.0",
   "changelog": [
+    {
+      "version": "3.7.0",
+      "date": "2026-01-09",
+      "changes": [
+        "CaseFile model for tracking uploaded files in database",
+        "File ingestion moves files to staging/case_uuid/",
+        "Automatic zip file detection and extraction",
+        "Zip files extract to staging/case_uuid/zipfile.ext/",
+        "SHA256 hash calculation for all files",
+        "Parent-child relationship tracking for extracted files"
+      ]
+    },
     {
       "version": "3.6.0",
       "date": "2026-01-09",
