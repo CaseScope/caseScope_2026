@@ -240,6 +240,40 @@ class ParserRegistry:
             ))
         except ImportError as e:
             logger.warning(f"Could not register Firefox JSONLZ4 parser: {e}")
+        
+        # Windows artifact parsers
+        try:
+            from parsers.windows_parsers import ScheduledTaskParser
+            self.register(FileTypeMapping(
+                artifact_type='scheduled_task',
+                parser_class=ScheduledTaskParser,
+                filename_patterns=['/tasks/'],
+                priority=15,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register ScheduledTask parser: {e}")
+        
+        try:
+            from parsers.windows_parsers import ActivitiesCacheParser
+            self.register(FileTypeMapping(
+                artifact_type='activities_cache',
+                parser_class=ActivitiesCacheParser,
+                filename_patterns=['activitiescache.db'],
+                priority=10,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register ActivitiesCache parser: {e}")
+        
+        try:
+            from parsers.windows_parsers import WebCacheParser
+            self.register(FileTypeMapping(
+                artifact_type='webcache',
+                parser_class=WebCacheParser,
+                filename_patterns=['webcachev01.dat', 'webcachev24.dat'],
+                priority=10,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register WebCache parser: {e}")
     
     def register(self, mapping: FileTypeMapping):
         """Register a parser mapping"""

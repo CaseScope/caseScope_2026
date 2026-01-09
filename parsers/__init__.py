@@ -41,6 +41,16 @@ Available Parsers:
       - Search engines
       - Extensions/Addons
       - Protocol handlers
+    - scheduled_task: Windows Task Scheduler XML files
+      - Task definitions (triggers, actions, commands)
+      - Persistence analysis
+    - activities_cache: Windows Timeline ActivitiesCache.db
+      - Application usage history
+      - File access history
+      - Focus time data
+    - webcache: IE/Edge WebCache ESE database
+      - Browsing history
+      - Cookies, downloads, cache
 """
 
 from parsers.base import BaseParser, ParsedEvent, ParseResult
