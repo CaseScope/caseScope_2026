@@ -772,10 +772,8 @@
             // Show a brief "checking" message
             hideAllStages();
             document.getElementById('stageUpload').style.display = 'block';
-            document.getElementById('uploadFileProgress').textContent = 'Checking for duplicates...';
-            document.getElementById('uploadFilename').textContent = '';
-            document.getElementById('uploadProgressPercent').textContent = '';
-            document.querySelector('#stageUpload .progress-bar').style.width = '100%';
+            document.getElementById('uploadFileName').textContent = 'Checking for duplicates...';
+            document.getElementById('uploadFileBar').style.width = '100%';
             
             const allFiles = uploadQueue.map(item => ({
                 name: item.name,
@@ -912,6 +910,19 @@
                 break;
             case 'cleanup':
                 showStage('cleanup');
+                break;
+            case 'parsing':
+                // Show cleanup stage with parsing message
+                showStage('cleanup');
+                document.querySelector('#stageCleanup .progress-heading').textContent = 'Queuing Files for Parsing...';
+                break;
+            case 'parsing_queued':
+                // Update with queued count
+                document.querySelector('#stageCleanup .progress-heading').textContent = 
+                    `Queued ${update.queued_count} files for parsing`;
+                break;
+            case 'parsing_error':
+                console.warn('Parsing queue error:', update.error);
                 break;
             case 'complete':
                 uploadQueue = [];
