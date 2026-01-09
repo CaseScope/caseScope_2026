@@ -3,3 +3,4 @@ fastembed
 pyyaml
 psycopg2-binary
 pgvector
+clickhouse-driver

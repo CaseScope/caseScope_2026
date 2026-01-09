@@ -174,6 +174,26 @@ OPENSEARCH_TOTAL_FIELDS_LIMIT = 50000  # Maximum number of fields per index (def
 OPENSEARCH_NESTED_FIELDS_LIMIT = 500   # Maximum number of nested fields (default: 100)
 
 # ============================================================================
+# CLICKHOUSE SETTINGS (User Adjustable)
+# ============================================================================
+
+# ClickHouse connection (primary event storage - faster than OpenSearch for analytics)
+CLICKHOUSE_HOST = 'localhost'
+CLICKHOUSE_PORT = 9000  # Native port (not HTTP 8123)
+CLICKHOUSE_DATABASE = 'casescope'
+CLICKHOUSE_USER = 'default'
+CLICKHOUSE_PASSWORD = ''
+
+# Event storage backend - 'clickhouse' or 'opensearch'
+# ClickHouse: 10-50x faster for analytics/timelines, good for Google-style search
+# OpenSearch: Better for complex full-text search, fuzzy matching
+EVENT_STORAGE_BACKEND = 'clickhouse'
+
+# ClickHouse bulk insert settings
+CLICKHOUSE_BATCH_SIZE = 10000  # Events per batch insert (higher = faster)
+CLICKHOUSE_INSERT_TIMEOUT = 300  # Seconds to wait for insert
+
+# ============================================================================
 # FLASK CONFIGURATION (Advanced - Do Not Edit Unless You Know What You're Doing)
 # ============================================================================
 
