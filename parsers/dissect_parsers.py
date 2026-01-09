@@ -390,9 +390,13 @@ class RegistryParser(BaseParser):
 
 
 class LnkParser(BaseParser):
-    """Parser for Windows LNK/Shortcut files using dissect.shellitem"""
+    """Parser for Windows LNK/Shortcut files using dissect.shellitem
     
-    VERSION = '1.0.0'
+    Extracts target path, timestamps, arguments, and other metadata from
+    Windows shortcut files.
+    """
+    
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'lnk'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
@@ -424,8 +428,18 @@ class LnkParser(BaseParser):
         except Exception:
             return False
     
+    def _convert_wintime(self, wintime) -> Optional[datetime]:
+        """Convert Windows FILETIME to datetime"""
+        if not wintime or wintime == 0:
+            return None
+        try:
+            from dissect.util import ts
+            return ts.wintimestamp(wintime)
+        except Exception:
+            return None
+    
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse LNK file"""
+        """Parse LNK file using dissect.shellitem"""
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
@@ -436,79 +450,151 @@ class LnkParser(BaseParser):
         try:
             from dissect.shellitem.lnk import Lnk
             
-            lnk = Lnk(open(file_path, 'rb'))
-            
-            # Extract target path
-            target_path = None
-            if hasattr(lnk, 'target_path'):
-                target_path = str(lnk.target_path)
-            elif hasattr(lnk, 'local_base_path'):
-                target_path = str(lnk.local_base_path)
-            
-            # Extract timestamps
-            creation_time = None
-            modification_time = None
-            access_time = None
-            
-            if hasattr(lnk, 'creation_time'):
-                creation_time = lnk.creation_time
-            if hasattr(lnk, 'modification_time'):
-                modification_time = lnk.modification_time
-            if hasattr(lnk, 'access_time'):
-                access_time = lnk.access_time
-            
-            # Use modification time as primary timestamp
-            timestamp = modification_time or creation_time or access_time
-            if timestamp and not isinstance(timestamp, datetime):
-                timestamp = self.parse_timestamp(str(timestamp))
-            if not timestamp:
-                timestamp = datetime.now()
-            
-            # Extract other metadata
-            working_dir = str(lnk.working_directory) if hasattr(lnk, 'working_directory') and lnk.working_directory else None
-            arguments = str(lnk.command_line_arguments) if hasattr(lnk, 'command_line_arguments') and lnk.command_line_arguments else None
-            icon_location = str(lnk.icon_location) if hasattr(lnk, 'icon_location') and lnk.icon_location else None
-            
-            # Machine ID (if available)
-            machine_id = None
-            if hasattr(lnk, 'tracker_data') and lnk.tracker_data:
-                machine_id = str(lnk.tracker_data.machine_id) if hasattr(lnk.tracker_data, 'machine_id') else None
-            
-            raw_data = {
-                'lnk_file': source_file,
-                'target_path': target_path,
-                'working_directory': working_dir,
-                'arguments': arguments,
-                'icon_location': icon_location,
-                'creation_time': str(creation_time) if creation_time else None,
-                'modification_time': str(modification_time) if modification_time else None,
-                'access_time': str(access_time) if access_time else None,
-                'machine_id': machine_id,
-            }
-            
-            # Build search blob
-            search_parts = [source_file]
-            if target_path:
-                search_parts.append(target_path)
-            if arguments:
-                search_parts.append(arguments)
-            if working_dir:
-                search_parts.append(working_dir)
-            
-            yield ParsedEvent(
-                case_id=self.case_id,
-                artifact_type=self.artifact_type,
-                timestamp=timestamp,
-                source_file=source_file,
-                source_path=file_path,
-                source_host=hostname,
-                case_file_id=self.case_file_id,
-                target_path=target_path,
-                command_line=arguments,
-                raw_json=json.dumps(raw_data, default=str),
-                search_blob=' '.join(search_parts),
-                parser_version=self.parser_version,
-            )
+            with open(file_path, 'rb') as fh:
+                lnk = Lnk(fh)
+                
+                # === Extract target path from linkinfo ===
+                target_path = None
+                if lnk.linkinfo:
+                    if hasattr(lnk.linkinfo, 'local_base_path') and lnk.linkinfo.local_base_path:
+                        target_path = lnk.linkinfo.local_base_path
+                        if isinstance(target_path, bytes):
+                            target_path = target_path.decode('utf-8', errors='replace')
+                    elif hasattr(lnk.linkinfo, 'local_base_path_unicode') and lnk.linkinfo.local_base_path_unicode:
+                        target_path = str(lnk.linkinfo.local_base_path_unicode)
+                
+                # === Extract string data (relative path, arguments, etc.) ===
+                relative_path = None
+                arguments = None
+                working_dir = None
+                icon_location = None
+                
+                if lnk.stringdata and hasattr(lnk.stringdata, 'string_data'):
+                    sd = lnk.stringdata.string_data
+                    if isinstance(sd, dict):
+                        if 'relative_path' in sd:
+                            relative_path = sd['relative_path'].string
+                        if 'command_line_arguments' in sd:
+                            arguments = sd['command_line_arguments'].string
+                        if 'working_dir' in sd:
+                            working_dir = sd['working_dir'].string
+                        if 'icon_location' in sd:
+                            icon_location = sd['icon_location'].string
+                
+                # Fall back to relative path if no absolute target
+                if not target_path and relative_path:
+                    target_path = relative_path
+                
+                # === Extract timestamps from link_header ===
+                creation_time = None
+                access_time = None
+                write_time = None
+                file_size = None
+                
+                if lnk.link_header:
+                    hdr = lnk.link_header
+                    creation_time = self._convert_wintime(getattr(hdr, 'creation_time', None))
+                    access_time = self._convert_wintime(getattr(hdr, 'access_time', None))
+                    write_time = self._convert_wintime(getattr(hdr, 'write_time', None))
+                    file_size = getattr(hdr, 'filesize', None)
+                
+                # Use access time as primary (most recent interaction)
+                timestamp = access_time or write_time or creation_time
+                if not timestamp:
+                    timestamp = datetime.now()
+                
+                # === Extract tracker data (machine ID) from extradata ===
+                machine_id = None
+                mac_address = None
+                volume_droid = None
+                file_droid = None
+                
+                if lnk.extradata and hasattr(lnk.extradata, 'extradata'):
+                    ed_dict = lnk.extradata.extradata
+                    if isinstance(ed_dict, dict):
+                        # TRACKER_PROPS contains machine ID and file tracking info
+                        tracker = ed_dict.get('TRACKER_PROPS')
+                        if tracker:
+                            if hasattr(tracker, 'machine_id'):
+                                mid = tracker.machine_id
+                                if isinstance(mid, bytes):
+                                    machine_id = mid.decode('utf-8', errors='replace').rstrip('\x00')
+                                else:
+                                    machine_id = str(mid)
+                            if hasattr(tracker, 'volume_droid'):
+                                volume_droid = str(tracker.volume_droid)
+                            if hasattr(tracker, 'file_droid'):
+                                file_droid = str(tracker.file_droid)
+                
+                # === Extract process name from target ===
+                process_name = ''
+                if target_path:
+                    # Get filename from path
+                    process_name = os.path.basename(target_path.replace('\\', '/'))
+                
+                # === Build raw data ===
+                raw_data = {
+                    'lnk_file': source_file,
+                    'target_path': target_path,
+                    'relative_path': relative_path,
+                    'arguments': arguments,
+                    'working_directory': working_dir,
+                    'icon_location': icon_location,
+                    'creation_time': str(creation_time) if creation_time else None,
+                    'access_time': str(access_time) if access_time else None,
+                    'write_time': str(write_time) if write_time else None,
+                    'file_size': file_size,
+                    'machine_id': machine_id,
+                    'volume_droid': volume_droid,
+                    'file_droid': file_droid,
+                }
+                # Remove None values
+                raw_data = {k: v for k, v in raw_data.items() if v is not None}
+                
+                # === Build search blob ===
+                search_parts = [source_file]
+                if target_path:
+                    search_parts.append(target_path)
+                if relative_path and relative_path != target_path:
+                    search_parts.append(relative_path)
+                if arguments:
+                    search_parts.append(arguments)
+                if working_dir:
+                    search_parts.append(working_dir)
+                if machine_id:
+                    search_parts.append(machine_id)
+                
+                # === Build extra fields ===
+                extra = {
+                    'relative_path': relative_path,
+                    'working_directory': working_dir,
+                    'icon_location': icon_location,
+                    'creation_time': str(creation_time) if creation_time else None,
+                    'write_time': str(write_time) if write_time else None,
+                    'file_size': file_size,
+                    'machine_id': machine_id,
+                    'volume_droid': volume_droid,
+                    'file_droid': file_droid,
+                }
+                extra = {k: v for k, v in extra.items() if v is not None}
+                
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type=self.artifact_type,
+                    timestamp=timestamp,
+                    source_file=source_file,
+                    source_path=file_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    process_name=process_name,
+                    target_path=target_path,
+                    command_line=arguments,
+                    file_size=file_size,
+                    raw_json=json.dumps(raw_data, default=str),
+                    search_blob=' '.join(str(p) for p in search_parts if p),
+                    extra_fields=json.dumps(extra, default=str),
+                    parser_version=self.parser_version,
+                )
             
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")

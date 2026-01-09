@@ -1,6 +1,15 @@
 {
-  "version": "3.13.1",
+  "version": "3.13.2",
   "changelog": [
+    {
+      "version": "3.13.2",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed LnkParser v2.0 to use dissect.shellitem API",
+        "Extracts target_path, arguments, timestamps, machine_id, volume/file droids",
+        "Tested and verified ClickHouse indexing"
+      ]
+    },
     {
       "version": "3.13.1",
       "date": "2026-01-09",
