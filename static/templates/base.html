@@ -28,17 +28,17 @@
                 
                 <!-- Cases Section -->
                 <div class="nav-section">
-                    <div class="nav-section-title">Cases</div>
+                    <div class="nav-section-title">Cases{% if active_case %} - {{ active_case.name[:20] }}{% if active_case.name|length > 20 %}...{% endif %}{% endif %}</div>
                 </div>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Case Dashboard' else '' }}">
+                <a href="{{ url_for('main.case_dashboard') }}" class="nav-item {{ 'active' if page_title == 'Case Dashboard' else '' }}">
                     <span class="nav-item-icon">📁</span>
                     <span class="nav-item-text">Dashboard</span>
                 </a>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Case Files' else '' }}">
+                <a href="{{ url_for('main.case_files') }}" class="nav-item {{ 'active' if page_title == 'Case Files' else '' }}">
                     <span class="nav-item-icon">📄</span>
                     <span class="nav-item-text">Files</span>
                 </a>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Hunting' else '' }}">
+                <a href="{{ url_for('main.case_hunting') }}" class="nav-item {{ 'active' if page_title == 'Hunting' else '' }}">
                     <span class="nav-item-icon">🎯</span>
                     <span class="nav-item-text">Hunting</span>
                 </a>

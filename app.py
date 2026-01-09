@@ -1,7 +1,7 @@
 """CaseScope Application Factory"""
 import json
 import os
-from flask import Flask, redirect, url_for
+from flask import Flask, redirect, url_for, session
 from flask_login import LoginManager, current_user
 from config import Config, UserSettings
 
@@ -57,10 +57,15 @@ def create_app():
     # Context processor for templates
     @app.context_processor
     def inject_globals():
+        from models.case import Case
+        active_case = None
+        if 'active_case_uuid' in session:
+            active_case = Case.get_by_uuid(session['active_case_uuid'])
         return {
             'version': app.config['VERSION'],
             'app_name': 'caseScope 2026',
-            'current_user': current_user
+            'current_user': current_user,
+            'active_case': active_case
         }
     
     # Register blueprints

@@ -1,10 +1,35 @@
 """Main routes for CaseScope"""
-from flask import Blueprint, render_template, redirect, url_for, request, flash
+from functools import wraps
+from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify
 from flask_login import login_required, current_user
 from models.database import db
 from models.case import Case, CaseStatus
 
 main_bp = Blueprint('main', __name__)
+
+
+def case_required(f):
+    """Decorator to require an active case in session"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'active_case_uuid' not in session:
+            flash('Please select a case first', 'warning')
+            return redirect(url_for('main.cases'))
+        # Verify the case still exists
+        case = Case.get_by_uuid(session['active_case_uuid'])
+        if not case:
+            session.pop('active_case_uuid', None)
+            flash('Selected case no longer exists. Please select another case.', 'error')
+            return redirect(url_for('main.cases'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def get_active_case():
+    """Get the currently active case from session"""
+    if 'active_case_uuid' in session:
+        return Case.get_by_uuid(session['active_case_uuid'])
+    return None
 
 
 @main_bp.route('/')
@@ -71,3 +96,70 @@ def case_create():
         return redirect(url_for('main.cases'))
     
     return render_template('case_create.html', page_title='Create Case')
+
+
+@main_bp.route('/cases/select/<case_uuid>')
+@login_required
+def case_select(case_uuid):
+    """Set a case as the active case in session"""
+    case = Case.get_by_uuid(case_uuid)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('main.cases'))
+    
+    session['active_case_uuid'] = case_uuid
+    flash(f'Case "{case.name}" selected', 'success')
+    return redirect(url_for('main.case_dashboard'))
+
+
+@main_bp.route('/cases/info/<case_uuid>')
+@login_required
+def case_info(case_uuid):
+    """Get case info for hover popup (JSON)"""
+    case = Case.get_by_uuid(case_uuid)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    return jsonify({
+        'uuid': case.uuid,
+        'name': case.name,
+        'company': case.company,
+        'status': Case.get_status_display(case.status),
+        'router_ips': case.router_ips or '-',
+        'vpn_ips': case.vpn_ips or '-',
+        'created_by': case.created_by,
+        'created_at': case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else '-',
+        'assigned_to': case.assigned_to or '-',
+        'has_edr_report': bool(case.edr_report)
+    })
+
+
+# ============================================
+# Cases Section Routes (require active case)
+# ============================================
+
+@main_bp.route('/case/dashboard')
+@login_required
+@case_required
+def case_dashboard():
+    """Case Dashboard - overview of the active case"""
+    case = get_active_case()
+    return render_template('case_dashboard.html', page_title='Case Dashboard', case=case)
+
+
+@main_bp.route('/case/files')
+@login_required
+@case_required
+def case_files():
+    """Case Files - files associated with the active case"""
+    case = get_active_case()
+    return render_template('case_files.html', page_title='Case Files', case=case)
+
+
+@main_bp.route('/case/hunting')
+@login_required
+@case_required
+def case_hunting():
+    """Hunting - threat hunting for the active case"""
+    case = get_active_case()
+    return render_template('case_hunting.html', page_title='Hunting', case=case)

@@ -16,6 +16,19 @@
     </div>
 </div>
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
 <div class="table-container">
     <div class="table-header">
         <span class="table-title">All Cases ({{ cases|length }})</span>
@@ -40,9 +53,9 @@
         <tbody>
             {% if cases %}
                 {% for case in cases %}
-                <tr>
+                <tr class="case-row" data-case-uuid="{{ case.uuid }}" onclick="selectCase('{{ case.uuid }}')">
                     <td>
-                        <a href="#" class="case-name-link">{{ case.name }}</a>
+                        <span class="case-name-link">{{ case.name }}</span>
                     </td>
                     <td>{{ case.company }}</td>
                     <td class="text-muted text-small">{{ case.uuid[:8] }}...</td>
@@ -85,10 +98,30 @@
         </tbody>
     </table>
 </div>
+
+<!-- Case Info Popup -->
+<div id="casePopup" class="case-popup">
+    <div class="case-popup-content">
+        <div class="case-popup-row"><strong>Case:</strong> <span id="popup-name"></span></div>
+        <div class="case-popup-row"><strong>Company:</strong> <span id="popup-company"></span></div>
+        <div class="case-popup-row"><strong>ID:</strong> <span id="popup-uuid"></span></div>
+        <div class="case-popup-row"><strong>Status:</strong> <span id="popup-status"></span></div>
+        <div class="case-popup-row"><strong>Router IPs:</strong> <span id="popup-router"></span></div>
+        <div class="case-popup-row"><strong>VPN IPs:</strong> <span id="popup-vpn"></span></div>
+        <div class="case-popup-row"><strong>Created By:</strong> <span id="popup-created-by"></span></div>
+        <div class="case-popup-row"><strong>Created:</strong> <span id="popup-created-at"></span></div>
+        <div class="case-popup-row"><strong>Assigned To:</strong> <span id="popup-assigned"></span></div>
+        <div class="case-popup-row"><strong>EDR Report:</strong> <span id="popup-edr"></span></div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function selectCase(uuid) {
+    window.location.href = '/cases/select/' + uuid;
+}
+
 function filterCases() {
     const input = document.getElementById('caseSearch');
     const filter = input.value.toLowerCase();
@@ -108,6 +141,78 @@ function filterCases() {
         
         rows[i].style.display = match ? '' : 'none';
     }
+}
+
+// Hover popup functionality
+let hoverTimeout;
+let currentPopupUuid = null;
+
+document.querySelectorAll('.case-row').forEach(row => {
+    row.addEventListener('mouseenter', function(e) {
+        const uuid = this.dataset.caseUuid;
+        hoverTimeout = setTimeout(() => {
+            fetchCaseInfo(uuid, e);
+        }, 400);
+    });
+    
+    row.addEventListener('mouseleave', function() {
+        clearTimeout(hoverTimeout);
+        hidePopup();
+    });
+    
+    row.addEventListener('mousemove', function(e) {
+        if (currentPopupUuid) {
+            positionPopup(e);
+        }
+    });
+});
+
+function fetchCaseInfo(uuid, event) {
+    fetch('/cases/info/' + uuid)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.error) {
+                showPopup(data, event);
+            }
+        })
+        .catch(err => console.error('Error fetching case info:', err));
+}
+
+function showPopup(data, event) {
+    currentPopupUuid = data.uuid;
+    document.getElementById('popup-name').textContent = data.name;
+    document.getElementById('popup-company').textContent = data.company;
+    document.getElementById('popup-uuid').textContent = data.uuid;
+    document.getElementById('popup-status').textContent = data.status;
+    document.getElementById('popup-router').textContent = data.router_ips;
+    document.getElementById('popup-vpn').textContent = data.vpn_ips;
+    document.getElementById('popup-created-by').textContent = data.created_by;
+    document.getElementById('popup-created-at').textContent = data.created_at;
+    document.getElementById('popup-assigned').textContent = data.assigned_to;
+    document.getElementById('popup-edr').textContent = data.has_edr_report ? 'Yes' : 'No';
+    
+    const popup = document.getElementById('casePopup');
+    popup.style.display = 'block';
+    positionPopup(event);
+}
+
+function positionPopup(event) {
+    const popup = document.getElementById('casePopup');
+    const x = event.clientX + 15;
+    const y = event.clientY + 15;
+    
+    // Keep popup in viewport
+    const rect = popup.getBoundingClientRect();
+    const maxX = window.innerWidth - rect.width - 20;
+    const maxY = window.innerHeight - rect.height - 20;
+    
+    popup.style.left = Math.min(x, maxX) + 'px';
+    popup.style.top = Math.min(y, maxY) + 'px';
+}
+
+function hidePopup() {
+    currentPopupUuid = null;
+    document.getElementById('casePopup').style.display = 'none';
 }
 </script>
 {% endblock %}

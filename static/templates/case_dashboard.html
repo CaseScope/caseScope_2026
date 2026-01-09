@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📁</span>
+            Case Dashboard
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">📋</span>
+        <span class="card-title">Case Overview</span>
+    </div>
+    <div class="card-body" style="padding: 20px;">
+        <div class="grid grid-2">
+            <div>
+                <p><strong>Case Name:</strong> {{ case.name }}</p>
+                <p><strong>Company:</strong> {{ case.company }}</p>
+                <p><strong>Status:</strong> {{ case.status }}</p>
+                <p><strong>Created By:</strong> {{ case.created_by }}</p>
+                <p><strong>Created:</strong> {{ case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else '-' }}</p>
+            </div>
+            <div>
+                <p><strong>Assigned To:</strong> {{ case.assigned_to or '-' }}</p>
+                <p><strong>Router IPs:</strong> {{ case.router_ips or '-' }}</p>
+                <p><strong>VPN IPs:</strong> {{ case.vpn_ips or '-' }}</p>
+                <p><strong>EDR Report:</strong> {% if case.edr_report %}Yes{% else %}No{% endif %}</p>
+            </div>
+        </div>
+        {% if case.description %}
+        <div class="mt-4">
+            <p><strong>Description:</strong></p>
+            <p class="text-muted">{{ case.description }}</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

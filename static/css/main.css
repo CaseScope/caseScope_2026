@@ -1063,3 +1063,57 @@ tbody td {
 .case-form .card-body {
   padding: 20px;
 }
+
+/* ========================================
+   Case Selection Table
+   ======================================== */
+.case-row {
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.case-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.case-name-link {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+/* ========================================
+   Case Info Popup
+   ======================================== */
+.case-popup {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.case-popup-content {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-lg);
+  padding: 16px;
+  min-width: 300px;
+  max-width: 450px;
+}
+
+.case-popup-row {
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.case-popup-row:last-child {
+  border-bottom: none;
+}
+
+.case-popup-row strong {
+  color: var(--text-primary);
+  display: inline-block;
+  min-width: 100px;
+}

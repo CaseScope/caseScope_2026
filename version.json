@@ -1,6 +1,17 @@
 {
-  "version": "3.2.0",
+  "version": "3.3.0",
   "changelog": [
+    {
+      "version": "3.3.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Active case tracking in session",
+        "Click row to select case as active",
+        "Hover popup showing full case details",
+        "Cases section nav items redirect to Case Selection if no active case",
+        "Case Dashboard, Files, Hunting placeholder pages"
+      ]
+    },
     {
       "version": "3.2.0",
       "date": "2026-01-09",
