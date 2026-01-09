@@ -1016,13 +1016,35 @@ class MFTParser(BaseParser):
 
 
 class SRUMParser(BaseParser):
-    """Parser for Windows SRUM (System Resource Usage Monitor) database"""
+    """Parser for Windows SRUM (System Resource Usage Monitor) database
     
-    VERSION = '1.0.0'
+    Parses ESE database containing resource usage data:
+    - Application Resource Usage (CPU, memory, network bytes)
+    - Network Connectivity (interface connect/disconnect)
+    - Network Data Usage (per-app network bytes)
+    - Energy Usage
+    - Push Notifications
+    """
+    
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'srum'
+    
+    # Known SRUM table GUIDs and descriptions
+    SRUM_TABLES = {
+        '{D10CA2FE-6FCF-4F6D-848E-B2E99266FA89}': 'Application Resource Usage',
+        '{D10CA2FE-6FCF-4F6D-848E-B2E99266FA86}': 'Application Resource Usage (Push)',
+        '{973F5D5C-1D90-4944-BE8E-24B94231A174}': 'Network Connectivity',
+        '{DD6636C4-8929-4683-974E-22C046A43763}': 'Network Data Usage',
+        '{FEE4E14F-02A9-4550-B5CE-5FA2DA202E37}': 'Energy Usage',
+        '{DA73FB89-2BEA-4DDC-86B8-6E048C6DA477}': 'Push Notifications',
+        '{5C8CF1C7-7257-4F13-B223-970EF5939312}': 'vfuprov',
+        '{7ACBBAA3-D029-4BE4-9A7A-0885927F1D8F}': 'App Timeline',
+        '{B6D82AF1-F780-4E17-8077-6CB9AD8A6FC4}': 'SDL Storage Provider',
+    }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
         super().__init__(case_id, source_host, case_file_id)
+        self._id_map = {}  # Cache for SruDbIdMapTable lookups
         
         try:
             from dissect.esedb import EseDB
@@ -1042,6 +1064,105 @@ class SRUMParser(BaseParser):
         filename = os.path.basename(file_path).lower()
         return filename in ('srudb.dat', 'sru.dat')
     
+    def _load_id_map(self, db) -> Dict[int, str]:
+        """Load SruDbIdMapTable to resolve AppId and UserId references"""
+        id_map = {}
+        try:
+            for table in db.tables():
+                if table.name == 'SruDbIdMapTable':
+                    for record in table.records():
+                        try:
+                            id_index = None
+                            id_blob = None
+                            for col in table.columns:
+                                try:
+                                    val = record.get(col.name)
+                                    if col.name == 'IdIndex':
+                                        id_index = val
+                                    elif col.name == 'IdBlob':
+                                        id_blob = val
+                                except:
+                                    pass
+                            
+                            if id_index is not None and id_blob is not None:
+                                # IdBlob can be a SID or application path
+                                if isinstance(id_blob, bytes):
+                                    try:
+                                        # Try UTF-16LE decode for paths
+                                        decoded = id_blob.decode('utf-16-le').rstrip('\x00')
+                                        id_map[id_index] = decoded
+                                    except:
+                                        # Fall back to hex
+                                        id_map[id_index] = id_blob.hex()
+                                else:
+                                    id_map[id_index] = str(id_blob)
+                        except Exception as e:
+                            pass
+                    break
+        except Exception as e:
+            self.warnings.append(f"Could not load SruDbIdMapTable: {e}")
+        
+        return id_map
+    
+    def _resolve_id(self, value: Any) -> str:
+        """Resolve AppId/UserId to actual name from IdMap"""
+        if value is None:
+            return ''
+        
+        try:
+            id_int = int(value)
+            if id_int in self._id_map:
+                return self._id_map[id_int]
+        except (ValueError, TypeError):
+            pass
+        
+        return str(value)
+    
+    def _parse_srum_timestamp(self, value: Any) -> Optional[datetime]:
+        """Parse SRUM timestamp (OLE Automation Date stored as int64)
+        
+        SRUM stores timestamps as OLE Automation dates - doubles representing
+        days since December 30, 1899. The int64 value is the binary representation
+        of this double.
+        """
+        import struct
+        from datetime import timedelta
+        
+        if value is None:
+            return None
+        
+        try:
+            # Convert int64 to its binary representation, then interpret as double
+            int_val = int(value)
+            if int_val <= 0:
+                return None
+            
+            # Pack as little-endian int64, unpack as little-endian double
+            bytes_repr = struct.pack('<q', int_val)
+            double_val = struct.unpack('<d', bytes_repr)[0]
+            
+            # Sanity check: OLE dates should be roughly in range 30000-50000 for 1980-2035
+            if double_val <= 0 or double_val > 100000:
+                return None
+            
+            # OLE Automation Date epoch: December 30, 1899
+            ole_epoch = datetime(1899, 12, 30)
+            result = ole_epoch + timedelta(days=double_val)
+            
+            # Sanity check result is in reasonable range (1990-2040)
+            if result.year < 1990 or result.year > 2040:
+                return None
+            
+            return result
+        except (ValueError, TypeError, struct.error, OverflowError):
+            pass
+        
+        # Fall back to regular timestamp parsing for string values
+        if isinstance(value, str):
+            return self.parse_timestamp(value)
+        
+        return None
+    
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse SRUM database"""
         if not self.can_parse(file_path):
@@ -1056,47 +1177,89 @@ class SRUMParser(BaseParser):
             
             db = EseDB(open(file_path, 'rb'))
             
-            # Process known SRUM tables
-            tables_of_interest = [
-                '{D10CA2FE-6FCF-4F6D-848E-B2E99266FA89}',  # Application Resource Usage
-                '{973F5D5C-1D90-4944-BE8E-24B94231A174}',  # Network Connectivity
-                '{DD6636C4-8929-4683-974E-22C046A43763}',  # Network Data Usage
-            ]
+            # Load ID mapping table for resolving AppId/UserId
+            self._id_map = self._load_id_map(db)
+            logger.info(f"Loaded {len(self._id_map)} entries from SruDbIdMapTable")
             
-            for table_name in db.tables():
-                if str(table_name) not in tables_of_interest:
+            # Process SRUM data tables (iterate over Table objects)
+            for table in db.tables():
+                table_name = table.name
+                
+                # Skip system tables and ID mapping table
+                if not table_name.startswith('{'):
                     continue
                 
+                # Get table description
+                table_desc = self.SRUM_TABLES.get(table_name, 'Unknown')
+                
                 try:
-                    table = db.table(table_name)
+                    # table.columns is a list, not a method
+                    columns = table.columns
+                    column_names = [c.name for c in columns]
                     
                     for record in table.records():
                         try:
                             record_dict = {}
-                            for column in table.columns():
+                            for col in columns:
                                 try:
-                                    value = record.value(column.name)
+                                    # Use record.get() to get column value
+                                    value = record.get(col.name)
                                     if value is not None:
-                                        record_dict[column.name] = str(value)
-                                except:
+                                        # Handle bytes
+                                        if isinstance(value, bytes):
+                                            try:
+                                                value = value.decode('utf-16-le').rstrip('\x00')
+                                            except:
+                                                try:
+                                                    value = value.decode('utf-8', errors='replace')
+                                                except:
+                                                    value = value.hex()
+                                        record_dict[col.name] = str(value)
+                                except Exception as e:
                                     pass
                             
-                            # Get timestamp
-                            timestamp = datetime.now()
-                            for ts_field in ['TimeStamp', 'ConnectStartTime', 'StartTime']:
+                            # Get timestamp - SRUM stores as OLE Automation Date
+                            timestamp = None
+                            for ts_field in ['TimeStamp', 'ConnectStartTime', 'StartTime', 'EndTime']:
                                 if ts_field in record_dict:
-                                    ts = self.parse_timestamp(record_dict[ts_field])
+                                    ts = self._parse_srum_timestamp(record_dict[ts_field])
                                     if ts:
                                         timestamp = ts
                                         break
                             
+                            # Default to now if no valid timestamp found
+                            if not timestamp:
+                                timestamp = datetime.now()
+                            
+                            # Resolve AppId and UserId using ID map
+                            app_id_raw = record_dict.get('AppId', '')
+                            user_id_raw = record_dict.get('UserId', '')
+                            
+                            app_name = self._resolve_id(app_id_raw)
+                            user_name = self._resolve_id(user_id_raw)
+                            
+                            # Build enriched record with resolved names
+                            enriched_record = record_dict.copy()
+                            if app_name and app_name != app_id_raw:
+                                enriched_record['AppName'] = app_name
+                            if user_name and user_name != user_id_raw:
+                                enriched_record['UserName'] = user_name
+                            
                             raw_data = {
-                                'table': str(table_name),
-                                'record': record_dict,
+                                'table': table_name,
+                                'table_description': table_desc,
+                                'record': enriched_record,
                             }
                             
-                            # Extract app name if available
-                            app_name = record_dict.get('AppId', record_dict.get('App', ''))
+                            # Build search blob with key values
+                            search_parts = [table_desc, app_name, user_name]
+                            search_parts.extend(str(v) for v in record_dict.values() if v)
+                            
+                            # Extract process name from app path
+                            process_name = ''
+                            if app_name:
+                                # Get filename from path
+                                process_name = os.path.basename(app_name.replace('\\', '/'))
                             
                             yield ParsedEvent(
                                 case_id=self.case_id,
@@ -1106,14 +1269,23 @@ class SRUMParser(BaseParser):
                                 source_path=file_path,
                                 source_host=hostname,
                                 case_file_id=self.case_file_id,
-                                process_name=app_name if app_name else None,
+                                process_name=self.safe_str(process_name),
+                                username=self.safe_str(user_name),
                                 raw_json=json.dumps(raw_data, default=str),
-                                search_blob=' '.join(str(v) for v in record_dict.values()),
+                                search_blob=' '.join(str(p) for p in search_parts if p),
+                                extra_fields=json.dumps({
+                                    'table': table_name,
+                                    'table_description': table_desc,
+                                    'app_id': app_id_raw,
+                                    'app_name': app_name,
+                                    'user_id': user_id_raw,
+                                    'user_name': user_name,
+                                }, default=str),
                                 parser_version=self.parser_version,
                             )
                             
                         except Exception as e:
-                            self.warnings.append(f"Error processing record: {e}")
+                            self.warnings.append(f"Error processing record in {table_name}: {e}")
                             
                 except Exception as e:
                     self.warnings.append(f"Error processing table {table_name}: {e}")

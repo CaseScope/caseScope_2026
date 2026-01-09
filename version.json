@@ -1,6 +1,18 @@
 {
-  "version": "3.13.5",
+  "version": "3.13.6",
   "changelog": [
+    {
+      "version": "3.13.6",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed SRUMParser v1.1.0 ESE database API usage",
+        "Correct OLE Automation Date timestamp parsing",
+        "SruDbIdMapTable lookup for AppId/UserId resolution",
+        "All SRUM tables: Application Resource Usage, Network Connectivity, Push Notifications, Energy Usage, etc.",
+        "Tested with live SRUDB.dat (130,447 events indexed)",
+        "Date range: Oct 2025 - Jan 2026 verified"
+      ]
+    },
     {
       "version": "3.13.5",
       "date": "2026-01-09",
