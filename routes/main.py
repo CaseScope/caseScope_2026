@@ -1,11 +1,12 @@
 """Main routes for CaseScope"""
+import os
 from functools import wraps
 from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify
 from flask_login import login_required, current_user
 from models.database import db
 from models.case import Case, CaseStatus
 from models.user import User
-from config import PermissionLevel, UserSettings
+from config import Config, PermissionLevel, UserSettings
 
 main_bp = Blueprint('main', __name__)
 
@@ -93,6 +94,10 @@ def case_create():
         
         db.session.add(case)
         db.session.commit()
+        
+        # Create SFTP upload folder for this case
+        sftp_case_folder = os.path.join(Config.UPLOAD_FOLDER_SFTP, case.uuid)
+        os.makedirs(sftp_case_folder, exist_ok=True)
         
         flash(f'Case "{name}" created successfully', 'success')
         return redirect(url_for('main.cases'))
