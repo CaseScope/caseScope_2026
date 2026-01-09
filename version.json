@@ -7,7 +7,9 @@
       "changes": [
         "Added Case model with UUID for obfuscation",
         "Case status workflow (New, Assigned, In Progress, In Review, Finished, Archived)",
-        "Case assignment tracking"
+        "Case assignment tracking",
+        "Case Selection page with table listing all cases",
+        "New Case button for case creation"
       ]
     },
     {

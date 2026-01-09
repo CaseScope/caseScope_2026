@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📋</span>
+            Case Selection
+        </h1>
+        <p class="page-subtitle">View and manage all cases in the system</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_create') }}" class="btn btn-primary">
+            <span>+ New Case</span>
+        </a>
+    </div>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <span class="table-title">All Cases ({{ cases|length }})</span>
+        <div class="table-actions">
+            <input type="text" class="table-search" placeholder="Search cases..." id="caseSearch" onkeyup="filterCases()">
+        </div>
+    </div>
+    
+    <table id="casesTable">
+        <thead>
+            <tr>
+                <th>Case Name</th>
+                <th>ID</th>
+                <th>EDR Report</th>
+                <th>Created By</th>
+                <th>Created On</th>
+                <th>Status</th>
+                <th>Assigned To</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if cases %}
+                {% for case in cases %}
+                <tr>
+                    <td>
+                        <a href="#" class="case-name-link">{{ case.name }}</a>
+                    </td>
+                    <td class="text-muted text-small">{{ case.uuid[:8] }}...</td>
+                    <td>
+                        {% if case.edr_report %}
+                            <span class="badge badge-success">Yes</span>
+                        {% else %}
+                            <span class="badge badge-muted">No</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.created_by }}</td>
+                    <td>{{ case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else '-' }}</td>
+                    <td>
+                        {% if case.status == 'new' %}
+                            <span class="badge badge-info">New</span>
+                        {% elif case.status == 'assigned' %}
+                            <span class="badge badge-warning">Assigned</span>
+                        {% elif case.status == 'in_progress' %}
+                            <span class="badge badge-warning">In Progress</span>
+                        {% elif case.status == 'in_review' %}
+                            <span class="badge badge-info">In Review</span>
+                        {% elif case.status == 'finished' %}
+                            <span class="badge badge-success">Finished</span>
+                        {% elif case.status == 'archived' %}
+                            <span class="badge badge-muted">Archived</span>
+                        {% else %}
+                            <span class="badge badge-muted">{{ case.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.assigned_to or '-' }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                        No cases found. Create your first case to get started.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterCases() {
+    const input = document.getElementById('caseSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('casesTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        let match = false;
+        
+        for (let j = 0; j < cells.length; j++) {
+            if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                match = true;
+                break;
+            }
+        }
+        
+        rows[i].style.display = match ? '' : 'none';
+    }
+}
+</script>
+{% endblock %}

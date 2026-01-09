@@ -21,7 +21,7 @@
                     <span class="nav-item-icon">📊</span>
                     <span class="nav-item-text">Dashboard</span>
                 </a>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Case Selection' else '' }}">
+                <a href="{{ url_for('main.cases') }}" class="nav-item {{ 'active' if page_title == 'Case Selection' else '' }}">
                     <span class="nav-item-icon">📋</span>
                     <span class="nav-item-text">Case Selection</span>
                 </a>
