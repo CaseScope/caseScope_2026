@@ -561,9 +561,9 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
             for event in parser.parse(file_path):
                 processor.add_event(event)
                 events_count += 1
-            
-            events_count = processor.total_inserted
         
+        # Get total after with block exits (flush is called in __exit__)
+        events_count = processor.total_inserted
         errors = parser.errors
         warnings = parser.warnings
         success = len(errors) == 0
