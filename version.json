@@ -1,6 +1,17 @@
 {
-  "version": "3.18.0",
+  "version": "3.19.0",
   "changelog": [
+    {
+      "version": "3.19.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed EVTX parser: removed invalid -T flag causing Hayabusa errors",
+        "Fixed Browser parser: verify .db files are actual browser DBs before parsing",
+        "Fixed Registry parser: exclude transaction logs (.LOG1, .LOG2, .blf, .regtrans-ms)",
+        "Fixed Registry parser: exclude SA.DAT (not a registry hive)",
+        "Added SQLAlchemy connection pool settings to prevent DB exhaustion"
+      ]
+    },
     {
       "version": "3.18.0",
       "date": "2026-01-09",

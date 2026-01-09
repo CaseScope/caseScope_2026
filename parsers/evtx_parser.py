@@ -131,7 +131,7 @@ class HayabusaParser(BaseParser):
                 '--no-color',
                 '-p', self.profile,
                 '--min-level', self.min_level,
-                '-T',                    # Include all timestamps
+                '-U',                    # UTC timestamps
             ]
             
             # Add rules directory if it exists

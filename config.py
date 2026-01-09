@@ -9,6 +9,12 @@ class Config:
     # Database
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'postgresql://casescope:casescope@localhost/casescope'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 10,
+        'pool_recycle': 3600,
+        'pool_pre_ping': True,
+        'max_overflow': 20,
+    }
     
     # Paths
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -127,12 +127,23 @@ class BrowserSQLiteParser(BaseParser):
         if filename in self.FIREFOX_DBS or filename in self.CHROME_DBS:
             return True
         
-        # Check SQLite magic bytes
-        if filename.endswith(('.sqlite', '.sqlite3', '.db')):
+        # Check SQLite magic bytes for known browser extensions
+        if filename.endswith(('.sqlite', '.sqlite3')):
             try:
                 with open(file_path, 'rb') as f:
                     magic = f.read(16)
                     return magic.startswith(b'SQLite format 3')
+            except:
+                pass
+        
+        # For generic .db files, verify it's actually a browser database
+        if filename.endswith('.db'):
+            try:
+                with open(file_path, 'rb') as f:
+                    magic = f.read(16)
+                    if magic.startswith(b'SQLite format 3'):
+                        # Must verify it's a browser DB, not just any SQLite
+                        return self._identify_browser_db(file_path) is not None
             except:
                 pass
         

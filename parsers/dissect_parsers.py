@@ -275,8 +275,17 @@ class RegistryParser(BaseParser):
         if not os.path.isfile(file_path):
             return False
         
-        # Check known names
         filename_lower = os.path.basename(file_path).lower()
+        
+        # Exclude transaction log files - they have registry magic but aren't parseable hives
+        if filename_lower.endswith(('.log', '.log1', '.log2', '.blf', '.regtrans-ms')):
+            return False
+        
+        # Exclude SA.DAT (Scheduled Tasks state file, not a registry hive)
+        if filename_lower == 'sa.dat':
+            return False
+        
+        # Check known hive names
         if filename_lower in self.HIVE_NAMES:
             return True
         
