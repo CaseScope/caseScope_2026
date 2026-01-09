@@ -1,6 +1,18 @@
 {
-  "version": "3.13.6",
+  "version": "3.14.0",
   "changelog": [
+    {
+      "version": "3.14.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Added BrowserSQLiteParser for Firefox/Chrome/Edge databases",
+        "Parses: History, Cookies, Downloads, Form data, Logins, Autofill",
+        "Added FirefoxJSONLZ4Parser for session/addon/search engine files",
+        "WebKit and Mozilla timestamp conversion support",
+        "Auto-detection of browser database type by tables",
+        "Tested with live Firefox places.sqlite and Chrome History"
+      ]
+    },
     {
       "version": "3.13.6",
       "date": "2026-01-09",

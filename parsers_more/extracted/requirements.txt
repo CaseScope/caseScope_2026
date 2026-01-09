@@ -1,0 +1,61 @@
+# ============================================
+# CaseScope Requirements
+# ============================================
+
+# Flask & Web
+Flask>=3.0.0
+Flask-Login>=0.6.3
+Flask-SQLAlchemy>=3.1.0
+Werkzeug>=3.0.0
+gunicorn>=21.0.0
+
+# PostgreSQL
+psycopg2-binary>=2.9.9
+SQLAlchemy>=2.0.0
+
+# ClickHouse
+clickhouse-connect>=0.8.0
+
+# Task Queue
+celery>=5.3.0
+redis>=5.0.0
+
+# Configuration
+python-dotenv>=1.0.0
+
+# ============================================
+# Parsing Dependencies
+# ============================================
+
+# EVTX Parsing (fallback when Hayabusa unavailable)
+evtx>=0.8.0
+
+# Dissect Framework - Forensic Artifact Parsing
+# https://docs.dissect.tools/
+dissect>=3.0
+dissect.target>=3.0
+dissect.ntfs>=3.0
+dissect.regf>=3.0
+dissect.prefetch>=3.0
+dissect.shellitem>=3.0
+dissect.esedb>=3.0
+dissect.eventlog>=3.0
+
+# OLE file parsing (for Jump Lists)
+olefile>=0.47
+
+# LZ4 decompression (for Firefox JSONLZ4)
+lz4>=4.0.0
+
+# Date parsing
+python-dateutil>=2.8.0
+
+# ============================================
+# System & Utilities
+# ============================================
+
+# Process monitoring
+psutil>=5.9.0
+
+# Typing
+typing-extensions>=4.0.0
