@@ -190,6 +190,18 @@ class ParserRegistry:
             logger.warning(f"Could not register Generic JSON parser: {e}")
         
         try:
+            from parsers.log_parsers import SonicWallCSVParser
+            self.register(FileTypeMapping(
+                artifact_type='sonicwall',
+                parser_class=SonicWallCSVParser,
+                extensions=['.csv'],
+                filename_patterns=['sonicwall', '_log_'],
+                priority=15,  # Higher priority than generic CSV
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register SonicWall CSV parser: {e}")
+        
+        try:
             from parsers.log_parsers import CSVLogParser
             self.register(FileTypeMapping(
                 artifact_type='csv_log',

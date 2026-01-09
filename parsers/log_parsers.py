@@ -706,3 +706,255 @@ class CSVLogParser(BaseParser):
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"CSV parse error: {e}")
+
+
+class SonicWallCSVParser(BaseParser):
+    """Parser for SonicWall firewall CSV export logs
+    
+    Handles the 51-column CSV format exported from SonicWall appliances.
+    Maps all fields to normalized DFIR schema for effective hunting.
+    """
+    
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'sonicwall'
+    
+    # SonicWall CSV column names (must match exactly)
+    EXPECTED_COLUMNS = [
+        'Time', 'ID', 'Category', 'Group', 'Event', 'Msg. Type', 'Priority',
+        'Ether Type', 'Src. MAC', 'Src. Vendor', 'Src. Int.', 'Src. Zone',
+        'Dst. MAC', 'Dst. Vendor', 'Dst. Int.', 'Dst. Zone', 'Src. IP',
+        'Src. Port', 'Src. Name', 'Src.NAT IP', 'Src.NAT Port', 'In SPI',
+        'Dst. IP', 'Dst. Port', 'Dst. Name', 'Dst.NAT IP', 'Dst.NAT Port',
+        'Out SPI', 'IP Protocol', 'ICMP Type', 'ICMP Code', 'RX Bytes',
+        'TX Bytes', 'Access Rule', 'NAT Policy', 'User Name', 'Session Time',
+        'Session Type', 'IDP Rule', 'IDP Priority', 'HTTP OP', 'URL',
+        'VPN Policy', 'HTTP Result', 'Block Cat', 'Application', 'FW Action',
+        'DPI', 'Notes', 'Message', 'HTTP Referer'
+    ]
+    
+    # Timestamp formats used by SonicWall
+    TIMESTAMP_FORMATS = [
+        '%m/%d/%Y %H:%M:%S',  # 09/05/2025 06:01:28
+        '%Y-%m-%d %H:%M:%S',
+        '%m/%d/%y %H:%M:%S',
+    ]
+    
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
+        super().__init__(case_id, source_host, case_file_id)
+    
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+    
+    def can_parse(self, file_path: str) -> bool:
+        """Check if file is a SonicWall CSV export"""
+        if not os.path.isfile(file_path):
+            return False
+        
+        if not file_path.lower().endswith('.csv'):
+            return False
+        
+        # Check for SonicWall CSV header signature
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                header = f.readline().strip()
+                # Check for key SonicWall columns
+                if '"Time"' in header and '"Src. IP"' in header and '"FW Action"' in header:
+                    return True
+                # Also check unquoted
+                if 'Time' in header and 'Src. IP' in header and 'FW Action' in header:
+                    return True
+        except:
+            pass
+        
+        return False
+    
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        """Parse SonicWall CSV export"""
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+        
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
+                reader = csv.DictReader(f)
+                
+                for row_num, row in enumerate(reader, 1):
+                    try:
+                        event = self._parse_row(row, source_file, file_path, hostname)
+                        if event:
+                            yield event
+                    except Exception as e:
+                        self.warnings.append(f"Error processing row {row_num}: {e}")
+                        
+        except Exception as e:
+            self.errors.append(f"Failed to parse {file_path}: {e}")
+            logger.exception(f"SonicWall CSV parse error: {e}")
+    
+    def _parse_row(self, row: Dict[str, str], source_file: str, 
+                   file_path: str, hostname: str) -> Optional[ParsedEvent]:
+        """Parse a single SonicWall CSV row"""
+        
+        # Parse timestamp
+        time_str = row.get('Time', '').strip()
+        timestamp = self.parse_timestamp(time_str, self.TIMESTAMP_FORMATS)
+        if not timestamp:
+            timestamp = datetime.now()
+        
+        # Extract source/destination IPs
+        src_ip = self.validate_ip(row.get('Src. IP', '').strip())
+        dst_ip = self.validate_ip(row.get('Dst. IP', '').strip())
+        
+        # Extract ports
+        src_port = self.safe_int(row.get('Src. Port', '').strip())
+        dst_port = self.safe_int(row.get('Dst. Port', '').strip())
+        
+        # Extract NAT IPs (store in extra fields)
+        src_nat_ip = row.get('Src.NAT IP', '').strip()
+        dst_nat_ip = row.get('Dst.NAT IP', '').strip()
+        
+        # Username
+        username = self.safe_str(row.get('User Name', '').strip())
+        
+        # Event identification
+        event_id = self.safe_str(row.get('ID', '').strip())
+        category = self.safe_str(row.get('Category', '').strip())
+        event_name = self.safe_str(row.get('Event', '').strip())
+        priority = self.safe_str(row.get('Priority', '').strip())
+        
+        # Firewall action as rule title
+        fw_action = self.safe_str(row.get('FW Action', '').strip())
+        access_rule = self.safe_str(row.get('Access Rule', '').strip())
+        
+        # Map priority to rule level
+        rule_level = ''
+        priority_lower = priority.lower() if priority else ''
+        if priority_lower in ('alert', 'critical', 'emergency'):
+            rule_level = 'high'
+        elif priority_lower in ('warning', 'notice'):
+            rule_level = 'med'
+        elif priority_lower in ('informational', 'debug'):
+            rule_level = 'info'
+        
+        # Network/Application info
+        protocol = self.safe_str(row.get('IP Protocol', '').strip())
+        application = self.safe_str(row.get('Application', '').strip())
+        url = self.safe_str(row.get('URL', '').strip())
+        
+        # VPN/IDP
+        vpn_policy = self.safe_str(row.get('VPN Policy', '').strip())
+        idp_rule = self.safe_str(row.get('IDP Rule', '').strip())
+        
+        # Message
+        message = self.safe_str(row.get('Message', '').strip())
+        notes = self.safe_str(row.get('Notes', '').strip())
+        
+        # Bytes transferred
+        rx_bytes = self.safe_int(row.get('RX Bytes', '').strip())
+        tx_bytes = self.safe_int(row.get('TX Bytes', '').strip())
+        
+        # Zone information
+        src_zone = self.safe_str(row.get('Src. Zone', '').strip())
+        dst_zone = self.safe_str(row.get('Dst. Zone', '').strip())
+        
+        # Build comprehensive rule title
+        rule_title = ''
+        if fw_action:
+            rule_title = fw_action
+        if event_name and event_name != fw_action:
+            rule_title = f"{event_name}" if not rule_title else f"{rule_title}: {event_name}"
+        
+        # Build search blob with all important fields
+        search_parts = [
+            time_str,
+            event_id,
+            category,
+            event_name,
+            priority,
+            src_ip or '',
+            str(src_port) if src_port else '',
+            dst_ip or '',
+            str(dst_port) if dst_port else '',
+            username,
+            protocol,
+            application,
+            fw_action,
+            access_rule,
+            url,
+            vpn_policy,
+            idp_rule,
+            message,
+            notes,
+            src_zone,
+            dst_zone,
+        ]
+        search_blob = ' '.join(str(p) for p in search_parts if p)
+        
+        # Store all fields in raw_json (clean empty values)
+        raw_data = {k: v.strip() for k, v in row.items() if v and v.strip()}
+        
+        # Extra fields for SonicWall-specific data
+        extra = {
+            'category': category,
+            'group': self.safe_str(row.get('Group', '').strip()),
+            'event': event_name,
+            'msg_type': self.safe_str(row.get('Msg. Type', '').strip()),
+            'priority': priority,
+            'protocol': protocol,
+            'application': application,
+            'fw_action': fw_action,
+            'access_rule': access_rule,
+            'nat_policy': self.safe_str(row.get('NAT Policy', '').strip()),
+            'vpn_policy': vpn_policy,
+            'idp_rule': idp_rule,
+            'idp_priority': self.safe_str(row.get('IDP Priority', '').strip()),
+            'src_zone': src_zone,
+            'dst_zone': dst_zone,
+            'src_nat_ip': src_nat_ip,
+            'dst_nat_ip': dst_nat_ip,
+            'src_name': self.safe_str(row.get('Src. Name', '').strip()),
+            'dst_name': self.safe_str(row.get('Dst. Name', '').strip()),
+            'src_mac': self.safe_str(row.get('Src. MAC', '').strip()),
+            'dst_mac': self.safe_str(row.get('Dst. MAC', '').strip()),
+            'rx_bytes': rx_bytes,
+            'tx_bytes': tx_bytes,
+            'session_time': self.safe_str(row.get('Session Time', '').strip()),
+            'session_type': self.safe_str(row.get('Session Type', '').strip()),
+            'url': url,
+            'http_op': self.safe_str(row.get('HTTP OP', '').strip()),
+            'http_result': self.safe_str(row.get('HTTP Result', '').strip()),
+            'http_referer': self.safe_str(row.get('HTTP Referer', '').strip()),
+            'block_cat': self.safe_str(row.get('Block Cat', '').strip()),
+            'dpi': self.safe_str(row.get('DPI', '').strip()),
+            'notes': notes,
+        }
+        # Remove empty values
+        extra = {k: v for k, v in extra.items() if v}
+        
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            event_id=event_id,
+            channel=category,
+            level=rule_level,
+            username=username,
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            target_path=url,
+            rule_title=rule_title,
+            rule_level=rule_level,
+            raw_json=json.dumps(raw_data, default=str),
+            search_blob=search_blob,
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )

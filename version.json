@@ -1,6 +1,15 @@
 {
-  "version": "3.11.0",
+  "version": "3.12.0",
   "changelog": [
+    {
+      "version": "3.12.0",
+      "date": "2026-01-09",
+      "changes": [
+        "SonicWall CSV parser with full field mapping",
+        "Normalized DFIR fields: src_ip, dst_ip, username, ports",
+        "Auto-detection of SonicWall CSV export format"
+      ]
+    },
     {
       "version": "3.11.0",
       "date": "2026-01-09",
