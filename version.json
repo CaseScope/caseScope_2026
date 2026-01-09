@@ -1,6 +1,15 @@
 {
-  "version": "3.16.0",
+  "version": "3.16.1",
   "changelog": [
+    {
+      "version": "3.16.1",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed process_file event count bug - read total after flush",
+        "Case Files: auto-refresh file list when files complete processing",
+        "Case Files: reset progress bar to idle state after completion"
+      ]
+    },
     {
       "version": "3.16.0",
       "date": "2026-01-09",
