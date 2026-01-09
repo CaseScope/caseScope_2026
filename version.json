@@ -1,6 +1,17 @@
 {
-  "version": "3.13.3",
+  "version": "3.13.4",
   "changelog": [
+    {
+      "version": "3.13.4",
+      "date": "2026-01-09",
+      "changes": [
+        "Improved RegistryParser v2.0 with per-value events",
+        "Populates reg_key, reg_value, reg_data fields properly",
+        "Extracts value_type, hive_type metadata",
+        "Tested NTUSER.DAT and SYSTEM hive (250 services found)",
+        "Verified ClickHouse indexing"
+      ]
+    },
     {
       "version": "3.13.3",
       "date": "2026-01-09",

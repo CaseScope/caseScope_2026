@@ -200,9 +200,13 @@ class PrefetchParser(BaseParser):
 
 
 class RegistryParser(BaseParser):
-    """Parser for Windows Registry hives using dissect.regf"""
+    """Parser for Windows Registry hives using dissect.regf
     
-    VERSION = '1.0.0'
+    Parses SAM, SECURITY, SOFTWARE, SYSTEM, NTUSER.DAT, USRCLASS.DAT, and Amcache.
+    Extracts registry keys and values as individual events for granular searching.
+    """
+    
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'registry'
     
     # Registry hive signatures
@@ -303,86 +307,114 @@ class RegistryParser(BaseParser):
         try:
             from dissect.regf import RegistryHive
             
-            hive = RegistryHive(open(file_path, 'rb'))
-            
-            def process_key(key, depth=0, max_depth=10):
-                """Recursively process registry keys"""
-                if depth > max_depth:
-                    return
+            with open(file_path, 'rb') as fh:
+                hive = RegistryHive(fh)
                 
-                try:
-                    # Get key timestamp
-                    timestamp = key.timestamp if hasattr(key, 'timestamp') else datetime.now()
-                    if not isinstance(timestamp, datetime):
-                        timestamp = self.parse_timestamp(str(timestamp)) or datetime.now()
+                def process_key(key, depth=0, max_depth=10):
+                    """Recursively process registry keys, yielding one event per value"""
+                    if depth > max_depth:
+                        return
                     
-                    key_path = str(key.path) if hasattr(key, 'path') else str(key)
-                    
-                    # Process values
-                    values = {}
                     try:
-                        for value in key.values():
-                            value_name = value.name or '(Default)'
-                            try:
-                                value_data = value.value
-                                if isinstance(value_data, bytes):
-                                    # Try to decode, fallback to hex
-                                    try:
-                                        value_data = value_data.decode('utf-16-le').rstrip('\x00')
-                                    except:
-                                        value_data = value_data.hex()
-                                values[value_name] = str(value_data)[:1000]  # Limit value size
-                            except:
-                                values[value_name] = '<error reading value>'
-                    except:
-                        pass
-                    
-                    if values:  # Only yield if there are values
-                        raw_data = {
-                            'hive_type': hive_type,
-                            'key_path': key_path,
-                            'values': values,
-                            'value_count': len(values),
-                        }
+                        # Get key timestamp
+                        timestamp = key.timestamp if hasattr(key, 'timestamp') else datetime.now()
+                        if not isinstance(timestamp, datetime):
+                            timestamp = self.parse_timestamp(str(timestamp)) or datetime.now()
                         
-                        yield ParsedEvent(
-                            case_id=self.case_id,
-                            artifact_type=self.artifact_type,
-                            timestamp=timestamp,
-                            source_file=source_file,
-                            source_path=file_path,
-                            source_host=hostname,
-                            case_file_id=self.case_file_id,
-                            reg_key=key_path,
-                            raw_json=json.dumps(raw_data, default=str),
-                            search_blob=f"{key_path} {' '.join(str(v) for v in values.values())}",
-                            extra_fields=json.dumps({'hive_type': hive_type}, default=str),
-                            parser_version=self.parser_version,
-                        )
-                    
-                    # Process subkeys
-                    try:
-                        for subkey in key.subkeys():
-                            yield from process_key(subkey, depth + 1, max_depth)
-                    except:
-                        pass
+                        key_path = str(key.path) if hasattr(key, 'path') else str(key)
                         
-                except Exception as e:
-                    self.warnings.append(f"Error processing key: {e}")
-            
-            # Start from root
-            root = hive.root()
-            if self.extract_all:
-                yield from process_key(root)
-            else:
-                # Only extract interesting keys
-                for key_pattern in self.INTERESTING_KEYS:
-                    try:
-                        key = hive.open(key_pattern)
-                        if key:
-                            yield from process_key(key, max_depth=3)
-                    except:
-                        pass
+                        # Process each value as a separate event
+                        try:
+                            for value in key.values():
+                                value_name = value.name or '(Default)'
+                                value_type = ''
+                                value_data = ''
+                                
+                                try:
+                                    # Get value type
+                                    if hasattr(value, 'type'):
+                                        value_type = str(value.type.name) if hasattr(value.type, 'name') else str(value.type)
+                                    
+                                    # Get value data
+                                    raw_value = value.value
+                                    if raw_value is None:
+                                        value_data = ''
+                                    elif isinstance(raw_value, bytes):
+                                        # Try to decode, fallback to hex
+                                        try:
+                                            value_data = raw_value.decode('utf-16-le').rstrip('\x00')
+                                        except:
+                                            try:
+                                                value_data = raw_value.decode('utf-8', errors='replace')
+                                            except:
+                                                value_data = raw_value.hex()
+                                    elif isinstance(raw_value, (list, tuple)):
+                                        value_data = ', '.join(str(v) for v in raw_value)
+                                    else:
+                                        value_data = str(raw_value)
+                                    
+                                    # Limit data size
+                                    value_data = value_data[:2000]
+                                    
+                                except Exception as e:
+                                    value_data = f'<error: {e}>'
+                                
+                                raw_data = {
+                                    'hive_type': hive_type,
+                                    'key_path': key_path,
+                                    'value_name': value_name,
+                                    'value_type': value_type,
+                                    'value_data': value_data,
+                                }
+                                
+                                # Build search blob
+                                search_parts = [key_path, value_name, value_data]
+                                
+                                yield ParsedEvent(
+                                    case_id=self.case_id,
+                                    artifact_type=self.artifact_type,
+                                    timestamp=timestamp,
+                                    source_file=source_file,
+                                    source_path=file_path,
+                                    source_host=hostname,
+                                    case_file_id=self.case_file_id,
+                                    reg_key=self.safe_str(key_path),
+                                    reg_value=self.safe_str(value_name),
+                                    reg_data=self.safe_str(value_data),
+                                    raw_json=json.dumps(raw_data, default=str),
+                                    search_blob=' '.join(str(p) for p in search_parts if p),
+                                    extra_fields=json.dumps({
+                                        'hive_type': hive_type,
+                                        'value_type': value_type,
+                                    }, default=str),
+                                    parser_version=self.parser_version,
+                                )
+                        except Exception as e:
+                            self.warnings.append(f"Error reading values for {key_path}: {e}")
+                        
+                        # Process subkeys
+                        try:
+                            for subkey in key.subkeys():
+                                yield from process_key(subkey, depth + 1, max_depth)
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        self.warnings.append(f"Error processing key: {e}")
+                
+                # Start from root
+                root = hive.root()
+                if self.extract_all:
+                    yield from process_key(root)
+                else:
+                    # Only extract interesting keys
+                    for key_pattern in self.INTERESTING_KEYS:
+                        try:
+                            key = hive.open(key_pattern)
+                            if key:
+                                yield from process_key(key, max_depth=3)
+                        except:
+                            pass
                         
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
