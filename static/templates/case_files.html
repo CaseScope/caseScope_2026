@@ -148,6 +148,8 @@ let searchQuery = '';
 let searchTimeout = null;
 let statsInterval = null;
 let progressInterval = null;
+let lastProcessedCount = -1;  // Track for detecting file completions
+let wasProcessing = false;    // Track if we were previously processing
 
 // Format file size
 function formatSize(bytes) {
@@ -210,28 +212,52 @@ function loadProgress() {
             if (data.success) {
                 const processed = data.processed_files;
                 const total = data.total_files;
+                const isProcessing = data.is_processing;
                 const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
-                
-                document.getElementById('progress-bar').style.width = percent + '%';
-                document.getElementById('progress-current').textContent = processed;
-                document.getElementById('progress-total').textContent = total;
                 
                 const statusEl = document.getElementById('progress-status');
                 const progressTile = document.getElementById('progress-tile');
                 
-                if (data.is_processing) {
+                // Detect when a file has completed - refresh file list from server
+                if (lastProcessedCount >= 0 && processed > lastProcessedCount) {
+                    loadFiles();  // Refresh file list when file(s) complete
+                    loadStats();  // Also refresh stats
+                }
+                lastProcessedCount = processed;
+                
+                // Detect when processing has just finished
+                if (wasProcessing && !isProcessing && processed === total && total > 0) {
+                    // Processing just finished - show complete briefly, then reset
+                    statusEl.textContent = 'Complete';
+                    statusEl.className = 'tile-status status-complete';
+                    progressTile.classList.remove('processing');
+                    
+                    // Reset progress bar after 5 seconds
+                    setTimeout(() => {
+                        resetProgressBar();
+                    }, 5000);
+                } else if (isProcessing) {
+                    // Currently processing
+                    document.getElementById('progress-bar').style.width = percent + '%';
+                    document.getElementById('progress-current').textContent = processed;
+                    document.getElementById('progress-total').textContent = total;
                     statusEl.textContent = 'Processing...';
                     statusEl.className = 'tile-status status-active';
                     progressTile.classList.add('processing');
                 } else if (processed === total && total > 0) {
+                    // All done but not recently finished
+                    document.getElementById('progress-bar').style.width = '100%';
+                    document.getElementById('progress-current').textContent = processed;
+                    document.getElementById('progress-total').textContent = total;
                     statusEl.textContent = 'Complete';
                     statusEl.className = 'tile-status status-complete';
                     progressTile.classList.remove('processing');
                 } else {
-                    statusEl.textContent = 'Idle';
-                    statusEl.className = 'tile-status';
-                    progressTile.classList.remove('processing');
+                    // Idle - reset the bar
+                    resetProgressBar();
                 }
+                
+                wasProcessing = isProcessing;
                 
                 // Update worker list
                 const workerList = document.getElementById('worker-list');
@@ -248,6 +274,18 @@ function loadProgress() {
             }
         })
         .catch(err => console.error('Error loading progress:', err));
+}
+
+// Reset progress bar to idle state
+function resetProgressBar() {
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-current').textContent = '0';
+    document.getElementById('progress-total').textContent = '0';
+    document.getElementById('progress-status').textContent = 'Idle';
+    document.getElementById('progress-status').className = 'tile-status';
+    document.getElementById('progress-tile').classList.remove('processing');
+    document.getElementById('worker-list').innerHTML = '<div class="worker-empty">No active workers</div>';
+    lastProcessedCount = -1;  // Reset tracking
 }
 
 // Load file list
