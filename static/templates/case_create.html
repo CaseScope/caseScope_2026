@@ -7,14 +7,73 @@
             <span class="page-title-icon">📁</span>
             Create New Case
         </h1>
-        <p class="page-subtitle">Start a new forensic case</p>
+        <p class="page-subtitle">Start a new forensic case investigation</p>
     </div>
 </div>
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
 <div class="card">
+    <div class="card-header">
+        <span class="card-icon">📋</span>
+        <span class="card-title">Case Details</span>
+    </div>
     <div class="card-body">
-        <p class="text-muted">Case creation form coming soon...</p>
-        <a href="{{ url_for('main.cases') }}" class="btn btn-secondary mt-3">← Back to Cases</a>
+        <form method="POST" action="{{ url_for('main.case_create') }}" class="case-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label" for="name">Case Name <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" class="form-input" required 
+                           placeholder="Enter case name" value="{{ request.form.get('name', '') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="company">Company <span class="required">*</span></label>
+                    <input type="text" id="company" name="company" class="form-input" required 
+                           placeholder="Company name" value="{{ request.form.get('company', '') }}">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="description">Description</label>
+                <textarea id="description" name="description" class="form-input form-textarea" 
+                          placeholder="Brief description of the case" rows="3">{{ request.form.get('description', '') }}</textarea>
+            </div>
+            
+            <div class="form-section-title">Network Information</div>
+            
+            <div class="form-group">
+                <label class="form-label" for="router_ips">Router IP(s)</label>
+                <input type="text" id="router_ips" name="router_ips" class="form-input" 
+                       placeholder="Single IP or comma-separated (e.g., 192.168.1.1, 10.0.0.1)"
+                       value="{{ request.form.get('router_ips', '') }}">
+                <span class="form-hint">Enter single IP or multiple IPs separated by commas</span>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="vpn_ips">VPN IP(s)</label>
+                <input type="text" id="vpn_ips" name="vpn_ips" class="form-input" 
+                       placeholder="IPs, ranges, or CIDR (e.g., 192.168.1.100-150, 10.0.0.0/24)"
+                       value="{{ request.form.get('vpn_ips', '') }}">
+                <span class="form-hint">Accepts: single IPs, comma-separated, ranges (192.168.1.100-150), or CIDR notation (10.0.0.0/24)</span>
+            </div>
+            
+            <div class="form-actions">
+                <a href="{{ url_for('main.cases') }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Create Case</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}

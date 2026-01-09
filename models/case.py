@@ -47,11 +47,18 @@ class Case(db.Model):
     # Case name - mandatory
     name = db.Column(db.String(255), nullable=False, index=True)
     
+    # Company - mandatory
+    company = db.Column(db.String(255), nullable=False, index=True)
+    
     # Description
     description = db.Column(db.Text, nullable=True)
     
     # EDR Report
     edr_report = db.Column(db.Text, nullable=True)
+    
+    # Network information
+    router_ips = db.Column(db.Text, nullable=True)  # Single IP or comma-separated IPs
+    vpn_ips = db.Column(db.Text, nullable=True)  # IPs, ranges (192.168.1.150-160), or CIDR (192.168.0.0/24)
     
     # Status
     status = db.Column(
@@ -85,8 +92,11 @@ class Case(db.Model):
         return {
             'uuid': self.uuid,
             'name': self.name,
+            'company': self.company,
             'description': self.description,
             'edr_report': self.edr_report,
+            'router_ips': self.router_ips,
+            'vpn_ips': self.vpn_ips,
             'status': self.status,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,

@@ -9,7 +9,8 @@
         "Case status workflow (New, Assigned, In Progress, In Review, Finished, Archived)",
         "Case assignment tracking",
         "Case Selection page with table listing all cases",
-        "New Case button for case creation"
+        "Case creation form with all fields",
+        "Added company, router_ips, vpn_ips fields to cases"
       ]
     },
     {
