@@ -1,0 +1,25 @@
+{
+  "version": "3.1.0",
+  "changelog": [
+    {
+      "version": "3.1.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Added user authentication system with PostgreSQL",
+        "User management with permission levels (Administrator, Analyst, Viewer)",
+        "Configurable session timeouts",
+        "Central configuration file for user settings",
+        "Login/logout functionality with session management"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Complete site rebuild from scratch",
+        "New modular architecture",
+        "Centralized CSS styling"
+      ]
+    }
+  ]
+}
