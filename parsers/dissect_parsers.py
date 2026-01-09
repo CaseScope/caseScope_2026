@@ -602,19 +602,25 @@ class LnkParser(BaseParser):
 
 
 class JumpListParser(BaseParser):
-    """Parser for Windows Jump List files"""
+    """Parser for Windows Jump List files using dissect.ole
     
-    VERSION = '1.0.0'
+    Parses AutomaticDestinations-ms and CustomDestinations-ms files
+    which contain LNK entries for recently accessed files.
+    """
+    
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'jumplist'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
         super().__init__(case_id, source_host, case_file_id)
         
         try:
+            from dissect.ole import OLE
             from dissect.shellitem.lnk import Lnk
+            self._ole_class = OLE
             self._lnk_class = Lnk
-        except ImportError:
-            raise ImportError("dissect.shellitem not installed")
+        except ImportError as e:
+            raise ImportError(f"dissect.ole or dissect.shellitem not installed: {e}")
     
     @property
     def artifact_type(self) -> str:
@@ -628,8 +634,18 @@ class JumpListParser(BaseParser):
         filename = os.path.basename(file_path).lower()
         return filename.endswith(('.automaticdestinations-ms', '.customdestinations-ms'))
     
+    def _convert_wintime(self, wintime) -> Optional[datetime]:
+        """Convert Windows FILETIME to datetime"""
+        if not wintime or wintime == 0:
+            return None
+        try:
+            from dissect.util import ts
+            return ts.wintimestamp(wintime)
+        except Exception:
+            return None
+    
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse Jump List file"""
+        """Parse Jump List file using dissect.ole"""
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
@@ -637,63 +653,167 @@ class JumpListParser(BaseParser):
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
         
+        # Extract AppID from filename (hash before .automaticDestinations-ms)
+        app_id = source_file.split('.')[0] if '.' in source_file else source_file
+        
         try:
-            # Jump lists are OLE compound files containing LNK entries
-            import olefile
+            from dissect.ole import OLE
+            from dissect.shellitem.lnk import Lnk
+            import io
             
-            if olefile.isOleFile(file_path):
-                ole = olefile.OleFileIO(file_path)
+            with open(file_path, 'rb') as fh:
+                ole = OLE(fh)
                 
-                for entry in ole.listdir():
-                    entry_path = '/'.join(entry)
+                # List all streams in the OLE file
+                entries = list(ole.root.listdir())
+                
+                for entry_name in entries:
+                    # Skip DestList (metadata) stream
+                    if entry_name == 'DestList':
+                        continue
                     
                     try:
-                        stream = ole.openstream(entry)
-                        data = stream.read()
+                        entry = ole.get(entry_name)
+                        data = entry.open().read()
                         
-                        # Try to parse as LNK
-                        if data[:4] == b'\x4c\x00\x00\x00':
-                            from dissect.shellitem.lnk import Lnk
-                            import io
-                            
-                            lnk = Lnk(io.BytesIO(data))
-                            
-                            target_path = None
-                            if hasattr(lnk, 'target_path'):
-                                target_path = str(lnk.target_path)
-                            
+                        # LNK magic: 4C 00 00 00
+                        if len(data) < 4 or data[:4] != b'\x4c\x00\x00\x00':
+                            continue
+                        
+                        lnk = Lnk(io.BytesIO(data))
+                        
+                        # === Extract target path from linkinfo ===
+                        target_path = None
+                        if lnk.linkinfo:
+                            if hasattr(lnk.linkinfo, 'local_base_path') and lnk.linkinfo.local_base_path:
+                                target_path = lnk.linkinfo.local_base_path
+                                if isinstance(target_path, bytes):
+                                    target_path = target_path.decode('utf-8', errors='replace')
+                        
+                        # === Extract from stringdata ===
+                        relative_path = None
+                        arguments = None
+                        
+                        if lnk.stringdata and hasattr(lnk.stringdata, 'string_data'):
+                            sd = lnk.stringdata.string_data
+                            if isinstance(sd, dict):
+                                if 'relative_path' in sd:
+                                    relative_path = sd['relative_path'].string
+                                if 'command_line_arguments' in sd:
+                                    arguments = sd['command_line_arguments'].string
+                        
+                        # Fall back to relative path
+                        if not target_path and relative_path:
+                            target_path = relative_path
+                        
+                        # === Extract timestamps ===
+                        creation_time = None
+                        access_time = None
+                        write_time = None
+                        file_size = None
+                        
+                        if lnk.link_header:
+                            hdr = lnk.link_header
+                            creation_time = self._convert_wintime(getattr(hdr, 'creation_time', None))
+                            access_time = self._convert_wintime(getattr(hdr, 'access_time', None))
+                            write_time = self._convert_wintime(getattr(hdr, 'write_time', None))
+                            file_size = getattr(hdr, 'filesize', None)
+                        
+                        # Use access time as primary timestamp
+                        timestamp = access_time or write_time or creation_time
+                        if not timestamp:
                             timestamp = datetime.now()
-                            if hasattr(lnk, 'modification_time') and lnk.modification_time:
-                                timestamp = lnk.modification_time
-                            
-                            raw_data = {
-                                'jumplist_file': source_file,
-                                'entry_path': entry_path,
-                                'target_path': target_path,
-                            }
-                            
-                            yield ParsedEvent(
-                                case_id=self.case_id,
-                                artifact_type=self.artifact_type,
-                                timestamp=timestamp if isinstance(timestamp, datetime) else datetime.now(),
-                                source_file=source_file,
-                                source_path=file_path,
-                                source_host=hostname,
-                                case_file_id=self.case_file_id,
-                                target_path=target_path,
-                                raw_json=json.dumps(raw_data, default=str),
-                                search_blob=f"{source_file} {entry_path} {target_path or ''}",
-                                parser_version=self.parser_version,
-                            )
+                        
+                        # === Extract tracker data ===
+                        machine_id = None
+                        volume_droid = None
+                        file_droid = None
+                        
+                        if lnk.extradata and hasattr(lnk.extradata, 'extradata'):
+                            ed_dict = lnk.extradata.extradata
+                            if isinstance(ed_dict, dict):
+                                tracker = ed_dict.get('TRACKER_PROPS')
+                                if tracker:
+                                    if hasattr(tracker, 'machine_id'):
+                                        mid = tracker.machine_id
+                                        if isinstance(mid, bytes):
+                                            machine_id = mid.decode('utf-8', errors='replace').rstrip('\x00')
+                                        else:
+                                            machine_id = str(mid)
+                                    if hasattr(tracker, 'volume_droid'):
+                                        volume_droid = str(tracker.volume_droid)
+                                    if hasattr(tracker, 'file_droid'):
+                                        file_droid = str(tracker.file_droid)
+                        
+                        # === Extract process name ===
+                        process_name = ''
+                        if target_path:
+                            process_name = os.path.basename(target_path.replace('\\', '/'))
+                        
+                        # === Build raw data ===
+                        raw_data = {
+                            'jumplist_file': source_file,
+                            'app_id': app_id,
+                            'entry_id': entry_name,
+                            'target_path': target_path,
+                            'relative_path': relative_path,
+                            'arguments': arguments,
+                            'creation_time': str(creation_time) if creation_time else None,
+                            'access_time': str(access_time) if access_time else None,
+                            'write_time': str(write_time) if write_time else None,
+                            'file_size': file_size,
+                            'machine_id': machine_id,
+                            'volume_droid': volume_droid,
+                            'file_droid': file_droid,
+                        }
+                        raw_data = {k: v for k, v in raw_data.items() if v is not None}
+                        
+                        # === Build search blob ===
+                        search_parts = [source_file, app_id]
+                        if target_path:
+                            search_parts.append(target_path)
+                        if relative_path and relative_path != target_path:
+                            search_parts.append(relative_path)
+                        if arguments:
+                            search_parts.append(arguments)
+                        if machine_id:
+                            search_parts.append(machine_id)
+                        
+                        # === Build extra fields ===
+                        extra = {
+                            'app_id': app_id,
+                            'entry_id': entry_name,
+                            'relative_path': relative_path,
+                            'creation_time': str(creation_time) if creation_time else None,
+                            'write_time': str(write_time) if write_time else None,
+                            'file_size': file_size,
+                            'machine_id': machine_id,
+                            'volume_droid': volume_droid,
+                            'file_droid': file_droid,
+                        }
+                        extra = {k: v for k, v in extra.items() if v is not None}
+                        
+                        yield ParsedEvent(
+                            case_id=self.case_id,
+                            artifact_type=self.artifact_type,
+                            timestamp=timestamp,
+                            source_file=source_file,
+                            source_path=file_path,
+                            source_host=hostname,
+                            case_file_id=self.case_file_id,
+                            process_name=self.safe_str(process_name),
+                            target_path=self.safe_str(target_path),
+                            command_line=self.safe_str(arguments),
+                            file_size=file_size,
+                            raw_json=json.dumps(raw_data, default=str),
+                            search_blob=' '.join(str(p) for p in search_parts if p),
+                            extra_fields=json.dumps(extra, default=str),
+                            parser_version=self.parser_version,
+                        )
+                        
                     except Exception as e:
-                        self.warnings.append(f"Error parsing entry {entry_path}: {e}")
+                        self.warnings.append(f"Error parsing entry {entry_name}: {e}")
                 
-                ole.close()
-            else:
-                self.errors.append(f"Not a valid OLE file: {file_path}")
-                
-        except ImportError:
-            self.errors.append("olefile not installed. Install with: pip install olefile")
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"JumpList parse error: {e}")

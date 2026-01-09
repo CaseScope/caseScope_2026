@@ -1,6 +1,16 @@
 {
-  "version": "3.13.2",
+  "version": "3.13.3",
   "changelog": [
+    {
+      "version": "3.13.3",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed JumpListParser v2.0 to use dissect.ole API",
+        "Parses AutomaticDestinations-ms files with embedded LNK entries",
+        "Extracts target_path, timestamps, machine_id, app_id, file tracking data",
+        "Tested and verified ClickHouse indexing (34 events)"
+      ]
+    },
     {
       "version": "3.13.2",
       "date": "2026-01-09",
