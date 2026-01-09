@@ -1,6 +1,16 @@
 {
-  "version": "3.3.0",
+  "version": "3.4.0",
   "changelog": [
+    {
+      "version": "3.4.0",
+      "date": "2026-01-09",
+      "changes": [
+        "My Profile page under System menu",
+        "User can view and edit their profile (admin/analyst only)",
+        "Password change with modal and real-time validation",
+        "Viewers see notification that profile editing is restricted"
+      ]
+    },
     {
       "version": "3.3.0",
       "date": "2026-01-09",

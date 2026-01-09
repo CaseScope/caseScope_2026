@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">👤</span>
+            My Profile
+        </h1>
+        <p class="page-subtitle">View and manage your account settings</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+{% if not can_edit %}
+<div class="flash-message flash-warning">
+    <span class="flash-icon">⚠</span>
+    <span class="flash-text">Your account has Viewer permissions. Profile editing is only available for Administrators and Analysts.</span>
+</div>
+{% endif %}
+
+<div class="grid grid-2">
+    <!-- Profile Information Card -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">📋</span>
+            <span class="card-title">Profile Information</span>
+        </div>
+        <div class="card-body profile-form-body">
+            <form method="POST" action="{{ url_for('main.profile') }}">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <input type="text" id="username" class="form-input" value="{{ current_user.username }}" disabled>
+                    <span class="form-hint">Username cannot be changed</span>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="full_name">Full Name <span class="required">*</span></label>
+                    <input type="text" id="full_name" name="full_name" class="form-input" 
+                           value="{{ current_user.full_name }}" {% if not can_edit %}disabled{% endif %} required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="email">Email <span class="required">*</span></label>
+                    <input type="email" id="email" name="email" class="form-input" 
+                           value="{{ current_user.email }}" {% if not can_edit %}disabled{% endif %} required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="permission_level">Permission Level</label>
+                    <input type="text" id="permission_level" class="form-input badge-input badge-{{ 'success' if current_user.is_administrator else 'info' if current_user.is_analyst else 'muted' }}" 
+                           value="{{ current_user.permission_level | capitalize }}" disabled>
+                    <span class="form-hint">Permission level can only be changed by an administrator</span>
+                </div>
+                
+                {% if can_edit %}
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    
+    <!-- Account Details Card -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🔒</span>
+            <span class="card-title">Account Details</span>
+        </div>
+        <div class="card-body profile-form-body">
+            <div class="info-list">
+                <div class="info-row">
+                    <span class="info-label">Created By</span>
+                    <span class="info-value">{{ current_user.created_by or 'System' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Created At</span>
+                    <span class="info-value">{{ current_user.created_at.strftime('%Y-%m-%d %H:%M') if current_user.created_at else '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Last Updated</span>
+                    <span class="info-value">{{ current_user.updated_at.strftime('%Y-%m-%d %H:%M') if current_user.updated_at else '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Last Login</span>
+                    <span class="info-value">{{ current_user.last_login.strftime('%Y-%m-%d %H:%M') if current_user.last_login else 'Never' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Account Status</span>
+                    <span class="info-value">
+                        <span class="badge badge-{{ 'success' if current_user.is_active else 'danger' }}">
+                            {{ 'Active' if current_user.is_active else 'Disabled' }}
+                        </span>
+                    </span>
+                </div>
+            </div>
+            
+            {% if can_edit %}
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="openPasswordModal()">
+                    🔑 Change Password
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Password Change Modal -->
+{% if can_edit %}
+<div id="passwordModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 class="modal-title">🔑 Change Password</h3>
+            <button type="button" class="modal-close" onclick="closePasswordModal()">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('main.change_password') }}" id="passwordForm">
+            <div class="modal-body">
+                <div class="password-requirements">
+                    <h4>Password Requirements</h4>
+                    <ul>
+                        <li id="req-length" class="req-pending">Minimum {{ UserSettings.PASSWORD_MIN_LENGTH }} characters</li>
+                        {% if UserSettings.PASSWORD_REQUIRE_UPPERCASE %}
+                        <li id="req-upper" class="req-pending">At least one uppercase letter</li>
+                        {% endif %}
+                        {% if UserSettings.PASSWORD_REQUIRE_LOWERCASE %}
+                        <li id="req-lower" class="req-pending">At least one lowercase letter</li>
+                        {% endif %}
+                        {% if UserSettings.PASSWORD_REQUIRE_DIGIT %}
+                        <li id="req-digit" class="req-pending">At least one digit</li>
+                        {% endif %}
+                        {% if UserSettings.PASSWORD_REQUIRE_SPECIAL %}
+                        <li id="req-special" class="req-pending">At least one special character</li>
+                        {% endif %}
+                    </ul>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="current_password">Current Password <span class="required">*</span></label>
+                    <input type="password" id="current_password" name="current_password" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="new_password">New Password <span class="required">*</span></label>
+                    <input type="password" id="new_password" name="new_password" class="form-input" required
+                           oninput="validatePasswordRealtime()">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="confirm_password">Confirm New Password <span class="required">*</span></label>
+                    <input type="password" id="confirm_password" name="confirm_password" class="form-input" required
+                           oninput="validatePasswordMatch()">
+                    <span id="password-match-hint" class="form-hint"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePasswordModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="submitPasswordBtn">Change Password</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if can_edit %}
+<script>
+    const PASSWORD_MIN_LENGTH = {{ UserSettings.PASSWORD_MIN_LENGTH }};
+    const REQUIRE_UPPERCASE = {{ 'true' if UserSettings.PASSWORD_REQUIRE_UPPERCASE else 'false' }};
+    const REQUIRE_LOWERCASE = {{ 'true' if UserSettings.PASSWORD_REQUIRE_LOWERCASE else 'false' }};
+    const REQUIRE_DIGIT = {{ 'true' if UserSettings.PASSWORD_REQUIRE_DIGIT else 'false' }};
+    const REQUIRE_SPECIAL = {{ 'true' if UserSettings.PASSWORD_REQUIRE_SPECIAL else 'false' }};
+    
+    function openPasswordModal() {
+        document.getElementById('passwordModal').style.display = 'flex';
+        document.getElementById('current_password').focus();
+    }
+    
+    function closePasswordModal() {
+        document.getElementById('passwordModal').style.display = 'none';
+        document.getElementById('passwordForm').reset();
+        resetRequirements();
+    }
+    
+    function resetRequirements() {
+        document.querySelectorAll('.password-requirements li').forEach(li => {
+            li.className = 'req-pending';
+        });
+        document.getElementById('password-match-hint').textContent = '';
+        document.getElementById('password-match-hint').className = 'form-hint';
+    }
+    
+    function validatePasswordRealtime() {
+        const password = document.getElementById('new_password').value;
+        
+        // Length check
+        const lengthEl = document.getElementById('req-length');
+        if (lengthEl) {
+            lengthEl.className = password.length >= PASSWORD_MIN_LENGTH ? 'req-valid' : 'req-invalid';
+        }
+        
+        // Uppercase check
+        if (REQUIRE_UPPERCASE) {
+            const upperEl = document.getElementById('req-upper');
+            if (upperEl) {
+                upperEl.className = /[A-Z]/.test(password) ? 'req-valid' : 'req-invalid';
+            }
+        }
+        
+        // Lowercase check
+        if (REQUIRE_LOWERCASE) {
+            const lowerEl = document.getElementById('req-lower');
+            if (lowerEl) {
+                lowerEl.className = /[a-z]/.test(password) ? 'req-valid' : 'req-invalid';
+            }
+        }
+        
+        // Digit check
+        if (REQUIRE_DIGIT) {
+            const digitEl = document.getElementById('req-digit');
+            if (digitEl) {
+                digitEl.className = /[0-9]/.test(password) ? 'req-valid' : 'req-invalid';
+            }
+        }
+        
+        // Special character check
+        if (REQUIRE_SPECIAL) {
+            const specialEl = document.getElementById('req-special');
+            if (specialEl) {
+                specialEl.className = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password) ? 'req-valid' : 'req-invalid';
+            }
+        }
+        
+        validatePasswordMatch();
+    }
+    
+    function validatePasswordMatch() {
+        const newPassword = document.getElementById('new_password').value;
+        const confirmPassword = document.getElementById('confirm_password').value;
+        const hintEl = document.getElementById('password-match-hint');
+        
+        if (confirmPassword === '') {
+            hintEl.textContent = '';
+            hintEl.className = 'form-hint';
+        } else if (newPassword === confirmPassword) {
+            hintEl.textContent = '✓ Passwords match';
+            hintEl.className = 'form-hint text-success';
+        } else {
+            hintEl.textContent = '✕ Passwords do not match';
+            hintEl.className = 'form-hint text-danger';
+        }
+    }
+    
+    // Close modal on escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closePasswordModal();
+        }
+    });
+    
+    // Close modal on overlay click
+    document.getElementById('passwordModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closePasswordModal();
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

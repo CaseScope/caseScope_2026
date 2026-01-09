@@ -18,7 +18,7 @@ You are an expert Python developer working on the CaseScope project. You write c
 
 ## File Naming Conventions
 - App files: `/app/{type}_{function}.py` (e.g., `ai_review_event.py`)
-- Documentation: `/site_docs/{description}`
+- Documentation: `/docs/{description}`
 - adhere to the site layout document
 
 ## Versioning (version.json)

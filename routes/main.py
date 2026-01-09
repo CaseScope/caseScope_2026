@@ -4,6 +4,8 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from models.database import db
 from models.case import Case, CaseStatus
+from models.user import User
+from config import PermissionLevel, UserSettings
 
 main_bp = Blueprint('main', __name__)
 
@@ -229,3 +231,87 @@ def case_edit():
         return redirect(url_for('main.case_dashboard'))
     
     return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)
+
+
+# ============================================
+# System Section Routes
+# ============================================
+
+@main_bp.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    """My Profile - view and edit current user's profile"""
+    # Check if user can edit their profile (admin or analyst only)
+    can_edit = current_user.is_administrator or current_user.is_analyst
+    
+    if request.method == 'POST':
+        # Viewers cannot edit
+        if not can_edit:
+            flash('You do not have permission to edit your profile', 'error')
+            return redirect(url_for('main.profile'))
+        
+        # Get form data
+        full_name = request.form.get('full_name', '').strip()
+        email = request.form.get('email', '').strip()
+        
+        # Validate required fields
+        if not full_name:
+            flash('Full name is required', 'error')
+            return render_template('profile.html', page_title='My Profile', can_edit=can_edit, UserSettings=UserSettings)
+        
+        if not email:
+            flash('Email is required', 'error')
+            return render_template('profile.html', page_title='My Profile', can_edit=can_edit, UserSettings=UserSettings)
+        
+        # Check if email is already taken by another user
+        existing_user = User.query.filter(User.email == email, User.id != current_user.id).first()
+        if existing_user:
+            flash('Email is already in use by another user', 'error')
+            return render_template('profile.html', page_title='My Profile', can_edit=can_edit, UserSettings=UserSettings)
+        
+        # Update user
+        current_user.full_name = full_name
+        current_user.email = email
+        db.session.commit()
+        
+        flash('Profile updated successfully', 'success')
+        return redirect(url_for('main.profile'))
+    
+    return render_template('profile.html', page_title='My Profile', can_edit=can_edit, UserSettings=UserSettings)
+
+
+@main_bp.route('/profile/change-password', methods=['POST'])
+@login_required
+def change_password():
+    """Change password for current user"""
+    # Check if user can edit their profile
+    if not (current_user.is_administrator or current_user.is_analyst):
+        flash('You do not have permission to change your password', 'error')
+        return redirect(url_for('main.profile'))
+    
+    current_password = request.form.get('current_password', '')
+    new_password = request.form.get('new_password', '')
+    confirm_password = request.form.get('confirm_password', '')
+    
+    # Verify current password
+    if not current_user.check_password(current_password):
+        flash('Current password is incorrect', 'error')
+        return redirect(url_for('main.profile'))
+    
+    # Check passwords match
+    if new_password != confirm_password:
+        flash('New passwords do not match', 'error')
+        return redirect(url_for('main.profile'))
+    
+    # Validate new password
+    is_valid, error_msg = User.validate_password(new_password)
+    if not is_valid:
+        flash(error_msg, 'error')
+        return redirect(url_for('main.profile'))
+    
+    # Update password
+    current_user.set_password(new_password)
+    db.session.commit()
+    
+    flash('Password changed successfully', 'success')
+    return redirect(url_for('main.profile'))

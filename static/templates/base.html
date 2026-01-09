@@ -47,9 +47,9 @@
                 <div class="nav-section">
                     <div class="nav-section-title">System</div>
                 </div>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Profile' else '' }}">
+                <a href="{{ url_for('main.profile') }}" class="nav-item {{ 'active' if page_title == 'My Profile' else '' }}">
                     <span class="nav-item-icon">👤</span>
-                    <span class="nav-item-text">Profile</span>
+                    <span class="nav-item-text">My Profile</span>
                 </a>
                 <a href="#" class="nav-item {{ 'active' if page_title == 'Settings' else '' }}">
                     <span class="nav-item-icon">⚙️</span>
