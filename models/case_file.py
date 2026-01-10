@@ -162,7 +162,8 @@ class CaseFile(db.Model):
         """Get file statistics for a case"""
         from sqlalchemy import func
         
-        base_query = CaseFile.query.filter_by(case_uuid=case_uuid)
+        # Exclude archives from stats - they are containers, not files to process
+        base_query = CaseFile.query.filter_by(case_uuid=case_uuid, is_archive=False)
         
         total = base_query.count()
         
