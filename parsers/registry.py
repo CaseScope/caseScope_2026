@@ -48,19 +48,32 @@ class ParserRegistry:
         """Register all built-in parsers"""
         
         # EVTX Parser
-        # Use EvtxFallbackParser (pyevtx-rs) for full event parsing
-        # HayabusaParser only outputs detection matches (Sigma rule hits)
+        # Use EvtxECmdParser (EZ Tools + Hayabusa) for full parsing with detection enrichment
+        # Falls back to EvtxFallbackParser (pyevtx-rs) if EvtxECmd not installed
         try:
-            from parsers.evtx_parser import EvtxFallbackParser
+            from parsers.evtx_parser import EvtxECmdParser
             self.register(FileTypeMapping(
                 artifact_type='evtx',
-                parser_class=EvtxFallbackParser,
+                parser_class=EvtxECmdParser,
                 extensions=['.evtx'],
                 magic_bytes=[b'ElfFile\x00'],
                 priority=10,
             ))
-        except ImportError as e:
-            logger.warning(f"Could not register EVTX parser: {e}")
+            logger.info("Registered EvtxECmdParser for EVTX parsing")
+        except (ImportError, FileNotFoundError) as e:
+            logger.warning(f"EvtxECmd not available, trying fallback: {e}")
+            try:
+                from parsers.evtx_parser import EvtxFallbackParser
+                self.register(FileTypeMapping(
+                    artifact_type='evtx',
+                    parser_class=EvtxFallbackParser,
+                    extensions=['.evtx'],
+                    magic_bytes=[b'ElfFile\x00'],
+                    priority=20,
+                ))
+                logger.info("Registered EvtxFallbackParser for EVTX parsing")
+            except ImportError:
+                logger.warning("No EVTX parser available")
         
         # Dissect-based parsers
         try:

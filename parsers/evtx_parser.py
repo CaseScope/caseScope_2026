@@ -1,14 +1,17 @@
-"""Hayabusa EVTX Parser for CaseScope
+"""EVTX Parser for CaseScope using Eric Zimmerman's EvtxECmd + Hayabusa
 
-Uses Hayabusa (https://github.com/Yamato-Security/hayabusa) for parsing
-Windows Event Log files with built-in Sigma detection.
+Uses EvtxECmd (EZ Tools) for complete EVTX parsing:
+- Parses ALL events (not just detections)
+- Uses Maps for field normalization per EventID
+- Consistent JSON output schema
+- Runs on Linux via .NET runtime
 
-Hayabusa provides:
-- Fast Rust-based EVTX parsing
-- 4000+ Sigma detection rules
-- MITRE ATT&CK mapping
-- Field normalization (Details object)
-- Multiple output profiles
+Hayabusa provides Sigma detection enrichment for matched events.
+
+References:
+- https://www.sans.org/blog/running-ez-tools-natively-on-linux-a-step-by-step-guide
+- https://github.com/EricZimmerman/evtx
+- https://ericzimmerman.github.io/
 """
 import os
 import json
@@ -24,27 +27,28 @@ from parsers.base import BaseParser, ParsedEvent, ParseResult
 logger = logging.getLogger(__name__)
 
 
-class HayabusaParser(BaseParser):
-    """Parser for Windows Event Log files using Hayabusa
+class EvtxECmdParser(BaseParser):
+    """Parser for Windows Event Log files using EvtxECmd + Hayabusa
     
-    Uses Hayabusa's json-timeline command with all-field-info profile
-    to get both normalized Details and raw AllFieldInfo.
+    EvtxECmd provides:
+    - Complete event extraction (ALL events, not just matches)
+    - Field normalization via Maps (per-EventID field mapping)
+    - Consistent output schema
+    - Linux support via .NET runtime
+    
+    Hayabusa enrichment adds Sigma detection context to matching events.
     """
     
-    VERSION = '1.0.0'
+    VERSION = '2.0.0'
     ARTIFACT_TYPE = 'evtx'
     
-    # Hayabusa binary and rules location
+    # Tool paths - wrapper scripts handle .NET
+    EVTXECMD_BIN = '/opt/casescope/bin/evtxecmd'
+    EVTXECMD_MAPS = '/opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps'
     HAYABUSA_BIN = '/opt/casescope/bin/hayabusa'
     HAYABUSA_RULES = '/opt/casescope/rules/hayabusa-rules'
     
-    # Output profile - all-field-info gives us Details + AllFieldInfo
-    DEFAULT_PROFILE = 'all-field-info'
-    
-    # Minimum detection level to include
-    MIN_LEVEL = 'informational'  # informational, low, medium, high, critical
-    
-    # Level mapping for normalization
+    # Level mapping for Hayabusa detections
     LEVEL_MAP = {
         'informational': 'info',
         'info': 'info',
@@ -57,29 +61,45 @@ class HayabusaParser(BaseParser):
     }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 hayabusa_bin: str = None, rules_dir: str = None, profile: str = None,
-                 min_level: str = None):
-        """Initialize Hayabusa parser
+                 evtxecmd_bin: str = None, maps_dir: str = None,
+                 hayabusa_bin: str = None, rules_dir: str = None,
+                 enrich_detections: bool = True):
+        """Initialize EvtxECmd + Hayabusa parser
         
         Args:
             case_id: ClickHouse case_id
             source_host: Hostname the EVTX came from
             case_file_id: Optional FK to case_files
-            hayabusa_bin: Path to Hayabusa binary (default: /opt/casescope/bin/hayabusa)
-            rules_dir: Path to Hayabusa rules directory
-            profile: Output profile (default: all-field-info)
-            min_level: Minimum detection level to include
+            evtxecmd_bin: Path to EvtxECmd wrapper script
+            maps_dir: Path to EvtxECmd Maps directory
+            hayabusa_bin: Path to Hayabusa binary (for detection enrichment)
+            rules_dir: Path to Hayabusa rules
+            enrich_detections: Run Hayabusa for Sigma detection enrichment
         """
         super().__init__(case_id, source_host, case_file_id)
         
+        self.evtxecmd_bin = evtxecmd_bin or self.EVTXECMD_BIN
+        self.maps_dir = maps_dir or self.EVTXECMD_MAPS
         self.hayabusa_bin = hayabusa_bin or self.HAYABUSA_BIN
         self.rules_dir = rules_dir or self.HAYABUSA_RULES
-        self.profile = profile or self.DEFAULT_PROFILE
-        self.min_level = min_level or self.MIN_LEVEL
+        self.enrich_detections = enrich_detections
         
-        # Verify Hayabusa exists
-        if not os.path.isfile(self.hayabusa_bin):
-            raise FileNotFoundError(f"Hayabusa binary not found: {self.hayabusa_bin}")
+        # Verify EvtxECmd exists
+        if not os.path.isfile(self.evtxecmd_bin):
+            raise FileNotFoundError(
+                f"EvtxECmd not found: {self.evtxecmd_bin}\n"
+                "Install with: sudo /opt/casescope/bin/install_eztools.sh"
+            )
+        
+        # Check Hayabusa availability
+        self._hayabusa_available = (
+            self.enrich_detections and 
+            os.path.isfile(self.hayabusa_bin)
+        )
+        if self._hayabusa_available:
+            logger.info("Hayabusa available for detection enrichment")
+        else:
+            logger.info("Hayabusa not available, detection enrichment disabled")
     
     @property
     def artifact_type(self) -> str:
@@ -90,11 +110,9 @@ class HayabusaParser(BaseParser):
         if not os.path.isfile(file_path):
             return False
         
-        # Check extension
         if file_path.lower().endswith('.evtx'):
             return True
         
-        # Check magic bytes (EVTX signature: "ElfFile\x00")
         try:
             with open(file_path, 'rb') as f:
                 magic = f.read(8)
@@ -103,283 +121,359 @@ class HayabusaParser(BaseParser):
             return False
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse EVTX file using Hayabusa and yield events
+        """Parse EVTX file - ALL events with optional detection enrichment
         
         Args:
             file_path: Path to the EVTX file
             
         Yields:
-            ParsedEvent objects for each event
+            ParsedEvent objects for EVERY event in the file
         """
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
         
-        # Create temp file for output
+        source_file = os.path.basename(file_path)
+        
+        # Step 1: Get Hayabusa detections for enrichment (keyed by RecordID)
+        detections = {}
+        if self._hayabusa_available:
+            detections = self._get_hayabusa_detections(file_path)
+            if detections:
+                logger.info(f"Hayabusa found {len(detections)} detections for enrichment")
+        
+        # Step 2: Parse ALL events with EvtxECmd
+        yield from self._parse_with_evtxecmd(file_path, source_file, detections)
+    
+    def _get_hayabusa_detections(self, file_path: str) -> Dict[str, Dict]:
+        """Run Hayabusa and index detections by RecordID for enrichment
+        
+        Returns:
+            Dict mapping "Channel:RecordID" to detection info
+        """
+        detections = {}
+        
         with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as tmp:
             output_path = tmp.name
         
         try:
-            # Run Hayabusa
             cmd = [
                 self.hayabusa_bin, 'json-timeline',
                 '-f', file_path,
                 '-o', output_path,
                 '-L',                    # JSONL format
                 '-w',                    # Skip wizard
-                '-q',                    # Quiet mode
+                '-q',                    # Quiet
                 '--no-color',
-                '-p', self.profile,
-                '--min-level', self.min_level,
+                '-p', 'all-field-info',  # Get all fields for context
+                '--min-level', 'informational',
                 '-U',                    # UTC timestamps
             ]
             
-            # Add rules directory if it exists
             if os.path.isdir(self.rules_dir):
                 cmd.extend(['-r', self.rules_dir])
             
-            logger.info(f"Running Hayabusa: {' '.join(cmd)}")
+            logger.info(f"Running Hayabusa for detection enrichment...")
             
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=3600  # 1 hour timeout for large files
+                timeout=3600
             )
             
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout or 'Unknown error'
-                self.errors.append(f"Hayabusa failed: {error_msg}")
-                logger.error(f"Hayabusa error for {file_path}: {error_msg}")
-                return
-            
-            # Parse output file
-            if not os.path.exists(output_path):
-                self.errors.append("Hayabusa produced no output")
-                return
-            
-            # Extract source filename and try to get hostname
-            source_file = os.path.basename(file_path)
-            
-            with open(output_path, 'r', encoding='utf-8', errors='replace') as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    try:
-                        event_data = json.loads(line)
-                        parsed_event = self._transform_event(event_data, file_path, source_file)
-                        if parsed_event:
-                            yield parsed_event
-                    except json.JSONDecodeError as e:
-                        self.warnings.append(f"JSON parse error on line {line_num}: {e}")
-                    except Exception as e:
-                        self.warnings.append(f"Error processing event on line {line_num}: {e}")
-        
+            # Hayabusa may return non-zero even on success with no matches
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                with open(output_path, 'r', encoding='utf-8', errors='replace') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                            # Key by Channel + RecordID for correlation
+                            channel = event.get('Channel', '')
+                            record_id = event.get('RecordID')
+                            if record_id:
+                                key = f"{channel}:{record_id}"
+                                
+                                # Handle array fields
+                                mitre_tactics = event.get('MitreTactics') or []
+                                mitre_tags = event.get('MitreTags') or []
+                                if isinstance(mitre_tactics, str):
+                                    mitre_tactics = [mitre_tactics] if mitre_tactics else []
+                                if isinstance(mitre_tags, str):
+                                    mitre_tags = [mitre_tags] if mitre_tags else []
+                                
+                                detections[key] = {
+                                    'rule_title': event.get('RuleTitle'),
+                                    'rule_level': self.LEVEL_MAP.get(
+                                        str(event.get('Level', '')).lower(),
+                                        event.get('Level')
+                                    ),
+                                    'rule_file': event.get('RuleFile'),
+                                    'mitre_tactics': mitre_tactics,
+                                    'mitre_tags': mitre_tags,
+                                }
+                        except json.JSONDecodeError:
+                            pass
+            else:
+                logger.debug("No Hayabusa detections for this file")
+                            
+        except subprocess.TimeoutExpired:
+            self.warnings.append("Hayabusa timed out after 1 hour")
+        except Exception as e:
+            self.warnings.append(f"Hayabusa error: {e}")
+            logger.warning(f"Hayabusa error: {e}")
         finally:
-            # Cleanup temp file
             try:
                 os.unlink(output_path)
-            except Exception:
+            except:
                 pass
-    
-    def _transform_event(self, event: Dict[str, Any], file_path: str, source_file: str) -> Optional[ParsedEvent]:
-        """Transform Hayabusa JSON event to ParsedEvent
         
-        Args:
-            event: Hayabusa JSON event
-            file_path: Original file path
-            source_file: Source filename
+        return detections
+    
+    def _parse_with_evtxecmd(self, file_path: str, source_file: str,
+                            detections: Dict) -> Generator[ParsedEvent, None, None]:
+        """Parse using EvtxECmd with Maps for field normalization"""
+        
+        # Create temp output directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = 'evtx_output.json'
+            output_path = os.path.join(temp_dir, output_file)
             
-        Returns:
-            ParsedEvent or None if transformation fails
+            # Build EvtxECmd command
+            cmd = [
+                self.evtxecmd_bin,
+                '-f', file_path,
+                '--json', temp_dir,
+                '--jsonf', output_file,
+            ]
+            
+            logger.info(f"Running EvtxECmd: {' '.join(cmd)}")
+            
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3600,
+                )
+                
+                if result.returncode != 0:
+                    error_msg = result.stderr or result.stdout or 'Unknown error'
+                    self.errors.append(f"EvtxECmd failed: {error_msg[:500]}")
+                    logger.error(f"EvtxECmd error: {error_msg}")
+                    return
+                
+                # Parse JSON output
+                if not os.path.exists(output_path):
+                    self.errors.append("EvtxECmd produced no output")
+                    return
+                
+                # Handle UTF-8 BOM that EvtxECmd adds
+                with open(output_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+                    for line_num, line in enumerate(f, 1):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        try:
+                            event = json.loads(line)
+                            parsed_event = self._transform_evtxecmd_event(
+                                event, file_path, source_file, detections
+                            )
+                            if parsed_event:
+                                yield parsed_event
+                        except json.JSONDecodeError as e:
+                            self.warnings.append(f"JSON error line {line_num}: {e}")
+                        except Exception as e:
+                            self.warnings.append(f"Error processing line {line_num}: {e}")
+                            
+            except subprocess.TimeoutExpired:
+                self.errors.append("EvtxECmd timed out after 1 hour")
+            except Exception as e:
+                self.errors.append(f"EvtxECmd execution error: {e}")
+                logger.exception(f"EvtxECmd error: {e}")
+    
+    def _transform_evtxecmd_event(self, event: Dict[str, Any], file_path: str,
+                                  source_file: str, detections: Dict) -> Optional[ParsedEvent]:
+        """Transform EvtxECmd JSON output to ParsedEvent
+        
+        EvtxECmd JSON schema (with Maps applied):
+        - TimeCreated: timestamp
+        - EventId: event ID
+        - Channel: log channel
+        - Computer: hostname
+        - RecordNumber: record ID
+        - Provider: provider name
+        - Level: event level
+        - PayloadData1-6: mapped fields from Maps
+        - MapDescription: what the Maps extracted
+        - UserName: normalized username
+        - Payload: raw XML payload as JSON string
         """
         try:
             # Get timestamp
-            timestamp = self.parse_timestamp(event.get('Timestamp'))
+            timestamp = self.parse_timestamp(event.get('TimeCreated'))
             if not timestamp:
                 timestamp = datetime.now()
             
-            # Get computer/hostname
+            # Get basic fields
             computer = event.get('Computer', '')
             hostname = self.extract_hostname(file_path, {'Computer': computer})
-            
-            # Get channel (abbreviated in Hayabusa)
             channel = event.get('Channel', '')
+            event_id = str(event.get('EventId', ''))
+            record_id = event.get('RecordNumber')
             
-            # Get event ID
-            event_id = str(event.get('EventID', ''))
+            # Check for Hayabusa detection enrichment
+            detection_key = f"{channel}:{record_id}"
+            detection = detections.get(detection_key, {})
             
-            # Get detection info
-            rule_title = event.get('RuleTitle')
-            rule_level = self.LEVEL_MAP.get(
-                str(event.get('Level', '')).lower(), 
-                event.get('Level')
-            )
-            rule_file = event.get('RuleFile')
-            
-            # Get MITRE info (arrays)
-            mitre_tactics = event.get('MitreTactics') or []
-            mitre_tags = event.get('MitreTags') or []
-            
-            # Ensure they're lists
-            if isinstance(mitre_tactics, str):
-                mitre_tactics = [mitre_tactics] if mitre_tactics else []
-            if isinstance(mitre_tags, str):
-                mitre_tags = [mitre_tags] if mitre_tags else []
-            
-            # Get Details (normalized fields from Hayabusa)
-            details = event.get('Details', {})
-            if isinstance(details, str):
+            # Parse the Payload JSON to extract EventData fields
+            event_data = {}
+            payload_str = event.get('Payload', '')
+            if payload_str:
                 try:
-                    details = json.loads(details)
+                    payload = json.loads(payload_str)
+                    # Extract EventData fields
+                    ed = payload.get('EventData', {})
+                    data_items = ed.get('Data', [])
+                    if isinstance(data_items, list):
+                        for item in data_items:
+                            if isinstance(item, dict) and '@Name' in item:
+                                event_data[item['@Name']] = item.get('#text', '')
                 except:
-                    details = {}
+                    pass
             
-            # Get AllFieldInfo (raw EventData)
-            all_fields = event.get('AllFieldInfo', {})
-            if isinstance(all_fields, str):
-                try:
-                    all_fields = json.loads(all_fields)
-                except:
-                    all_fields = {}
-            
-            # Extract normalized fields from Details and AllFieldInfo
+            # Extract normalized fields from EvtxECmd output + Payload
             username = (
-                details.get('TgtUser') or 
-                details.get('User') or
-                all_fields.get('TargetUserName') or 
-                all_fields.get('SubjectUserName') or
-                all_fields.get('User')
+                event.get('UserName') or
+                event_data.get('TargetUserName') or
+                event_data.get('SubjectUserName') or
+                event_data.get('User')
             )
+            # Clean up username (remove SID suffix if present)
+            if username and ' (' in username:
+                username = username.split(' (')[0]
             
             domain = (
-                details.get('TgtDom') or
-                details.get('Domain') or
-                all_fields.get('TargetDomainName') or
-                all_fields.get('SubjectDomainName')
+                event_data.get('TargetDomainName') or
+                event_data.get('SubjectDomainName') or
+                event_data.get('Domain')
             )
             
             sid = (
-                all_fields.get('TargetUserSid') or
-                all_fields.get('SubjectUserSid') or
-                all_fields.get('UserSid')
+                event_data.get('TargetUserSid') or
+                event_data.get('SubjectUserSid') or
+                event_data.get('TargetSid')
             )
             
-            logon_type = self.safe_int(
-                details.get('Type') or 
-                all_fields.get('LogonType')
-            )
-            
-            # Process fields
+            # Process info - from PayloadData or EventData
             process_name = (
-                details.get('Proc') or
-                all_fields.get('NewProcessName') or
-                all_fields.get('ProcessName') or
-                all_fields.get('Image')
+                event_data.get('NewProcessName') or
+                event_data.get('ProcessName') or
+                event_data.get('CallerProcessName') or
+                event.get('PayloadData3')  # Often CallerProcessName in Maps
             )
             if process_name:
+                process_path = process_name
                 process_name = os.path.basename(process_name.replace('\\', '/'))
+            else:
+                process_path = None
             
-            process_path = (
-                all_fields.get('NewProcessName') or
-                all_fields.get('ProcessName') or
-                all_fields.get('Image')
+            command_line = (
+                event_data.get('CommandLine') or
+                event_data.get('ProcessCommandLine')
             )
             
             process_id = self.safe_int(
-                details.get('PID') or
-                all_fields.get('NewProcessId') or
-                all_fields.get('ProcessId')
+                event_data.get('NewProcessId') or
+                event_data.get('ProcessId') or
+                event_data.get('CallerProcessId') or
+                event.get('ProcessId')
             )
             
-            parent_process = all_fields.get('ParentProcessName') or all_fields.get('ParentImage')
+            parent_process = event_data.get('ParentProcessName')
             if parent_process:
                 parent_process = os.path.basename(parent_process.replace('\\', '/'))
             
-            parent_pid = self.safe_int(
-                all_fields.get('ParentProcessId') or
-                all_fields.get('ParentPID')
-            )
+            parent_pid = self.safe_int(event_data.get('ParentProcessId'))
             
-            command_line = (
-                details.get('Cmd') or
-                all_fields.get('CommandLine') or
-                all_fields.get('ProcessCommandLine')
-            )
-            
-            # Target path
+            # Target path (files, registry, etc)
             target_path = (
-                details.get('Path') or
-                all_fields.get('TargetFilename') or
-                all_fields.get('ObjectName') or
-                all_fields.get('TargetObject')
+                event_data.get('TargetFilename') or
+                event_data.get('ObjectName') or
+                event_data.get('TargetObject') or
+                event.get('PayloadData1')
             )
             
             # Network fields
             src_ip = self.validate_ip(
-                details.get('SrcIP') or
-                all_fields.get('IpAddress') or
-                all_fields.get('SourceAddress') or
-                all_fields.get('ClientAddress')
+                event_data.get('IpAddress') or
+                event_data.get('SourceAddress') or
+                event_data.get('ClientAddress')
             )
-            
             dst_ip = self.validate_ip(
-                details.get('DstIP') or
-                all_fields.get('DestAddress') or
-                all_fields.get('DestinationAddress')
+                event_data.get('DestAddress') or
+                event_data.get('DestinationAddress')
             )
-            
             src_port = self.safe_int(
-                details.get('SrcPort') or
-                all_fields.get('IpPort') or
-                all_fields.get('SourcePort')
+                event_data.get('SourcePort') or
+                event_data.get('IpPort')
             )
-            
             dst_port = self.safe_int(
-                details.get('DstPort') or
-                all_fields.get('DestPort') or
-                all_fields.get('DestinationPort')
+                event_data.get('DestinationPort') or
+                event_data.get('DestPort')
             )
             
-            # Hash fields
-            hashes = all_fields.get('Hashes', '')
-            file_hash_md5 = None
-            file_hash_sha1 = None
-            file_hash_sha256 = None
+            # Logon type for logon events
+            logon_type = self.safe_int(event_data.get('LogonType'))
             
+            # Hash extraction
+            hashes = event_data.get('Hashes', '')
+            hash_md5, hash_sha1, hash_sha256 = None, None, None
             if hashes:
-                # Format: MD5=xxx,SHA1=xxx,SHA256=xxx
                 for part in str(hashes).split(','):
                     if '=' in part:
                         algo, value = part.split('=', 1)
                         algo = algo.strip().upper()
                         value = value.strip()
                         if algo == 'MD5':
-                            file_hash_md5 = value
+                            hash_md5 = value
                         elif algo == 'SHA1':
-                            file_hash_sha1 = value
+                            hash_sha1 = value
                         elif algo == 'SHA256':
-                            file_hash_sha256 = value
+                            hash_sha256 = value
             
-            # Build search blob from all available data
-            search_data = {**details, **all_fields}
-            search_data['Computer'] = computer
-            search_data['Channel'] = channel
-            search_data['EventID'] = event_id
-            if rule_title:
-                search_data['RuleTitle'] = rule_title
+            # Build search blob from key fields
+            search_parts = [
+                computer, channel, event_id,
+                username or '', domain or '',
+                process_name or '', command_line or '',
+                target_path or '', src_ip or '', dst_ip or '',
+                event.get('MapDescription', ''),
+                event.get('PayloadData1', ''),
+                event.get('PayloadData2', ''),
+                event.get('PayloadData3', ''),
+                event.get('PayloadData4', ''),
+                event.get('Keywords', ''),
+                detection.get('rule_title', ''),
+            ]
+            search_blob = ' '.join(str(p) for p in search_parts if p)
             
-            search_blob = self.build_search_blob(search_data)
+            # Add Payload content for full-text search (truncated)
+            if payload_str and len(payload_str) < 3000:
+                search_blob += f" {payload_str}"
             
-            # Build raw JSON (combine Details and AllFieldInfo)
+            # Build raw JSON (include key fields, exclude large Payload)
             raw_data = {
-                'Details': details,
-                'AllFieldInfo': all_fields,
-                'RecordID': event.get('RecordID'),
-                'Provider': event.get('Provider'),
+                k: v for k, v in event.items() 
+                if k not in ('Payload',) and v is not None and v != ''
             }
+            # Add parsed EventData
+            if event_data:
+                raw_data['EventData'] = event_data
             
             return ParsedEvent(
                 case_id=self.case_id,
@@ -392,8 +486,8 @@ class HayabusaParser(BaseParser):
                 event_id=event_id,
                 channel=channel,
                 provider=event.get('Provider'),
-                record_id=self.safe_int(event.get('RecordID')),
-                level=rule_level,
+                record_id=self.safe_int(record_id),
+                level=detection.get('rule_level') or event.get('Level'),
                 username=self.safe_str(username),
                 domain=self.safe_str(domain),
                 sid=self.safe_str(sid),
@@ -405,20 +499,26 @@ class HayabusaParser(BaseParser):
                 parent_pid=parent_pid,
                 command_line=self.safe_str(command_line),
                 target_path=self.safe_str(target_path),
-                file_hash_md5=file_hash_md5,
-                file_hash_sha1=file_hash_sha1,
-                file_hash_sha256=file_hash_sha256,
+                file_hash_md5=hash_md5,
+                file_hash_sha1=hash_sha1,
+                file_hash_sha256=hash_sha256,
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 src_port=src_port,
                 dst_port=dst_port,
-                rule_title=rule_title,
-                rule_level=rule_level,
-                rule_file=rule_file,
-                mitre_tactics=mitre_tactics,
-                mitre_tags=mitre_tags,
+                # Detection enrichment from Hayabusa
+                rule_title=detection.get('rule_title'),
+                rule_level=detection.get('rule_level'),
+                rule_file=detection.get('rule_file'),
+                mitre_tactics=detection.get('mitre_tactics', []),
+                mitre_tags=detection.get('mitre_tags', []),
                 raw_json=json.dumps(raw_data, default=str),
                 search_blob=search_blob,
+                extra_fields=json.dumps({
+                    'map_description': event.get('MapDescription'),
+                    'keywords': event.get('Keywords'),
+                    'has_detection': bool(detection),
+                }, default=str),
                 parser_version=self.parser_version,
             )
             
@@ -426,34 +526,13 @@ class HayabusaParser(BaseParser):
             self.warnings.append(f"Error transforming event: {e}")
             logger.exception(f"Event transformation error: {e}")
             return None
-    
-    @classmethod
-    def update_rules(cls, rules_dir: str = None) -> bool:
-        """Update Hayabusa rules
-        
-        Args:
-            rules_dir: Rules directory (default: cls.HAYABUSA_RULES)
-            
-        Returns:
-            True if update succeeded
-        """
-        rules_dir = rules_dir or cls.HAYABUSA_RULES
-        hayabusa_bin = cls.HAYABUSA_BIN
-        
-        try:
-            cmd = [hayabusa_bin, 'update-rules', '-r', rules_dir]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            return result.returncode == 0
-        except Exception as e:
-            logger.error(f"Failed to update Hayabusa rules: {e}")
-            return False
 
 
 class EvtxFallbackParser(BaseParser):
     """Fallback EVTX parser using pyevtx-rs
     
-    Used when Hayabusa is not available or fails.
-    Provides raw parsing without detection rules.
+    Used when EvtxECmd is not available.
+    Provides raw parsing without Maps field normalization or detection enrichment.
     """
     
     VERSION = '1.0.0'
@@ -462,7 +541,6 @@ class EvtxFallbackParser(BaseParser):
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
         super().__init__(case_id, source_host, case_file_id)
         
-        # Try to import evtx
         try:
             from evtx import PyEvtxParser
             self._parser_class = PyEvtxParser
@@ -569,3 +647,7 @@ class EvtxFallbackParser(BaseParser):
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"EVTX parse error: {e}")
+
+
+# Backwards compatibility aliases
+HayabusaParser = EvtxECmdParser
