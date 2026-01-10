@@ -1,6 +1,15 @@
 {
-  "version": "3.20.0",
+  "version": "3.21.0",
   "changelog": [
+    {
+      "version": "3.21.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Fixed PostgreSQL connection exhaustion: shared Flask app instance in Celery tasks",
+        "Increased PostgreSQL max_connections to 200",
+        "Connections now stable at ~12 during bulk processing (was 97+)"
+      ]
+    },
     {
       "version": "3.20.0",
       "date": "2026-01-09",

@@ -19,6 +19,17 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+# Cached Flask app instance to avoid creating new connection pools for each task
+_flask_app = None
+
+def get_flask_app():
+    """Get or create a shared Flask app instance for Celery tasks"""
+    global _flask_app
+    if _flask_app is None:
+        from app import create_app
+        _flask_app = create_app()
+    return _flask_app
+
 # Initialize Celery
 celery_app = Celery(
     'casescope',
@@ -174,14 +185,12 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
     Returns:
         Dict with processing summary
     """
-    from flask import current_app
     from models.database import db
     from models.case import Case
     from models.case_file import CaseFile
     
-    # Need app context for database access
-    from app import create_app
-    app = create_app()
+    # Use shared app instance
+    app = get_flask_app()
     
     with app.app_context():
         # Get case
@@ -261,12 +270,11 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
     if not os.path.isdir(staging_path):
         return {'success': False, 'error': f'Staging directory not found: {staging_path}'}
     
-    # Get case ID
-    from app import create_app
-    app = create_app()
+    # Get case ID using shared app instance
+    from models.case import Case
+    app = get_flask_app()
     
     with app.app_context():
-        from models.case import Case
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return {'success': False, 'error': f'Case not found: {case_uuid}'}
@@ -464,11 +472,10 @@ def _update_case_file_status(case_file_id: int, status: str = None,
         errors: Legacy list of errors (converted to error_message)
     """
     try:
-        from app import create_app
         from models.database import db
         from models.case_file import CaseFile
         
-        app = create_app()
+        app = get_flask_app()
         with app.app_context():
             cf = CaseFile.query.get(case_file_id)
             if cf:
