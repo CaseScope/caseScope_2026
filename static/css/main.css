@@ -2111,3 +2111,107 @@ tbody td {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ========================================
+   Hunting Page - Tabs
+   ======================================== */
+.tile-hunting {
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tile-hunting .tile-header {
+  padding: 0;
+  border-bottom: none;
+}
+
+.hunting-tabs {
+  display: flex;
+  width: 100%;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.hunting-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+
+.hunting-tab:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.hunting-tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.hunting-tab .tab-icon {
+  font-size: 16px;
+}
+
+.hunting-tab .tab-text {
+  font-weight: 600;
+}
+
+.hunting-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.hunting-panel {
+  display: none;
+  flex: 1;
+  animation: fadeIn 0.2s ease;
+}
+
+.hunting-panel.active {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Placeholder styling for empty tabs */
+.panel-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 40px;
+  color: var(--text-muted);
+}
+
+.panel-placeholder .placeholder-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.5;
+}
+
+.panel-placeholder h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+}
+
+.panel-placeholder p {
+  font-size: 14px;
+  max-width: 400px;
+  line-height: 1.6;
+  margin: 0;
+}

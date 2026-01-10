@@ -11,9 +11,75 @@
     </div>
 </div>
 
-<div class="card">
-    <div class="card-body" style="padding: 40px; text-align: center;">
-        <p class="text-muted">Threat hunting coming soon...</p>
+<div class="tile-row">
+    <div class="tile tile-hunting">
+        <div class="tile-header">
+            <div class="hunting-tabs">
+                <button class="hunting-tab active" data-tab="sigma">
+                    <span class="tab-icon">📋</span>
+                    <span class="tab-text">Sigma Rules</span>
+                </button>
+                <button class="hunting-tab" data-tab="ioc">
+                    <span class="tab-icon">🔍</span>
+                    <span class="tab-text">IOC Search</span>
+                </button>
+                <button class="hunting-tab" data-tab="custom">
+                    <span class="tab-icon">⚡</span>
+                    <span class="tab-text">Custom Queries</span>
+                </button>
+            </div>
+        </div>
+        <div class="tile-body hunting-content">
+            <!-- Sigma Rules Tab -->
+            <div class="hunting-panel active" id="panel-sigma">
+                <div class="panel-placeholder">
+                    <div class="placeholder-icon">📋</div>
+                    <h3>Sigma Rules</h3>
+                    <p>Run pre-built Sigma rules against case artifacts to detect suspicious patterns and known attack techniques.</p>
+                </div>
+            </div>
+            
+            <!-- IOC Search Tab -->
+            <div class="hunting-panel" id="panel-ioc">
+                <div class="panel-placeholder">
+                    <div class="placeholder-icon">🔍</div>
+                    <h3>IOC Search</h3>
+                    <p>Search for specific indicators of compromise across all indexed artifacts including IPs, domains, hashes, and file names.</p>
+                </div>
+            </div>
+            
+            <!-- Custom Queries Tab -->
+            <div class="hunting-panel" id="panel-custom">
+                <div class="panel-placeholder">
+                    <div class="placeholder-icon">⚡</div>
+                    <h3>Custom Queries</h3>
+                    <p>Build and execute custom search queries using the full power of the underlying search engine.</p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tabs = document.querySelectorAll('.hunting-tab');
+    const panels = document.querySelectorAll('.hunting-panel');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            const targetTab = this.dataset.tab;
+            
+            // Update active tab
+            tabs.forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Update active panel
+            panels.forEach(p => p.classList.remove('active'));
+            document.getElementById('panel-' + targetTab).classList.add('active');
+        });
+    });
+});
+</script>
 {% endblock %}
