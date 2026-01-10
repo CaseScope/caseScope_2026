@@ -627,9 +627,9 @@ class LnkParser(BaseParser):
                     source_path=file_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
-                    process_name=process_name,
-                    target_path=target_path,
-                    command_line=arguments,
+                    process_name=process_name or '',
+                    target_path=target_path or '',
+                    command_line=arguments or '',
                     file_size=file_size,
                     raw_json=json.dumps(raw_data, default=str),
                     search_blob=' '.join(str(p) for p in search_parts if p),
@@ -638,8 +638,13 @@ class LnkParser(BaseParser):
                 )
             
         except Exception as e:
-            self.errors.append(f"Failed to parse {file_path}: {e}")
-            logger.exception(f"LNK parse error: {e}")
+            # Don't error on URI scheme shortcuts (ms-settings:, etc) - just skip
+            if 'target' in str(e).lower() or 'path' in str(e).lower():
+                self.warnings.append(f"Skipped non-file LNK {file_path}: {e}")
+                logger.debug(f"LNK skipped (non-file target): {e}")
+            else:
+                self.errors.append(f"Failed to parse {file_path}: {e}")
+                logger.exception(f"LNK parse error: {e}")
 
 
 class JumpListParser(BaseParser):
@@ -856,8 +861,14 @@ class JumpListParser(BaseParser):
                         self.warnings.append(f"Error parsing entry {entry_name}: {e}")
                 
         except Exception as e:
-            self.errors.append(f"Failed to parse {file_path}: {e}")
-            logger.exception(f"JumpList parse error: {e}")
+            error_msg = str(e).lower()
+            # Invalid OLE signature = empty/corrupt file, not a critical error
+            if 'ole' in error_msg or 'signature' in error_msg or 'invalid' in error_msg:
+                self.warnings.append(f"Empty or corrupt JumpList {file_path}: {e}")
+                logger.debug(f"JumpList skipped (invalid OLE): {e}")
+            else:
+                self.errors.append(f"Failed to parse {file_path}: {e}")
+                logger.exception(f"JumpList parse error: {e}")
 
 
 class MFTParser(BaseParser):

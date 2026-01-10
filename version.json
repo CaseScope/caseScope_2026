@@ -1,6 +1,16 @@
 {
-  "version": "3.19.0",
+  "version": "3.20.0",
   "changelog": [
+    {
+      "version": "3.20.0",
+      "date": "2026-01-09",
+      "changes": [
+        "Fixed LNK parser: default command_line to empty string (prevents ClickHouse NULL error)",
+        "Fixed LNK parser: handle URI scheme shortcuts (ms-settings:) gracefully",
+        "Fixed JumpList parser: treat invalid OLE signature as warning (empty/corrupt files)",
+        "Fixed ActivitiesCache parser: silent return for journal files (.db-wal, .db-shm)"
+      ]
+    },
     {
       "version": "3.19.0",
       "date": "2026-01-09",

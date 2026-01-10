@@ -419,7 +419,8 @@ class ActivitiesCacheParser(BaseParser):
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse ActivitiesCache.db"""
         if not self.can_parse(file_path):
-            self.errors.append(f"Cannot parse file: {file_path}")
+            # Silent return - file was likely a journal file (.db-wal, .db-shm)
+            # that matched the pattern but isn't the actual database
             return
         
         source_file = os.path.basename(file_path)
