@@ -104,6 +104,7 @@
             <table class="file-table" id="file-table">
                 <thead>
                     <tr>
+                        <th>Parent</th>
                         <th>Filename</th>
                         <th>Size</th>
                         <th>Hostname</th>
@@ -115,7 +116,7 @@
                 </thead>
                 <tbody id="file-tbody">
                     <tr>
-                        <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                        <td colspan="8" class="text-center text-muted" style="padding: 40px;">
                             Loading files...
                         </td>
                     </tr>
@@ -339,7 +340,7 @@ function renderFileTable(files) {
     if (files.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="8" class="text-center text-muted" style="padding: 40px;">
                     ${searchQuery ? 'No files match your search' : 'No files found. Upload files to get started.'}
                 </td>
             </tr>
@@ -349,6 +350,7 @@ function renderFileTable(files) {
     
     tbody.innerHTML = files.map(f => `
         <tr class="file-row" data-file-id="${f.id}" title="${f.error_message || ''}">
+            <td class="text-muted text-small">${f.parent_filename || '-'}</td>
             <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 60)}</td>
             <td>${formatSize(f.file_size)}</td>
             <td>${f.hostname || '-'}</td>
@@ -389,7 +391,7 @@ function showError(message) {
     const tbody = document.getElementById('file-tbody');
     tbody.innerHTML = `
         <tr>
-            <td colspan="7" class="text-center text-danger" style="padding: 40px;">
+            <td colspan="8" class="text-center text-danger" style="padding: 40px;">
                 ${message}
             </td>
         </tr>
