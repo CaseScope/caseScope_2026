@@ -949,6 +949,7 @@ def get_hunting_events(case_id):
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         search = request.args.get('search', '', type=str).strip()
+        artifact_types = request.args.get('types', '', type=str).strip()
         
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 500)
@@ -956,22 +957,31 @@ def get_hunting_events(case_id):
         
         client = get_client()
         
-        # Build query with optional search
+        # Build artifact type filter
+        type_filter = ""
+        if artifact_types:
+            # Split comma-separated types and build IN clause
+            types_list = [t.strip() for t in artifact_types.split(',') if t.strip()]
+            if types_list:
+                # Use tuple format for ClickHouse IN clause
+                type_filter = f" AND artifact_type IN ('{\"', '\".join(types_list)}')"
+        
+        # Build query with optional search and type filter
         if search:
             # Search in search_blob field
-            count_query = """
+            count_query = f"""
                 SELECT count() FROM events 
-                WHERE case_id = {case_id:UInt32} 
-                  AND search_blob LIKE {pattern:String}
+                WHERE case_id = {{case_id:UInt32}} 
+                  AND search_blob LIKE {{pattern:String}}{type_filter}
             """
-            data_query = """
+            data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
                        username, process_name, command_line, target_path, search_blob
                 FROM events 
-                WHERE case_id = {case_id:UInt32} 
-                  AND search_blob LIKE {pattern:String}
+                WHERE case_id = {{case_id:UInt32}} 
+                  AND search_blob LIKE {{pattern:String}}{type_filter}
                 ORDER BY timestamp DESC
-                LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
             params = {
                 'case_id': case_id,
@@ -980,14 +990,14 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
         else:
-            count_query = "SELECT count() FROM events WHERE case_id = {case_id:UInt32}"
-            data_query = """
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}"
+            data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
                        username, process_name, command_line, target_path, search_blob
                 FROM events 
-                WHERE case_id = {case_id:UInt32}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}
                 ORDER BY timestamp DESC
-                LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
             params = {
                 'case_id': case_id,

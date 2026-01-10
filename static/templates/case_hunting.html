@@ -15,43 +15,38 @@
     <div class="tile tile-hunting">
         <div class="tile-header">
             <div class="hunting-tabs">
-                <button class="hunting-tab active" data-tab="events">
+                <button class="hunting-tab active" data-tab="events" data-types="evtx,firewall,huntress,sonicwall,json_log,csv_log">
                     <span class="tab-icon">📋</span>
                     <span class="tab-text">Events</span>
                 </button>
-                <button class="hunting-tab" data-tab="sigma">
-                    <span class="tab-icon">🛡️</span>
-                    <span class="tab-text">Sigma Rules</span>
+                <button class="hunting-tab" data-tab="browsers" data-types="browser,browser_history,browser_cookies,browser_forms,browser_logins,browser_autofill,firefox_session,firefox_addon,firefox_search_engine,firefox_handler,firefox_json,webcache,webcache_history,webcache_cookies,webcache_cache,webcache_downloads">
+                    <span class="tab-icon">🌐</span>
+                    <span class="tab-text">Browsers</span>
                 </button>
-                <button class="hunting-tab" data-tab="ioc">
-                    <span class="tab-icon">🔍</span>
-                    <span class="tab-text">IOC Search</span>
+                <button class="hunting-tab" data-tab="filesystem" data-types="prefetch,lnk,jumplist,mft">
+                    <span class="tab-icon">📁</span>
+                    <span class="tab-text">File System</span>
+                </button>
+                <button class="hunting-tab" data-tab="registry" data-types="registry">
+                    <span class="tab-icon">🗂️</span>
+                    <span class="tab-text">Registry</span>
+                </button>
+                <button class="hunting-tab" data-tab="iis" data-types="iis">
+                    <span class="tab-icon">🖥️</span>
+                    <span class="tab-text">IIS</span>
+                </button>
+                <button class="hunting-tab" data-tab="tasks" data-types="scheduled_task">
+                    <span class="tab-icon">⏰</span>
+                    <span class="tab-text">Tasks</span>
+                </button>
+                <button class="hunting-tab" data-tab="activity" data-types="srum,activities_cache,activity_operation">
+                    <span class="tab-icon">📊</span>
+                    <span class="tab-text">Apps & Network</span>
                 </button>
             </div>
         </div>
         <div class="tile-body hunting-content">
-            <!-- Events Tab (Default) -->
-            <div class="hunting-panel active" id="panel-events">
-                {% include 'hunting/tab_events.html' %}
-            </div>
-            
-            <!-- Sigma Rules Tab -->
-            <div class="hunting-panel" id="panel-sigma">
-                <div class="panel-placeholder">
-                    <div class="placeholder-icon">🛡️</div>
-                    <h3>Sigma Rules</h3>
-                    <p>Run pre-built Sigma rules against case artifacts to detect suspicious patterns and known attack techniques.</p>
-                </div>
-            </div>
-            
-            <!-- IOC Search Tab -->
-            <div class="hunting-panel" id="panel-ioc">
-                <div class="panel-placeholder">
-                    <div class="placeholder-icon">🔍</div>
-                    <h3>IOC Search</h3>
-                    <p>Search for specific indicators of compromise across all indexed artifacts including IPs, domains, hashes, and file names.</p>
-                </div>
-            </div>
+            {% include 'hunting/tab_events.html' %}
         </div>
     </div>
 </div>
@@ -63,24 +58,28 @@ const caseId = {{ case.id }};
 let eventsPage = 1;
 let eventsPerPage = 50;
 let eventsSearch = '';
-let eventsSearchTimeout = null;
+let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
 
 // Tab switching
 document.addEventListener('DOMContentLoaded', function() {
     const tabs = document.querySelectorAll('.hunting-tab');
-    const panels = document.querySelectorAll('.hunting-panel');
     
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
-            const targetTab = this.dataset.tab;
-            
             // Update active tab
             tabs.forEach(t => t.classList.remove('active'));
             this.classList.add('active');
             
-            // Update active panel
-            panels.forEach(p => p.classList.remove('active'));
-            document.getElementById('panel-' + targetTab).classList.add('active');
+            // Get artifact types for this tab
+            currentArtifactTypes = this.dataset.types || '';
+            
+            // Reset pagination and search when switching tabs
+            eventsPage = 1;
+            eventsSearch = '';
+            document.getElementById('events-search').value = '';
+            
+            // Reload events with new filter
+            loadEvents();
         });
     });
     
@@ -100,8 +99,18 @@ function loadEvents() {
     const params = new URLSearchParams({
         page: eventsPage,
         per_page: eventsPerPage,
-        search: eventsSearch
+        search: eventsSearch,
+        types: currentArtifactTypes
     });
+    
+    // Show loading state
+    document.getElementById('events-tbody').innerHTML = `
+        <tr>
+            <td colspan="4" class="text-center text-muted loading-row">
+                <span class="spinner-border spinner-border-sm"></span> Loading...
+            </td>
+        </tr>
+    `;
     
     fetch('/api/hunting/events/' + caseId + '?' + params.toString())
         .then(response => response.json())
@@ -127,7 +136,7 @@ function renderEventsTable(events) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="4" class="text-center text-muted" style="padding: 40px;">
-                    ${eventsSearch ? 'No events match your search' : 'No events found for this case.'}
+                    ${eventsSearch ? 'No events match your search' : 'No events found for this category.'}
                 </td>
             </tr>
         `;
