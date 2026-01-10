@@ -435,9 +435,14 @@ class LnkParser(BaseParser):
     
     Extracts target path, timestamps, arguments, and other metadata from
     Windows shortcut files.
+    
+    Handles special cases:
+    - Shell folder shortcuts (Control Panel items, etc.)
+    - URI scheme shortcuts (ms-settings:, etc.)
+    - Standard file shortcuts
     """
     
-    VERSION = '2.0.0'
+    VERSION = '2.1.0'
     ARTIFACT_TYPE = 'lnk'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
@@ -480,7 +485,11 @@ class LnkParser(BaseParser):
             return None
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse LNK file using dissect.shellitem"""
+        """Parse LNK file using dissect.shellitem
+        
+        Handles shell/URI shortcuts gracefully by extracting available metadata
+        and marking as partial rather than failing completely.
+        """
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
@@ -494,37 +503,80 @@ class LnkParser(BaseParser):
             with open(file_path, 'rb') as fh:
                 lnk = Lnk(fh)
                 
+                # Track if this is a partial parse (shell folder, URI, etc.)
+                is_partial = False
+                
                 # === Extract target path from linkinfo ===
                 target_path = None
-                if lnk.linkinfo:
-                    if hasattr(lnk.linkinfo, 'local_base_path') and lnk.linkinfo.local_base_path:
-                        target_path = lnk.linkinfo.local_base_path
-                        if isinstance(target_path, bytes):
-                            target_path = target_path.decode('utf-8', errors='replace')
-                    elif hasattr(lnk.linkinfo, 'local_base_path_unicode') and lnk.linkinfo.local_base_path_unicode:
-                        target_path = str(lnk.linkinfo.local_base_path_unicode)
+                try:
+                    if lnk.linkinfo:
+                        if hasattr(lnk.linkinfo, 'local_base_path') and lnk.linkinfo.local_base_path:
+                            target_path = lnk.linkinfo.local_base_path
+                            if isinstance(target_path, bytes):
+                                target_path = target_path.decode('utf-8', errors='replace')
+                        elif hasattr(lnk.linkinfo, 'local_base_path_unicode') and lnk.linkinfo.local_base_path_unicode:
+                            target_path = str(lnk.linkinfo.local_base_path_unicode)
+                except Exception as e:
+                    self.warnings.append(f"Could not extract linkinfo from {source_file}: {e}")
+                    is_partial = True
                 
                 # === Extract string data (relative path, arguments, etc.) ===
                 relative_path = None
                 arguments = None
                 working_dir = None
                 icon_location = None
+                name_string = None
                 
-                if lnk.stringdata and hasattr(lnk.stringdata, 'string_data'):
-                    sd = lnk.stringdata.string_data
-                    if isinstance(sd, dict):
-                        if 'relative_path' in sd:
-                            relative_path = sd['relative_path'].string
-                        if 'command_line_arguments' in sd:
-                            arguments = sd['command_line_arguments'].string
-                        if 'working_dir' in sd:
-                            working_dir = sd['working_dir'].string
-                        if 'icon_location' in sd:
-                            icon_location = sd['icon_location'].string
+                try:
+                    if lnk.stringdata:
+                        # Handle different stringdata structures safely
+                        sd = None
+                        if hasattr(lnk.stringdata, 'string_data'):
+                            sd = lnk.stringdata.string_data
+                        
+                        if sd is not None and isinstance(sd, dict):
+                            if 'relative_path' in sd and sd['relative_path']:
+                                try:
+                                    relative_path = sd['relative_path'].string
+                                except (AttributeError, TypeError):
+                                    pass
+                            if 'command_line_arguments' in sd and sd['command_line_arguments']:
+                                try:
+                                    arguments = sd['command_line_arguments'].string
+                                except (AttributeError, TypeError):
+                                    pass
+                            if 'working_dir' in sd and sd['working_dir']:
+                                try:
+                                    working_dir = sd['working_dir'].string
+                                except (AttributeError, TypeError):
+                                    pass
+                            if 'icon_location' in sd and sd['icon_location']:
+                                try:
+                                    icon_location = sd['icon_location'].string
+                                except (AttributeError, TypeError):
+                                    pass
+                            if 'name_string' in sd and sd['name_string']:
+                                try:
+                                    name_string = sd['name_string'].string
+                                except (AttributeError, TypeError):
+                                    pass
+                except Exception as e:
+                    self.warnings.append(f"Could not extract stringdata from {source_file}: {e}")
+                    is_partial = True
                 
                 # Fall back to relative path if no absolute target
                 if not target_path and relative_path:
                     target_path = relative_path
+                
+                # For shell/URI shortcuts, use the name or filename as identifier
+                if not target_path:
+                    if name_string:
+                        target_path = name_string
+                    else:
+                        # Extract from filename (e.g., "Programs and Features.lnk" -> "Programs and Features")
+                        target_path = source_file.replace('.lnk', '').replace('.LNK', '')
+                    is_partial = True
+                    self.warnings.append(f"Shell/URI shortcut with no file target: {source_file}")
                 
                 # === Extract timestamps from link_header ===
                 creation_time = None
@@ -532,12 +584,16 @@ class LnkParser(BaseParser):
                 write_time = None
                 file_size = None
                 
-                if lnk.link_header:
-                    hdr = lnk.link_header
-                    creation_time = self._convert_wintime(getattr(hdr, 'creation_time', None))
-                    access_time = self._convert_wintime(getattr(hdr, 'access_time', None))
-                    write_time = self._convert_wintime(getattr(hdr, 'write_time', None))
-                    file_size = getattr(hdr, 'filesize', None)
+                try:
+                    if lnk.link_header:
+                        hdr = lnk.link_header
+                        creation_time = self._convert_wintime(getattr(hdr, 'creation_time', None))
+                        access_time = self._convert_wintime(getattr(hdr, 'access_time', None))
+                        write_time = self._convert_wintime(getattr(hdr, 'write_time', None))
+                        file_size = getattr(hdr, 'filesize', None)
+                except Exception as e:
+                    self.warnings.append(f"Could not extract timestamps from {source_file}: {e}")
+                    is_partial = True
                 
                 # Use access time as primary (most recent interaction)
                 timestamp = access_time or write_time or creation_time
@@ -546,26 +602,29 @@ class LnkParser(BaseParser):
                 
                 # === Extract tracker data (machine ID) from extradata ===
                 machine_id = None
-                mac_address = None
                 volume_droid = None
                 file_droid = None
                 
-                if lnk.extradata and hasattr(lnk.extradata, 'extradata'):
-                    ed_dict = lnk.extradata.extradata
-                    if isinstance(ed_dict, dict):
-                        # TRACKER_PROPS contains machine ID and file tracking info
-                        tracker = ed_dict.get('TRACKER_PROPS')
-                        if tracker:
-                            if hasattr(tracker, 'machine_id'):
-                                mid = tracker.machine_id
-                                if isinstance(mid, bytes):
-                                    machine_id = mid.decode('utf-8', errors='replace').rstrip('\x00')
-                                else:
-                                    machine_id = str(mid)
-                            if hasattr(tracker, 'volume_droid'):
-                                volume_droid = str(tracker.volume_droid)
-                            if hasattr(tracker, 'file_droid'):
-                                file_droid = str(tracker.file_droid)
+                try:
+                    if lnk.extradata and hasattr(lnk.extradata, 'extradata'):
+                        ed_dict = lnk.extradata.extradata
+                        if isinstance(ed_dict, dict):
+                            # TRACKER_PROPS contains machine ID and file tracking info
+                            tracker = ed_dict.get('TRACKER_PROPS')
+                            if tracker:
+                                if hasattr(tracker, 'machine_id'):
+                                    mid = tracker.machine_id
+                                    if isinstance(mid, bytes):
+                                        machine_id = mid.decode('utf-8', errors='replace').rstrip('\x00')
+                                    else:
+                                        machine_id = str(mid)
+                                if hasattr(tracker, 'volume_droid'):
+                                    volume_droid = str(tracker.volume_droid)
+                                if hasattr(tracker, 'file_droid'):
+                                    file_droid = str(tracker.file_droid)
+                except Exception as e:
+                    self.warnings.append(f"Could not extract extradata from {source_file}: {e}")
+                    is_partial = True
                 
                 # === Extract process name from target ===
                 process_name = ''
@@ -581,6 +640,7 @@ class LnkParser(BaseParser):
                     'arguments': arguments,
                     'working_directory': working_dir,
                     'icon_location': icon_location,
+                    'name_string': name_string,
                     'creation_time': str(creation_time) if creation_time else None,
                     'access_time': str(access_time) if access_time else None,
                     'write_time': str(write_time) if write_time else None,
@@ -588,6 +648,7 @@ class LnkParser(BaseParser):
                     'machine_id': machine_id,
                     'volume_droid': volume_droid,
                     'file_droid': file_droid,
+                    'is_shell_link': is_partial,
                 }
                 # Remove None values
                 raw_data = {k: v for k, v in raw_data.items() if v is not None}
@@ -604,18 +665,22 @@ class LnkParser(BaseParser):
                     search_parts.append(working_dir)
                 if machine_id:
                     search_parts.append(machine_id)
+                if name_string:
+                    search_parts.append(name_string)
                 
                 # === Build extra fields ===
                 extra = {
                     'relative_path': relative_path,
                     'working_directory': working_dir,
                     'icon_location': icon_location,
+                    'name_string': name_string,
                     'creation_time': str(creation_time) if creation_time else None,
                     'write_time': str(write_time) if write_time else None,
                     'file_size': file_size,
                     'machine_id': machine_id,
                     'volume_droid': volume_droid,
                     'file_droid': file_droid,
+                    'is_shell_link': is_partial,
                 }
                 extra = {k: v for k, v in extra.items() if v is not None}
                 
@@ -638,13 +703,30 @@ class LnkParser(BaseParser):
                 )
             
         except Exception as e:
-            # Don't error on URI scheme shortcuts (ms-settings:, etc) - just skip
-            if 'target' in str(e).lower() or 'path' in str(e).lower():
-                self.warnings.append(f"Skipped non-file LNK {file_path}: {e}")
-                logger.debug(f"LNK skipped (non-file target): {e}")
-            else:
+            # For any remaining errors, log as warning and try to create minimal event
+            self.warnings.append(f"Partial parse of {source_file}: {e}")
+            logger.warning(f"LNK partial parse for {file_path}: {e}")
+            
+            # Try to yield a minimal event with just the filename
+            try:
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type=self.artifact_type,
+                    timestamp=datetime.now(),
+                    source_file=source_file,
+                    source_path=file_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    process_name=source_file.replace('.lnk', '').replace('.LNK', ''),
+                    target_path=source_file.replace('.lnk', '').replace('.LNK', ''),
+                    raw_json=json.dumps({'lnk_file': source_file, 'error': str(e), 'is_shell_link': True}, default=str),
+                    search_blob=source_file,
+                    extra_fields=json.dumps({'is_shell_link': True, 'parse_error': str(e)}),
+                    parser_version=self.parser_version,
+                )
+            except Exception:
+                # If even that fails, add to errors
                 self.errors.append(f"Failed to parse {file_path}: {e}")
-                logger.exception(f"LNK parse error: {e}")
 
 
 class JumpListParser(BaseParser):
@@ -652,9 +734,11 @@ class JumpListParser(BaseParser):
     
     Parses AutomaticDestinations-ms and CustomDestinations-ms files
     which contain LNK entries for recently accessed files.
+    
+    Handles corrupt/empty OLE files gracefully.
     """
     
-    VERSION = '2.0.0'
+    VERSION = '2.1.0'
     ARTIFACT_TYPE = 'jumplist'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
@@ -691,7 +775,11 @@ class JumpListParser(BaseParser):
             return None
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse Jump List file using dissect.ole"""
+        """Parse Jump List file using dissect.ole
+        
+        Handles corrupt/empty OLE files gracefully by marking as partial
+        rather than failing completely.
+        """
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
@@ -702,6 +790,31 @@ class JumpListParser(BaseParser):
         # Extract AppID from filename (hash before .automaticDestinations-ms)
         app_id = source_file.split('.')[0] if '.' in source_file else source_file
         
+        # Check if file is empty or too small
+        try:
+            file_size = os.path.getsize(file_path)
+            if file_size < 512:  # OLE header is at least 512 bytes
+                self.warnings.append(f"JumpList file too small ({file_size} bytes): {source_file}")
+                # Yield a minimal event for tracking
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type=self.artifact_type,
+                    timestamp=datetime.now(),
+                    source_file=source_file,
+                    source_path=file_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    raw_json=json.dumps({'jumplist_file': source_file, 'app_id': app_id, 'status': 'empty_or_corrupt', 'file_size': file_size}, default=str),
+                    search_blob=f"{source_file} {app_id} jumplist empty",
+                    extra_fields=json.dumps({'app_id': app_id, 'status': 'empty_or_corrupt'}),
+                    parser_version=self.parser_version,
+                )
+                return
+        except Exception:
+            pass
+        
+        entries_parsed = 0
+        
         try:
             from dissect.ole import OLE
             from dissect.shellitem.lnk import Lnk
@@ -711,7 +824,25 @@ class JumpListParser(BaseParser):
                 ole = OLE(fh)
                 
                 # List all streams in the OLE file
-                entries = list(ole.root.listdir())
+                try:
+                    entries = list(ole.root.listdir())
+                except Exception as e:
+                    self.warnings.append(f"Could not list OLE entries in {source_file}: {e}")
+                    # Yield minimal event for corrupted OLE
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=datetime.now(),
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        raw_json=json.dumps({'jumplist_file': source_file, 'app_id': app_id, 'status': 'corrupt_structure', 'error': str(e)}, default=str),
+                        search_blob=f"{source_file} {app_id} jumplist corrupt",
+                        extra_fields=json.dumps({'app_id': app_id, 'status': 'corrupt_structure'}),
+                        parser_version=self.parser_version,
+                    )
+                    return
                 
                 for entry_name in entries:
                     # Skip DestList (metadata) stream
@@ -730,23 +861,35 @@ class JumpListParser(BaseParser):
                         
                         # === Extract target path from linkinfo ===
                         target_path = None
-                        if lnk.linkinfo:
-                            if hasattr(lnk.linkinfo, 'local_base_path') and lnk.linkinfo.local_base_path:
-                                target_path = lnk.linkinfo.local_base_path
-                                if isinstance(target_path, bytes):
-                                    target_path = target_path.decode('utf-8', errors='replace')
+                        try:
+                            if lnk.linkinfo:
+                                if hasattr(lnk.linkinfo, 'local_base_path') and lnk.linkinfo.local_base_path:
+                                    target_path = lnk.linkinfo.local_base_path
+                                    if isinstance(target_path, bytes):
+                                        target_path = target_path.decode('utf-8', errors='replace')
+                        except Exception:
+                            pass
                         
                         # === Extract from stringdata ===
                         relative_path = None
                         arguments = None
                         
-                        if lnk.stringdata and hasattr(lnk.stringdata, 'string_data'):
-                            sd = lnk.stringdata.string_data
-                            if isinstance(sd, dict):
-                                if 'relative_path' in sd:
-                                    relative_path = sd['relative_path'].string
-                                if 'command_line_arguments' in sd:
-                                    arguments = sd['command_line_arguments'].string
+                        try:
+                            if lnk.stringdata and hasattr(lnk.stringdata, 'string_data'):
+                                sd = lnk.stringdata.string_data
+                                if sd is not None and isinstance(sd, dict):
+                                    if 'relative_path' in sd and sd['relative_path']:
+                                        try:
+                                            relative_path = sd['relative_path'].string
+                                        except (AttributeError, TypeError):
+                                            pass
+                                    if 'command_line_arguments' in sd and sd['command_line_arguments']:
+                                        try:
+                                            arguments = sd['command_line_arguments'].string
+                                        except (AttributeError, TypeError):
+                                            pass
+                        except Exception:
+                            pass
                         
                         # Fall back to relative path
                         if not target_path and relative_path:
@@ -756,14 +899,17 @@ class JumpListParser(BaseParser):
                         creation_time = None
                         access_time = None
                         write_time = None
-                        file_size = None
+                        lnk_file_size = None
                         
-                        if lnk.link_header:
-                            hdr = lnk.link_header
-                            creation_time = self._convert_wintime(getattr(hdr, 'creation_time', None))
-                            access_time = self._convert_wintime(getattr(hdr, 'access_time', None))
-                            write_time = self._convert_wintime(getattr(hdr, 'write_time', None))
-                            file_size = getattr(hdr, 'filesize', None)
+                        try:
+                            if lnk.link_header:
+                                hdr = lnk.link_header
+                                creation_time = self._convert_wintime(getattr(hdr, 'creation_time', None))
+                                access_time = self._convert_wintime(getattr(hdr, 'access_time', None))
+                                write_time = self._convert_wintime(getattr(hdr, 'write_time', None))
+                                lnk_file_size = getattr(hdr, 'filesize', None)
+                        except Exception:
+                            pass
                         
                         # Use access time as primary timestamp
                         timestamp = access_time or write_time or creation_time
@@ -775,21 +921,24 @@ class JumpListParser(BaseParser):
                         volume_droid = None
                         file_droid = None
                         
-                        if lnk.extradata and hasattr(lnk.extradata, 'extradata'):
-                            ed_dict = lnk.extradata.extradata
-                            if isinstance(ed_dict, dict):
-                                tracker = ed_dict.get('TRACKER_PROPS')
-                                if tracker:
-                                    if hasattr(tracker, 'machine_id'):
-                                        mid = tracker.machine_id
-                                        if isinstance(mid, bytes):
-                                            machine_id = mid.decode('utf-8', errors='replace').rstrip('\x00')
-                                        else:
-                                            machine_id = str(mid)
-                                    if hasattr(tracker, 'volume_droid'):
-                                        volume_droid = str(tracker.volume_droid)
-                                    if hasattr(tracker, 'file_droid'):
-                                        file_droid = str(tracker.file_droid)
+                        try:
+                            if lnk.extradata and hasattr(lnk.extradata, 'extradata'):
+                                ed_dict = lnk.extradata.extradata
+                                if isinstance(ed_dict, dict):
+                                    tracker = ed_dict.get('TRACKER_PROPS')
+                                    if tracker:
+                                        if hasattr(tracker, 'machine_id'):
+                                            mid = tracker.machine_id
+                                            if isinstance(mid, bytes):
+                                                machine_id = mid.decode('utf-8', errors='replace').rstrip('\x00')
+                                            else:
+                                                machine_id = str(mid)
+                                        if hasattr(tracker, 'volume_droid'):
+                                            volume_droid = str(tracker.volume_droid)
+                                        if hasattr(tracker, 'file_droid'):
+                                            file_droid = str(tracker.file_droid)
+                        except Exception:
+                            pass
                         
                         # === Extract process name ===
                         process_name = ''
@@ -807,7 +956,7 @@ class JumpListParser(BaseParser):
                             'creation_time': str(creation_time) if creation_time else None,
                             'access_time': str(access_time) if access_time else None,
                             'write_time': str(write_time) if write_time else None,
-                            'file_size': file_size,
+                            'file_size': lnk_file_size,
                             'machine_id': machine_id,
                             'volume_droid': volume_droid,
                             'file_droid': file_droid,
@@ -832,7 +981,7 @@ class JumpListParser(BaseParser):
                             'relative_path': relative_path,
                             'creation_time': str(creation_time) if creation_time else None,
                             'write_time': str(write_time) if write_time else None,
-                            'file_size': file_size,
+                            'file_size': lnk_file_size,
                             'machine_id': machine_id,
                             'volume_droid': volume_droid,
                             'file_droid': file_droid,
@@ -850,22 +999,55 @@ class JumpListParser(BaseParser):
                             process_name=self.safe_str(process_name),
                             target_path=self.safe_str(target_path),
                             command_line=self.safe_str(arguments),
-                            file_size=file_size,
+                            file_size=lnk_file_size,
                             raw_json=json.dumps(raw_data, default=str),
                             search_blob=' '.join(str(p) for p in search_parts if p),
                             extra_fields=json.dumps(extra, default=str),
                             parser_version=self.parser_version,
                         )
                         
+                        entries_parsed += 1
+                        
                     except Exception as e:
                         self.warnings.append(f"Error parsing entry {entry_name}: {e}")
                 
+                # If no entries were parsed, yield a minimal event
+                if entries_parsed == 0:
+                    self.warnings.append(f"No valid LNK entries found in {source_file}")
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=datetime.now(),
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        raw_json=json.dumps({'jumplist_file': source_file, 'app_id': app_id, 'status': 'no_valid_entries'}, default=str),
+                        search_blob=f"{source_file} {app_id} jumplist empty",
+                        extra_fields=json.dumps({'app_id': app_id, 'status': 'no_valid_entries'}),
+                        parser_version=self.parser_version,
+                    )
+                
         except Exception as e:
             error_msg = str(e).lower()
-            # Invalid OLE signature = empty/corrupt file, not a critical error
-            if 'ole' in error_msg or 'signature' in error_msg or 'invalid' in error_msg:
-                self.warnings.append(f"Empty or corrupt JumpList {file_path}: {e}")
-                logger.debug(f"JumpList skipped (invalid OLE): {e}")
+            # Invalid OLE signature = empty/corrupt file, handle gracefully
+            if 'ole' in error_msg or 'signature' in error_msg or 'invalid' in error_msg or 'endofchain' in error_msg or 'dif' in error_msg:
+                self.warnings.append(f"Corrupt or empty JumpList {source_file}: {e}")
+                logger.debug(f"JumpList skipped (corrupt OLE): {e}")
+                # Yield minimal event for corrupt files
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type=self.artifact_type,
+                    timestamp=datetime.now(),
+                    source_file=source_file,
+                    source_path=file_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    raw_json=json.dumps({'jumplist_file': source_file, 'app_id': app_id, 'status': 'corrupt_ole', 'error': str(e)}, default=str),
+                    search_blob=f"{source_file} {app_id} jumplist corrupt",
+                    extra_fields=json.dumps({'app_id': app_id, 'status': 'corrupt_ole'}),
+                    parser_version=self.parser_version,
+                )
             else:
                 self.errors.append(f"Failed to parse {file_path}: {e}")
                 logger.exception(f"JumpList parse error: {e}")

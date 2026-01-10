@@ -81,7 +81,7 @@ class BrowserSQLiteParser(BaseParser):
     - Chrome/Edge: History, Cookies, Login Data, Web Data
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
     ARTIFACT_TYPE = 'browser'
     
     # Database identification patterns
@@ -107,6 +107,27 @@ class BrowserSQLiteParser(BaseParser):
         'favicons': 'chrome_favicons',
     }
     
+    # Windows cache files that are NOT browser databases (SQLite but not parseable)
+    EXCLUDED_FILES = {
+        # Windows Explorer cache files
+        'iconcache_16.db', 'iconcache_32.db', 'iconcache_48.db', 'iconcache_96.db',
+        'iconcache_256.db', 'iconcache_768.db', 'iconcache_1280.db', 'iconcache_1920.db',
+        'iconcache_2560.db', 'iconcache_exif.db', 'iconcache_idx.db', 'iconcache_sr.db',
+        'iconcache_wide.db', 'iconcache_wide_alternate.db', 'iconcache_custom_stream.db',
+        'thumbcache_16.db', 'thumbcache_32.db', 'thumbcache_48.db', 'thumbcache_96.db',
+        'thumbcache_256.db', 'thumbcache_768.db', 'thumbcache_1280.db', 'thumbcache_1920.db',
+        'thumbcache_2560.db', 'thumbcache_exif.db', 'thumbcache_idx.db', 'thumbcache_sr.db',
+        'thumbcache_wide.db', 'thumbcache_wide_alternate.db', 'thumbcache_custom_stream.db',
+        # Other Windows cache/state files
+        'cachedata.db', 'staterepository-deployment.srd',
+        'staterepository-machine.srd', 'staterepository-deployment.srd',
+    }
+    
+    # Filename patterns to exclude (partial matches)
+    EXCLUDED_PATTERNS = [
+        'iconcache_', 'thumbcache_', 'staterepository-',
+    ]
+    
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
         super().__init__(case_id, source_host, case_file_id)
         self._db_type = None
@@ -122,6 +143,19 @@ class BrowserSQLiteParser(BaseParser):
             return False
         
         filename = os.path.basename(file_path).lower()
+        
+        # Explicitly exclude Windows cache files and other non-browser databases
+        if filename in self.EXCLUDED_FILES:
+            return False
+        
+        # Check exclusion patterns (partial matches)
+        for pattern in self.EXCLUDED_PATTERNS:
+            if pattern in filename:
+                return False
+        
+        # Exclude text files and other non-database extensions
+        if filename.endswith(('.txt', '.log', '.xml', '.json', '.csv', '.html', '.htm')):
+            return False
         
         # Check known filenames
         if filename in self.FIREFOX_DBS or filename in self.CHROME_DBS:

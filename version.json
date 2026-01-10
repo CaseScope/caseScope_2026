@@ -1,6 +1,19 @@
 {
-  "version": "3.22.0",
+  "version": "3.23.0",
   "changelog": [
+    {
+      "version": "3.23.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Fixed parser misidentification: Windows cache files (iconcache/thumbcache) no longer match browser parser",
+        "Fixed registry parser: excludes .LOG/.LOG1/.LOG2 transaction logs in detect_type()",
+        "Fixed LNK parser v2.1.0: shell/URI shortcuts (Control Panel, ms-settings:) handled gracefully as partial",
+        "Fixed JumpList parser v2.1.0: corrupt/empty OLE files handled gracefully as partial",
+        "Fixed ScheduledTask detection: priority raised to match before registry for /Tasks/ paths",
+        "Added can_parse() validation after detect_type() for defense in depth",
+        "Database cleanup: 115 parse errors resolved (56 browser, 33 registry, 21 lnk, 5 jumplist)"
+      ]
+    },
     {
       "version": "3.22.0",
       "date": "2026-01-10",

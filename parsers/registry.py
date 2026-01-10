@@ -91,7 +91,9 @@ class ParserRegistry:
                 parser_class=RegistryParser,
                 extensions=['.dat', '.hve', '.hiv'],
                 magic_bytes=[b'regf'],
-                filename_patterns=['sam', 'security', 'software', 'system', 'ntuser', 'usrclass', 'amcache'],
+                # Use exact base filenames only (must match the whole filename or filename without extension)
+                # This avoids matching substrings like "system" in "SystemSoundsService"
+                filename_patterns=[],  # Don't use substring matching for registry
                 priority=10,
             ))
         except ImportError as e:
@@ -247,8 +249,8 @@ class ParserRegistry:
             self.register(FileTypeMapping(
                 artifact_type='scheduled_task',
                 parser_class=ScheduledTaskParser,
-                filename_patterns=['/tasks/'],
-                priority=15,
+                filename_patterns=['/tasks/', '\\tasks\\'],  # Match both path separators
+                priority=5,  # High priority - must match before registry for files in Tasks folder
             ))
         except ImportError as e:
             logger.warning(f"Could not register ScheduledTask parser: {e}")
@@ -280,6 +282,15 @@ class ParserRegistry:
         self._parsers[mapping.artifact_type] = mapping
         logger.debug(f"Registered parser: {mapping.artifact_type} -> {mapping.parser_class.__name__}")
     
+    # Files that should never be parsed (transaction logs, temp files, etc.)
+    EXCLUDED_EXTENSIONS = {'.log', '.log1', '.log2', '.blf', '.regtrans-ms', '.tmp', '.bak'}
+    
+    # Specific filenames to exclude (not registry hives despite magic/extension)
+    EXCLUDED_FILENAMES = {'sa.dat'}  # Scheduled Tasks state file
+    
+    # Path patterns that indicate files should NOT be parsed as registry
+    EXCLUDED_PATH_PATTERNS = ['/tasks/', '\\tasks\\']  # Scheduled Task XML files
+    
     def detect_type(self, file_path: str) -> Optional[str]:
         """Detect the artifact type of a file
         
@@ -294,6 +305,23 @@ class ParserRegistry:
         
         filename = os.path.basename(file_path).lower()
         extension = os.path.splitext(filename)[1].lower()
+        path_lower = file_path.lower()
+        
+        # Check for excluded extensions (registry transaction logs, etc.)
+        # These should be marked as no_parser, not matched to a parser
+        if extension in self.EXCLUDED_EXTENSIONS:
+            return None
+        
+        # Check for excluded filenames
+        if filename in self.EXCLUDED_FILENAMES:
+            return None
+        
+        # Check path patterns that indicate non-registry files
+        for pattern in self.EXCLUDED_PATH_PATTERNS:
+            if pattern in path_lower:
+                # Files in /tasks/ should go to scheduled_task parser, not registry
+                # But only exclude from registry detection, let other parsers handle
+                break
         
         # Read magic bytes
         magic = b''
@@ -543,6 +571,16 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
             file_path=file_path,
             artifact_type=artifact_type,
             errors=[f'No parser available for {artifact_type}'],
+            duration_seconds=time.time() - start_time
+        )
+    
+    # Verify parser can actually handle this file
+    if not parser.can_parse(file_path):
+        return ParseResult(
+            success=False,
+            file_path=file_path,
+            artifact_type=artifact_type,
+            errors=[f'Parser {artifact_type} cannot parse this file'],
             duration_seconds=time.time() - start_time
         )
     
