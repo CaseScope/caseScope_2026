@@ -1,6 +1,15 @@
 {
-  "version": "3.21.0",
+  "version": "3.22.0",
   "changelog": [
+    {
+      "version": "3.22.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Case Files: Simplified table columns - Filename, Size, Hostname, Parser, Uploaded, Artifacts, Status",
+        "Artifacts column shows event count from parsing",
+        "Combined status badge shows most relevant state"
+      ]
+    },
     {
       "version": "3.21.0",
       "date": "2026-01-10",

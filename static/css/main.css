@@ -2057,10 +2057,16 @@ tbody td {
 .filename-cell {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;
-  max-width: 300px;
+  max-width: 400px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.artifacts-cell {
+  font-weight: 600;
+  color: var(--primary-color);
+  text-align: right;
 }
 
 /* Page Size Select */

@@ -104,21 +104,18 @@
             <table class="file-table" id="file-table">
                 <thead>
                     <tr>
-                        <th>Parent</th>
                         <th>Filename</th>
                         <th>Size</th>
                         <th>Hostname</th>
-                        <th>Type</th>
-                        <th>Upload</th>
-                        <th>Uploaded By</th>
+                        <th>Parser</th>
                         <th>Uploaded</th>
+                        <th>Artifacts</th>
                         <th>Status</th>
-                        <th>Ingestion</th>
                     </tr>
                 </thead>
                 <tbody id="file-tbody">
                     <tr>
-                        <td colspan="10" class="text-center text-muted" style="padding: 40px;">
+                        <td colspan="7" class="text-center text-muted" style="padding: 40px;">
                             Loading files...
                         </td>
                     </tr>
@@ -183,6 +180,29 @@ function getIngestionBadge(status) {
         'error': '<span class="badge badge-danger">Error</span>'
     };
     return badges[status] || '<span class="badge badge-muted">' + status + '</span>';
+}
+
+// Get combined status badge (shows most relevant status)
+function getCombinedStatusBadge(status, ingestionStatus) {
+    // If still processing, show processing status
+    if (status === 'new') return '<span class="badge badge-info">New</span>';
+    if (status === 'queued') return '<span class="badge badge-warning">Queued</span>';
+    if (status === 'ingesting') return '<span class="badge badge-warning">Ingesting</span>';
+    if (status === 'error') return '<span class="badge badge-danger">Error</span>';
+    
+    // If done, show ingestion result
+    if (status === 'done') {
+        const badges = {
+            'full': '<span class="badge badge-success">Indexed</span>',
+            'partial': '<span class="badge badge-warning">Partial</span>',
+            'no_parser': '<span class="badge badge-muted">No Parser</span>',
+            'parse_error': '<span class="badge badge-danger">Parse Error</span>',
+            'error': '<span class="badge badge-danger">Error</span>'
+        };
+        return badges[ingestionStatus] || '<span class="badge badge-success">Done</span>';
+    }
+    
+    return '<span class="badge badge-muted">' + status + '</span>';
 }
 
 // Load file statistics
@@ -319,7 +339,7 @@ function renderFileTable(files) {
     if (files.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="10" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="7" class="text-center text-muted" style="padding: 40px;">
                     ${searchQuery ? 'No files match your search' : 'No files found. Upload files to get started.'}
                 </td>
             </tr>
@@ -329,16 +349,13 @@ function renderFileTable(files) {
     
     tbody.innerHTML = files.map(f => `
         <tr class="file-row" data-file-id="${f.id}" title="${f.error_message || ''}">
-            <td class="text-muted text-small">${f.parent_filename || '-'}</td>
-            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 50)}</td>
+            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 60)}</td>
             <td>${formatSize(f.file_size)}</td>
-            <td>${f.hostname}</td>
-            <td>${f.file_type}</td>
-            <td>${f.upload_source === 'web' ? '🌐 Web' : '📁 Local'}</td>
-            <td>${f.uploaded_by}</td>
+            <td>${f.hostname || '-'}</td>
+            <td>${f.parser_type || '-'}</td>
             <td>${f.uploaded_at}</td>
-            <td>${getStatusBadge(f.status)}</td>
-            <td>${getIngestionBadge(f.ingestion_status)}</td>
+            <td class="artifacts-cell">${f.events_indexed > 0 ? f.events_indexed.toLocaleString() : '-'}</td>
+            <td>${getCombinedStatusBadge(f.status, f.ingestion_status)}</td>
         </tr>
     `).join('');
 }
@@ -372,7 +389,7 @@ function showError(message) {
     const tbody = document.getElementById('file-tbody');
     tbody.innerHTML = `
         <tr>
-            <td colspan="10" class="text-center text-danger" style="padding: 40px;">
+            <td colspan="7" class="text-center text-danger" style="padding: 40px;">
                 ${message}
             </td>
         </tr>
