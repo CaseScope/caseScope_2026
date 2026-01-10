@@ -15,25 +15,30 @@
     <div class="tile tile-hunting">
         <div class="tile-header">
             <div class="hunting-tabs">
-                <button class="hunting-tab active" data-tab="sigma">
+                <button class="hunting-tab active" data-tab="events">
                     <span class="tab-icon">📋</span>
+                    <span class="tab-text">Events</span>
+                </button>
+                <button class="hunting-tab" data-tab="sigma">
+                    <span class="tab-icon">🛡️</span>
                     <span class="tab-text">Sigma Rules</span>
                 </button>
                 <button class="hunting-tab" data-tab="ioc">
                     <span class="tab-icon">🔍</span>
                     <span class="tab-text">IOC Search</span>
                 </button>
-                <button class="hunting-tab" data-tab="custom">
-                    <span class="tab-icon">⚡</span>
-                    <span class="tab-text">Custom Queries</span>
-                </button>
             </div>
         </div>
         <div class="tile-body hunting-content">
+            <!-- Events Tab (Default) -->
+            <div class="hunting-panel active" id="panel-events">
+                {% include 'hunting/tab_events.html' %}
+            </div>
+            
             <!-- Sigma Rules Tab -->
-            <div class="hunting-panel active" id="panel-sigma">
+            <div class="hunting-panel" id="panel-sigma">
                 <div class="panel-placeholder">
-                    <div class="placeholder-icon">📋</div>
+                    <div class="placeholder-icon">🛡️</div>
                     <h3>Sigma Rules</h3>
                     <p>Run pre-built Sigma rules against case artifacts to detect suspicious patterns and known attack techniques.</p>
                 </div>
@@ -47,15 +52,6 @@
                     <p>Search for specific indicators of compromise across all indexed artifacts including IPs, domains, hashes, and file names.</p>
                 </div>
             </div>
-            
-            <!-- Custom Queries Tab -->
-            <div class="hunting-panel" id="panel-custom">
-                <div class="panel-placeholder">
-                    <div class="placeholder-icon">⚡</div>
-                    <h3>Custom Queries</h3>
-                    <p>Build and execute custom search queries using the full power of the underlying search engine.</p>
-                </div>
-            </div>
         </div>
     </div>
 </div>
@@ -63,6 +59,13 @@
 
 {% block scripts %}
 <script>
+const caseId = {{ case.id }};
+let eventsPage = 1;
+let eventsPerPage = 50;
+let eventsSearch = '';
+let eventsSearchTimeout = null;
+
+// Tab switching
 document.addEventListener('DOMContentLoaded', function() {
     const tabs = document.querySelectorAll('.hunting-tab');
     const panels = document.querySelectorAll('.hunting-panel');
@@ -80,6 +83,134 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('panel-' + targetTab).classList.add('active');
         });
     });
+    
+    // Load events on page load
+    loadEvents();
+    
+    // Search on Enter key
+    document.getElementById('events-search').addEventListener('keyup', function(e) {
+        if (e.key === 'Enter') {
+            searchEvents();
+        }
+    });
 });
+
+// Load events from API
+function loadEvents() {
+    const params = new URLSearchParams({
+        page: eventsPage,
+        per_page: eventsPerPage,
+        search: eventsSearch
+    });
+    
+    fetch('/api/hunting/events/' + caseId + '?' + params.toString())
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                renderEventsTable(data.events);
+                updateEventsPagination(data);
+            } else {
+                showEventsError('Error loading events: ' + data.error);
+            }
+        })
+        .catch(err => {
+            console.error('Error loading events:', err);
+            showEventsError('Error loading events');
+        });
+}
+
+// Render events table
+function renderEventsTable(events) {
+    const tbody = document.getElementById('events-tbody');
+    
+    if (events.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4" class="text-center text-muted" style="padding: 40px;">
+                    ${eventsSearch ? 'No events match your search' : 'No events found for this case.'}
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = events.map(e => `
+        <tr class="event-row">
+            <td class="col-timestamp">${e.timestamp}</td>
+            <td class="col-parser"><span class="parser-badge">${e.artifact_type}</span></td>
+            <td class="col-hostname">${e.source_host || '-'}</td>
+            <td class="col-description" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
+        </tr>
+    `).join('');
+}
+
+// Update pagination controls
+function updateEventsPagination(data) {
+    document.getElementById('events-current-page').textContent = data.page;
+    document.getElementById('events-total-pages').textContent = data.total_pages;
+    document.getElementById('events-total').textContent = data.total.toLocaleString();
+    document.getElementById('events-count').textContent = data.total.toLocaleString() + ' events';
+    
+    const start = data.total > 0 ? ((data.page - 1) * data.per_page) + 1 : 0;
+    const end = Math.min(data.page * data.per_page, data.total);
+    document.getElementById('events-showing-start').textContent = start.toLocaleString();
+    document.getElementById('events-showing-end').textContent = end.toLocaleString();
+    
+    document.getElementById('events-btn-prev').disabled = data.page <= 1;
+    document.getElementById('events-btn-next').disabled = data.page >= data.total_pages;
+}
+
+// Show error message
+function showEventsError(message) {
+    const tbody = document.getElementById('events-tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="4" class="text-center text-danger" style="padding: 40px;">
+                ${message}
+            </td>
+        </tr>
+    `;
+    document.getElementById('events-count').textContent = 'Error';
+}
+
+// Search events
+function searchEvents() {
+    eventsSearch = document.getElementById('events-search').value.trim();
+    eventsPage = 1;
+    loadEvents();
+}
+
+// Pagination functions
+function prevEventsPage() {
+    if (eventsPage > 1) {
+        eventsPage--;
+        loadEvents();
+    }
+}
+
+function nextEventsPage() {
+    eventsPage++;
+    loadEvents();
+}
+
+function changeEventsPageSize() {
+    eventsPerPage = parseInt(document.getElementById('events-page-size').value);
+    eventsPage = 1;
+    loadEvents();
+}
+
+// Helper functions
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function truncateText(text, maxLen) {
+    if (!text) return '-';
+    if (text.length <= maxLen) return text;
+    return text.substring(0, maxLen) + '...';
+}
 </script>
 {% endblock %}

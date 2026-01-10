@@ -927,3 +927,145 @@ def get_processing_progress(case_uuid):
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Hunting API Endpoints
+# ============================================
+
+@api_bp.route('/hunting/events/<int:case_id>')
+@login_required
+def get_hunting_events(case_id):
+    """Get paginated events for hunting page"""
+    try:
+        from utils.clickhouse import get_client
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        search = request.args.get('search', '', type=str).strip()
+        
+        # Limit per_page to reasonable values
+        per_page = min(max(per_page, 10), 500)
+        offset = (page - 1) * per_page
+        
+        client = get_client()
+        
+        # Build query with optional search
+        if search:
+            # Search in search_blob field
+            count_query = """
+                SELECT count() FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                  AND search_blob LIKE {pattern:String}
+            """
+            data_query = """
+                SELECT timestamp, artifact_type, source_host, channel, provider, 
+                       username, process_name, command_line, target_path, search_blob
+                FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                  AND search_blob LIKE {pattern:String}
+                ORDER BY timestamp DESC
+                LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+            """
+            params = {
+                'case_id': case_id,
+                'pattern': f'%{search}%',
+                'limit': per_page,
+                'offset': offset
+            }
+        else:
+            count_query = "SELECT count() FROM events WHERE case_id = {case_id:UInt32}"
+            data_query = """
+                SELECT timestamp, artifact_type, source_host, channel, provider, 
+                       username, process_name, command_line, target_path, search_blob
+                FROM events 
+                WHERE case_id = {case_id:UInt32}
+                ORDER BY timestamp DESC
+                LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+            """
+            params = {
+                'case_id': case_id,
+                'limit': per_page,
+                'offset': offset
+            }
+        
+        # Get total count
+        count_result = client.query(count_query, parameters=params)
+        total = count_result.result_rows[0][0] if count_result.result_rows else 0
+        
+        # Get events
+        data_result = client.query(data_query, parameters=params)
+        
+        events = []
+        for row in data_result.result_rows:
+            timestamp, artifact_type, source_host, channel, provider, username, process_name, command_line, target_path, search_blob = row
+            
+            # Build description from available fields
+            description = build_event_description(
+                artifact_type, channel, provider, username, 
+                process_name, command_line, target_path, search_blob
+            )
+            
+            events.append({
+                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '-',
+                'artifact_type': artifact_type or '-',
+                'source_host': source_host or '-',
+                'description': description
+            })
+        
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+        
+        return jsonify({
+            'success': True,
+            'case_id': case_id,
+            'events': events,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def build_event_description(artifact_type, channel, provider, username, process_name, command_line, target_path, search_blob):
+    """Build a human-readable description for an event"""
+    parts = []
+    
+    # Add channel/provider for EVTX
+    if artifact_type == 'evtx':
+        if channel:
+            parts.append(f"[{channel}]")
+        if provider:
+            parts.append(provider)
+    
+    # Add username if present
+    if username and username != '-':
+        parts.append(f"User: {username}")
+    
+    # Add process info if present
+    if process_name and process_name != '-':
+        parts.append(f"Process: {process_name}")
+    
+    # Add command line (truncated) if present
+    if command_line and command_line != '-':
+        cmd = command_line[:100] + '...' if len(command_line) > 100 else command_line
+        parts.append(cmd)
+    
+    # Add target path if present and no command line
+    if target_path and target_path != '-' and not command_line:
+        parts.append(target_path)
+    
+    # If still empty, use first part of search_blob
+    if not parts and search_blob:
+        blob_preview = search_blob[:150] + '...' if len(search_blob) > 150 else search_blob
+        return blob_preview
+    
+    return ' | '.join(parts) if parts else '-'

@@ -1,0 +1,72 @@
+<!-- Hunting Events Tab Content -->
+
+<!-- Search Tile -->
+<div class="events-tile events-search-tile">
+    <div class="tile-header">
+        <h3 class="tile-title">🔍 Search Events</h3>
+    </div>
+    <div class="tile-body">
+        <div class="search-row">
+            <input type="text" class="form-input events-search-input" id="events-search" placeholder="Search across all events...">
+            <button class="btn btn-primary" id="events-search-btn" onclick="searchEvents()">
+                Search
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Tile (Placeholder) -->
+<div class="events-tile events-filter-tile">
+    <div class="tile-header">
+        <h3 class="tile-title">⚙️ Filters</h3>
+        <span class="tile-badge">Coming Soon</span>
+    </div>
+    <div class="tile-body">
+        <p class="text-muted">Advanced filtering options will be available here (time range, artifact type, hostname, etc.)</p>
+    </div>
+</div>
+
+<!-- Events List Tile -->
+<div class="events-tile events-list-tile">
+    <div class="tile-header">
+        <h3 class="tile-title">📋 Events</h3>
+        <div class="tile-controls">
+            <span class="events-count" id="events-count">Loading...</span>
+            <select class="page-size-select" id="events-page-size" onchange="changeEventsPageSize()">
+                <option value="50" selected>50 per page</option>
+                <option value="100">100 per page</option>
+                <option value="200">200 per page</option>
+                <option value="500">500 per page</option>
+            </select>
+        </div>
+    </div>
+    <div class="tile-body events-table-container">
+        <table class="events-table" id="events-table">
+            <thead>
+                <tr>
+                    <th class="col-timestamp">Timestamp</th>
+                    <th class="col-parser">Parser</th>
+                    <th class="col-hostname">Hostname</th>
+                    <th class="col-description">Description</th>
+                </tr>
+            </thead>
+            <tbody id="events-tbody">
+                <tr>
+                    <td colspan="4" class="text-center text-muted loading-row">
+                        <span class="spinner-border spinner-border-sm"></span> Loading events...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="tile-footer">
+        <div class="pagination-info">
+            Showing <span id="events-showing-start">0</span> - <span id="events-showing-end">0</span> of <span id="events-total">0</span> events
+        </div>
+        <div class="pagination-controls">
+            <button class="btn btn-secondary btn-sm" id="events-btn-prev" onclick="prevEventsPage()" disabled>← Prev</button>
+            <span class="page-indicator">Page <span id="events-current-page">1</span> of <span id="events-total-pages">1</span></span>
+            <button class="btn btn-secondary btn-sm" id="events-btn-next" onclick="nextEventsPage()" disabled>Next →</button>
+        </div>
+    </div>
+</div>
