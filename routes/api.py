@@ -964,7 +964,8 @@ def get_hunting_events(case_id):
             types_list = [t.strip() for t in artifact_types.split(',') if t.strip()]
             if types_list:
                 # Use tuple format for ClickHouse IN clause
-                type_filter = f" AND artifact_type IN ('{\"', '\".join(types_list)}')"
+                quoted_types = "', '".join(types_list)
+                type_filter = f" AND artifact_type IN ('{quoted_types}')"
         
         # Build query with optional search and type filter
         if search:
