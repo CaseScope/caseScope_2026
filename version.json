@@ -1,6 +1,15 @@
 {
-  "version": "3.31.7",
+  "version": "3.31.8",
   "changelog": [
+    {
+      "version": "3.31.8",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Systems: Extract OS version from NDJSON extra_fields",
+        "Now auto-populates OS Version with 'Windows 10 Pro (10.0.19045)' etc.",
+        "Also extracts host_ip and host_domain from Huntress/EDR data"
+      ]
+    },
     {
       "version": "3.31.7",
       "date": "2026-01-11",

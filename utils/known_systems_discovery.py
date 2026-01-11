@@ -290,7 +290,8 @@ def _get_hostnames_from_case_files(case_uuid: str) -> dict:
 def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
     """Get additional system details from ClickHouse events
     
-    Extracts: IPs, OS type, domain aliases
+    Extracts: IPs, OS type, OS version, domain aliases
+    Also checks extra_fields JSON for rich data from NDJSON sources (Huntress, etc.)
     Note: Shares are handled separately via _get_destination_hosts_and_shares
     """
     from utils.clickhouse import get_client
@@ -298,13 +299,14 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
     details = {
         'ip_addresses': [],
         'os_type': None,
+        'os_version': None,
         'aliases': []
     }
     
     try:
         client = get_client()
         
-        # Get unique non-localhost IP addresses
+        # Get unique non-localhost IP addresses from src_ip field
         ip_result = client.query(
             """SELECT DISTINCT toString(src_ip) as ip
                FROM events 
@@ -318,6 +320,23 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
         for row in ip_result.result_rows:
             if row[0] and row[0] != '0.0.0.0':
                 details['ip_addresses'].append(row[0])
+        
+        # Also check extra_fields for host_ip (from NDJSON sources like Huntress)
+        extra_ip_result = client.query(
+            """SELECT DISTINCT JSONExtractString(extra_fields, 'host_ip') as ip
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+                 AND extra_fields != ''
+                 AND extra_fields != '{}'
+                 AND JSONExtractString(extra_fields, 'host_ip') != ''
+               LIMIT 10""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in extra_ip_result.result_rows:
+            ip = row[0]
+            if ip and ip not in ('0.0.0.0', '127.0.0.1') and ip not in details['ip_addresses']:
+                details['ip_addresses'].append(ip)
         
         # Detect OS type from artifact types
         os_result = client.query(
@@ -336,6 +355,44 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
                 details['os_type'] = 'Windows'
                 break
         
+        # Check extra_fields for detailed OS info (from NDJSON sources like Huntress)
+        # host_os contains full name like "Windows 10 Pro"
+        # host_os_version contains version like "10.0.19045"
+        os_extra_result = client.query(
+            """SELECT 
+                 JSONExtractString(extra_fields, 'host_os') as os_full,
+                 JSONExtractString(extra_fields, 'host_os_version') as os_ver
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+                 AND extra_fields != ''
+                 AND extra_fields != '{}'
+                 AND (JSONExtractString(extra_fields, 'host_os') != '' 
+                      OR JSONExtractString(extra_fields, 'host_os_version') != '')
+               LIMIT 1""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in os_extra_result.result_rows:
+            os_full = row[0]  # e.g., "Windows 10 Pro"
+            os_ver = row[1]   # e.g., "10.0.19045"
+            
+            # Set OS type from full name if not already set
+            if os_full and not details['os_type']:
+                if 'windows' in os_full.lower():
+                    details['os_type'] = 'Windows'
+                elif 'linux' in os_full.lower():
+                    details['os_type'] = 'Linux'
+                elif 'mac' in os_full.lower() or 'darwin' in os_full.lower():
+                    details['os_type'] = 'macOS'
+            
+            # Build detailed OS version string
+            if os_full and os_ver:
+                details['os_version'] = f"{os_full} ({os_ver})"
+            elif os_full:
+                details['os_version'] = os_full
+            elif os_ver:
+                details['os_version'] = os_ver
+        
         # Get domain for alias (hostname.domain)
         domain_result = client.query(
             """SELECT DISTINCT domain
@@ -352,6 +409,25 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
             domain = row[0]
             if domain and '.' in domain:
                 # Add FQDN as alias
+                fqdn = f"{hostname}.{domain}".upper()
+                if fqdn not in details['aliases']:
+                    details['aliases'].append(fqdn)
+        
+        # Also check extra_fields for host_domain to build FQDN alias
+        domain_extra_result = client.query(
+            """SELECT DISTINCT JSONExtractString(extra_fields, 'host_domain') as domain
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+                 AND extra_fields != ''
+                 AND JSONExtractString(extra_fields, 'host_domain') != ''
+               LIMIT 5""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in domain_extra_result.result_rows:
+            domain = row[0]
+            if domain and domain.upper() != hostname.upper():
+                # Add hostname.domain as FQDN alias
                 fqdn = f"{hostname}.{domain}".upper()
                 if fqdn not in details['aliases']:
                     details['aliases'].append(fqdn)
@@ -536,6 +612,18 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                 new_value=details['os_type']
             )
         
+        # Auto-populate OS version if not set (from NDJSON sources)
+        if not system.os_version and details.get('os_version'):
+            system.os_version = details['os_version']
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=username,
+                field_name='os_version',
+                action='update',
+                old_value=None,
+                new_value=details['os_version']
+            )
+        
         # Add discovered IPs
         for ip in details.get('ip_addresses', []):
             if system.add_ip_address(ip):
@@ -606,7 +694,8 @@ def _process_hostname(hostname: str, case_id: int, username: str,
             artifacts_with_hostname=artifact_count,
             added_on=datetime.utcnow(),
             last_seen=last_seen if last_seen else datetime.utcnow(),
-            os_type=details.get('os_type')  # Auto-set from artifacts
+            os_type=details.get('os_type'),  # Auto-set from artifacts
+            os_version=details.get('os_version')  # Auto-set from NDJSON sources
         )
         db.session.add(system)
         db.session.flush()  # Get the ID
