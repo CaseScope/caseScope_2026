@@ -1460,7 +1460,6 @@ tbody td {
 }
 
 .gpu-card {
-  background-color: var(--bg-secondary);
   border-radius: var(--border-radius);
   padding: 12px 16px;
   margin-bottom: 8px;
@@ -1523,7 +1522,6 @@ tbody td {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  background-color: var(--bg-secondary);
   border-radius: var(--border-radius);
 }
 
@@ -1576,7 +1574,6 @@ tbody td {
   justify-content: space-between;
   align-items: center;
   padding: 10px 12px;
-  background-color: var(--bg-secondary);
   border-radius: var(--border-radius);
   border-left: 3px solid var(--accent-primary);
 }
