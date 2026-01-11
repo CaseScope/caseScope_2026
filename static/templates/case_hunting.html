@@ -472,7 +472,7 @@ function buildEventDetailHTML(event) {
                 ${detailRow('Username', event.username)}
                 ${detailRow('Domain', event.domain)}
                 ${detailRow('SID', event.sid)}
-                ${detailRow('Logon Type', event.logon_type)}
+                ${detailRow('Logon Type', formatLogonType(event.logon_type))}
             </div>
         `;
     }
@@ -591,6 +591,34 @@ function buildEventDetailHTML(event) {
     }
     
     return html;
+}
+
+// Format logon type with description based on Windows logon type codes
+// Reference: https://learn.microsoft.com/en-us/windows-server/identity/securing-privileged-access/reference-tools-logon-types
+function formatLogonType(logonType) {
+    if (logonType === null || logonType === undefined || logonType === '') {
+        return null;
+    }
+    
+    const logonTypeDescriptions = {
+        '2': 'Interactive',
+        '3': 'Network',
+        '4': 'Batch',
+        '5': 'Service',
+        '7': 'Unlock',
+        '8': 'NetworkCleartext',
+        '9': 'NewCredentials',
+        '10': 'RemoteInteractive',
+        '11': 'CachedInteractive'
+    };
+    
+    const typeStr = String(logonType).trim();
+    const description = logonTypeDescriptions[typeStr];
+    
+    if (description) {
+        return `${typeStr} (${description})`;
+    }
+    return typeStr;
 }
 
 function detailRow(label, value) {

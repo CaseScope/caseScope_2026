@@ -1,6 +1,13 @@
 {
-  "version": "3.32.2",
+  "version": "3.32.3",
   "changelog": [
+    {
+      "version": "3.32.3",
+      "date": "2026-01-11",
+      "changes": [
+        "Hunting Events: Logon Type now shows description (e.g. 3 = Network, 10 = RemoteInteractive)"
+      ]
+    },
     {
       "version": "3.32.2",
       "date": "2026-01-11",
