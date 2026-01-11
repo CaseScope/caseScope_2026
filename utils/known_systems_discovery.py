@@ -130,44 +130,55 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         file_stats = _get_hostnames_from_case_files(case_uuid)
         logger.info(f"Found {len(file_stats)} unique hostnames from case_files")
         
-        # Source 2: ClickHouse events
+        # Source 2: ClickHouse events (source hosts)
         event_stats = _get_hostnames_from_events(case_id)
-        logger.info(f"Found {len(event_stats)} unique hostnames from events")
+        logger.info(f"Found {len(event_stats)} unique source hostnames from events")
         
-        # Merge stats: combine counts and take latest last_seen
+        # Source 3: Destination hosts from UNC paths (servers accessed)
+        dest_stats, server_shares = _get_destination_hosts_and_shares(case_id)
+        logger.info(f"Found {len(dest_stats)} unique destination hosts, {len(server_shares)} servers with shares")
+        
+        # Merge all stats: combine counts and take latest last_seen
         all_hostname_stats = {}
-        for hostname, stats in file_stats.items():
-            if hostname:
+        
+        # Helper to merge hostname stats
+        def merge_stats(hostname, stats):
+            if not hostname:
+                return
+            hostname = hostname.upper()
+            if hostname in all_hostname_stats:
+                all_hostname_stats[hostname]['count'] += stats['count']
+                # Take the later last_seen (handle timezone-aware vs naive)
+                new_ts = stats['last_seen']
+                old_ts = all_hostname_stats[hostname]['last_seen']
+                if new_ts:
+                    if hasattr(new_ts, 'replace') and new_ts.tzinfo:
+                        new_ts = new_ts.replace(tzinfo=None)
+                    if old_ts and hasattr(old_ts, 'replace') and old_ts.tzinfo:
+                        old_ts = old_ts.replace(tzinfo=None)
+                    if not old_ts or new_ts > old_ts:
+                        all_hostname_stats[hostname]['last_seen'] = stats['last_seen']
+            else:
                 all_hostname_stats[hostname] = {
                     'count': stats['count'],
                     'last_seen': stats['last_seen']
                 }
         
+        # Merge from case_files
+        for hostname, stats in file_stats.items():
+            merge_stats(hostname, stats)
+        
+        # Merge from source events
         for hostname, stats in event_stats.items():
-            if hostname:
-                if hostname in all_hostname_stats:
-                    # Add counts together
-                    all_hostname_stats[hostname]['count'] += stats['count']
-                    # Take the later last_seen (handle timezone-aware vs naive)
-                    event_ts = stats['last_seen']
-                    file_ts = all_hostname_stats[hostname]['last_seen']
-                    if event_ts:
-                        # Make both naive for comparison
-                        if hasattr(event_ts, 'replace') and event_ts.tzinfo:
-                            event_ts = event_ts.replace(tzinfo=None)
-                        if file_ts and hasattr(file_ts, 'replace') and file_ts.tzinfo:
-                            file_ts = file_ts.replace(tzinfo=None)
-                        if not file_ts or event_ts > file_ts:
-                            all_hostname_stats[hostname]['last_seen'] = stats['last_seen']
-                else:
-                    all_hostname_stats[hostname] = {
-                        'count': stats['count'],
-                        'last_seen': stats['last_seen']
-                    }
+            merge_stats(hostname, stats)
+        
+        # Merge from destination hosts
+        for hostname, stats in dest_stats.items():
+            merge_stats(hostname, stats)
         
         total_hostnames = len(all_hostname_stats)
         results['hostnames_processed'] = total_hostnames
-        logger.info(f"Processing {total_hostnames} total unique hostnames")
+        logger.info(f"Processing {total_hostnames} total unique hostnames (source + destination)")
         
         # Initialize progress tracking
         if track_progress:
@@ -177,10 +188,14 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         processed = 0
         for hostname, stats in all_hostname_stats.items():
             try:
+                # Get shares for this host (if it's a server)
+                host_shares = server_shares.get(hostname, [])
+                
                 created, updated, alias_added = _process_hostname(
                     hostname, case_id, username,
                     artifact_count=stats['count'],
-                    last_seen=stats['last_seen']
+                    last_seen=stats['last_seen'],
+                    shares=host_shares
                 )
                 
                 if created:
@@ -276,6 +291,7 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
     """Get additional system details from ClickHouse events
     
     Extracts: IPs, OS type, domain aliases
+    Note: Shares are handled separately via _get_destination_hosts_and_shares
     """
     from utils.clickhouse import get_client
     
@@ -346,6 +362,80 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
     return details
 
 
+def _get_destination_hosts_and_shares(case_id: int) -> Tuple[dict, dict]:
+    """Extract destination hostnames and their shares from UNC paths in events
+    
+    Returns:
+        - dest_stats: {hostname: {'count': N, 'last_seen': datetime}}
+        - server_shares: {hostname: [share1, share2, ...]}
+    """
+    import re
+    from utils.clickhouse import get_client
+    
+    dest_stats = {}
+    server_shares = {}
+    
+    # Pattern to extract server and share from UNC paths: \server\share (single backslash in data)
+    # Data format: "ServerName: \James-fs1\AS9100_Documents"
+    unc_pattern = re.compile(r'\\([^\\]+)\\([^\\]+)$')
+    
+    try:
+        client = get_client()
+        
+        logger.debug(f"Querying destination hosts for case_id={case_id}")
+        
+        # Get UNC paths from SMB events (use position() not LIKE for clickhouse-connect)
+        result = client.query(
+            """SELECT target_path, max(timestamp) as last_ts
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND position(target_path, 'ServerName:') > 0
+               GROUP BY target_path
+               LIMIT 500""",
+            parameters={'case_id': case_id}
+        )
+        
+        logger.info(f"Destination hosts query returned {len(result.result_rows)} rows for case_id={case_id}")
+        
+        for row in result.result_rows:
+            target_path = row[0]
+            last_ts = row[1]
+            if target_path:
+                match = unc_pattern.search(target_path)
+                if match:
+                    server = match.group(1).upper()
+                    share = match.group(2)
+                    
+                    # Extract NETBIOS from FQDN (JAMES-DC1.JamesMFG.local -> JAMES-DC1)
+                    if '.' in server:
+                        netbios = server.split('.')[0]
+                    else:
+                        netbios = server
+                    
+                    # Track server as a destination host
+                    if netbios not in dest_stats:
+                        dest_stats[netbios] = {'count': 0, 'last_seen': None}
+                    dest_stats[netbios]['count'] += 1
+                    if last_ts and (not dest_stats[netbios]['last_seen'] or last_ts > dest_stats[netbios]['last_seen']):
+                        dest_stats[netbios]['last_seen'] = last_ts
+                    
+                    # Track shares for this server (exclude IPC$, NETLOGON, SYSVOL)
+                    admin_shares = ('IPC$', 'ADMIN$', 'C$', 'D$', 'NETLOGON', 'SYSVOL')
+                    if share.upper() not in admin_shares:
+                        if netbios not in server_shares:
+                            server_shares[netbios] = set()
+                        server_shares[netbios].add(share)
+                        
+    except Exception as e:
+        logger.warning(f"Error getting destination hosts: {e}")
+    
+    # Convert sets to lists
+    for server in server_shares:
+        server_shares[server] = list(server_shares[server])
+    
+    return dest_stats, server_shares
+
+
 def _get_hostnames_from_events(case_id: int) -> dict:
     """Get hostname stats from ClickHouse events table
     
@@ -383,7 +473,8 @@ def _get_hostnames_from_events(case_id: int) -> dict:
 
 
 def _process_hostname(hostname: str, case_id: int, username: str,
-                      artifact_count: int = 1, last_seen: datetime = None) -> Tuple[bool, bool, bool]:
+                      artifact_count: int = 1, last_seen: datetime = None,
+                      shares: List[str] = None) -> Tuple[bool, bool, bool]:
     """Process a single hostname through deduplication logic
     
     Args:
@@ -392,9 +483,12 @@ def _process_hostname(hostname: str, case_id: int, username: str,
         username: User performing discovery
         artifact_count: Number of artifacts referencing this hostname
         last_seen: Timestamp of most recent artifact with this hostname
+        shares: List of shares hosted by this system (from UNC paths)
     
     Returns: (created, updated, alias_added)
     """
+    if shares is None:
+        shares = []
     created = False
     updated = False
     alias_added = False
@@ -463,6 +557,17 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                     field_name='aliases',
                     action='create',
                     new_value=alias
+                )
+        
+        # Add shares hosted by this system
+        for share in shares:
+            if system.add_share(share):
+                KnownSystemAudit.log_change(
+                    system_id=system.id,
+                    changed_by=username,
+                    field_name='found_shares',
+                    action='create',
+                    new_value=share
                 )
         
         # Add FQDN as alias if different from hostname
@@ -549,6 +654,17 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                     action='create',
                     new_value=alias
                 )
+        
+        # Add shares hosted by this system
+        for share in shares:
+            system.add_share(share)
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=username,
+                field_name='found_shares',
+                action='create',
+                new_value=share
+            )
         
         # Link to case
         system.link_to_case(case_id)
