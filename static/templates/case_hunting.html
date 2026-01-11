@@ -59,6 +59,7 @@ let eventsPage = 1;
 let eventsPerPage = 50;
 let eventsSearch = '';
 let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
+let currentEventsData = []; // Store current page's event data for modal display
 
 // Filter state
 const eventFilters = {
@@ -261,6 +262,9 @@ function loadEvents() {
 function renderEventsTable(events) {
     const tbody = document.getElementById('events-tbody');
     
+    // Store events data for modal access
+    currentEventsData = events;
+    
     if (events.length === 0) {
         tbody.innerHTML = `
             <tr>
@@ -272,13 +276,13 @@ function renderEventsTable(events) {
         return;
     }
     
-    tbody.innerHTML = events.map(e => {
+    tbody.innerHTML = events.map((e, index) => {
         const hasHit = e.rule_level && e.rule_level !== '';
-        const rowClass = hasHit ? 'event-row hayabusa-hit' : 'event-row';
+        const rowClass = hasHit ? 'event-row hayabusa-hit clickable-row' : 'event-row clickable-row';
         const severityBadge = getSeverityBadge(e.rule_level);
         
         return `
-            <tr class="${rowClass}">
+            <tr class="${rowClass}" onclick="showEventDetail(${index})" style="cursor: pointer;">
                 <td class="col-timestamp">${e.timestamp}</td>
                 <td class="col-parser"><span class="parser-badge">${e.artifact_type}</span></td>
                 <td class="col-hostname">${e.source_host || '-'}</td>
@@ -376,6 +380,223 @@ function truncateText(text, maxLen) {
     if (!text) return '-';
     if (text.length <= maxLen) return text;
     return text.substring(0, maxLen) + '...';
+}
+
+// ============================================
+// Event Detail Modal Functions
+// ============================================
+
+function showEventDetail(index) {
+    const event = currentEventsData[index];
+    if (!event) return;
+    
+    // Update modal title with event type and timestamp
+    document.getElementById('event-modal-title').textContent = 
+        `${event.artifact_type.toUpperCase()} Event - ${event.timestamp}`;
+    
+    // Build modal content
+    const content = document.getElementById('event-detail-content');
+    content.innerHTML = buildEventDetailHTML(event);
+    
+    // Show modal
+    document.getElementById('event-detail-modal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeEventModal(e) {
+    // If called from overlay click, only close if clicking the overlay itself
+    if (e && e.target !== e.currentTarget) return;
+    
+    document.getElementById('event-detail-modal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeEventModal();
+    }
+});
+
+function buildEventDetailHTML(event) {
+    let html = '';
+    
+    // Source Information
+    html += `
+        <div class="event-detail-section">
+            <h4>📍 Source</h4>
+            ${detailRow('Timestamp', event.timestamp)}
+            ${detailRow('Host', event.source_host)}
+            ${detailRow('Artifact Type', event.artifact_type)}
+            ${detailRow('Source File', event.source_file)}
+            ${detailRow('Source Path', event.source_path)}
+        </div>
+    `;
+    
+    // Event Metadata
+    html += `
+        <div class="event-detail-section">
+            <h4>📋 Event Info</h4>
+            ${detailRow('Event ID', event.event_id)}
+            ${detailRow('Channel', event.channel)}
+            ${detailRow('Provider', event.provider)}
+            ${detailRow('Record ID', event.record_id)}
+            ${detailRow('Level', event.level)}
+        </div>
+    `;
+    
+    // User Information (if present)
+    if (event.username || event.domain || event.sid || event.logon_type) {
+        html += `
+            <div class="event-detail-section">
+                <h4>👤 User</h4>
+                ${detailRow('Username', event.username)}
+                ${detailRow('Domain', event.domain)}
+                ${detailRow('SID', event.sid)}
+                ${detailRow('Logon Type', event.logon_type)}
+            </div>
+        `;
+    }
+    
+    // Process Information (if present)
+    if (event.process_name || event.process_path || event.command_line) {
+        html += `
+            <div class="event-detail-section">
+                <h4>⚙️ Process</h4>
+                ${detailRow('Process', event.process_name)}
+                ${detailRow('Process Path', event.process_path)}
+                ${detailRow('PID', event.process_id)}
+                ${detailRow('Parent Process', event.parent_process)}
+                ${detailRow('Parent PID', event.parent_pid)}
+            </div>
+        `;
+        
+        // Command line gets its own full-width section if present
+        if (event.command_line) {
+            html += `
+                <div class="event-detail-section full-width">
+                    <h4>💻 Command Line</h4>
+                    <div class="event-detail-blob">${escapeHtml(event.command_line)}</div>
+                </div>
+            `;
+        }
+    }
+    
+    // File Information (if present)
+    if (event.target_path || event.file_hash_md5 || event.file_hash_sha256) {
+        html += `
+            <div class="event-detail-section full-width">
+                <h4>📁 File</h4>
+                ${detailRow('Target Path', event.target_path)}
+                ${detailRow('MD5', event.file_hash_md5)}
+                ${detailRow('SHA1', event.file_hash_sha1)}
+                ${detailRow('SHA256', event.file_hash_sha256)}
+                ${detailRow('File Size', event.file_size ? formatBytes(event.file_size) : '')}
+            </div>
+        `;
+    }
+    
+    // Network Information (if present)
+    if (event.src_ip || event.dst_ip || event.src_port || event.dst_port) {
+        html += `
+            <div class="event-detail-section">
+                <h4>🌐 Network</h4>
+                ${detailRow('Source IP', event.src_ip)}
+                ${detailRow('Source Port', event.src_port)}
+                ${detailRow('Dest IP', event.dst_ip)}
+                ${detailRow('Dest Port', event.dst_port)}
+            </div>
+        `;
+    }
+    
+    // Registry Information (if present)
+    if (event.reg_key || event.reg_value || event.reg_data) {
+        html += `
+            <div class="event-detail-section full-width">
+                <h4>🗂️ Registry</h4>
+                ${detailRow('Key', event.reg_key)}
+                ${detailRow('Value', event.reg_value)}
+                ${detailRow('Data', event.reg_data)}
+            </div>
+        `;
+    }
+    
+    // Detection Information (if present)
+    if (event.rule_title || event.rule_level) {
+        html += `
+            <div class="event-detail-section full-width">
+                <h4>🚨 Detection</h4>
+                ${detailRow('Rule Title', event.rule_title)}
+                ${detailRow('Severity', event.rule_level ? event.rule_level.toUpperCase() : '')}
+                ${detailRow('Rule File', event.rule_file)}
+        `;
+        
+        // MITRE Tags
+        if (event.mitre_tactics && event.mitre_tactics.length > 0) {
+            html += `
+                <div class="event-detail-row">
+                    <span class="event-detail-label">MITRE Tactics</span>
+                    <span class="event-detail-value">
+                        <div class="event-detail-tags">
+                            ${event.mitre_tactics.map(t => `<span class="event-detail-tag mitre">${escapeHtml(t)}</span>`).join('')}
+                        </div>
+                    </span>
+                </div>
+            `;
+        }
+        
+        if (event.mitre_tags && event.mitre_tags.length > 0) {
+            html += `
+                <div class="event-detail-row">
+                    <span class="event-detail-label">MITRE Tags</span>
+                    <span class="event-detail-value">
+                        <div class="event-detail-tags">
+                            ${event.mitre_tags.map(t => `<span class="event-detail-tag mitre">${escapeHtml(t)}</span>`).join('')}
+                        </div>
+                    </span>
+                </div>
+            `;
+        }
+        
+        html += `</div>`;
+    }
+    
+    // Raw Data (search blob)
+    if (event.search_blob) {
+        html += `
+            <div class="event-detail-section full-width">
+                <h4>📝 Raw Data</h4>
+                <div class="event-detail-blob">${escapeHtml(event.search_blob)}</div>
+            </div>
+        `;
+    }
+    
+    return html;
+}
+
+function detailRow(label, value) {
+    if (value === null || value === undefined || value === '') {
+        return `
+            <div class="event-detail-row">
+                <span class="event-detail-label">${label}</span>
+                <span class="event-detail-value empty">—</span>
+            </div>
+        `;
+    }
+    return `
+        <div class="event-detail-row">
+            <span class="event-detail-label">${label}</span>
+            <span class="event-detail-value">${escapeHtml(String(value))}</span>
+        </div>
+    `;
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 </script>
 {% endblock %}

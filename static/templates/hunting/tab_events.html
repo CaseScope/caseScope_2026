@@ -1,5 +1,20 @@
 <!-- Hunting Events Tab Content -->
 
+<!-- Event Detail Modal -->
+<div class="modal-overlay" id="event-detail-modal" style="display: none;" onclick="closeEventModal(event)">
+    <div class="modal-container modal-event-detail" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="event-modal-title">Event Details</h3>
+            <button class="modal-close" onclick="closeEventModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="event-detail-grid" id="event-detail-content">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Search Tile -->
 <div class="events-tile events-search-tile">
     <div class="tile-header">

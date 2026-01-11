@@ -1593,6 +1593,130 @@ tbody td {
   max-width: 560px;
 }
 
+/* ========================================
+   Event Detail Modal
+   ======================================== */
+.modal-event-detail {
+  max-width: 900px;
+  width: 95%;
+}
+
+.modal-event-detail .modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.event-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.event-detail-section {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+}
+
+.event-detail-section.full-width {
+  grid-column: 1 / -1;
+}
+
+.event-detail-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.event-detail-row {
+  display: flex;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.event-detail-row:last-child {
+  border-bottom: none;
+}
+
+.event-detail-label {
+  flex: 0 0 140px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.event-detail-value {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-word;
+  font-family: var(--font-mono);
+}
+
+.event-detail-value.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.event-detail-blob {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+}
+
+.event-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.event-detail-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.event-detail-tag.mitre {
+  background-color: rgba(var(--accent-danger-rgb), 0.1);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
+}
+
+@media (max-width: 768px) {
+  .event-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .event-detail-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .event-detail-label {
+    flex: none;
+  }
+}
+
 .progress-stages {
   display: flex;
   justify-content: space-between;

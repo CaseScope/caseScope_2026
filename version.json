@@ -1,6 +1,16 @@
 {
-  "version": "3.26.0",
+  "version": "3.27.0",
   "changelog": [
+    {
+      "version": "3.27.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Hunting Events: Click any event row to open detail modal",
+        "Event Detail Modal shows all event fields in human-readable format",
+        "Sections: Source, Event Info, User, Process, Command Line, File, Network, Registry, Detection, Raw Data",
+        "MITRE tactics and tags displayed as badges"
+      ]
+    },
     {
       "version": "3.26.0",
       "date": "2026-01-10",

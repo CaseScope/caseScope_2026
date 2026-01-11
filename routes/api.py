@@ -996,6 +996,19 @@ def get_hunting_events(case_id):
                 severity_filter = f" AND (rule_level IS NULL OR rule_level = '' OR lower(rule_level) IN ('{quoted_levels}'))"
         
         # Build query with optional search and type filter
+        # All columns to fetch for event details modal
+        event_columns = """
+            timestamp, artifact_type, source_file, source_path, source_host,
+            event_id, channel, provider, record_id, level,
+            username, domain, sid, logon_type,
+            process_name, process_path, process_id, parent_process, parent_pid, command_line,
+            target_path, file_hash_md5, file_hash_sha1, file_hash_sha256, file_size,
+            src_ip, dst_ip, src_port, dst_port,
+            reg_key, reg_value, reg_data,
+            rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
+            search_blob, extra_fields
+        """
+        
         if search:
             # Search in search_blob field
             count_query = f"""
@@ -1004,9 +1017,7 @@ def get_hunting_events(case_id):
                   AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{severity_filter}
             """
             data_query = f"""
-                SELECT timestamp, artifact_type, source_host, channel, provider, 
-                       username, process_name, command_line, target_path, search_blob,
-                       rule_level
+                SELECT {event_columns}
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
                   AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{severity_filter}
@@ -1022,9 +1033,7 @@ def get_hunting_events(case_id):
         else:
             count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{severity_filter}"
             data_query = f"""
-                SELECT timestamp, artifact_type, source_host, channel, provider, 
-                       username, process_name, command_line, target_path, search_blob,
-                       rule_level
+                SELECT {event_columns}
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{severity_filter}
                 ORDER BY timestamp DESC
@@ -1045,7 +1054,15 @@ def get_hunting_events(case_id):
         
         events = []
         for row in data_result.result_rows:
-            timestamp, artifact_type, source_host, channel, provider, username, process_name, command_line, target_path, search_blob, rule_level = row
+            (timestamp, artifact_type, source_file, source_path, source_host,
+             event_id, channel, provider, record_id, level,
+             username, domain, sid, logon_type,
+             process_name, process_path, process_id, parent_process, parent_pid, command_line,
+             target_path, file_hash_md5, file_hash_sha1, file_hash_sha256, file_size,
+             src_ip, dst_ip, src_port, dst_port,
+             reg_key, reg_value, reg_data,
+             rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
+             search_blob, extra_fields) = row
             
             # Build description from available fields
             description = build_event_description(
@@ -1054,11 +1071,49 @@ def get_hunting_events(case_id):
             )
             
             events.append({
+                # Display fields (for table)
                 'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '-',
                 'artifact_type': artifact_type or '-',
                 'source_host': source_host or '-',
                 'description': description,
-                'rule_level': rule_level or ''
+                'rule_level': rule_level or '',
+                
+                # Full details (for modal)
+                'source_file': source_file or '',
+                'source_path': source_path or '',
+                'event_id': event_id or '',
+                'channel': channel or '',
+                'provider': provider or '',
+                'record_id': record_id,
+                'level': level or '',
+                'username': username or '',
+                'domain': domain or '',
+                'sid': sid or '',
+                'logon_type': logon_type,
+                'process_name': process_name or '',
+                'process_path': process_path or '',
+                'process_id': process_id,
+                'parent_process': parent_process or '',
+                'parent_pid': parent_pid,
+                'command_line': command_line or '',
+                'target_path': target_path or '',
+                'file_hash_md5': file_hash_md5 or '',
+                'file_hash_sha1': file_hash_sha1 or '',
+                'file_hash_sha256': file_hash_sha256 or '',
+                'file_size': file_size,
+                'src_ip': src_ip or '',
+                'dst_ip': dst_ip or '',
+                'src_port': src_port,
+                'dst_port': dst_port,
+                'reg_key': reg_key or '',
+                'reg_value': reg_value or '',
+                'reg_data': reg_data or '',
+                'rule_title': rule_title or '',
+                'rule_file': rule_file or '',
+                'mitre_tactics': list(mitre_tactics) if mitre_tactics else [],
+                'mitre_tags': list(mitre_tags) if mitre_tags else [],
+                'search_blob': search_blob or '',
+                'extra_fields': extra_fields or '{}'
             })
         
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1
