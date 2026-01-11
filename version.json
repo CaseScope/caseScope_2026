@@ -1,6 +1,15 @@
 {
-  "version": "3.37.2",
+  "version": "3.37.3",
   "changelog": [
+    {
+      "version": "3.37.3",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC Extraction: Model selection now reads from AI_GPU_TIER system setting",
+        "Settings: GPU tier stored during GPU detection for use by AI functions",
+        "Removed runtime VRAM detection from extraction - uses stored configuration"
+      ]
+    },
     {
       "version": "3.37.2",
       "date": "2026-01-11",

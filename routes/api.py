@@ -2318,7 +2318,7 @@ def detect_gpu():
             pass
         
         # Add AI model configuration based on detected GPU
-        from models.system_settings import get_ai_model_config, AI_FUNCTION_DESCRIPTIONS
+        from models.system_settings import get_ai_model_config, AI_FUNCTION_DESCRIPTIONS, SystemSettings, SettingKeys
         
         recommended_vram = None
         if result['recommended_gpu'] and result['recommended_gpu'].get('vram_total_mb'):
@@ -2326,8 +2326,9 @@ def detect_gpu():
         
         model_config = get_ai_model_config(recommended_vram)
         if model_config:
+            tier = '16gb' if recommended_vram and recommended_vram >= 14000 else '8gb'
             result['model_config'] = {
-                'tier': '16gb' if recommended_vram and recommended_vram >= 14000 else '8gb',
+                'tier': tier,
                 'functions': {}
             }
             for func_key, model_name in model_config.items():
@@ -2335,6 +2336,14 @@ def detect_gpu():
                     'model': model_name,
                     'description': AI_FUNCTION_DESCRIPTIONS.get(func_key, func_key)
                 }
+            
+            # Store the GPU tier for use by AI functions
+            SystemSettings.set(
+                SettingKeys.AI_GPU_TIER,
+                tier,
+                value_type='string',
+                updated_by='system'
+            )
         else:
             result['model_config'] = None
         

@@ -92,6 +92,7 @@ class SettingKeys:
     AI_ENABLED = 'ai_enabled'
     AI_DEFAULT_MODEL = 'ai_default_model'
     AI_GPU_INDEX = 'ai_gpu_index'
+    AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detection
 
 
 # AI Model Configuration based on GPU VRAM
