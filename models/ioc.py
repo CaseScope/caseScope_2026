@@ -438,6 +438,7 @@ class IOC(db.Model):
         )
         
         db.session.add(new_ioc)
+        db.session.flush()  # Ensure ID is assigned for audit logging
         return new_ioc, True
     
     def update_artifact_stats(self, seen_at=None):

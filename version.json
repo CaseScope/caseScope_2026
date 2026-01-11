@@ -1,6 +1,13 @@
 {
-  "version": "3.37.4",
+  "version": "3.37.5",
   "changelog": [
+    {
+      "version": "3.37.5",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC: Fixed null ioc_id error when saving new IOCs by flushing before audit log"
+      ]
+    },
     {
       "version": "3.37.4",
       "date": "2026-01-11",
