@@ -1,6 +1,17 @@
 {
-  "version": "3.31.8",
+  "version": "3.31.9",
   "changelog": [
+    {
+      "version": "3.31.9",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Systems: Added MAC address tracking (new table)",
+        "CRITICAL FIX: Only use host_ip from EDR data for system IPs",
+        "Previously used src_ip which could be remote accessors (attackers)",
+        "Now only extracts IPs/MACs that belong TO the system itself",
+        "MAC addresses extracted from host_mac in Huntress/EDR data"
+      ]
+    },
     {
       "version": "3.31.8",
       "date": "2026-01-11",

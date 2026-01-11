@@ -3,7 +3,7 @@ from models.database import db
 from models.user import User
 from models.case import Case, CaseStatus
 from models.known_system import (
-    KnownSystem, KnownSystemIP, KnownSystemAlias,
+    KnownSystem, KnownSystemIP, KnownSystemMAC, KnownSystemAlias,
     KnownSystemShare, KnownSystemCase, KnownSystemAudit,
     OSType, SystemType
 )

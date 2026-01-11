@@ -290,14 +290,19 @@ def _get_hostnames_from_case_files(case_uuid: str) -> dict:
 def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
     """Get additional system details from ClickHouse events
     
-    Extracts: IPs, OS type, OS version, domain aliases
+    Extracts: IPs, MACs, OS type, OS version, domain aliases
     Also checks extra_fields JSON for rich data from NDJSON sources (Huntress, etc.)
+    
+    IMPORTANT: Only extracts IPs/MACs that belong TO this system (from host_ip/host_mac
+    in EDR data), NOT from src_ip which could be remote systems accessing this machine.
+    
     Note: Shares are handled separately via _get_destination_hosts_and_shares
     """
     from utils.clickhouse import get_client
     
     details = {
         'ip_addresses': [],
+        'mac_addresses': [],
         'os_type': None,
         'os_version': None,
         'aliases': []
@@ -306,22 +311,13 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
     try:
         client = get_client()
         
-        # Get unique non-localhost IP addresses from src_ip field
-        ip_result = client.query(
-            """SELECT DISTINCT toString(src_ip) as ip
-               FROM events 
-               WHERE case_id = {case_id:UInt32} 
-                 AND source_host = {hostname:String}
-                 AND src_ip != toIPv4('0.0.0.0')
-                 AND src_ip != toIPv4('127.0.0.1')
-               LIMIT 20""",
-            parameters={'case_id': case_id, 'hostname': hostname}
-        )
-        for row in ip_result.result_rows:
-            if row[0] and row[0] != '0.0.0.0':
-                details['ip_addresses'].append(row[0])
+        # NOTE: We intentionally do NOT use src_ip from events because that could be
+        # the IP of a remote system accessing this machine (e.g., an attacker).
+        # Instead, we only use host_ip from extra_fields which is the system's own IP
+        # as reported by the EDR agent running on that system.
         
-        # Also check extra_fields for host_ip (from NDJSON sources like Huntress)
+        # Get host_ip from extra_fields (from NDJSON sources like Huntress)
+        # This is the system's actual IP as reported by the EDR agent
         extra_ip_result = client.query(
             """SELECT DISTINCT JSONExtractString(extra_fields, 'host_ip') as ip
                FROM events 
@@ -337,6 +333,34 @@ def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
             ip = row[0]
             if ip and ip not in ('0.0.0.0', '127.0.0.1') and ip not in details['ip_addresses']:
                 details['ip_addresses'].append(ip)
+        
+        # Get host_mac from extra_fields (from NDJSON sources like Huntress)
+        # This is an array of the system's MAC addresses
+        mac_result = client.query(
+            """SELECT DISTINCT JSONExtractString(extra_fields, 'host_mac') as macs
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+                 AND extra_fields != ''
+                 AND extra_fields != '{}'
+                 AND JSONExtractString(extra_fields, 'host_mac') != ''
+                 AND JSONExtractString(extra_fields, 'host_mac') != '[]'
+               LIMIT 1""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in mac_result.result_rows:
+            mac_str = row[0]
+            if mac_str:
+                # Parse JSON array of MACs: ["aa:bb:cc:dd:ee:ff", ...]
+                try:
+                    import json
+                    mac_list = json.loads(mac_str)
+                    if isinstance(mac_list, list):
+                        for mac in mac_list:
+                            if mac and mac not in details['mac_addresses']:
+                                details['mac_addresses'].append(mac)
+                except (json.JSONDecodeError, TypeError):
+                    pass
         
         # Detect OS type from artifact types
         os_result = client.query(
@@ -624,7 +648,7 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                 new_value=details['os_version']
             )
         
-        # Add discovered IPs
+        # Add discovered IPs (only from host_ip, NOT src_ip)
         for ip in details.get('ip_addresses', []):
             if system.add_ip_address(ip):
                 KnownSystemAudit.log_change(
@@ -633,6 +657,17 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                     field_name='ip_addresses',
                     action='create',
                     new_value=ip
+                )
+        
+        # Add discovered MACs (from host_mac in EDR data)
+        for mac in details.get('mac_addresses', []):
+            if system.add_mac_address(mac):
+                KnownSystemAudit.log_change(
+                    system_id=system.id,
+                    changed_by=username,
+                    field_name='mac_addresses',
+                    action='create',
+                    new_value=mac
                 )
         
         # Add discovered aliases
@@ -721,7 +756,7 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                 new_value=fqdn
             )
         
-        # Add discovered IPs
+        # Add discovered IPs (only from host_ip, NOT src_ip)
         for ip in details.get('ip_addresses', []):
             system.add_ip_address(ip)
             KnownSystemAudit.log_change(
@@ -730,6 +765,17 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                 field_name='ip_addresses',
                 action='create',
                 new_value=ip
+            )
+        
+        # Add discovered MACs (from host_mac in EDR data)
+        for mac in details.get('mac_addresses', []):
+            system.add_mac_address(mac)
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=username,
+                field_name='mac_addresses',
+                action='create',
+                new_value=mac
             )
         
         # Add discovered aliases

@@ -86,7 +86,7 @@ def create_app():
         from models.case import Case
         from models.case_file import CaseFile
         from models.known_system import (
-            KnownSystem, KnownSystemIP, KnownSystemAlias,
+            KnownSystem, KnownSystemIP, KnownSystemMAC, KnownSystemAlias,
             KnownSystemShare, KnownSystemCase, KnownSystemAudit
         )
         db.create_all()

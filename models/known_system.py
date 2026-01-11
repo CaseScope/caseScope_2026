@@ -89,6 +89,7 @@ class KnownSystem(db.Model):
     
     # Relationships
     ip_addresses = db.relationship('KnownSystemIP', backref='system', lazy='dynamic', cascade='all, delete-orphan')
+    mac_addresses = db.relationship('KnownSystemMAC', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     aliases = db.relationship('KnownSystemAlias', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     shares = db.relationship('KnownSystemShare', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     cases = db.relationship('KnownSystemCase', backref='system', lazy='dynamic', cascade='all, delete-orphan')
@@ -110,6 +111,7 @@ class KnownSystem(db.Model):
             'notes': self.notes,
             'compromised': self.compromised,
             'ip_addresses': [ip.ip_address for ip in self.ip_addresses],
+            'mac_addresses': [mac.mac_address for mac in self.mac_addresses],
             'aliases': [alias.alias for alias in self.aliases],
             'shares': [share.to_dict() for share in self.shares],
             'case_count': self.cases.count()
@@ -186,7 +188,11 @@ class KnownSystem(db.Model):
         return None, None
     
     def add_ip_address(self, ip_address):
-        """Add an IP address if not already present"""
+        """Add an IP address if not already present
+        
+        NOTE: Only use for IPs that belong TO this system (from host_ip in EDR data),
+        NOT IPs from src_ip which could be remote systems accessing this machine.
+        """
         if not ip_address:
             return False
         
@@ -203,6 +209,37 @@ class KnownSystem(db.Model):
                 first_seen=datetime.utcnow()
             )
             db.session.add(new_ip)
+            return True
+        return False
+    
+    def add_mac_address(self, mac_address):
+        """Add a MAC address if not already present
+        
+        NOTE: Only use for MACs that belong TO this system (from host_mac in EDR data).
+        """
+        if not mac_address:
+            return False
+        
+        # Normalize MAC address to uppercase with colons
+        mac_address = mac_address.strip().upper()
+        # Handle different formats: aa:bb:cc:dd:ee:ff, aa-bb-cc-dd-ee-ff, aabbccddeeff
+        mac_address = mac_address.replace('-', ':')
+        if ':' not in mac_address and len(mac_address) == 12:
+            # Convert aabbccddeeff to aa:bb:cc:dd:ee:ff
+            mac_address = ':'.join(mac_address[i:i+2] for i in range(0, 12, 2))
+        
+        existing = KnownSystemMAC.query.filter_by(
+            system_id=self.id,
+            mac_address=mac_address
+        ).first()
+        
+        if not existing:
+            new_mac = KnownSystemMAC(
+                system_id=self.id,
+                mac_address=mac_address,
+                first_seen=datetime.utcnow()
+            )
+            db.session.add(new_mac)
             return True
         return False
     
@@ -272,7 +309,11 @@ class KnownSystem(db.Model):
 
 
 class KnownSystemIP(db.Model):
-    """IP addresses associated with a known system"""
+    """IP addresses associated with a known system
+    
+    NOTE: Only stores IPs that belong TO this system (from host_ip in EDR data),
+    NOT IPs from src_ip which could be remote systems accessing this machine.
+    """
     __tablename__ = 'known_system_ips'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -286,6 +327,26 @@ class KnownSystemIP(db.Model):
     
     def __repr__(self):
         return f'<KnownSystemIP {self.ip_address}>'
+
+
+class KnownSystemMAC(db.Model):
+    """MAC addresses associated with a known system
+    
+    NOTE: Only stores MACs that belong TO this system (from host_mac in EDR data).
+    """
+    __tablename__ = 'known_system_macs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    system_id = db.Column(db.Integer, db.ForeignKey('known_systems.id'), nullable=False, index=True)
+    mac_address = db.Column(db.String(17), nullable=False)  # aa:bb:cc:dd:ee:ff format
+    first_seen = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('system_id', 'mac_address', name='uq_system_mac'),
+    )
+    
+    def __repr__(self):
+        return f'<KnownSystemMAC {self.mac_address}>'
 
 
 class KnownSystemAlias(db.Model):
