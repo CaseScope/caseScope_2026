@@ -1,6 +1,14 @@
 {
-  "version": "3.31.6",
+  "version": "3.31.7",
   "changelog": [
+    {
+      "version": "3.31.7",
+      "date": "2026-01-11",
+      "changes": [
+        "HuntressParser: Auto-detect Huntress files by 'huntress.io' in content",
+        "NDJSON files with huntress.io references now use full Huntress parser"
+      ]
+    },
     {
       "version": "3.31.6",
       "date": "2026-01-11",

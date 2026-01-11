@@ -377,7 +377,7 @@ class HuntressParser(BaseParser):
     - account/organization -> extra_fields
     """
     
-    VERSION = '2.0.0'
+    VERSION = '2.1.0'
     ARTIFACT_TYPE = 'huntress'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
@@ -422,6 +422,11 @@ class HuntressParser(BaseParser):
                     line = line.strip()
                     if not line:
                         continue
+                    
+                    # Quick check for huntress.io in raw content (agent URL, etc.)
+                    if 'huntress.io' in line.lower():
+                        return True
+                    
                     try:
                         obj = json.loads(line)
                         # Look for Huntress-specific ECS fields
