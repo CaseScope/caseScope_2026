@@ -12,7 +12,7 @@ import json
 import csv
 import logging
 from datetime import datetime
-from typing import Generator, Dict, List, Any, Optional
+from typing import Generator, Dict, List, Any, Optional, Tuple
 from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent
@@ -777,10 +777,11 @@ class HuntressParser(BaseParser):
 class GenericJSONParser(BaseParser):
     """Generic parser for JSON/NDJSON log files
     
-    Fallback parser for JSON-formatted logs that don't match specific parsers
+    Fallback parser for JSON-formatted logs that don't match specific parsers.
+    Extracts common user/system/process fields for known users/systems discovery.
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'json_log'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
@@ -791,6 +792,18 @@ class GenericJSONParser(BaseParser):
     @property
     def artifact_type(self) -> str:
         return self._artifact_type
+    
+    def _get_nested(self, data: Dict, *keys, default=None):
+        """Safely retrieve nested dictionary value"""
+        current = data
+        for key in keys:
+            if isinstance(current, dict):
+                current = current.get(key)
+            else:
+                return default
+            if current is None:
+                return default
+        return current
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is a JSON/NDJSON file"""
@@ -814,14 +827,205 @@ class GenericJSONParser(BaseParser):
         
         return False
     
+    def _extract_user_fields(self, event: Dict) -> Tuple[str, str, str]:
+        """Extract username, domain, and SID from various JSON structures
+        
+        Supports common formats:
+        - ECS: process.user.name, process.user.domain, process.user.id
+        - Flat: username, user, user_name, domain, sid
+        - Nested: user.name, user.domain, user.sid
+        - Windows: SubjectUserName, TargetUserName, SubjectDomainName
+        
+        Returns: (username, domain, sid)
+        """
+        username = ''
+        domain = ''
+        sid = ''
+        
+        # Try ECS nested structure first (Huntress, Elastic, etc.)
+        if 'process' in event and isinstance(event.get('process'), dict):
+            proc = event['process']
+            user = proc.get('user', {})
+            if isinstance(user, dict):
+                username = user.get('name', '') or ''
+                domain = user.get('domain', '') or ''
+                sid = user.get('id', '') or ''
+        
+        # Try user object
+        if not username and 'user' in event and isinstance(event.get('user'), dict):
+            user = event['user']
+            username = user.get('name', '') or user.get('username', '') or ''
+            domain = user.get('domain', '') or ''
+            sid = user.get('id', '') or user.get('sid', '') or ''
+        
+        # Try flat fields (common in many log formats)
+        if not username:
+            for field in ['username', 'user', 'user_name', 'UserName', 'userName',
+                         'SubjectUserName', 'TargetUserName', 'AccountName', 'account_name']:
+                val = event.get(field)
+                if val and isinstance(val, str):
+                    username = val
+                    break
+        
+        if not domain:
+            for field in ['domain', 'Domain', 'SubjectDomainName', 'TargetDomainName', 
+                         'user_domain', 'UserDomain', 'AccountDomain']:
+                val = event.get(field)
+                if val and isinstance(val, str):
+                    domain = val
+                    break
+        
+        if not sid:
+            for field in ['sid', 'SID', 'Sid', 'user_sid', 'SubjectUserSid', 
+                         'TargetUserSid', 'SecurityId', 'security_id']:
+                val = event.get(field)
+                if val and isinstance(val, str):
+                    sid = val
+                    break
+        
+        return (
+            self.safe_str(username),
+            self.safe_str(domain),
+            self.safe_str(sid)
+        )
+    
+    def _extract_host(self, event: Dict, default_host: str) -> str:
+        """Extract hostname from various JSON structures
+        
+        Supports:
+        - ECS: host.hostname, host.name
+        - Flat: hostname, host, computer, machine, server, Computer
+        - Nested: host.hostname for dict values
+        """
+        # Try ECS nested structure
+        if 'host' in event:
+            host_val = event.get('host')
+            if isinstance(host_val, dict):
+                hostname = host_val.get('hostname') or host_val.get('name') or ''
+                if hostname:
+                    return str(hostname)
+            elif isinstance(host_val, str):
+                return host_val
+        
+        # Try flat fields
+        for field in ['hostname', 'host', 'computer', 'machine', 'server', 
+                     'Computer', 'ComputerName', 'computer_name', 'MachineName']:
+            val = event.get(field)
+            if val and isinstance(val, str):
+                return val
+        
+        return default_host
+    
+    def _extract_process_fields(self, event: Dict) -> Dict[str, Any]:
+        """Extract process-related fields from various JSON structures"""
+        result = {
+            'process_name': '',
+            'process_path': '',
+            'process_id': None,
+            'parent_process': '',
+            'parent_pid': None,
+            'command_line': '',
+        }
+        
+        # Try ECS structure
+        if 'process' in event and isinstance(event.get('process'), dict):
+            proc = event['process']
+            result['process_name'] = self.safe_str(proc.get('name', ''))
+            result['process_path'] = self.safe_str(proc.get('executable', ''))
+            result['process_id'] = self.safe_int(proc.get('pid'))
+            result['command_line'] = self.safe_str(proc.get('command_line', ''))
+            
+            parent = proc.get('parent', {})
+            if isinstance(parent, dict):
+                result['parent_process'] = self.safe_str(parent.get('name', '') or parent.get('executable', ''))
+                result['parent_pid'] = self.safe_int(parent.get('pid'))
+        
+        # Try flat fields as fallback
+        if not result['process_name']:
+            for field in ['process_name', 'ProcessName', 'Image', 'image', 'exe', 'executable']:
+                val = event.get(field)
+                if val and isinstance(val, str):
+                    result['process_name'] = self.safe_str(val)
+                    break
+        
+        if not result['process_id']:
+            for field in ['process_id', 'pid', 'ProcessId', 'PID']:
+                val = event.get(field)
+                if val is not None:
+                    result['process_id'] = self.safe_int(val)
+                    if result['process_id']:
+                        break
+        
+        if not result['command_line']:
+            for field in ['command_line', 'CommandLine', 'cmdline', 'cmd']:
+                val = event.get(field)
+                if val and isinstance(val, str):
+                    result['command_line'] = self.safe_str(val)
+                    break
+        
+        return result
+    
+    def _extract_network_fields(self, event: Dict) -> Dict[str, Any]:
+        """Extract network-related fields from various JSON structures"""
+        result = {
+            'src_ip': None,
+            'dst_ip': None,
+            'src_port': None,
+            'dst_port': None,
+        }
+        
+        # Try ECS structure
+        if 'source' in event and isinstance(event.get('source'), dict):
+            result['src_ip'] = self.validate_ip(event['source'].get('ip'))
+            result['src_port'] = self.safe_int(event['source'].get('port'))
+        
+        if 'destination' in event and isinstance(event.get('destination'), dict):
+            result['dst_ip'] = self.validate_ip(event['destination'].get('ip'))
+            result['dst_port'] = self.safe_int(event['destination'].get('port'))
+        
+        # Try flat fields as fallback
+        if not result['src_ip']:
+            for field in ['src_ip', 'source_ip', 'SourceIp', 'SourceIP', 'srcip', 'SrcIP']:
+                val = event.get(field)
+                if val:
+                    result['src_ip'] = self.validate_ip(val)
+                    if result['src_ip']:
+                        break
+        
+        if not result['dst_ip']:
+            for field in ['dst_ip', 'dest_ip', 'destination_ip', 'DestinationIp', 'DestIP', 'dstip']:
+                val = event.get(field)
+                if val:
+                    result['dst_ip'] = self.validate_ip(val)
+                    if result['dst_ip']:
+                        break
+        
+        if not result['src_port']:
+            for field in ['src_port', 'source_port', 'SourcePort', 'srcport']:
+                val = event.get(field)
+                if val is not None:
+                    result['src_port'] = self.safe_int(val)
+                    if result['src_port']:
+                        break
+        
+        if not result['dst_port']:
+            for field in ['dst_port', 'dest_port', 'destination_port', 'DestinationPort', 'dstport']:
+                val = event.get(field)
+                if val is not None:
+                    result['dst_port'] = self.safe_int(val)
+                    if result['dst_port']:
+                        break
+        
+        return result
+    
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        """Parse JSON/NDJSON file"""
+        """Parse JSON/NDJSON file with comprehensive field extraction"""
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
         
         source_file = os.path.basename(file_path)
-        hostname = self.extract_hostname(file_path)
+        default_hostname = self.extract_hostname(file_path)
         
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -852,7 +1056,8 @@ class GenericJSONParser(BaseParser):
                 
                 # Get timestamp
                 timestamp = None
-                for ts_field in ['timestamp', '@timestamp', 'time', 'datetime', 'date', 'created_at', 'event_time']:
+                for ts_field in ['timestamp', '@timestamp', 'time', 'datetime', 'date', 
+                                'created_at', 'event_time', 'EventTime', 'Time']:
                     if ts_field in event:
                         timestamp = self.parse_timestamp(event[ts_field])
                         if timestamp:
@@ -861,12 +1066,11 @@ class GenericJSONParser(BaseParser):
                 if not timestamp:
                     timestamp = datetime.now()
                 
-                # Extract host
-                host = hostname
-                for host_field in ['hostname', 'host', 'computer', 'machine', 'server']:
-                    if host_field in event:
-                        host = str(event[host_field])
-                        break
+                # Extract all fields for known users/systems discovery
+                host = self._extract_host(event, default_hostname)
+                username, domain, sid = self._extract_user_fields(event)
+                process_fields = self._extract_process_fields(event)
+                network_fields = self._extract_network_fields(event)
                 
                 yield ParsedEvent(
                     case_id=self.case_id,
@@ -876,6 +1080,23 @@ class GenericJSONParser(BaseParser):
                     source_path=file_path,
                     source_host=host,
                     case_file_id=self.case_file_id,
+                    # User fields for known users discovery
+                    username=username,
+                    domain=domain,
+                    sid=sid,
+                    # Process fields
+                    process_name=process_fields['process_name'],
+                    process_path=process_fields['process_path'],
+                    process_id=process_fields['process_id'],
+                    parent_process=process_fields['parent_process'],
+                    parent_pid=process_fields['parent_pid'],
+                    command_line=process_fields['command_line'],
+                    # Network fields
+                    src_ip=network_fields['src_ip'],
+                    dst_ip=network_fields['dst_ip'],
+                    src_port=network_fields['src_port'],
+                    dst_port=network_fields['dst_port'],
+                    # Full data
                     raw_json=json.dumps(event, default=str),
                     search_blob=self.build_search_blob(event),
                     parser_version=self.parser_version,

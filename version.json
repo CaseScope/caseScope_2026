@@ -1,6 +1,18 @@
 {
-  "version": "3.31.5",
+  "version": "3.31.6",
   "changelog": [
+    {
+      "version": "3.31.6",
+      "date": "2026-01-11",
+      "changes": [
+        "NDJSON Parser: Enhanced GenericJSONParser to extract user/system fields",
+        "Now extracts username, domain, SID from ECS and flat JSON structures",
+        "Extracts host from nested (host.hostname) and flat (hostname) fields",
+        "Extracts process fields (name, path, pid, command_line, parent)",
+        "Extracts network fields (src/dst IP and port)",
+        "Known users/systems discovery now works with all NDJSON artifacts"
+      ]
+    },
     {
       "version": "3.31.5",
       "date": "2026-01-11",
