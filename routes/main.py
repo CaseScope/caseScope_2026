@@ -195,8 +195,16 @@ def case_ioc_management():
 @case_required
 def case_known_systems():
     """Known Systems - track known systems in the case"""
+    from models.known_system import OSType, SystemType
+    
     case = get_active_case()
-    return render_template('case_known_systems.html', page_title='Known Systems', case=case)
+    return render_template(
+        'case_known_systems.html',
+        page_title='Known Systems',
+        case=case,
+        OSType=OSType,
+        SystemType=SystemType
+    )
 
 
 @main_bp.route('/case/known-users')

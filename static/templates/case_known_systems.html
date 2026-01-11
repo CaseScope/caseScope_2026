@@ -9,6 +9,12 @@
         </h1>
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
+    <div class="page-actions">
+        <button class="btn btn-primary" id="btnFindInArtifacts" onclick="findInArtifacts()">
+            <span class="btn-icon">🔍</span>
+            Find in Artifacts
+        </button>
+    </div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -24,14 +30,491 @@
     {% endif %}
 {% endwith %}
 
-<div class="card">
-    <div class="card-header">
-        <span class="card-icon">💻</span>
-        <span class="card-title">Known Systems</span>
-    </div>
-    <div class="card-body" style="padding: 40px; text-align: center;">
-        <p class="text-muted" style="font-size: 1.1rem;">Known Systems functionality coming soon.</p>
-        <p class="text-muted">Track and manage known systems, hostnames, and infrastructure in this case.</p>
+<!-- Discovery Results Banner -->
+<div id="discoveryResults" class="discovery-results" style="display: none;">
+    <div class="discovery-results-content">
+        <span class="discovery-icon">✓</span>
+        <span class="discovery-text"></span>
+        <button class="discovery-close" onclick="hideDiscoveryResults()">×</button>
     </div>
 </div>
+
+<!-- Systems Table -->
+<div class="tile systems-tile">
+    <div class="tile-header">
+        <h3 class="tile-title">Known Systems</h3>
+        <div class="tile-controls">
+            <input type="text" class="table-search" id="systemsSearch" placeholder="Search systems..." onkeyup="filterSystems()">
+            <span class="systems-count" id="systemsCount">0 systems</span>
+        </div>
+    </div>
+    <div class="tile-body">
+        <div class="systems-table-container">
+            <table class="systems-table" id="systemsTable">
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>Type</th>
+                        <th>OS</th>
+                        <th>IP Addresses</th>
+                        <th>Aliases</th>
+                        <th>Artifacts</th>
+                        <th>Last Seen</th>
+                        <th>Compromised</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="systemsBody">
+                    <tr class="loading-row">
+                        <td colspan="9" class="text-center text-muted">Loading systems...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- System Detail Modal -->
+<div id="systemModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-system-detail">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalSystemHostname">System Details</h3>
+            <button class="modal-close" onclick="closeSystemModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="system-detail-grid">
+                <!-- Basic Info Section -->
+                <div class="system-detail-section">
+                    <h4>Basic Information</h4>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Hostname:</span>
+                        <span class="system-detail-value" id="detailHostname"></span>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">System Type:</span>
+                        <select class="form-input form-select" id="detailSystemType" onchange="updateSystemField('system_type', this.value)">
+                            <option value="">-- Select --</option>
+                            {% for value, label in SystemType.choices() %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">OS Type:</span>
+                        <select class="form-input form-select" id="detailOSType" onchange="updateSystemField('os_type', this.value)">
+                            <option value="">-- Select --</option>
+                            {% for value, label in OSType.choices() %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">OS Version:</span>
+                        <input type="text" class="form-input" id="detailOSVersion" onblur="updateSystemField('os_version', this.value)">
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Compromised:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="detailCompromised" onchange="updateSystemField('compromised', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Stats Section -->
+                <div class="system-detail-section">
+                    <h4>Statistics</h4>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Artifacts:</span>
+                        <span class="system-detail-value" id="detailArtifacts"></span>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Added On:</span>
+                        <span class="system-detail-value" id="detailAddedOn"></span>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Last Seen:</span>
+                        <span class="system-detail-value" id="detailLastSeen"></span>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Cases:</span>
+                        <span class="system-detail-value" id="detailCaseCount"></span>
+                    </div>
+                </div>
+                
+                <!-- IP Addresses Section -->
+                <div class="system-detail-section full-width">
+                    <h4>IP Addresses</h4>
+                    <div class="tag-list" id="detailIPs"></div>
+                    <div class="add-item-row">
+                        <input type="text" class="form-input" id="newIP" placeholder="Add IP address...">
+                        <button class="btn btn-sm btn-primary" onclick="addIP()">Add</button>
+                    </div>
+                </div>
+                
+                <!-- Aliases Section -->
+                <div class="system-detail-section full-width">
+                    <h4>Aliases</h4>
+                    <div class="tag-list" id="detailAliases"></div>
+                </div>
+                
+                <!-- Shares Section -->
+                <div class="system-detail-section full-width">
+                    <h4>Network Shares</h4>
+                    <div class="shares-list" id="detailShares"></div>
+                    <div class="add-item-row">
+                        <input type="text" class="form-input" id="newShareName" placeholder="Share name...">
+                        <input type="text" class="form-input" id="newSharePath" placeholder="Share path (optional)...">
+                        <button class="btn btn-sm btn-primary" onclick="addShare()">Add</button>
+                    </div>
+                </div>
+                
+                <!-- Notes Section -->
+                <div class="system-detail-section full-width">
+                    <h4>Analyst Notes</h4>
+                    <textarea class="form-input form-textarea" id="detailNotes" rows="4" onblur="updateSystemField('notes', this.value)"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="viewAuditHistory()">View Audit History</button>
+            <button class="btn btn-primary" onclick="closeSystemModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Audit History Modal -->
+<div id="auditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-audit">
+        <div class="modal-header">
+            <h3 class="modal-title">Audit History: <span id="auditHostname"></span></h3>
+            <button class="modal-close" onclick="closeAuditModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="audit-table-container">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>User</th>
+                            <th>Action</th>
+                            <th>Field</th>
+                            <th>Old Value</th>
+                            <th>New Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="closeAuditModal()">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseUuid = '{{ case.uuid }}';
+const caseId = {{ case.id }};
+let systemsData = [];
+let currentSystemId = null;
+
+// Load systems on page load
+document.addEventListener('DOMContentLoaded', loadSystems);
+
+function loadSystems() {
+    fetch(`/api/known-systems/list/${caseUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                systemsData = data.systems;
+                renderSystems(systemsData);
+            } else {
+                showError('Failed to load systems: ' + data.error);
+            }
+        })
+        .catch(err => showError('Error loading systems: ' + err.message));
+}
+
+function renderSystems(systems) {
+    const tbody = document.getElementById('systemsBody');
+    const countEl = document.getElementById('systemsCount');
+    
+    countEl.textContent = `${systems.length} system${systems.length !== 1 ? 's' : ''}`;
+    
+    if (systems.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-row">
+                <td colspan="9" class="text-center text-muted">
+                    No known systems found. Click "Find in Artifacts" to discover systems.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = systems.map(s => `
+        <tr class="system-row ${s.compromised ? 'compromised' : ''}" onclick="openSystemModal(${s.id})">
+            <td class="hostname-cell">${escapeHtml(s.hostname)}</td>
+            <td>${s.system_type || '-'}</td>
+            <td>${s.os_type || '-'}</td>
+            <td class="ip-cell">${formatList(s.ip_addresses, 2)}</td>
+            <td class="alias-cell">${formatList(s.aliases, 2)}</td>
+            <td class="artifacts-cell">${s.artifacts_with_hostname}</td>
+            <td>${formatDate(s.last_seen)}</td>
+            <td class="compromised-cell">${s.compromised ? '<span class="badge badge-danger">YES</span>' : '<span class="badge badge-muted">No</span>'}</td>
+            <td class="actions-cell">
+                <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openSystemModal(${s.id})">Edit</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterSystems() {
+    const search = document.getElementById('systemsSearch').value.toLowerCase();
+    const filtered = systemsData.filter(s => 
+        s.hostname.toLowerCase().includes(search) ||
+        (s.system_type || '').toLowerCase().includes(search) ||
+        (s.os_type || '').toLowerCase().includes(search) ||
+        s.ip_addresses.some(ip => ip.toLowerCase().includes(search)) ||
+        s.aliases.some(a => a.toLowerCase().includes(search))
+    );
+    renderSystems(filtered);
+}
+
+function findInArtifacts() {
+    const btn = document.getElementById('btnFindInArtifacts');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
+    
+    fetch(`/api/known-systems/discover/${caseUuid}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
+            
+            if (data.success) {
+                showDiscoveryResults(data);
+                loadSystems();
+            } else {
+                showError('Discovery failed: ' + data.error);
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
+            showError('Discovery error: ' + err.message);
+        });
+}
+
+function showDiscoveryResults(data) {
+    const resultsEl = document.getElementById('discoveryResults');
+    const textEl = resultsEl.querySelector('.discovery-text');
+    
+    textEl.textContent = `Discovery complete: ${data.systems_created} new systems, ${data.systems_updated} updated, ${data.aliases_added} aliases added, ${data.hostnames_processed} hostnames processed`;
+    
+    resultsEl.style.display = 'block';
+    setTimeout(() => hideDiscoveryResults(), 10000);
+}
+
+function hideDiscoveryResults() {
+    document.getElementById('discoveryResults').style.display = 'none';
+}
+
+function openSystemModal(systemId) {
+    currentSystemId = systemId;
+    
+    fetch(`/api/known-systems/${systemId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                populateSystemModal(data.system);
+                document.getElementById('systemModal').style.display = 'flex';
+            } else {
+                showError('Failed to load system: ' + data.error);
+            }
+        })
+        .catch(err => showError('Error loading system: ' + err.message));
+}
+
+function populateSystemModal(system) {
+    document.getElementById('modalSystemHostname').textContent = system.hostname;
+    document.getElementById('detailHostname').textContent = system.hostname;
+    document.getElementById('detailSystemType').value = system.system_type || '';
+    document.getElementById('detailOSType').value = system.os_type || '';
+    document.getElementById('detailOSVersion').value = system.os_version || '';
+    document.getElementById('detailCompromised').checked = system.compromised;
+    document.getElementById('detailArtifacts').textContent = system.artifacts_with_hostname;
+    document.getElementById('detailAddedOn').textContent = formatDate(system.added_on);
+    document.getElementById('detailLastSeen').textContent = formatDate(system.last_seen);
+    document.getElementById('detailCaseCount').textContent = system.case_count;
+    document.getElementById('detailNotes').value = system.notes || '';
+    
+    // IP Addresses
+    const ipsEl = document.getElementById('detailIPs');
+    ipsEl.innerHTML = system.ip_addresses.map(ip => 
+        `<span class="tag">${escapeHtml(ip)}</span>`
+    ).join('') || '<span class="text-muted">No IP addresses</span>';
+    
+    // Aliases
+    const aliasesEl = document.getElementById('detailAliases');
+    aliasesEl.innerHTML = system.aliases.map(a => 
+        `<span class="tag">${escapeHtml(a)}</span>`
+    ).join('') || '<span class="text-muted">No aliases</span>';
+    
+    // Shares
+    const sharesEl = document.getElementById('detailShares');
+    if (system.shares && system.shares.length > 0) {
+        sharesEl.innerHTML = system.shares.map(s => 
+            `<div class="share-item">
+                <span class="share-name">${escapeHtml(s.share_name)}</span>
+                ${s.share_path ? `<span class="share-path">${escapeHtml(s.share_path)}</span>` : ''}
+            </div>`
+        ).join('');
+    } else {
+        sharesEl.innerHTML = '<span class="text-muted">No shares found</span>';
+    }
+}
+
+function closeSystemModal() {
+    document.getElementById('systemModal').style.display = 'none';
+    currentSystemId = null;
+    loadSystems(); // Refresh list
+}
+
+function updateSystemField(field, value) {
+    if (!currentSystemId) return;
+    
+    fetch(`/api/known-systems/${currentSystemId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field, value })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            showError('Update failed: ' + data.error);
+        }
+    })
+    .catch(err => showError('Update error: ' + err.message));
+}
+
+function addIP() {
+    const input = document.getElementById('newIP');
+    const ip = input.value.trim();
+    if (!ip || !currentSystemId) return;
+    
+    fetch(`/api/known-systems/${currentSystemId}/add-ip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip_address: ip })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            input.value = '';
+            if (data.system) populateSystemModal(data.system);
+        } else {
+            showError('Failed to add IP: ' + data.error);
+        }
+    })
+    .catch(err => showError('Error adding IP: ' + err.message));
+}
+
+function addShare() {
+    const nameInput = document.getElementById('newShareName');
+    const pathInput = document.getElementById('newSharePath');
+    const name = nameInput.value.trim();
+    const path = pathInput.value.trim();
+    
+    if (!name || !currentSystemId) return;
+    
+    fetch(`/api/known-systems/${currentSystemId}/add-share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ share_name: name, share_path: path })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            nameInput.value = '';
+            pathInput.value = '';
+            if (data.system) populateSystemModal(data.system);
+        } else {
+            showError('Failed to add share: ' + data.error);
+        }
+    })
+    .catch(err => showError('Error adding share: ' + err.message));
+}
+
+function viewAuditHistory() {
+    if (!currentSystemId) return;
+    
+    fetch(`/api/known-systems/${currentSystemId}/audit`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('auditHostname').textContent = data.hostname;
+                const tbody = document.getElementById('auditBody');
+                
+                if (data.audit_history.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No audit history</td></tr>';
+                } else {
+                    tbody.innerHTML = data.audit_history.map(a => `
+                        <tr>
+                            <td>${formatDateTime(a.changed_on)}</td>
+                            <td>${escapeHtml(a.changed_by)}</td>
+                            <td><span class="badge badge-${a.action === 'create' ? 'success' : a.action === 'delete' ? 'danger' : 'info'}">${a.action}</span></td>
+                            <td>${escapeHtml(a.field_name)}</td>
+                            <td>${a.old_value ? escapeHtml(a.old_value) : '-'}</td>
+                            <td>${a.new_value ? escapeHtml(a.new_value) : '-'}</td>
+                        </tr>
+                    `).join('');
+                }
+                
+                document.getElementById('auditModal').style.display = 'flex';
+            } else {
+                showError('Failed to load audit history: ' + data.error);
+            }
+        })
+        .catch(err => showError('Error loading audit: ' + err.message));
+}
+
+function closeAuditModal() {
+    document.getElementById('auditModal').style.display = 'none';
+}
+
+// Utility functions
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function formatList(arr, max) {
+    if (!arr || arr.length === 0) return '-';
+    if (arr.length <= max) return arr.join(', ');
+    return arr.slice(0, max).join(', ') + ` (+${arr.length - max})`;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function formatDateTime(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleString();
+}
+
+function showError(msg) {
+    alert(msg); // Simple for now, could be improved with toast
+}
+</script>
 {% endblock %}

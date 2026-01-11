@@ -1,6 +1,19 @@
 {
-  "version": "3.29.2",
+  "version": "3.30.0",
   "changelog": [
+    {
+      "version": "3.30.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Systems: Full feature implementation with database tables",
+        "Find in Artifacts: Modular discovery function scans case_files and ClickHouse events",
+        "NETBIOS hostname extraction and deduplication across systems",
+        "Related tables: IP addresses, aliases, shares, case links",
+        "Full audit trail for all changes (who, when, what changed)",
+        "System details modal with inline editing",
+        "Compromised flag with visual highlighting"
+      ]
+    },
     {
       "version": "3.29.2",
       "date": "2026-01-11",

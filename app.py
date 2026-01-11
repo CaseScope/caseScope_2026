@@ -85,6 +85,10 @@ def create_app():
         from models.user import User
         from models.case import Case
         from models.case_file import CaseFile
+        from models.known_system import (
+            KnownSystem, KnownSystemIP, KnownSystemAlias,
+            KnownSystemShare, KnownSystemCase, KnownSystemAudit
+        )
         db.create_all()
         
         # Create default admin user if not exists

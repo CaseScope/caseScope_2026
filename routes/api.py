@@ -1201,3 +1201,209 @@ def build_event_description(artifact_type, channel, provider, username, process_
         return blob_preview
     
     return ' | '.join(parts) if parts else '-'
+
+
+# ============================================
+# Known Systems API Endpoints
+# ============================================
+
+@api_bp.route('/known-systems/list/<case_uuid>')
+@login_required
+def get_known_systems(case_uuid):
+    """Get known systems for a case"""
+    try:
+        from utils.known_systems_discovery import get_systems_for_case
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        systems = get_systems_for_case(case.id)
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'systems': systems,
+            'total': len(systems)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/discover/<case_uuid>', methods=['POST'])
+@login_required
+def discover_systems(case_uuid):
+    """Discover known systems from artifacts for a case"""
+    try:
+        from utils.known_systems_discovery import discover_known_systems
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        results = discover_known_systems(
+            case_id=case.id,
+            case_uuid=case_uuid,
+            username=current_user.username
+        )
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/<int:system_id>')
+@login_required
+def get_known_system(system_id):
+    """Get details for a specific known system"""
+    try:
+        from models.known_system import KnownSystem
+        
+        system = KnownSystem.query.get(system_id)
+        if not system:
+            return jsonify({'success': False, 'error': 'System not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'system': system.to_dict()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/<int:system_id>/update', methods=['POST'])
+@login_required
+def update_known_system(system_id):
+    """Update a known system field"""
+    try:
+        from utils.known_systems_discovery import update_system_field
+        from models.known_system import KnownSystem, OSType, SystemType
+        
+        data = request.get_json()
+        field_name = data.get('field')
+        new_value = data.get('value')
+        
+        if not field_name:
+            return jsonify({'success': False, 'error': 'Field name required'}), 400
+        
+        # Validate enum values
+        if field_name == 'os_type' and new_value and new_value not in OSType.all():
+            return jsonify({'success': False, 'error': f'Invalid os_type: {new_value}'}), 400
+        
+        if field_name == 'system_type' and new_value and new_value not in SystemType.all():
+            return jsonify({'success': False, 'error': f'Invalid system_type: {new_value}'}), 400
+        
+        # Handle boolean for compromised
+        if field_name == 'compromised':
+            new_value = bool(new_value)
+        
+        success = update_system_field(
+            system_id=system_id,
+            field_name=field_name,
+            new_value=new_value,
+            username=current_user.username
+        )
+        
+        if success:
+            system = KnownSystem.query.get(system_id)
+            return jsonify({
+                'success': True,
+                'system': system.to_dict()
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Update failed'}), 400
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/<int:system_id>/add-ip', methods=['POST'])
+@login_required
+def add_system_ip(system_id):
+    """Add an IP address to a known system"""
+    try:
+        from utils.known_systems_discovery import add_ip_to_system
+        from models.known_system import KnownSystem
+        
+        data = request.get_json()
+        ip_address = data.get('ip_address', '').strip()
+        
+        if not ip_address:
+            return jsonify({'success': False, 'error': 'IP address required'}), 400
+        
+        success = add_ip_to_system(
+            system_id=system_id,
+            ip_address=ip_address,
+            username=current_user.username
+        )
+        
+        system = KnownSystem.query.get(system_id)
+        return jsonify({
+            'success': success,
+            'system': system.to_dict() if system else None
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/<int:system_id>/add-share', methods=['POST'])
+@login_required
+def add_system_share(system_id):
+    """Add a share to a known system"""
+    try:
+        from utils.known_systems_discovery import add_share_to_system
+        from models.known_system import KnownSystem
+        
+        data = request.get_json()
+        share_name = data.get('share_name', '').strip()
+        share_path = data.get('share_path', '').strip()
+        
+        if not share_name:
+            return jsonify({'success': False, 'error': 'Share name required'}), 400
+        
+        success = add_share_to_system(
+            system_id=system_id,
+            share_name=share_name,
+            share_path=share_path if share_path else None,
+            username=current_user.username
+        )
+        
+        system = KnownSystem.query.get(system_id)
+        return jsonify({
+            'success': success,
+            'system': system.to_dict() if system else None
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/<int:system_id>/audit')
+@login_required
+def get_system_audit(system_id):
+    """Get audit history for a known system"""
+    try:
+        from utils.known_systems_discovery import get_system_audit_history
+        from models.known_system import KnownSystem
+        
+        system = KnownSystem.query.get(system_id)
+        if not system:
+            return jsonify({'success': False, 'error': 'System not found'}), 404
+        
+        history = get_system_audit_history(system_id)
+        
+        return jsonify({
+            'success': True,
+            'system_id': system_id,
+            'hostname': system.hostname,
+            'audit_history': history
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
