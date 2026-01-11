@@ -1,6 +1,14 @@
 {
-  "version": "3.29.1",
+  "version": "3.29.2",
   "changelog": [
+    {
+      "version": "3.29.2",
+      "date": "2026-01-11",
+      "changes": [
+        "Fix: Removed TTL from ClickHouse events table (was deleting events >2 years old)",
+        "Forensic data should never expire - historical events now preserved"
+      ]
+    },
     {
       "version": "3.29.1",
       "date": "2026-01-11",
