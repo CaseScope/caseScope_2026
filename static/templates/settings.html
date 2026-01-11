@@ -410,6 +410,11 @@
             div.textContent = text;
             return div.innerHTML;
         }
+        
+        // Auto-detect on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            detectGPU();
+        });
         </script>
         {% endif %}
 
