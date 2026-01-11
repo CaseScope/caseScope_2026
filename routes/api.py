@@ -104,12 +104,12 @@ def dashboard_stats():
             'casescope': casescope_version,
             'python': platform.python_version(),
             'flask': get_software_version("pip show flask | grep Version | cut -d' ' -f2"),
-            'postgresql': get_software_version("psql --version 2>/dev/null | head -1 | sed 's/psql (PostgreSQL) //'"),
-            'clickhouse': get_software_version("clickhouse-client --version 2>/dev/null | head -1 | sed 's/ClickHouse client version //'"),
-            'redis': get_software_version("redis-server --version 2>/dev/null | awk '{print $3}' | sed 's/v=//'"),
+            'postgresql': get_software_version("psql --version 2>/dev/null | grep -oP '[\\d.]+'"),
+            'clickhouse': get_software_version("clickhouse-client --version 2>/dev/null | grep -oP '[\\d.]+' | head -1"),
+            'redis': get_software_version("redis-server --version 2>/dev/null | grep -oP '[\\d.]+' | head -1"),
             'celery': get_software_version("pip show celery | grep Version | cut -d' ' -f2"),
-            'hayabusa': get_software_version("/opt/casescope/bin/hayabusa --version 2>/dev/null | head -1 | awk '{print $2}'"),
-            'dissect': get_software_version("pip show dissect | grep Version | cut -d' ' -f2"),
+            'hayabusa': get_software_version("/opt/casescope/bin/hayabusa help 2>&1 | head -1 | grep -oP 'v[\\d.]+'"),
+            'dissect': get_software_version("pip show dissect.util | grep Version | cut -d' ' -f2"),
             'gunicorn': get_software_version("pip show gunicorn | grep Version | cut -d' ' -f2"),
         }
         
