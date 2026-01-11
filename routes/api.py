@@ -100,32 +100,28 @@ def dashboard_stats():
         except Exception:
             pass
         
-        # Get software versions using Python imports where possible (gunicorn restricts shell commands)
-        import flask
-        import celery
-        import gunicorn
-        import clickhouse_connect
-        import redis as redis_pkg
+        # Get software versions using importlib.metadata (gunicorn restricts shell commands)
+        from importlib.metadata import version as pkg_version
         
         # Hayabusa version from file (shell commands blocked by gunicorn caps)
-        hayabusa_ver = 'Unknown'
+        hayabusa_ver = 'v3.7.0'
         try:
             with open('/opt/casescope/bin/hayabusa_version.txt', 'r') as f:
                 hayabusa_ver = f.read().strip()
         except Exception:
-            hayabusa_ver = 'v3.7.0'  # Known installed version
+            pass
         
         software = {
             'casescope': casescope_version,
             'python': platform.python_version(),
-            'flask': flask.__version__,
-            'celery': celery.__version__,
-            'gunicorn': gunicorn.__version__,
-            'clickhouse_connect': clickhouse_connect.__version__,
-            'redis_py': redis_pkg.__version__,
+            'flask': pkg_version('flask'),
+            'celery': pkg_version('celery'),
+            'gunicorn': pkg_version('gunicorn'),
+            'clickhouse': pkg_version('clickhouse-connect'),
+            'redis': pkg_version('redis'),
             'hayabusa': hayabusa_ver,
-            'postgresql': '16.x',  # System installed, shell blocked
-            'redis_server': '7.x',  # System installed, shell blocked
+            'dissect': pkg_version('dissect.util'),
+            'sqlalchemy': pkg_version('sqlalchemy'),
         }
         
         # Case statistics (placeholder until cases are implemented)
