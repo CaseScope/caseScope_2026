@@ -1399,7 +1399,6 @@ tbody td {
 }
 
 .detection-section {
-  background-color: var(--bg-tertiary);
   border-radius: var(--border-radius);
   padding: 16px;
 }
