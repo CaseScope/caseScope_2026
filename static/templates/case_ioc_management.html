@@ -86,11 +86,11 @@
 <div class="tile ioc-tile">
     <div class="tile-header tile-header-ioc">
         <h3 class="tile-title">Indicators of Compromise</h3>
-        <div class="tile-controls tile-controls-ioc">
-            <input type="text" class="table-search ioc-search-field" id="iocSearch" placeholder="Search IOCs..." onkeyup="debounceSearch()">
-            <select class="form-input form-select ioc-type-filter" id="typeFilter" onchange="applyFilters()">
-                <option value="">All Types</option>
-            </select>
+        <input type="text" class="table-search ioc-search-inline" id="iocSearch" placeholder="Search IOCs..." onkeyup="debounceSearch()">
+        <select class="form-input form-select ioc-type-inline" id="typeFilter" onchange="applyFilters()">
+            <option value="">All Types</option>
+        </select>
+        <div class="tile-controls-right">
             <label class="filter-checkbox-inline">
                 <input type="checkbox" id="maliciousOnly" onchange="applyFilters()">
                 <span>Malicious Only</span>
