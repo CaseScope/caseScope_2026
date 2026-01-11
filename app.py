@@ -68,6 +68,63 @@ def create_app():
             'active_case': active_case
         }
     
+    # Custom Jinja2 filter for parsing EDR reports
+    @app.template_filter('parse_edr_report')
+    def parse_edr_report(text):
+        """Parse EDR report text into structured HTML sections."""
+        import re
+        from markupsafe import Markup, escape
+        
+        if not text:
+            return ''
+        
+        # Split by *** NEW REPORT *** separator
+        reports = re.split(r'\n*\*\*\* NEW REPORT \*\*\*\n*', text)
+        
+        html_parts = []
+        for idx, report in enumerate(reports):
+            report = report.strip()
+            if not report:
+                continue
+            
+            # Add report separator for all but first report
+            if idx > 0:
+                html_parts.append('<div class="edr-report-separator">*** NEW REPORT ***</div>')
+            
+            html_parts.append('<div class="edr-report-section">')
+            
+            # Parse each line
+            lines = report.split('\n')
+            current_group = []
+            in_data_block = False
+            
+            for line in lines:
+                escaped_line = str(escape(line))
+                
+                # Check for key:value pattern (key is alphanumeric/spaces, followed by colon and value)
+                kv_match = re.match(r'^([A-Za-z][A-Za-z0-9 _-]{0,40}):\s*(.*)$', line)
+                
+                if kv_match:
+                    key = kv_match.group(1).strip()
+                    value = kv_match.group(2).strip()
+                    escaped_key = str(escape(key))
+                    escaped_value = str(escape(value))
+                    html_parts.append(f'<div class="edr-field"><span class="edr-key">{escaped_key}:</span> <span class="edr-value">{escaped_value}</span></div>')
+                elif line.strip() == '':
+                    html_parts.append('<div class="edr-spacer"></div>')
+                elif line.startswith('---') or line.startswith('==='):
+                    html_parts.append(f'<div class="edr-divider">{escaped_line}</div>')
+                elif line.startswith('  ') or line.startswith('\t'):
+                    # Indented content - treat as data/code block
+                    html_parts.append(f'<div class="edr-data">{escaped_line}</div>')
+                else:
+                    # Regular line
+                    html_parts.append(f'<div class="edr-line">{escaped_line}</div>')
+            
+            html_parts.append('</div>')
+        
+        return Markup(''.join(html_parts))
+    
     # Register blueprints
     from routes.main import main_bp
     from routes.auth import auth_bp

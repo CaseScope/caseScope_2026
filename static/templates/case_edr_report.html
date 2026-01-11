@@ -36,7 +36,7 @@
     </div>
     <div class="card-body" style="padding: 20px;">
         <div class="edr-report-content">
-            {{ case.edr_report | replace('\n\n*** NEW REPORT ***\n\n', '<div class="edr-report-separator">*** NEW REPORT ***</div>') | safe | replace('\n', '<br>') }}
+            {{ case.edr_report | parse_edr_report }}
         </div>
     </div>
 </div>
@@ -61,6 +61,10 @@
                 </label>
                 <textarea id="edr_report" name="edr_report" class="form-input form-textarea" 
                           placeholder="Paste EDR report content here..." rows="15" required></textarea>
+                <div class="form-helper">
+                    <span class="helper-icon">💡</span>
+                    <span class="helper-text">To paste multiple reports at once, separate them with <code>*** NEW REPORT ***</code> on its own line.</span>
+                </div>
             </div>
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">

@@ -1,6 +1,14 @@
 {
-  "version": "3.33.0",
+  "version": "3.33.1",
   "changelog": [
+    {
+      "version": "3.33.1",
+      "date": "2026-01-11",
+      "changes": [
+        "EDR Reports: Human-readable structured display with key:value parsing",
+        "EDR Reports: Helper text for *** NEW REPORT *** separator when pasting multiple reports"
+      ]
+    },
     {
       "version": "3.33.0",
       "date": "2026-01-11",
