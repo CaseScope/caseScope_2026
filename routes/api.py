@@ -2123,9 +2123,19 @@ def detect_gpu():
         }
         
         # Detect NVIDIA GPUs using nvidia-smi
+        cuda_version = None
         try:
+            # First get CUDA version from nvidia-smi main output
+            cuda_check = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=10)
+            if cuda_check.returncode == 0:
+                import re
+                cuda_match = re.search(r'CUDA Version:\s*(\d+\.\d+)', cuda_check.stdout)
+                if cuda_match:
+                    cuda_version = cuda_match.group(1)
+            
+            # Query GPU details
             nvidia_output = subprocess.run(
-                ['nvidia-smi', '--query-gpu=index,name,memory.total,memory.free,driver_version,cuda_version', 
+                ['nvidia-smi', '--query-gpu=index,name,memory.total,memory.free,driver_version', 
                  '--format=csv,noheader,nounits'],
                 capture_output=True, text=True, timeout=10
             )
@@ -2133,14 +2143,14 @@ def detect_gpu():
             if nvidia_output.returncode == 0 and nvidia_output.stdout.strip():
                 for line in nvidia_output.stdout.strip().split('\n'):
                     parts = [p.strip() for p in line.split(',')]
-                    if len(parts) >= 6:
+                    if len(parts) >= 5:
                         gpu = {
                             'index': int(parts[0]),
                             'name': parts[1],
                             'vram_total_mb': int(float(parts[2])),
                             'vram_free_mb': int(float(parts[3])),
                             'driver_version': parts[4],
-                            'cuda_version': parts[5],
+                            'cuda_version': cuda_version,
                             'type': 'NVIDIA'
                         }
                         result['gpus'].append(gpu)
@@ -2150,7 +2160,7 @@ def detect_gpu():
                         if driver_info not in [d['name'] for d in result['drivers']]:
                             result['drivers'].append({
                                 'name': driver_info,
-                                'cuda': f"CUDA {parts[5]}"
+                                'cuda': f"CUDA {cuda_version}" if cuda_version else None
                             })
         except FileNotFoundError:
             pass  # nvidia-smi not available
@@ -2201,25 +2211,31 @@ def detect_gpu():
         has_nvidia = any(g['type'] == 'NVIDIA' for g in result['gpus'])
         if has_nvidia and not result['drivers']:
             try:
+                # Get CUDA version from nvidia-smi main output
+                fallback_cuda = None
+                cuda_check = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=10)
+                if cuda_check.returncode == 0:
+                    import re
+                    cuda_match = re.search(r'CUDA Version:\s*(\d+\.\d+)', cuda_check.stdout)
+                    if cuda_match:
+                        fallback_cuda = cuda_match.group(1)
+                
                 # Try nvidia-smi just for driver version
                 driver_check = subprocess.run(
-                    ['nvidia-smi', '--query-gpu=driver_version,cuda_version', '--format=csv,noheader,nounits'],
+                    ['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader,nounits'],
                     capture_output=True, text=True, timeout=10
                 )
                 if driver_check.returncode == 0 and driver_check.stdout.strip():
-                    parts = [p.strip() for p in driver_check.stdout.strip().split('\n')[0].split(',')]
-                    if len(parts) >= 2:
-                        driver_ver = parts[0]
-                        cuda_ver = parts[1]
-                        result['drivers'].append({
-                            'name': f"NVIDIA Driver {driver_ver}",
-                            'cuda': f"CUDA {cuda_ver}" if cuda_ver and cuda_ver != '[N/A]' else None
-                        })
-                        # Update GPU records with driver info
-                        for gpu in result['gpus']:
-                            if gpu['type'] == 'NVIDIA':
-                                gpu['driver_version'] = driver_ver
-                                gpu['cuda_version'] = cuda_ver if cuda_ver != '[N/A]' else None
+                    driver_ver = driver_check.stdout.strip().split('\n')[0].strip()
+                    result['drivers'].append({
+                        'name': f"NVIDIA Driver {driver_ver}",
+                        'cuda': f"CUDA {fallback_cuda}" if fallback_cuda else None
+                    })
+                    # Update GPU records with driver info
+                    for gpu in result['gpus']:
+                        if gpu['type'] == 'NVIDIA':
+                            gpu['driver_version'] = driver_ver
+                            gpu['cuda_version'] = fallback_cuda
             except Exception:
                 pass
         
