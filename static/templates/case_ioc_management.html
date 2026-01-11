@@ -373,9 +373,8 @@
                 <div class="extraction-summary">
                     <h4>Report <span id="resultReportNum">1</span> of <span id="resultTotalNum">1</span></h4>
                     <p class="report-preview" id="resultReportPreview"></p>
-                    <div class="extraction-method">
-                        <span id="extractionMethodBadge" class="badge badge-info">AI</span>
-                        <span id="extractionModel"></span>
+                    <div class="extraction-method-container" id="extractionMethodContainer">
+                        <!-- Filled by JS -->
                     </div>
                 </div>
                 
@@ -1104,17 +1103,25 @@ function renderExtractionResults(data) {
     document.getElementById('resultTotalNum').textContent = data.total_reports;
     document.getElementById('resultReportPreview').textContent = data.report_preview || '';
     
-    // Extraction method badge
-    const methodBadge = document.getElementById('extractionMethodBadge');
+    // Extraction method display
+    const methodContainer = document.getElementById('extractionMethodContainer');
     if (data.used_ai) {
-        methodBadge.textContent = 'AI';
-        methodBadge.className = 'badge badge-success';
-        const model = data.extraction_summary?.model || '';
-        document.getElementById('extractionModel').textContent = model ? `(${model})` : '';
+        const model = data.extraction_summary?.model || 'AI Model';
+        methodContainer.innerHTML = `
+            <div class="extraction-method extraction-ai">
+                <span class="method-icon">🤖</span>
+                <span class="method-label">Extracted using AI</span>
+                <span class="method-model">${escapeHtml(model)}</span>
+            </div>
+        `;
     } else {
-        methodBadge.textContent = 'Regex Fallback';
-        methodBadge.className = 'badge badge-warning';
-        document.getElementById('extractionModel').textContent = '';
+        methodContainer.innerHTML = `
+            <div class="extraction-method extraction-regex">
+                <span class="method-icon">⚠️</span>
+                <span class="method-label">AI Disabled - Using Regex Fallback</span>
+                <span class="method-hint">Enable AI in Settings for better extraction accuracy</span>
+            </div>
+        `;
     }
     
     // MITRE Indicators

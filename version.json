@@ -1,6 +1,15 @@
 {
-  "version": "3.37.0",
+  "version": "3.37.1",
   "changelog": [
+    {
+      "version": "3.37.1",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC Extraction: Enhanced method indicator showing AI vs Regex Fallback prominently",
+        "IOC Extraction: Displays AI model name when AI is used",
+        "IOC Extraction: Shows warning with hint to enable AI when using regex fallback"
+      ]
+    },
     {
       "version": "3.37.0",
       "date": "2026-01-11",
