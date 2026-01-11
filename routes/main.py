@@ -213,7 +213,11 @@ def case_known_systems():
 def case_known_users():
     """Known Users - track known users in the case"""
     case = get_active_case()
-    return render_template('case_known_users.html', page_title='Known Users', case=case)
+    return render_template(
+        'case_known_users.html',
+        page_title='Known Users',
+        case=case
+    )
 
 
 @main_bp.route('/case/evidence')

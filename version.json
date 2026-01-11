@@ -1,6 +1,21 @@
 {
-  "version": "3.30.1",
+  "version": "3.31.0",
   "changelog": [
+    {
+      "version": "3.31.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Users: Full feature implementation with database tables",
+        "Find in Artifacts: Modular discovery scans ClickHouse events for users",
+        "Matching logic: username -> SID -> aliases -> email prefix",
+        "User deduplication across logon, logoff, SMB connections, process events",
+        "Related tables: aliases, additional emails, case links",
+        "Full audit trail for all changes (who, when, what changed)",
+        "User details modal with inline editing",
+        "Compromised flag with visual highlighting",
+        "System accounts excluded (SYSTEM, LOCAL SERVICE, etc.)"
+      ]
+    },
     {
       "version": "3.30.1",
       "date": "2026-01-11",

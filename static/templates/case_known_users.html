@@ -9,6 +9,12 @@
         </h1>
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
+    <div class="page-actions">
+        <button class="btn btn-primary" id="btnFindInArtifacts" onclick="findInArtifacts()">
+            <span class="btn-icon">🔍</span>
+            Find in Artifacts
+        </button>
+    </div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -24,14 +30,572 @@
     {% endif %}
 {% endwith %}
 
-<div class="card">
-    <div class="card-header">
-        <span class="card-icon">👤</span>
-        <span class="card-title">Known Users</span>
-    </div>
-    <div class="card-body" style="padding: 40px; text-align: center;">
-        <p class="text-muted" style="font-size: 1.1rem;">Known Users functionality coming soon.</p>
-        <p class="text-muted">Track and manage known user accounts, roles, and activity in this case.</p>
+<!-- Discovery Results Banner -->
+<div id="discoveryResults" class="discovery-results" style="display: none;">
+    <div class="discovery-results-content">
+        <span class="discovery-icon">✓</span>
+        <span class="discovery-text"></span>
+        <button class="discovery-close" onclick="hideDiscoveryResults()">×</button>
     </div>
 </div>
+
+<!-- Users Table -->
+<div class="tile users-tile">
+    <div class="tile-header">
+        <h3 class="tile-title">Known Users</h3>
+        <div class="tile-controls">
+            <input type="text" class="table-search" id="usersSearch" placeholder="Search users..." onkeyup="filterUsers()">
+            <span class="users-count" id="usersCount">0 users</span>
+        </div>
+    </div>
+    <div class="tile-body">
+        <div class="users-table-container">
+            <table class="users-table" id="usersTable">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>SID</th>
+                        <th>Email</th>
+                        <th>Aliases</th>
+                        <th>Artifacts</th>
+                        <th>Last Seen</th>
+                        <th>Compromised</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersBody">
+                    <tr class="loading-row">
+                        <td colspan="8" class="text-center text-muted">Loading users...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- User Detail Modal -->
+<div id="userModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-user-detail">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalUsername">User Details</h3>
+            <button class="modal-close" onclick="closeUserModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="user-detail-grid">
+                <!-- Basic Info Section -->
+                <div class="user-detail-section">
+                    <h4>Basic Information</h4>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Username:</span>
+                        <input type="text" class="form-input" id="detailUsername" onblur="updateUserField('username', this.value)">
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">SID:</span>
+                        <input type="text" class="form-input" id="detailSID" onblur="updateUserField('sid', this.value)">
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Email:</span>
+                        <input type="text" class="form-input" id="detailEmail" onblur="updateUserField('email', this.value)">
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Compromised:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="detailCompromised" onchange="updateUserField('compromised', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Stats Section -->
+                <div class="user-detail-section">
+                    <h4>Statistics</h4>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Artifacts:</span>
+                        <span class="user-detail-value" id="detailArtifacts"></span>
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Added On:</span>
+                        <span class="user-detail-value" id="detailAddedOn"></span>
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Added By:</span>
+                        <span class="user-detail-value" id="detailAddedBy"></span>
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Last Seen:</span>
+                        <span class="user-detail-value" id="detailLastSeen"></span>
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Cases:</span>
+                        <span class="user-detail-value" id="detailCaseCount"></span>
+                    </div>
+                </div>
+                
+                <!-- Aliases Section -->
+                <div class="user-detail-section full-width">
+                    <h4>Aliases</h4>
+                    <div class="tag-list" id="detailAliases"></div>
+                    <div class="add-item-row">
+                        <input type="text" class="form-input" id="newAlias" placeholder="Add alias...">
+                        <button class="btn btn-sm btn-primary" onclick="addAlias()">Add</button>
+                    </div>
+                </div>
+                
+                <!-- Emails Section -->
+                <div class="user-detail-section full-width">
+                    <h4>Additional Emails</h4>
+                    <div class="tag-list" id="detailEmails"></div>
+                    <div class="add-item-row">
+                        <input type="text" class="form-input" id="newEmail" placeholder="Add email...">
+                        <button class="btn btn-sm btn-primary" onclick="addEmail()">Add</button>
+                    </div>
+                </div>
+                
+                <!-- Notes Section -->
+                <div class="user-detail-section full-width">
+                    <h4>Analyst Notes</h4>
+                    <textarea class="form-input form-textarea" id="detailNotes" rows="4" onblur="updateUserField('notes', this.value)"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="viewAuditHistory()">View Audit History</button>
+            <button class="btn btn-primary" onclick="closeUserModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Audit History Modal -->
+<div id="auditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-audit">
+        <div class="modal-header">
+            <h3 class="modal-title">Audit History: <span id="auditUsername"></span></h3>
+            <button class="modal-close" onclick="closeAuditModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="audit-table-container">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>User</th>
+                            <th>Action</th>
+                            <th>Field</th>
+                            <th>Old Value</th>
+                            <th>New Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="closeAuditModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Discovery Progress Modal -->
+<div id="discoveryModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-progress">
+        <div class="modal-header">
+            <h3 class="modal-title">Discovering Known Users</h3>
+        </div>
+        <div class="modal-body">
+            <div class="progress-section">
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar-label">
+                        <span id="progressLabel">Scanning artifacts...</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-animated" id="progressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="progress-stats">
+                    <div class="progress-stat">
+                        <span class="progress-stat-value" id="statProcessed">0</span>
+                        <span class="progress-stat-label">Processed</span>
+                    </div>
+                    <div class="progress-stat">
+                        <span class="progress-stat-value text-success" id="statCreated">0</span>
+                        <span class="progress-stat-label">Created</span>
+                    </div>
+                    <div class="progress-stat">
+                        <span class="progress-stat-value text-info" id="statUpdated">0</span>
+                        <span class="progress-stat-label">Updated</span>
+                    </div>
+                </div>
+                <div class="progress-current" id="progressCurrent"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseUuid = '{{ case.uuid }}';
+const caseId = {{ case.id }};
+let usersData = [];
+let currentUserId = null;
+
+// Load users on page load
+document.addEventListener('DOMContentLoaded', loadUsers);
+
+function loadUsers() {
+    fetch(`/api/known-users/list/${caseUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                usersData = data.users;
+                renderUsers(usersData);
+            } else {
+                showError('Failed to load users: ' + data.error);
+            }
+        })
+        .catch(err => showError('Error loading users: ' + err.message));
+}
+
+function renderUsers(users) {
+    const tbody = document.getElementById('usersBody');
+    const countEl = document.getElementById('usersCount');
+    
+    countEl.textContent = `${users.length} user${users.length !== 1 ? 's' : ''}`;
+    
+    if (users.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-row">
+                <td colspan="8" class="text-center text-muted">
+                    No known users found. Click "Find in Artifacts" to discover users.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = users.map(u => `
+        <tr class="user-row ${u.compromised ? 'compromised' : ''}" onclick="openUserModal(${u.id})">
+            <td class="username-cell">${escapeHtml(u.username || '-')}</td>
+            <td class="sid-cell">${formatSID(u.sid)}</td>
+            <td class="email-cell">${escapeHtml(u.email || '-')}</td>
+            <td class="alias-cell">${formatList(u.aliases, 2)}</td>
+            <td class="artifacts-cell">${u.artifacts_with_user}</td>
+            <td>${formatDate(u.last_seen)}</td>
+            <td class="compromised-cell">${u.compromised ? '<span class="badge badge-danger">YES</span>' : '<span class="badge badge-muted">No</span>'}</td>
+            <td class="actions-cell">
+                <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openUserModal(${u.id})">Edit</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterUsers() {
+    const search = document.getElementById('usersSearch').value.toLowerCase();
+    const filtered = usersData.filter(u => 
+        (u.username || '').toLowerCase().includes(search) ||
+        (u.sid || '').toLowerCase().includes(search) ||
+        (u.email || '').toLowerCase().includes(search) ||
+        u.aliases.some(a => a.toLowerCase().includes(search))
+    );
+    renderUsers(filtered);
+}
+
+let discoveryPollInterval = null;
+
+function findInArtifacts() {
+    const btn = document.getElementById('btnFindInArtifacts');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
+    
+    fetch(`/api/known-users/discover/${caseUuid}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.status === 'started' || data.status === 'already_running') {
+                    // Show progress modal and start polling
+                    showDiscoveryModal();
+                    startProgressPolling();
+                }
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
+                showError('Discovery failed: ' + data.error);
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
+            showError('Discovery error: ' + err.message);
+        });
+}
+
+function showDiscoveryModal() {
+    document.getElementById('discoveryModal').style.display = 'flex';
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('progressPercent').textContent = '0%';
+    document.getElementById('progressLabel').textContent = 'Scanning artifacts...';
+    document.getElementById('statProcessed').textContent = '0';
+    document.getElementById('statCreated').textContent = '0';
+    document.getElementById('statUpdated').textContent = '0';
+    document.getElementById('progressCurrent').textContent = '';
+}
+
+function hideDiscoveryModal() {
+    document.getElementById('discoveryModal').style.display = 'none';
+    stopProgressPolling();
+    
+    const btn = document.getElementById('btnFindInArtifacts');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
+}
+
+function startProgressPolling() {
+    if (discoveryPollInterval) clearInterval(discoveryPollInterval);
+    
+    discoveryPollInterval = setInterval(() => {
+        fetch(`/api/known-users/discover-progress/${caseUuid}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.progress) {
+                    updateProgressDisplay(data.progress);
+                    
+                    if (data.progress.status === 'complete') {
+                        stopProgressPolling();
+                        setTimeout(() => {
+                            hideDiscoveryModal();
+                            showDiscoveryResultsBanner(data.progress);
+                            loadUsers();
+                        }, 500);
+                    }
+                }
+            })
+            .catch(err => console.error('Progress poll error:', err));
+    }, 500);
+}
+
+function stopProgressPolling() {
+    if (discoveryPollInterval) {
+        clearInterval(discoveryPollInterval);
+        discoveryPollInterval = null;
+    }
+}
+
+function updateProgressDisplay(progress) {
+    const total = progress.total || 1;
+    const processed = progress.processed || 0;
+    const percent = Math.round((processed / total) * 100);
+    
+    document.getElementById('progressBar').style.width = percent + '%';
+    document.getElementById('progressPercent').textContent = percent + '%';
+    document.getElementById('progressLabel').textContent = `Processing ${processed} of ${total} users...`;
+    document.getElementById('statProcessed').textContent = processed;
+    document.getElementById('statCreated').textContent = progress.created || 0;
+    document.getElementById('statUpdated').textContent = progress.updated || 0;
+    
+    if (progress.current_user) {
+        document.getElementById('progressCurrent').textContent = `Current: ${progress.current_user}`;
+    }
+}
+
+function showDiscoveryResultsBanner(progress) {
+    const resultsEl = document.getElementById('discoveryResults');
+    const textEl = resultsEl.querySelector('.discovery-text');
+    
+    textEl.textContent = `Discovery complete: ${progress.created} new users, ${progress.updated} updated, ${progress.processed} users processed`;
+    
+    resultsEl.style.display = 'block';
+    setTimeout(() => hideDiscoveryResults(), 10000);
+}
+
+function hideDiscoveryResults() {
+    document.getElementById('discoveryResults').style.display = 'none';
+}
+
+function openUserModal(userId) {
+    currentUserId = userId;
+    
+    fetch(`/api/known-users/${userId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                populateUserModal(data.user);
+                document.getElementById('userModal').style.display = 'flex';
+            } else {
+                showError('Failed to load user: ' + data.error);
+            }
+        })
+        .catch(err => showError('Error loading user: ' + err.message));
+}
+
+function populateUserModal(user) {
+    document.getElementById('modalUsername').textContent = user.username || user.sid || 'Unknown User';
+    document.getElementById('detailUsername').value = user.username || '';
+    document.getElementById('detailSID').value = user.sid || '';
+    document.getElementById('detailEmail').value = user.email || '';
+    document.getElementById('detailCompromised').checked = user.compromised;
+    document.getElementById('detailArtifacts').textContent = user.artifacts_with_user;
+    document.getElementById('detailAddedOn').textContent = formatDate(user.added_on);
+    document.getElementById('detailAddedBy').textContent = user.added_by || 'system';
+    document.getElementById('detailLastSeen').textContent = formatDate(user.last_seen);
+    document.getElementById('detailCaseCount').textContent = user.case_count;
+    document.getElementById('detailNotes').value = user.notes || '';
+    
+    // Aliases
+    const aliasesEl = document.getElementById('detailAliases');
+    aliasesEl.innerHTML = user.aliases.map(a => 
+        `<span class="tag">${escapeHtml(a)}</span>`
+    ).join('') || '<span class="text-muted">No aliases</span>';
+    
+    // Emails
+    const emailsEl = document.getElementById('detailEmails');
+    emailsEl.innerHTML = user.emails.map(e => 
+        `<span class="tag">${escapeHtml(e)}</span>`
+    ).join('') || '<span class="text-muted">No additional emails</span>';
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').style.display = 'none';
+    currentUserId = null;
+    loadUsers(); // Refresh list
+}
+
+function updateUserField(field, value) {
+    if (!currentUserId) return;
+    
+    fetch(`/api/known-users/${currentUserId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field, value })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            showError('Update failed: ' + data.error);
+        }
+    })
+    .catch(err => showError('Update error: ' + err.message));
+}
+
+function addAlias() {
+    const input = document.getElementById('newAlias');
+    const alias = input.value.trim();
+    if (!alias || !currentUserId) return;
+    
+    fetch(`/api/known-users/${currentUserId}/add-alias`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alias: alias })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            input.value = '';
+            if (data.user) populateUserModal(data.user);
+        } else {
+            showError('Failed to add alias: ' + data.error);
+        }
+    })
+    .catch(err => showError('Error adding alias: ' + err.message));
+}
+
+function addEmail() {
+    const input = document.getElementById('newEmail');
+    const email = input.value.trim();
+    if (!email || !currentUserId) return;
+    
+    fetch(`/api/known-users/${currentUserId}/add-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            input.value = '';
+            if (data.user) populateUserModal(data.user);
+        } else {
+            showError('Failed to add email: ' + data.error);
+        }
+    })
+    .catch(err => showError('Error adding email: ' + err.message));
+}
+
+function viewAuditHistory() {
+    if (!currentUserId) return;
+    
+    fetch(`/api/known-users/${currentUserId}/audit`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('auditUsername').textContent = data.username || 'Unknown';
+                const tbody = document.getElementById('auditBody');
+                
+                if (data.audit_history.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No audit history</td></tr>';
+                } else {
+                    tbody.innerHTML = data.audit_history.map(a => `
+                        <tr>
+                            <td>${formatDateTime(a.changed_on)}</td>
+                            <td>${escapeHtml(a.changed_by)}</td>
+                            <td><span class="badge badge-${a.action === 'create' ? 'success' : a.action === 'delete' ? 'danger' : 'info'}">${a.action}</span></td>
+                            <td>${escapeHtml(a.field_name)}</td>
+                            <td>${a.old_value ? escapeHtml(a.old_value) : '-'}</td>
+                            <td>${a.new_value ? escapeHtml(a.new_value) : '-'}</td>
+                        </tr>
+                    `).join('');
+                }
+                
+                document.getElementById('auditModal').style.display = 'flex';
+            } else {
+                showError('Failed to load audit history: ' + data.error);
+            }
+        })
+        .catch(err => showError('Error loading audit: ' + err.message));
+}
+
+function closeAuditModal() {
+    document.getElementById('auditModal').style.display = 'none';
+}
+
+// Utility functions
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function formatList(arr, max) {
+    if (!arr || arr.length === 0) return '-';
+    if (arr.length <= max) return arr.join(', ');
+    return arr.slice(0, max).join(', ') + ` (+${arr.length - max})`;
+}
+
+function formatSID(sid) {
+    if (!sid) return '-';
+    // Truncate long SIDs for display
+    if (sid.length > 30) {
+        return sid.substring(0, 15) + '...' + sid.substring(sid.length - 10);
+    }
+    return sid;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function formatDateTime(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleString();
+}
+
+function showError(msg) {
+    alert(msg); // Simple for now, could be improved with toast
+}
+</script>
 {% endblock %}

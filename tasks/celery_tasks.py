@@ -548,6 +548,37 @@ def discover_known_systems_task(self, case_id: int, case_uuid: str, username: st
     return results
 
 
+@celery_app.task(bind=True, name='tasks.discover_known_users')
+def discover_known_users_task(self, case_id: int, case_uuid: str, username: str = 'system') -> Dict[str, Any]:
+    """Discover known users from artifacts for a case
+    
+    Runs async to avoid blocking web workers on large cases.
+    
+    Args:
+        case_id: PostgreSQL case.id
+        case_uuid: Case UUID
+        username: User who triggered the discovery
+        
+    Returns:
+        Dict with discovery results
+    """
+    from utils.known_users_discovery import discover_known_users
+    
+    logger.info(f"Starting known users discovery for case {case_uuid}")
+    
+    app = get_flask_app()
+    with app.app_context():
+        results = discover_known_users(
+            case_id=case_id,
+            case_uuid=case_uuid,
+            username=username,
+            track_progress=True
+        )
+    
+    logger.info(f"User discovery complete for case {case_uuid}: {results['users_created']} created, {results['users_updated']} updated")
+    return results
+
+
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
     'update-hayabusa-rules-weekly': {

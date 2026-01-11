@@ -1445,3 +1445,238 @@ def get_system_audit(system_id):
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Known Users API Endpoints
+# ============================================
+
+@api_bp.route('/known-users/list/<case_uuid>')
+@login_required
+def get_known_users(case_uuid):
+    """Get known users for a case"""
+    try:
+        from utils.known_users_discovery import get_users_for_case
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        users = get_users_for_case(case.id)
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'users': users,
+            'total': len(users)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/discover/<case_uuid>', methods=['POST'])
+@login_required
+def discover_users(case_uuid):
+    """Start async discovery of known users from artifacts"""
+    try:
+        from tasks.celery_tasks import discover_known_users_task
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Check if discovery is already running
+        from utils.known_users_discovery import get_user_discovery_progress
+        progress = get_user_discovery_progress(case_uuid)
+        if progress and progress.get('status') == 'running':
+            return jsonify({
+                'success': True,
+                'status': 'already_running',
+                'progress': progress
+            })
+        
+        # Start async discovery task
+        task = discover_known_users_task.delay(
+            case_id=case.id,
+            case_uuid=case_uuid,
+            username=current_user.username
+        )
+        
+        return jsonify({
+            'success': True,
+            'status': 'started',
+            'task_id': task.id
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/discover-progress/<case_uuid>')
+@login_required
+def get_user_discovery_status(case_uuid):
+    """Get discovery progress for users in a case"""
+    try:
+        from utils.known_users_discovery import get_user_discovery_progress
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        progress = get_user_discovery_progress(case_uuid)
+        
+        return jsonify({
+            'success': True,
+            'progress': progress
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/<int:user_id>')
+@login_required
+def get_known_user(user_id):
+    """Get details for a specific known user"""
+    try:
+        from models.known_user import KnownUser
+        
+        user = KnownUser.query.get(user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'user': user.to_dict()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/<int:user_id>/update', methods=['POST'])
+@login_required
+def update_known_user(user_id):
+    """Update a known user field"""
+    try:
+        from utils.known_users_discovery import update_user_field
+        from models.known_user import KnownUser
+        
+        data = request.get_json()
+        field_name = data.get('field')
+        new_value = data.get('value')
+        
+        if not field_name:
+            return jsonify({'success': False, 'error': 'Field name required'}), 400
+        
+        # Handle boolean for compromised
+        if field_name == 'compromised':
+            new_value = bool(new_value)
+        
+        success = update_user_field(
+            user_id=user_id,
+            field_name=field_name,
+            new_value=new_value,
+            changed_by=current_user.username
+        )
+        
+        if success:
+            user = KnownUser.query.get(user_id)
+            return jsonify({
+                'success': True,
+                'user': user.to_dict()
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Update failed'}), 400
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/<int:user_id>/add-alias', methods=['POST'])
+@login_required
+def add_user_alias(user_id):
+    """Add an alias to a known user"""
+    try:
+        from utils.known_users_discovery import add_alias_to_user
+        from models.known_user import KnownUser
+        
+        data = request.get_json()
+        alias = data.get('alias', '').strip()
+        
+        if not alias:
+            return jsonify({'success': False, 'error': 'Alias required'}), 400
+        
+        success = add_alias_to_user(
+            user_id=user_id,
+            alias=alias,
+            changed_by=current_user.username
+        )
+        
+        user = KnownUser.query.get(user_id)
+        return jsonify({
+            'success': success,
+            'user': user.to_dict() if user else None
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/<int:user_id>/add-email', methods=['POST'])
+@login_required
+def add_user_email(user_id):
+    """Add an email to a known user"""
+    try:
+        from utils.known_users_discovery import add_email_to_user
+        from models.known_user import KnownUser
+        
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        
+        if not email:
+            return jsonify({'success': False, 'error': 'Email required'}), 400
+        
+        success = add_email_to_user(
+            user_id=user_id,
+            email=email,
+            changed_by=current_user.username
+        )
+        
+        user = KnownUser.query.get(user_id)
+        return jsonify({
+            'success': success,
+            'user': user.to_dict() if user else None
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/<int:user_id>/audit')
+@login_required
+def get_user_audit(user_id):
+    """Get audit history for a known user"""
+    try:
+        from utils.known_users_discovery import get_user_audit_history
+        from models.known_user import KnownUser
+        
+        user = KnownUser.query.get(user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        history = get_user_audit_history(user_id)
+        
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'username': user.username,
+            'audit_history': history
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

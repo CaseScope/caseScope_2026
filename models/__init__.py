@@ -7,10 +7,16 @@ from models.known_system import (
     KnownSystemShare, KnownSystemCase, KnownSystemAudit,
     OSType, SystemType
 )
+from models.known_user import (
+    KnownUser, KnownUserAlias, KnownUserEmail,
+    KnownUserCase, KnownUserAudit
+)
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
     'KnownSystem', 'KnownSystemIP', 'KnownSystemAlias',
     'KnownSystemShare', 'KnownSystemCase', 'KnownSystemAudit',
-    'OSType', 'SystemType'
+    'OSType', 'SystemType',
+    'KnownUser', 'KnownUserAlias', 'KnownUserEmail',
+    'KnownUserCase', 'KnownUserAudit'
 ]

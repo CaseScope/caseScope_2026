@@ -3100,3 +3100,181 @@ input:checked + .slider:before {
   margin-top: 16px;
   min-height: 18px;
 }
+
+/* ========================================
+   Known Users Styles
+   ======================================== */
+
+.users-table-container {
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.users-table th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-tertiary);
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border-color);
+  z-index: 10;
+}
+
+.users-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.users-table tbody tr {
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.users-table tbody tr:hover {
+  background-color: var(--bg-hover);
+}
+
+.users-table tbody tr.compromised {
+  background-color: rgba(255, 86, 48, 0.1);
+}
+
+.users-table tbody tr.compromised:hover {
+  background-color: rgba(255, 86, 48, 0.15);
+}
+
+.users-table .username-cell {
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.users-table .sid-cell {
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: var(--text-secondary);
+}
+
+.users-table .email-cell {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.users-table .alias-cell {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.users-table .artifacts-cell {
+  text-align: center;
+  font-weight: 600;
+}
+
+.users-table .compromised-cell {
+  text-align: center;
+}
+
+.users-table .actions-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.users-table .empty-row td {
+  padding: 60px 20px;
+}
+
+/* User Detail Modal */
+.modal-user-detail {
+  max-width: 800px;
+  width: 95%;
+}
+
+.modal-user-detail .modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.user-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.user-detail-section {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 16px;
+}
+
+.user-detail-section.full-width {
+  grid-column: 1 / -1;
+}
+
+.user-detail-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.user-detail-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.user-detail-label {
+  flex: 0 0 100px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.user-detail-value {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.user-detail-row .form-input,
+.user-detail-row .form-select {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .user-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .user-detail-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  
+  .user-detail-label {
+    flex: none;
+  }
+}
