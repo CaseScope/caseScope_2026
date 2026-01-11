@@ -71,10 +71,12 @@
                     <span class="nav-item-icon">👤</span>
                     <span class="nav-item-text">My Profile</span>
                 </a>
+                {% if current_user.is_administrator %}
                 <a href="{{ url_for('main.settings') }}" class="nav-item {{ 'active' if page_title == 'Settings' else '' }}">
                     <span class="nav-item-icon">⚙️</span>
                     <span class="nav-item-text">Settings</span>
                 </a>
+                {% endif %}
                 <a href="#" class="nav-item {{ 'active' if page_title == 'Cases' else '' }}">
                     <span class="nav-item-icon">🗂️</span>
                     <span class="nav-item-text">Cases</span>
