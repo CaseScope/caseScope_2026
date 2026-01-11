@@ -49,7 +49,13 @@
             
             <!-- Alert Type Column -->
             <div class="filter-column">
-                <h4 class="filter-column-title">Alert Type</h4>
+                <div class="filter-column-header">
+                    <h4 class="filter-column-title">Alert Type</h4>
+                    <select id="alert-filter-mode" class="filter-mode-select" onchange="applyFilters()">
+                        <option value="all" selected>All Events</option>
+                        <option value="only">Only These</option>
+                    </select>
+                </div>
                 <label class="filter-checkbox">
                     <input type="checkbox" id="filter-sigma" checked onchange="applyFilters()">
                     <span class="checkmark"></span>

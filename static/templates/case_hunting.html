@@ -69,6 +69,7 @@ const eventFilters = {
     other: true,      // prefetch, registry, lnk, jumplist, mft, srum, iis, json_log, csv_log, browser, etc.
     
     // Alert Type filters
+    alertMode: 'all', // 'all' = show all, uncheck to hide; 'only' = show only checked types
     sigma: true,      // Show events with rule_level (Hayabusa/SIGMA hits)
     ioc: true,        // Placeholder
     analyst: true,    // Placeholder
@@ -124,6 +125,9 @@ function applyFilters() {
     eventFilters.firewall = document.getElementById('filter-firewall').checked;
     eventFilters.edr = document.getElementById('filter-edr').checked;
     eventFilters.other = document.getElementById('filter-other').checked;
+    
+    // Alert Type mode and filters
+    eventFilters.alertMode = document.getElementById('alert-filter-mode').value;
     eventFilters.sigma = document.getElementById('filter-sigma').checked;
     // Placeholders - read but not used yet
     // eventFilters.ioc = document.getElementById('filter-ioc').checked;
@@ -178,13 +182,26 @@ function loadEvents() {
     // Build types based on filters
     const filteredTypes = getFilteredArtifactTypes();
     
+    // Determine sigma filter mode based on alertMode dropdown
+    // 'all' mode: show all events, uncheck SIGMA to hide sigma hits
+    // 'only' mode: show only events matching checked alert types
+    let sigmaFilter = '';
+    if (eventFilters.alertMode === 'all') {
+        // All Events mode: unchecking hides those events
+        sigmaFilter = eventFilters.sigma ? '' : 'exclude';
+    } else {
+        // Only These mode: only show events matching checked types
+        sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
+    }
+    
     // Build params
     const params = new URLSearchParams({
         page: eventsPage,
         per_page: eventsPerPage,
         search: eventsSearch,
         types: filteredTypes,
-        sigma_only: eventFilters.sigma ? '' : 'exclude'  // If sigma unchecked, exclude sigma hits
+        alert_mode: eventFilters.alertMode,
+        sigma_filter: sigmaFilter
     });
     
     // Show loading state

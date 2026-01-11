@@ -950,7 +950,8 @@ def get_hunting_events(case_id):
         per_page = request.args.get('per_page', 50, type=int)
         search = request.args.get('search', '', type=str).strip()
         artifact_types = request.args.get('types', '', type=str).strip()
-        sigma_only = request.args.get('sigma_only', '', type=str).strip()
+        alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
+        sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 500)
@@ -968,10 +969,19 @@ def get_hunting_events(case_id):
                 quoted_types = "', '".join(types_list)
                 type_filter = f" AND artifact_type IN ('{quoted_types}')"
         
-        # Build sigma/alert filter
+        # Build sigma/alert filter based on mode
+        # 'all' mode: show all events, 'exclude' hides sigma hits
+        # 'only' mode: 'only' shows only sigma hits, 'exclude_all' shows nothing with alerts
         sigma_filter = ""
-        if sigma_only == 'exclude':
-            # When SIGMA Violations unchecked, exclude events with rule_level
+        if sigma_filter_param == 'exclude':
+            # Hide events with SIGMA hits (All Events mode, SIGMA unchecked)
+            sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
+        elif sigma_filter_param == 'only':
+            # Show only events with SIGMA hits (Only These mode, SIGMA checked)
+            sigma_filter = " AND (rule_level IS NOT NULL AND rule_level != '')"
+        elif sigma_filter_param == 'exclude_all':
+            # Only These mode with nothing checked - show no alert events
+            # This effectively means show only non-alert events
             sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
         
         # Build query with optional search and type filter

@@ -2342,13 +2342,40 @@ tbody td {
   gap: 10px;
 }
 
+.filter-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
 .filter-column-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.filter-mode-select {
+  padding: 3px 8px;
+  font-size: 11px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.filter-mode-select:hover {
+  border-color: var(--accent-primary);
+}
+
+.filter-mode-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
 }
 
 /* Custom Checkbox */

@@ -1,6 +1,15 @@
 {
-  "version": "3.25.0",
+  "version": "3.25.1",
   "changelog": [
+    {
+      "version": "3.25.1",
+      "date": "2026-01-10",
+      "changes": [
+        "Alert Type filter: Added mode dropdown (All Events / Only These)",
+        "All Events mode: shows all, uncheck to hide specific alert types",
+        "Only These mode: shows only events matching checked alert types"
+      ]
+    },
     {
       "version": "3.25.0",
       "date": "2026-01-10",
