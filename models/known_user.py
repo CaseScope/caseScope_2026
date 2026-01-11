@@ -173,26 +173,36 @@ class KnownUser(db.Model):
         return None, None
     
     def add_alias(self, alias):
-        """Add an alias if not already present"""
+        """Add an alias if not already present
+        
+        Stores the full alias format (e.g., DOMAIN\\USER) not normalized.
+        """
         if not alias:
             return False
         
-        normalized, _ = KnownUser.normalize_username(alias)
-        if not normalized:
+        alias = alias.strip().upper()
+        if not alias or len(alias) < 2:
             return False
         
-        # Don't add if it's the same as username
-        if self.username and normalized == self.username.upper():
+        # Don't add if it's exactly the same as username (case-insensitive)
+        if self.username and alias == self.username.upper():
             return False
+        
+        # Also check if the normalized form matches (DOMAIN\USER vs USER)
+        normalized, _ = KnownUser.normalize_username(alias)
+        if normalized and self.username and normalized == self.username.upper():
+            # This is DOMAIN\username - it's a valid alias, don't reject it
+            # Only reject if the full alias equals the username
+            pass
         
         existing = KnownUserAlias.query.filter_by(
             user_id=self.id
-        ).filter(db.func.upper(KnownUserAlias.alias) == normalized).first()
+        ).filter(db.func.upper(KnownUserAlias.alias) == alias).first()
         
         if not existing:
             new_alias = KnownUserAlias(
                 user_id=self.id,
-                alias=normalized,
+                alias=alias,  # Store full format, not normalized
                 first_seen=datetime.utcnow()
             )
             db.session.add(new_alias)

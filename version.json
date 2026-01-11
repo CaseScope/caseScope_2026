@@ -1,6 +1,15 @@
 {
-  "version": "3.31.3",
+  "version": "3.31.4",
   "changelog": [
+    {
+      "version": "3.31.4",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Users: Fixed add_alias to store full DOMAIN\\USER format",
+        "Previously alias was normalized which caused DOMAIN\\USER to be rejected",
+        "Now JAMESMFG\\SBRUNNER correctly stored as alias of SBRUNNER"
+      ]
+    },
     {
       "version": "3.31.3",
       "date": "2026-01-11",
