@@ -243,12 +243,12 @@ def _get_hostnames_from_events(case_id: int) -> set:
     try:
         client = get_client()
         
-        # Query unique hostnames from events
+        # Query unique source_host from events
         result = client.query(
-            """SELECT DISTINCT hostname 
+            """SELECT DISTINCT source_host 
                FROM events 
                WHERE case_id = {case_id:UInt32} 
-                 AND hostname != ''
+                 AND source_host != ''
                LIMIT 10000""",
             parameters={'case_id': case_id}
         )
