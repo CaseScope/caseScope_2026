@@ -2317,6 +2317,27 @@ def detect_gpu():
         except Exception:
             pass
         
+        # Add AI model configuration based on detected GPU
+        from models.system_settings import get_ai_model_config, AI_FUNCTION_DESCRIPTIONS
+        
+        recommended_vram = None
+        if result['recommended_gpu'] and result['recommended_gpu'].get('vram_total_mb'):
+            recommended_vram = result['recommended_gpu']['vram_total_mb']
+        
+        model_config = get_ai_model_config(recommended_vram)
+        if model_config:
+            result['model_config'] = {
+                'tier': '16gb' if recommended_vram and recommended_vram >= 14000 else '8gb',
+                'functions': {}
+            }
+            for func_key, model_name in model_config.items():
+                result['model_config']['functions'][func_key] = {
+                    'model': model_name,
+                    'description': AI_FUNCTION_DESCRIPTIONS.get(func_key, func_key)
+                }
+        else:
+            result['model_config'] = None
+        
         return jsonify(result)
         
     except Exception as e:

@@ -149,6 +149,17 @@
                         <!-- Populated by JS -->
                     </div>
                 </div>
+
+                <!-- AI Function Model Assignments -->
+                <div class="detection-section detection-section-full">
+                    <h4 class="detection-section-title">
+                        <span class="section-icon">⚙️</span> AI Function Model Assignments
+                        <span class="config-badge" id="config-tier-badge"></span>
+                    </h4>
+                    <div id="model-config-info" class="detection-content">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
             </div>
 
             <!-- Initial State -->
@@ -187,6 +198,7 @@
                         renderDriverInfo(data);
                         renderOllamaInfo(data);
                         renderModelsInfo(data);
+                        renderModelConfigInfo(data);
                         
                         // Check requirements and update toggle state
                         checkAIRequirements(data);
@@ -401,6 +413,48 @@
             });
             html += '</div>';
             
+            container.innerHTML = html;
+        }
+        
+        function renderModelConfigInfo(data) {
+            const container = document.getElementById('model-config-info');
+            const tierBadge = document.getElementById('config-tier-badge');
+            
+            if (!data.model_config) {
+                container.innerHTML = '<div class="detection-empty">GPU detection required to determine model configuration</div>';
+                tierBadge.textContent = '';
+                return;
+            }
+            
+            // Show tier badge
+            const tier = data.model_config.tier;
+            tierBadge.textContent = tier === '16gb' ? '16GB Configuration' : '8GB Configuration';
+            tierBadge.className = 'config-badge ' + (tier === '16gb' ? 'tier-16gb' : 'tier-8gb');
+            
+            let html = '<div class="model-config-list">';
+            
+            const functions = data.model_config.functions;
+            for (const [funcKey, funcData] of Object.entries(functions)) {
+                // Check if model is installed
+                const isInstalled = data.ollama.models && 
+                    data.ollama.models.some(m => m.name.toLowerCase() === funcData.model.toLowerCase());
+                
+                html += `
+                    <div class="model-config-item">
+                        <div class="config-function">
+                            <span class="function-name">${escapeHtml(funcData.description)}</span>
+                        </div>
+                        <div class="config-model">
+                            <code>${escapeHtml(funcData.model)}</code>
+                            ${isInstalled ? 
+                                '<span class="model-status status-ok">✓</span>' : 
+                                '<span class="model-status status-missing">✗ Not installed</span>'}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
             container.innerHTML = html;
         }
         

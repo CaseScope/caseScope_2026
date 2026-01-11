@@ -1589,6 +1589,83 @@ tbody td {
   color: var(--text-muted);
 }
 
+/* Model Config Section */
+.detection-section-full {
+  grid-column: 1 / -1;
+}
+
+.config-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.config-badge.tier-16gb {
+  background-color: rgba(54, 179, 126, 0.15);
+  color: var(--accent-success);
+}
+
+.config-badge.tier-8gb {
+  background-color: rgba(255, 171, 0, 0.15);
+  color: var(--accent-warning);
+}
+
+.model-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-config-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.config-function {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.function-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.config-model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-model code {
+  font-size: 12px;
+  color: var(--accent-primary);
+  background-color: rgba(76, 154, 255, 0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.model-status {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.model-status.status-ok {
+  color: var(--accent-success);
+}
+
+.model-status.status-missing {
+  color: var(--accent-danger);
+}
+
 /* ========================================
    EDR Report Styles
    ======================================== */

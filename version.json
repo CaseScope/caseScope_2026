@@ -1,6 +1,15 @@
 {
-  "version": "3.35.1",
+  "version": "3.36.0",
   "changelog": [
+    {
+      "version": "3.36.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Settings AI: Model assignments for AI functions based on GPU VRAM",
+        "Settings AI: 8GB config uses qwen2.5:7b + mistral:7b, 16GB uses qwen2.5:14b",
+        "Settings AI: Functions: IOC Extraction, RAG, Timeline, Threat Hunting"
+      ]
+    },
     {
       "version": "3.35.1",
       "date": "2026-01-11",

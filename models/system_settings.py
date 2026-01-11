@@ -92,3 +92,66 @@ class SettingKeys:
     AI_ENABLED = 'ai_enabled'
     AI_DEFAULT_MODEL = 'ai_default_model'
     AI_GPU_INDEX = 'ai_gpu_index'
+
+
+# AI Model Configuration based on GPU VRAM
+# These are system-determined, not user-editable
+AI_MODEL_CONFIG = {
+    # 8GB GPU configuration
+    '8gb': {
+        'ioc_extraction': 'qwen2.5:7b-instruct-q4_k_m',
+        'rag': 'qwen2.5:7b-instruct-q4_k_m',
+        'timeline': 'qwen2.5:7b-instruct-q4_k_m',
+        'threat_hunting': 'mistral:7b-instruct-v0.3-q4_K_M',
+    },
+    # 16GB GPU configuration
+    '16gb': {
+        'ioc_extraction': 'qwen2.5:14b-instruct-q4_k_m',
+        'rag': 'qwen2.5:14b-instruct-q5_K_M',
+        'timeline': 'qwen2.5:14b-instruct-q4_k_m',
+        'threat_hunting': 'qwen2.5:14b-instruct-q4_k_m',
+    }
+}
+
+# Function descriptions for display
+AI_FUNCTION_DESCRIPTIONS = {
+    'ioc_extraction': 'IOC Extraction from EDR Reports',
+    'rag': 'RAG (Retrieval Augmented Generation)',
+    'timeline': 'Timeline Creation',
+    'threat_hunting': 'Interactive Threat Hunting',
+}
+
+
+def get_ai_model_config(vram_mb):
+    """Get the appropriate model configuration based on GPU VRAM
+    
+    Args:
+        vram_mb: GPU VRAM in megabytes
+    
+    Returns:
+        dict with model assignments for each function
+    """
+    if vram_mb is None:
+        return None
+    
+    # 16GB = 16384 MB, use 14000 as threshold
+    if vram_mb >= 14000:
+        return AI_MODEL_CONFIG['16gb']
+    else:
+        return AI_MODEL_CONFIG['8gb']
+
+
+def get_model_for_function(function_name, vram_mb):
+    """Get the model to use for a specific AI function
+    
+    Args:
+        function_name: One of 'ioc_extraction', 'rag', 'timeline', 'threat_hunting'
+        vram_mb: GPU VRAM in megabytes
+    
+    Returns:
+        Model name string or None if not configured
+    """
+    config = get_ai_model_config(vram_mb)
+    if config:
+        return config.get(function_name)
+    return None
