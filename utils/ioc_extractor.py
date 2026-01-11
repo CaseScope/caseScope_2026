@@ -304,6 +304,21 @@ class RegexIOCExtractor:
 # AI IOC Extraction
 # ============================================
 
+def _detect_gpu_vram() -> Optional[int]:
+    """Detect GPU VRAM in MB using nvidia-smi"""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(float(result.stdout.strip().split('\n')[0]))
+    except Exception:
+        pass
+    return None
+
+
 def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str, Any], bool]:
     """
     Extract IOCs from report text using AI (Ollama)
@@ -323,10 +338,16 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         
         # Get model from config if not specified
         if not model:
-            model_config = get_ai_model_config()
-            if model_config:
-                model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')
+            # Detect GPU VRAM to select appropriate model
+            vram_mb = _detect_gpu_vram()
+            if vram_mb:
+                model_config = get_ai_model_config(vram_mb)
+                if model_config:
+                    model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')
+                else:
+                    model = 'qwen2.5:7b-instruct-q4_k_m'
             else:
+                # Default to 7b model if VRAM detection fails
                 model = 'qwen2.5:7b-instruct-q4_k_m'
         
         # Truncate filemask if present (can be very long)

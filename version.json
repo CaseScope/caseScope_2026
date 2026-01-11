@@ -1,6 +1,14 @@
 {
-  "version": "3.37.1",
+  "version": "3.37.2",
   "changelog": [
+    {
+      "version": "3.37.2",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC Extraction: Fixed AI model selection - now detects GPU VRAM to pick correct model",
+        "IOC Extraction: Uses qwen2.5:14b for 16GB GPUs, qwen2.5:7b for 8GB GPUs"
+      ]
+    },
     {
       "version": "3.37.1",
       "date": "2026-01-11",
