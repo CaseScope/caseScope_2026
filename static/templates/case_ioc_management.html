@@ -84,10 +84,10 @@
 
 <!-- IOC Table -->
 <div class="tile ioc-tile">
-    <div class="tile-header">
+    <div class="tile-header tile-header-ioc">
         <h3 class="tile-title">Indicators of Compromise</h3>
-        <div class="tile-controls">
-            <input type="text" class="table-search" id="iocSearch" placeholder="Search IOCs..." onkeyup="debounceSearch()">
+        <div class="tile-controls tile-controls-ioc">
+            <input type="text" class="table-search ioc-search-field" id="iocSearch" placeholder="Search IOCs..." onkeyup="debounceSearch()">
             <select class="form-input form-select ioc-type-filter" id="typeFilter" onchange="applyFilters()">
                 <option value="">All Types</option>
             </select>
