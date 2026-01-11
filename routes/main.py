@@ -578,3 +578,12 @@ def user_delete(user_id):
     
     flash(f'User "{username}" deleted successfully', 'success')
     return redirect(url_for('main.users'))
+
+
+@main_bp.route('/settings')
+@login_required
+@admin_required
+def settings():
+    """System Settings page"""
+    tab = request.args.get('tab', 'general')
+    return render_template('settings.html', page_title='Settings', active_tab=tab)

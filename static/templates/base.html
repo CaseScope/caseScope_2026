@@ -71,7 +71,7 @@
                     <span class="nav-item-icon">👤</span>
                     <span class="nav-item-text">My Profile</span>
                 </a>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Settings' else '' }}">
+                <a href="{{ url_for('main.settings') }}" class="nav-item {{ 'active' if page_title == 'Settings' else '' }}">
                     <span class="nav-item-icon">⚙️</span>
                     <span class="nav-item-text">Settings</span>
                 </a>

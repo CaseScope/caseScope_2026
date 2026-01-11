@@ -1,6 +1,14 @@
 {
-  "version": "3.33.2",
+  "version": "3.34.0",
   "changelog": [
+    {
+      "version": "3.34.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Settings: New System Settings page with tabbed interface",
+        "Settings: Tabs for General, Integrations, AI, EVTX/SIGMA, and Noise"
+      ]
+    },
     {
       "version": "3.33.2",
       "date": "2026-01-11",

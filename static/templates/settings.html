@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">⚙️</span>
+            System Settings
+        </h1>
+        <p class="page-subtitle">Configure CaseScope system options</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <div class="card-header">
+        <div class="settings-tabs">
+            <a href="{{ url_for('main.settings', tab='general') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'general' else '' }}">
+                <span class="tab-icon">🏠</span>
+                <span class="tab-text">General</span>
+            </a>
+            <a href="{{ url_for('main.settings', tab='integrations') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'integrations' else '' }}">
+                <span class="tab-icon">🔌</span>
+                <span class="tab-text">Integrations</span>
+            </a>
+            <a href="{{ url_for('main.settings', tab='ai') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'ai' else '' }}">
+                <span class="tab-icon">🤖</span>
+                <span class="tab-text">AI</span>
+            </a>
+            <a href="{{ url_for('main.settings', tab='evtx') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'evtx' else '' }}">
+                <span class="tab-icon">📋</span>
+                <span class="tab-text">EVTX/SIGMA</span>
+            </a>
+            <a href="{{ url_for('main.settings', tab='noise') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'noise' else '' }}">
+                <span class="tab-icon">🔇</span>
+                <span class="tab-text">Noise</span>
+            </a>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 24px;">
+        <!-- General Tab -->
+        {% if active_tab == 'general' %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">General Settings</h3>
+            <p class="text-muted">General application configuration options.</p>
+            <div class="placeholder-content">
+                <span class="placeholder-icon">🚧</span>
+                <span class="placeholder-text">General settings coming soon...</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Integrations Tab -->
+        {% if active_tab == 'integrations' %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Integrations</h3>
+            <p class="text-muted">Configure external service integrations.</p>
+            <div class="placeholder-content">
+                <span class="placeholder-icon">🚧</span>
+                <span class="placeholder-text">Integration settings coming soon...</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- AI Tab -->
+        {% if active_tab == 'ai' %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">AI Configuration</h3>
+            <p class="text-muted">Configure Ollama and AI-assisted analysis options.</p>
+            <div class="placeholder-content">
+                <span class="placeholder-icon">🚧</span>
+                <span class="placeholder-text">AI settings coming soon...</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- EVTX/SIGMA Tab -->
+        {% if active_tab == 'evtx' %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">EVTX &amp; SIGMA Configuration</h3>
+            <p class="text-muted">Configure EVTX parsing and SIGMA rule detection settings.</p>
+            <div class="placeholder-content">
+                <span class="placeholder-icon">🚧</span>
+                <span class="placeholder-text">EVTX/SIGMA settings coming soon...</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Noise Tab -->
+        {% if active_tab == 'noise' %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Noise Filtering</h3>
+            <p class="text-muted">Configure noise filtering rules to reduce false positives.</p>
+            <div class="placeholder-content">
+                <span class="placeholder-icon">🚧</span>
+                <span class="placeholder-text">Noise filter settings coming soon...</span>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
