@@ -1,19 +1,12 @@
 {
-  "version": "3.28.1",
+  "version": "3.28.0",
   "changelog": [
-    {
-      "version": "3.28.1",
-      "date": "2026-01-11",
-      "changes": [
-        "Fixed: Hunting sub-items now appear as indented children under Hunting menu item"
-      ]
-    },
     {
       "version": "3.28.0",
       "date": "2026-01-11",
       "changes": [
-        "Left menu: Added Hunting sub-items under Cases",
-        "New pages: IOC Management, Known Systems, Known Users, Evidence (placeholders)"
+        "Left menu: Added IOC Management, Known Systems, Known Users, Evidence under Hunting",
+        "New placeholder pages for each item"
       ]
     },
     {

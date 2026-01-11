@@ -253,17 +253,6 @@ a:hover {
   font-size: 14px;
 }
 
-.nav-item.nav-sub {
-  padding-left: 32px;
-  font-size: 13px;
-}
-
-.nav-item.nav-sub .nav-item-icon {
-  width: 16px;
-  height: 16px;
-  font-size: 12px;
-}
-
 /* ========================================
    Header Styles
    ======================================== */
