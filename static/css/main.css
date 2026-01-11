@@ -2651,6 +2651,14 @@ tbody td {
   white-space: nowrap;
 }
 
+.events-table .col-event-id {
+  width: 80px;
+  white-space: nowrap;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  text-align: center;
+}
+
 .events-table .col-description {
   min-width: 300px;
   word-break: break-word;

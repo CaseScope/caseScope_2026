@@ -1,6 +1,14 @@
 {
-  "version": "3.32.1",
+  "version": "3.32.2",
   "changelog": [
+    {
+      "version": "3.32.2",
+      "date": "2026-01-11",
+      "changes": [
+        "Hunting Events: Added ID column between hostname and description",
+        "Hunting Events: Removed background color from parser badge for cleaner look"
+      ]
+    },
     {
       "version": "3.32.1",
       "date": "2026-01-11",

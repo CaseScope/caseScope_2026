@@ -253,7 +253,7 @@ function loadEvents() {
     // Show loading state
     document.getElementById('events-tbody').innerHTML = `
         <tr>
-            <td colspan="5" class="text-center text-muted loading-row">
+            <td colspan="6" class="text-center text-muted loading-row">
                 <span class="spinner-border spinner-border-sm"></span> Loading...
             </td>
         </tr>
@@ -285,7 +285,7 @@ function renderEventsTable(events) {
     if (events.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="6" class="text-center text-muted" style="padding: 40px;">
                     ${eventsSearch ? 'No events match your search' : 'No events found for this category.'}
                 </td>
             </tr>
@@ -297,12 +297,14 @@ function renderEventsTable(events) {
         const hasHit = e.rule_level && e.rule_level !== '';
         const rowClass = hasHit ? 'event-row hayabusa-hit clickable-row' : 'event-row clickable-row';
         const severityBadge = getSeverityBadge(e.rule_level);
+        const eventId = e.event_id ? e.event_id : '-';
         
         return `
             <tr class="${rowClass}" onclick="showEventDetail(${index})" style="cursor: pointer;">
                 <td class="col-timestamp">${e.timestamp}</td>
-                <td class="col-parser"><span class="parser-badge">${e.artifact_type}</span></td>
+                <td class="col-parser">${e.artifact_type}</td>
                 <td class="col-hostname">${e.source_host || '-'}</td>
+                <td class="col-event-id">${eventId}</td>
                 <td class="col-description" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
                 <td class="col-severity">${severityBadge}</td>
             </tr>
@@ -351,7 +353,7 @@ function showEventsError(message) {
     const tbody = document.getElementById('events-tbody');
     tbody.innerHTML = `
         <tr>
-            <td colspan="5" class="text-center text-danger" style="padding: 40px;">
+            <td colspan="6" class="text-center text-danger" style="padding: 40px;">
                 ${message}
             </td>
         </tr>
