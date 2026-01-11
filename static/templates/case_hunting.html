@@ -60,6 +60,29 @@ let eventsPerPage = 50;
 let eventsSearch = '';
 let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
 
+// Filter state
+const eventFilters = {
+    // Event Type filters - maps to artifact_type values
+    evtx: true,       // evtx
+    firewall: true,   // firewall, sonicwall
+    edr: true,        // huntress
+    other: true,      // prefetch, registry, lnk, jumplist, mft, srum, iis, json_log, csv_log, browser, etc.
+    
+    // Alert Type filters
+    sigma: true,      // Show events with rule_level (Hayabusa/SIGMA hits)
+    ioc: true,        // Placeholder
+    analyst: true,    // Placeholder
+    ai: true,         // Placeholder
+    
+    // Display filters
+    noise: false      // Placeholder - show noise events
+};
+
+// Artifact type mappings for filters
+const EVTX_TYPES = ['evtx'];
+const FIREWALL_TYPES = ['firewall', 'sonicwall'];
+const EDR_TYPES = ['huntress'];
+
 // Tab switching
 document.addEventListener('DOMContentLoaded', function() {
     const tabs = document.querySelectorAll('.hunting-tab');
@@ -94,13 +117,74 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// Apply filters - called when any checkbox changes
+function applyFilters() {
+    // Read filter state from checkboxes
+    eventFilters.evtx = document.getElementById('filter-evtx').checked;
+    eventFilters.firewall = document.getElementById('filter-firewall').checked;
+    eventFilters.edr = document.getElementById('filter-edr').checked;
+    eventFilters.other = document.getElementById('filter-other').checked;
+    eventFilters.sigma = document.getElementById('filter-sigma').checked;
+    // Placeholders - read but not used yet
+    // eventFilters.ioc = document.getElementById('filter-ioc').checked;
+    // eventFilters.analyst = document.getElementById('filter-analyst').checked;
+    // eventFilters.ai = document.getElementById('filter-ai').checked;
+    // eventFilters.noise = document.getElementById('filter-noise').checked;
+    
+    // Reset to page 1 and reload
+    eventsPage = 1;
+    loadEvents();
+}
+
+// Build artifact types string based on active filters
+function getFilteredArtifactTypes() {
+    // Get tab's base artifact types
+    const tabTypes = currentArtifactTypes.split(',').filter(t => t.trim());
+    
+    // If tab is not "Events" (has specific types like browser), return as-is
+    // The filters only apply to the Events tab
+    const isEventsTab = tabTypes.some(t => EVTX_TYPES.includes(t) || FIREWALL_TYPES.includes(t) || EDR_TYPES.includes(t));
+    if (!isEventsTab) {
+        return currentArtifactTypes;
+    }
+    
+    // Build filtered list based on checkboxes
+    let filteredTypes = [];
+    
+    if (eventFilters.evtx) {
+        filteredTypes.push(...EVTX_TYPES);
+    }
+    if (eventFilters.firewall) {
+        filteredTypes.push(...FIREWALL_TYPES);
+    }
+    if (eventFilters.edr) {
+        filteredTypes.push(...EDR_TYPES);
+    }
+    if (eventFilters.other) {
+        // "Other" includes everything in tab that's not EVTX, Firewall, or EDR
+        const otherTypes = tabTypes.filter(t => 
+            !EVTX_TYPES.includes(t) && 
+            !FIREWALL_TYPES.includes(t) && 
+            !EDR_TYPES.includes(t)
+        );
+        filteredTypes.push(...otherTypes);
+    }
+    
+    return filteredTypes.join(',');
+}
+
 // Load events from API
 function loadEvents() {
+    // Build types based on filters
+    const filteredTypes = getFilteredArtifactTypes();
+    
+    // Build params
     const params = new URLSearchParams({
         page: eventsPage,
         per_page: eventsPerPage,
         search: eventsSearch,
-        types: currentArtifactTypes
+        types: filteredTypes,
+        sigma_only: eventFilters.sigma ? '' : 'exclude'  // If sigma unchecked, exclude sigma hits
     });
     
     // Show loading state

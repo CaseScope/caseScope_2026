@@ -1,6 +1,16 @@
 {
-  "version": "3.24.0",
+  "version": "3.25.0",
   "changelog": [
+    {
+      "version": "3.25.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Hunting Events: Added filter tile with 3-column layout",
+        "Event Type filters: EVTX Files, Firewall Logs, EDR Platforms, Other",
+        "Alert Type filters: SIGMA Violations (active), IOCs/Analyst/AI Tagged (placeholders)",
+        "Display filters: Noise Events (placeholder)"
+      ]
+    },
     {
       "version": "3.24.0",
       "date": "2026-01-10",

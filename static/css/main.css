@@ -2328,7 +2328,114 @@ tbody td {
 /* Filter Tile */
 .events-filter-tile .tile-body {
   padding: 20px;
-  text-align: center;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 30px;
+}
+
+.filter-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.filter-column-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Custom Checkbox */
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-left: 28px;
+}
+
+.filter-checkbox input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+.filter-checkbox .checkmark {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 18px;
+  width: 18px;
+  background-color: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.filter-checkbox:hover .checkmark {
+  border-color: var(--accent-primary);
+}
+
+.filter-checkbox input:checked ~ .checkmark {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.filter-checkbox .checkmark:after {
+  content: "";
+  position: absolute;
+  display: none;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.filter-checkbox input:checked ~ .checkmark:after {
+  display: block;
+}
+
+.filter-checkbox .filter-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* Placeholder filters */
+.filter-checkbox.filter-placeholder {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.filter-checkbox.filter-placeholder .checkmark {
+  border-color: var(--text-muted);
+}
+
+.filter-checkbox.filter-placeholder:hover .checkmark {
+  border-color: var(--text-muted);
+}
+
+.filter-soon {
+  font-size: 10px;
+  padding: 2px 6px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-radius: 4px;
+  text-transform: uppercase;
+  margin-left: auto;
 }
 
 /* Events List */

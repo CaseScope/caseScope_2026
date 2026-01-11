@@ -15,14 +15,77 @@
     </div>
 </div>
 
-<!-- Filter Tile (Placeholder) -->
+<!-- Filter Tile -->
 <div class="events-tile events-filter-tile">
     <div class="tile-header">
         <h3 class="tile-title">⚙️ Filters</h3>
-        <span class="tile-badge">Coming Soon</span>
     </div>
     <div class="tile-body">
-        <p class="text-muted">Advanced filtering options will be available here (time range, artifact type, hostname, etc.)</p>
+        <div class="filter-grid">
+            <!-- Event Type Column -->
+            <div class="filter-column">
+                <h4 class="filter-column-title">Event Type</h4>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-evtx" checked onchange="applyFilters()">
+                    <span class="checkmark"></span>
+                    <span class="filter-label">EVTX Files</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-firewall" checked onchange="applyFilters()">
+                    <span class="checkmark"></span>
+                    <span class="filter-label">Firewall Logs</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-edr" checked onchange="applyFilters()">
+                    <span class="checkmark"></span>
+                    <span class="filter-label">EDR Platforms</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-other" checked onchange="applyFilters()">
+                    <span class="checkmark"></span>
+                    <span class="filter-label">Other</span>
+                </label>
+            </div>
+            
+            <!-- Alert Type Column -->
+            <div class="filter-column">
+                <h4 class="filter-column-title">Alert Type</h4>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-sigma" checked onchange="applyFilters()">
+                    <span class="checkmark"></span>
+                    <span class="filter-label">SIGMA Violations</span>
+                </label>
+                <label class="filter-checkbox filter-placeholder">
+                    <input type="checkbox" id="filter-ioc" checked onchange="applyFilters()" disabled>
+                    <span class="checkmark"></span>
+                    <span class="filter-label">IOCs Found</span>
+                    <span class="filter-soon">Soon</span>
+                </label>
+                <label class="filter-checkbox filter-placeholder">
+                    <input type="checkbox" id="filter-analyst" checked onchange="applyFilters()" disabled>
+                    <span class="checkmark"></span>
+                    <span class="filter-label">Analyst Tagged</span>
+                    <span class="filter-soon">Soon</span>
+                </label>
+                <label class="filter-checkbox filter-placeholder">
+                    <input type="checkbox" id="filter-ai" checked onchange="applyFilters()" disabled>
+                    <span class="checkmark"></span>
+                    <span class="filter-label">AI Tagged</span>
+                    <span class="filter-soon">Soon</span>
+                </label>
+            </div>
+            
+            <!-- Display Column -->
+            <div class="filter-column">
+                <h4 class="filter-column-title">Display</h4>
+                <label class="filter-checkbox filter-placeholder">
+                    <input type="checkbox" id="filter-noise" onchange="applyFilters()" disabled>
+                    <span class="checkmark"></span>
+                    <span class="filter-label">Noise Events</span>
+                    <span class="filter-soon">Soon</span>
+                </label>
+            </div>
+        </div>
     </div>
 </div>
 

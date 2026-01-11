@@ -950,6 +950,7 @@ def get_hunting_events(case_id):
         per_page = request.args.get('per_page', 50, type=int)
         search = request.args.get('search', '', type=str).strip()
         artifact_types = request.args.get('types', '', type=str).strip()
+        sigma_only = request.args.get('sigma_only', '', type=str).strip()
         
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 500)
@@ -967,13 +968,19 @@ def get_hunting_events(case_id):
                 quoted_types = "', '".join(types_list)
                 type_filter = f" AND artifact_type IN ('{quoted_types}')"
         
+        # Build sigma/alert filter
+        sigma_filter = ""
+        if sigma_only == 'exclude':
+            # When SIGMA Violations unchecked, exclude events with rule_level
+            sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
+        
         # Build query with optional search and type filter
         if search:
             # Search in search_blob field
             count_query = f"""
                 SELECT count() FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}
             """
             data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
@@ -981,7 +988,7 @@ def get_hunting_events(case_id):
                        rule_level
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -992,13 +999,13 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}"
             data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
                        username, process_name, command_line, target_path, search_blob,
                        rule_level
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
