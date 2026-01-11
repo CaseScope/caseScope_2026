@@ -3864,12 +3864,18 @@ input:checked + .slider:before {
   flex: 1;
   max-width: 400px;
   min-width: 150px;
+  height: 38px;
+  padding: 8px 12px;
+  font-size: 14px;
 }
 
 .ioc-tile .ioc-type-inline {
   width: auto;
   min-width: 140px;
   flex-shrink: 0;
+  height: 38px;
+  padding: 8px 12px;
+  font-size: 14px;
 }
 
 .ioc-tile .tile-controls-right {
