@@ -6,19 +6,96 @@ Can be called from:
 2. UI button click ("Find in Artifacts")
 """
 import logging
+import redis
+import json
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
+from sqlalchemy.exc import IntegrityError
 
 from models.database import db
 from models.known_system import (
     KnownSystem, KnownSystemIP, KnownSystemAlias, 
     KnownSystemAudit, KnownSystemCase
 )
+from config import Config
 
 logger = logging.getLogger(__name__)
 
+# Redis client for progress tracking
+_redis_client = None
 
-def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system') -> Dict:
+def get_redis():
+    """Get Redis client for progress tracking"""
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.Redis(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+            decode_responses=True
+        )
+    return _redis_client
+
+
+def init_discovery_progress(case_uuid: str, total: int):
+    """Initialize discovery progress in Redis"""
+    r = get_redis()
+    key = f"discovery:{case_uuid}"
+    r.hset(key, mapping={
+        'status': 'running',
+        'total': total,
+        'processed': 0,
+        'created': 0,
+        'updated': 0,
+        'current_hostname': ''
+    })
+    r.expire(key, 3600)  # 1 hour TTL
+
+
+def update_discovery_progress(case_uuid: str, processed: int, created: int, updated: int, current: str = ''):
+    """Update discovery progress in Redis"""
+    r = get_redis()
+    key = f"discovery:{case_uuid}"
+    r.hset(key, mapping={
+        'processed': processed,
+        'created': created,
+        'updated': updated,
+        'current_hostname': current
+    })
+
+
+def complete_discovery_progress(case_uuid: str, results: dict):
+    """Mark discovery as complete"""
+    r = get_redis()
+    key = f"discovery:{case_uuid}"
+    r.hset(key, mapping={
+        'status': 'complete',
+        'processed': results.get('hostnames_processed', 0),
+        'created': results.get('systems_created', 0),
+        'updated': results.get('systems_updated', 0),
+        'current_hostname': ''
+    })
+    r.expire(key, 300)  # Keep for 5 minutes after completion
+
+
+def get_discovery_progress(case_uuid: str) -> Optional[dict]:
+    """Get current discovery progress"""
+    r = get_redis()
+    key = f"discovery:{case_uuid}"
+    data = r.hgetall(key)
+    if data:
+        return {
+            'status': data.get('status', 'unknown'),
+            'total': int(data.get('total', 0)),
+            'processed': int(data.get('processed', 0)),
+            'created': int(data.get('created', 0)),
+            'updated': int(data.get('updated', 0)),
+            'current_hostname': data.get('current_hostname', '')
+        }
+    return None
+
+
+def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system', track_progress: bool = False) -> Dict:
     """Discover and populate known systems from artifacts for a case
     
     Sources:
@@ -29,6 +106,7 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         case_id: PostgreSQL case.id (also used for ClickHouse)
         case_uuid: Case UUID for querying case_files
         username: User performing the discovery (for audit)
+        track_progress: Whether to track progress in Redis
     
     Returns:
         Dict with discovery results
@@ -62,10 +140,16 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         all_hostnames.discard(None)
         all_hostnames.discard('')
         
-        results['hostnames_processed'] = len(all_hostnames)
-        logger.info(f"Processing {len(all_hostnames)} total unique hostnames")
+        total_hostnames = len(all_hostnames)
+        results['hostnames_processed'] = total_hostnames
+        logger.info(f"Processing {total_hostnames} total unique hostnames")
+        
+        # Initialize progress tracking
+        if track_progress:
+            init_discovery_progress(case_uuid, total_hostnames)
         
         # Process each hostname
+        processed = 0
         for hostname in all_hostnames:
             try:
                 created, updated, alias_added = _process_hostname(
@@ -78,16 +162,48 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                     results['systems_updated'] += 1
                 if alias_added:
                     results['aliases_added'] += 1
+                
+                processed += 1
+                
+                # Update progress every 10 hostnames or on last one
+                if track_progress and (processed % 10 == 0 or processed == total_hostnames):
+                    update_discovery_progress(
+                        case_uuid, processed,
+                        results['systems_created'],
+                        results['systems_updated'],
+                        hostname
+                    )
+                    
+            except IntegrityError:
+                # Race condition - another process created this system
+                # This is expected and safe - just rollback and retry as update
+                db.session.rollback()
+                try:
+                    created, updated, alias_added = _process_hostname(
+                        hostname, case_id, username
+                    )
+                    if updated:
+                        results['systems_updated'] += 1
+                    if alias_added:
+                        results['aliases_added'] += 1
+                    processed += 1
+                except Exception as e2:
+                    logger.warning(f"Retry failed for '{hostname}': {e2}")
                     
             except Exception as e:
                 logger.error(f"Error processing hostname '{hostname}': {e}")
                 results['errors'].append(f"Error with '{hostname}': {str(e)}")
+                processed += 1
         
         # Commit all changes
         db.session.commit()
         
         # Count case links added
         results['case_links_added'] = KnownSystemCase.query.filter_by(case_id=case_id).count()
+        
+        # Mark progress complete
+        if track_progress:
+            complete_discovery_progress(case_uuid, results)
         
     except Exception as e:
         logger.exception("Error in discover_known_systems")

@@ -1235,22 +1235,60 @@ def get_known_systems(case_uuid):
 @api_bp.route('/known-systems/discover/<case_uuid>', methods=['POST'])
 @login_required
 def discover_systems(case_uuid):
-    """Discover known systems from artifacts for a case"""
+    """Start async discovery of known systems from artifacts"""
     try:
-        from utils.known_systems_discovery import discover_known_systems
+        from tasks.celery_tasks import discover_known_systems_task
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
-        results = discover_known_systems(
+        # Check if discovery is already running
+        from utils.known_systems_discovery import get_discovery_progress
+        progress = get_discovery_progress(case_uuid)
+        if progress and progress.get('status') == 'running':
+            return jsonify({
+                'success': True,
+                'status': 'already_running',
+                'progress': progress
+            })
+        
+        # Start async discovery task
+        task = discover_known_systems_task.delay(
             case_id=case.id,
             case_uuid=case_uuid,
             username=current_user.username
         )
         
-        return jsonify(results)
+        return jsonify({
+            'success': True,
+            'status': 'started',
+            'task_id': task.id
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/discover-progress/<case_uuid>')
+@login_required
+def get_discovery_status(case_uuid):
+    """Get discovery progress for a case"""
+    try:
+        from utils.known_systems_discovery import get_discovery_progress
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        progress = get_discovery_progress(case_uuid)
+        
+        return jsonify({
+            'success': True,
+            'progress': progress
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

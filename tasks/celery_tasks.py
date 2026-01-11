@@ -517,6 +517,37 @@ def _update_case_file_status(case_file_id: int, status: str = None,
         logger.warning(f"Could not update CaseFile status: {e}")
 
 
+@celery_app.task(bind=True, name='tasks.discover_known_systems')
+def discover_known_systems_task(self, case_id: int, case_uuid: str, username: str = 'system') -> Dict[str, Any]:
+    """Discover known systems from artifacts for a case
+    
+    Runs async to avoid blocking web workers on large cases.
+    
+    Args:
+        case_id: PostgreSQL case.id
+        case_uuid: Case UUID
+        username: User who triggered the discovery
+        
+    Returns:
+        Dict with discovery results
+    """
+    from utils.known_systems_discovery import discover_known_systems
+    
+    logger.info(f"Starting known systems discovery for case {case_uuid}")
+    
+    app = get_flask_app()
+    with app.app_context():
+        results = discover_known_systems(
+            case_id=case_id,
+            case_uuid=case_uuid,
+            username=username,
+            track_progress=True
+        )
+    
+    logger.info(f"Discovery complete for case {case_uuid}: {results['systems_created']} created, {results['systems_updated']} updated")
+    return results
+
+
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
     'update-hayabusa-rules-weekly': {

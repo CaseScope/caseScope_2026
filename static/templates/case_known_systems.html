@@ -213,6 +213,43 @@
         </div>
     </div>
 </div>
+
+<!-- Discovery Progress Modal -->
+<div id="discoveryModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-progress">
+        <div class="modal-header">
+            <h3 class="modal-title">Discovering Known Systems</h3>
+        </div>
+        <div class="modal-body">
+            <div class="progress-section">
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar-label">
+                        <span id="progressLabel">Scanning artifacts...</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-animated" id="progressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="progress-stats">
+                    <div class="progress-stat">
+                        <span class="progress-stat-value" id="statProcessed">0</span>
+                        <span class="progress-stat-label">Processed</span>
+                    </div>
+                    <div class="progress-stat">
+                        <span class="progress-stat-value text-success" id="statCreated">0</span>
+                        <span class="progress-stat-label">Created</span>
+                    </div>
+                    <div class="progress-stat">
+                        <span class="progress-stat-value text-info" id="statUpdated">0</span>
+                        <span class="progress-stat-label">Updated</span>
+                    </div>
+                </div>
+                <div class="progress-current" id="progressCurrent"></div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -285,21 +322,25 @@ function filterSystems() {
     renderSystems(filtered);
 }
 
+let discoveryPollInterval = null;
+
 function findInArtifacts() {
     const btn = document.getElementById('btnFindInArtifacts');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
     
     fetch(`/api/known-systems/discover/${caseUuid}`, { method: 'POST' })
         .then(response => response.json())
         .then(data => {
-            btn.disabled = false;
-            btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
-            
             if (data.success) {
-                showDiscoveryResults(data);
-                loadSystems();
+                if (data.status === 'started' || data.status === 'already_running') {
+                    // Show progress modal and start polling
+                    showDiscoveryModal();
+                    startProgressPolling();
+                }
             } else {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
                 showError('Discovery failed: ' + data.error);
             }
         })
@@ -310,15 +351,84 @@ function findInArtifacts() {
         });
 }
 
-function showDiscoveryResults(data) {
+function showDiscoveryModal() {
+    document.getElementById('discoveryModal').style.display = 'flex';
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('progressPercent').textContent = '0%';
+    document.getElementById('progressLabel').textContent = 'Scanning artifacts...';
+    document.getElementById('statProcessed').textContent = '0';
+    document.getElementById('statCreated').textContent = '0';
+    document.getElementById('statUpdated').textContent = '0';
+    document.getElementById('progressCurrent').textContent = '';
+}
+
+function hideDiscoveryModal() {
+    document.getElementById('discoveryModal').style.display = 'none';
+    stopProgressPolling();
+    
+    const btn = document.getElementById('btnFindInArtifacts');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Find in Artifacts';
+}
+
+function startProgressPolling() {
+    if (discoveryPollInterval) clearInterval(discoveryPollInterval);
+    
+    discoveryPollInterval = setInterval(() => {
+        fetch(`/api/known-systems/discover-progress/${caseUuid}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.progress) {
+                    updateProgressDisplay(data.progress);
+                    
+                    if (data.progress.status === 'complete') {
+                        stopProgressPolling();
+                        setTimeout(() => {
+                            hideDiscoveryModal();
+                            showDiscoveryResultsBanner(data.progress);
+                            loadSystems();
+                        }, 500);
+                    }
+                }
+            })
+            .catch(err => console.error('Progress poll error:', err));
+    }, 500);
+}
+
+function stopProgressPolling() {
+    if (discoveryPollInterval) {
+        clearInterval(discoveryPollInterval);
+        discoveryPollInterval = null;
+    }
+}
+
+function updateProgressDisplay(progress) {
+    const total = progress.total || 1;
+    const processed = progress.processed || 0;
+    const percent = Math.round((processed / total) * 100);
+    
+    document.getElementById('progressBar').style.width = percent + '%';
+    document.getElementById('progressPercent').textContent = percent + '%';
+    document.getElementById('progressLabel').textContent = `Processing ${processed} of ${total} hostnames...`;
+    document.getElementById('statProcessed').textContent = processed;
+    document.getElementById('statCreated').textContent = progress.created || 0;
+    document.getElementById('statUpdated').textContent = progress.updated || 0;
+    
+    if (progress.current_hostname) {
+        document.getElementById('progressCurrent').textContent = `Current: ${progress.current_hostname}`;
+    }
+}
+
+function showDiscoveryResultsBanner(progress) {
     const resultsEl = document.getElementById('discoveryResults');
     const textEl = resultsEl.querySelector('.discovery-text');
     
-    textEl.textContent = `Discovery complete: ${data.systems_created} new systems, ${data.systems_updated} updated, ${data.aliases_added} aliases added, ${data.hostnames_processed} hostnames processed`;
+    textEl.textContent = `Discovery complete: ${progress.created} new systems, ${progress.updated} updated, ${progress.processed} hostnames processed`;
     
     resultsEl.style.display = 'block';
     setTimeout(() => hideDiscoveryResults(), 10000);
 }
+
 
 function hideDiscoveryResults() {
     document.getElementById('discoveryResults').style.display = 'none';

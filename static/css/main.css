@@ -3063,3 +3063,40 @@ input:checked + .slider:before {
     flex: none;
   }
 }
+
+/* Discovery Progress Stats */
+.progress-stats {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin: 24px 0;
+}
+
+.progress-stat {
+  text-align: center;
+}
+
+.progress-stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.progress-stat-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.progress-current {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'Consolas', 'Monaco', monospace;
+  margin-top: 16px;
+  min-height: 18px;
+}
