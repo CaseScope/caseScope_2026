@@ -163,10 +163,16 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                         old_ts = old_ts.replace(tzinfo=None)
                     if not old_ts or new_ts > old_ts:
                         all_hostname_stats[hostname]['last_seen'] = stats['last_seen']
+                # Merge IP addresses from remote logon events
+                if 'ip_addresses' in stats:
+                    if 'ip_addresses' not in all_hostname_stats[hostname]:
+                        all_hostname_stats[hostname]['ip_addresses'] = set()
+                    all_hostname_stats[hostname]['ip_addresses'].update(stats['ip_addresses'])
             else:
                 all_hostname_stats[hostname] = {
                     'count': stats['count'],
-                    'last_seen': stats['last_seen']
+                    'last_seen': stats['last_seen'],
+                    'ip_addresses': set(stats.get('ip_addresses', []))
                 }
         
         # Merge from case_files
@@ -200,11 +206,15 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                 # Get shares for this host (if it's a server)
                 host_shares = server_shares.get(hostname, [])
                 
+                # Get IPs from remote logon events (for systems we don't have EDR data on)
+                logon_ips = list(stats.get('ip_addresses', set()))
+                
                 created, updated, alias_added = _process_hostname(
                     hostname, case_id, username,
                     artifact_count=stats['count'],
                     last_seen=stats['last_seen'],
-                    shares=host_shares
+                    shares=host_shares,
+                    logon_ips=logon_ips
                 )
                 
                 if created:
@@ -551,11 +561,11 @@ def _get_remote_workstations_from_logon_events(case_id: int) -> dict:
     These are systems that CONNECTED TO our monitored systems - critical for
     threat hunting as they may include attacker workstations.
     
-    Extracts WorkstationName from Event 4624 (Logon) events where:
+    Extracts WorkstationName AND IpAddress from Event 4624 (Logon) events where:
     - LogonType is 3 (Network) or 10 (RemoteInteractive/RDP)
     - WorkstationName is not empty/'-'
     
-    Returns dict: {hostname: {'count': N, 'last_seen': datetime, 'source': 'remote_logon'}}
+    Returns dict: {hostname: {'count': N, 'last_seen': datetime, 'source': 'remote_logon', 'ip_addresses': [...]}}
     """
     from utils.clickhouse import get_client
     
@@ -564,27 +574,29 @@ def _get_remote_workstations_from_logon_events(case_id: int) -> dict:
     try:
         client = get_client()
         
-        # Query for workstation names from logon events
-        # WorkstationName is stored in raw_json EventData
+        # Query for workstation names AND their IPs from logon events
+        # WorkstationName and IpAddress are stored in raw_json EventData
         result = client.query(
             """SELECT 
                  JSONExtractString(JSONExtractString(raw_json, 'EventData'), 'WorkstationName') as workstation,
+                 JSONExtractString(JSONExtractString(raw_json, 'EventData'), 'IpAddress') as ip_addr,
                  count() as cnt,
                  max(timestamp) as last_ts
                FROM events 
                WHERE case_id = {case_id:UInt32} 
                  AND event_id = '4624'
                  AND artifact_type = 'evtx'
-               GROUP BY workstation
+               GROUP BY workstation, ip_addr
                HAVING workstation != '' AND workstation != '-'
-               LIMIT 500""",
+               LIMIT 1000""",
             parameters={'case_id': case_id}
         )
         
         for row in result.result_rows:
             workstation = row[0]
-            count = row[1]
-            last_ts = row[2]
+            ip_addr = row[1]
+            count = row[2]
+            last_ts = row[3]
             
             if workstation and workstation not in ('-', '', 'null'):
                 # Normalize hostname
@@ -598,11 +610,29 @@ def _get_remote_workstations_from_logon_events(case_id: int) -> dict:
                 if workstation in ('LOCALHOST', '127.0.0.1', '-'):
                     continue
                 
-                workstation_stats[workstation] = {
-                    'count': count,
-                    'last_seen': last_ts,
-                    'source': 'remote_logon'
-                }
+                if workstation not in workstation_stats:
+                    workstation_stats[workstation] = {
+                        'count': 0,
+                        'last_seen': None,
+                        'source': 'remote_logon',
+                        'ip_addresses': set()
+                    }
+                
+                workstation_stats[workstation]['count'] += count
+                
+                # Track last_seen
+                if last_ts:
+                    current_ls = workstation_stats[workstation]['last_seen']
+                    if not current_ls or last_ts > current_ls:
+                        workstation_stats[workstation]['last_seen'] = last_ts
+                
+                # Track IP addresses (the IP this workstation connected FROM)
+                if ip_addr and ip_addr not in ('-', '', '127.0.0.1', '::1', 'null'):
+                    workstation_stats[workstation]['ip_addresses'].add(ip_addr)
+        
+        # Convert sets to lists
+        for ws in workstation_stats:
+            workstation_stats[ws]['ip_addresses'] = list(workstation_stats[ws]['ip_addresses'])
         
         logger.info(f"Found {len(workstation_stats)} unique remote workstations from logon events")
                 
@@ -650,7 +680,7 @@ def _get_hostnames_from_events(case_id: int) -> dict:
 
 def _process_hostname(hostname: str, case_id: int, username: str,
                       artifact_count: int = 1, last_seen: datetime = None,
-                      shares: List[str] = None) -> Tuple[bool, bool, bool]:
+                      shares: List[str] = None, logon_ips: List[str] = None) -> Tuple[bool, bool, bool]:
     """Process a single hostname through deduplication logic
     
     Args:
@@ -660,11 +690,14 @@ def _process_hostname(hostname: str, case_id: int, username: str,
         artifact_count: Number of artifacts referencing this hostname
         last_seen: Timestamp of most recent artifact with this hostname
         shares: List of shares hosted by this system (from UNC paths)
+        logon_ips: List of IPs this system connected FROM (from logon events)
     
     Returns: (created, updated, alias_added)
     """
     if shares is None:
         shares = []
+    if logon_ips is None:
+        logon_ips = []
     created = False
     updated = False
     alias_added = False
@@ -733,6 +766,17 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                     field_name='ip_addresses',
                     action='create',
                     new_value=ip
+                )
+        
+        # Add IPs from logon events (for systems we saw connecting to our hosts)
+        for ip in logon_ips:
+            if system.add_ip_address(ip):
+                KnownSystemAudit.log_change(
+                    system_id=system.id,
+                    changed_by=username,
+                    field_name='ip_addresses',
+                    action='create',
+                    new_value=f"{ip} (from logon events)"
                 )
         
         # Add discovered MACs (from host_mac in EDR data)
@@ -841,6 +885,17 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                 field_name='ip_addresses',
                 action='create',
                 new_value=ip
+            )
+        
+        # Add IPs from logon events (for systems we saw connecting to our hosts)
+        for ip in logon_ips:
+            system.add_ip_address(ip)
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=username,
+                field_name='ip_addresses',
+                action='create',
+                new_value=f"{ip} (from logon events)"
             )
         
         # Add discovered MACs (from host_mac in EDR data)
