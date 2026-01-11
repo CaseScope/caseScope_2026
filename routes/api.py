@@ -1680,3 +1680,422 @@ def get_user_audit(user_id):
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# IOC Management API Endpoints
+# ============================================
+
+@api_bp.route('/iocs/types')
+@login_required
+def get_ioc_types():
+    """Get all IOC types organized by category"""
+    try:
+        from models.ioc import get_ioc_types_by_category, IOCCategory
+        
+        types_by_category = get_ioc_types_by_category()
+        icons = IOCCategory.icons()
+        
+        return jsonify({
+            'success': True,
+            'types_by_category': types_by_category,
+            'category_icons': icons,
+            'categories': IOCCategory.all()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/list/<case_uuid>')
+@login_required
+def get_iocs_for_case(case_uuid):
+    """Get IOCs for a case with pagination and filtering"""
+    try:
+        from models.ioc import IOC, IOCCase, IOCCategory
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Pagination and filter parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        search = request.args.get('search', '', type=str).strip()
+        category = request.args.get('category', '', type=str).strip()
+        ioc_type = request.args.get('type', '', type=str).strip()
+        malicious_only = request.args.get('malicious', 'false', type=str).lower() == 'true'
+        
+        per_page = min(max(per_page, 10), 200)
+        
+        # Build query - IOCs linked to this case
+        query = db.session.query(IOC).join(IOCCase).filter(IOCCase.case_id == case.id)
+        
+        # Apply filters
+        if search:
+            search_filter = f'%{search}%'
+            query = query.filter(IOC.value.ilike(search_filter))
+        
+        if category:
+            query = query.filter(IOC.category == category)
+        
+        if ioc_type:
+            query = query.filter(IOC.ioc_type == ioc_type)
+        
+        if malicious_only:
+            query = query.filter(IOC.malicious == True)
+        
+        # Exclude false positives by default
+        query = query.filter(IOC.false_positive == False)
+        
+        # Order by last seen (most recent first)
+        query = query.order_by(IOC.last_seen_in_artifacts.desc().nullslast(), IOC.created_at.desc())
+        
+        # Get total count before pagination
+        total = query.count()
+        
+        # Apply pagination
+        iocs = query.offset((page - 1) * per_page).limit(per_page).all()
+        
+        # Get stats
+        stats = {
+            'total': total,
+            'by_category': {}
+        }
+        
+        for cat in IOCCategory.all():
+            cat_count = db.session.query(IOC).join(IOCCase).filter(
+                IOCCase.case_id == case.id,
+                IOC.category == cat,
+                IOC.false_positive == False
+            ).count()
+            stats['by_category'][cat] = cat_count
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'iocs': [ioc.to_dict() for ioc in iocs],
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total + per_page - 1) // per_page if total > 0 else 1,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/create/<case_uuid>', methods=['POST'])
+@login_required
+def create_ioc(case_uuid):
+    """Create a new IOC and link to case"""
+    try:
+        from models.ioc import IOC, IOCAudit, get_category_for_type
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        ioc_type = data.get('ioc_type', '').strip()
+        value = data.get('value', '').strip()
+        notes = data.get('notes', '').strip()
+        malicious = data.get('malicious', False)
+        
+        if not ioc_type:
+            return jsonify({'success': False, 'error': 'IOC type required'}), 400
+        
+        if not value:
+            return jsonify({'success': False, 'error': 'IOC value required'}), 400
+        
+        # Get category for this type
+        category = get_category_for_type(ioc_type)
+        if not category:
+            return jsonify({'success': False, 'error': f'Unknown IOC type: {ioc_type}'}), 400
+        
+        # Validate the value
+        is_valid, error = IOC.validate_value(value, ioc_type)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error}), 400
+        
+        # Get or create IOC
+        ioc, created = IOC.get_or_create(
+            value=value,
+            ioc_type=ioc_type,
+            category=category,
+            created_by=current_user.username
+        )
+        
+        # Update fields if provided
+        if notes:
+            ioc.notes = notes
+        if malicious:
+            ioc.malicious = malicious
+        
+        # Link to case
+        ioc.link_to_case(case.id)
+        
+        # Log creation
+        if created:
+            IOCAudit.log_change(
+                ioc_id=ioc.id,
+                changed_by=current_user.username,
+                field_name='ioc',
+                action='create',
+                new_value=f'{ioc_type}: {value}'
+            )
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'created': created,
+            'ioc': ioc.to_dict()
+        })
+        
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/<int:ioc_id>')
+@login_required
+def get_ioc(ioc_id):
+    """Get details for a specific IOC"""
+    try:
+        from models.ioc import IOC
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'ioc': ioc.to_dict()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/<int:ioc_id>/update', methods=['POST'])
+@login_required
+def update_ioc(ioc_id):
+    """Update an IOC field"""
+    try:
+        from models.ioc import IOC, IOCAudit
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        data = request.get_json()
+        field_name = data.get('field')
+        new_value = data.get('value')
+        
+        if not field_name:
+            return jsonify({'success': False, 'error': 'Field name required'}), 400
+        
+        # Allowed fields to update
+        allowed_fields = ['notes', 'malicious', 'false_positive']
+        if field_name not in allowed_fields:
+            return jsonify({'success': False, 'error': f'Cannot update field: {field_name}'}), 400
+        
+        old_value = getattr(ioc, field_name)
+        
+        # Handle boolean fields
+        if field_name in ['malicious', 'false_positive']:
+            new_value = bool(new_value)
+        
+        setattr(ioc, field_name, new_value)
+        
+        # Log change
+        IOCAudit.log_change(
+            ioc_id=ioc.id,
+            changed_by=current_user.username,
+            field_name=field_name,
+            action='update',
+            old_value=old_value,
+            new_value=new_value
+        )
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'ioc': ioc.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/<int:ioc_id>/systems')
+@login_required
+def get_ioc_systems(ioc_id):
+    """Get all systems where this IOC was found"""
+    try:
+        from models.ioc import IOC, IOCSystemSighting
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        sightings = ioc.system_sightings.all()
+        
+        return jsonify({
+            'success': True,
+            'ioc_id': ioc_id,
+            'systems': [s.to_dict() for s in sightings]
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/<int:ioc_id>/audit')
+@login_required
+def get_ioc_audit(ioc_id):
+    """Get audit history for an IOC"""
+    try:
+        from models.ioc import IOC, IOCAudit
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        audits = IOCAudit.query.filter_by(ioc_id=ioc_id).order_by(
+            IOCAudit.changed_on.desc()
+        ).all()
+        
+        return jsonify({
+            'success': True,
+            'ioc_id': ioc_id,
+            'ioc_value': ioc.value,
+            'audit_history': [a.to_dict() for a in audits]
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/<int:ioc_id>/delete', methods=['POST'])
+@login_required
+def delete_ioc_from_case(ioc_id):
+    """Remove an IOC from a case (does not delete the IOC itself)"""
+    try:
+        from models.ioc import IOC, IOCCase, IOCAudit
+        
+        data = request.get_json()
+        case_uuid = data.get('case_uuid')
+        
+        if not case_uuid:
+            return jsonify({'success': False, 'error': 'Case UUID required'}), 400
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        # Remove from case
+        link = IOCCase.query.filter_by(ioc_id=ioc_id, case_id=case.id).first()
+        if link:
+            db.session.delete(link)
+            
+            IOCAudit.log_change(
+                ioc_id=ioc_id,
+                changed_by=current_user.username,
+                field_name='case',
+                action='delete',
+                old_value=case.name
+            )
+            
+            db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/bulk-create/<case_uuid>', methods=['POST'])
+@login_required
+def bulk_create_iocs(case_uuid):
+    """Bulk create IOCs from a list"""
+    try:
+        from models.ioc import IOC, IOCAudit, get_category_for_type
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        iocs_data = data.get('iocs', [])
+        
+        if not iocs_data:
+            return jsonify({'success': False, 'error': 'No IOCs provided'}), 400
+        
+        created_count = 0
+        linked_count = 0
+        errors = []
+        
+        for item in iocs_data:
+            ioc_type = item.get('ioc_type', '').strip()
+            value = item.get('value', '').strip()
+            
+            if not ioc_type or not value:
+                errors.append(f'Missing type or value: {item}')
+                continue
+            
+            category = get_category_for_type(ioc_type)
+            if not category:
+                errors.append(f'Unknown type: {ioc_type}')
+                continue
+            
+            try:
+                ioc, created = IOC.get_or_create(
+                    value=value,
+                    ioc_type=ioc_type,
+                    category=category,
+                    created_by=current_user.username
+                )
+                
+                if created:
+                    created_count += 1
+                    IOCAudit.log_change(
+                        ioc_id=ioc.id,
+                        changed_by=current_user.username,
+                        field_name='ioc',
+                        action='create',
+                        new_value=f'{ioc_type}: {value}'
+                    )
+                
+                if ioc.link_to_case(case.id):
+                    linked_count += 1
+                    
+            except ValueError as e:
+                errors.append(f'{ioc_type}: {value} - {str(e)}')
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'created': created_count,
+            'linked': linked_count,
+            'errors': errors
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500

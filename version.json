@@ -1,6 +1,17 @@
 {
-  "version": "3.32.3",
+  "version": "3.33.0",
   "changelog": [
+    {
+      "version": "3.33.0",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC Management: Full IOC tracking system with 10 categories and 40+ types",
+        "IOC Management: Network, File, Email, Registry, Process, Auth, Malware, Behavioral, Crypto, Mobile",
+        "IOC Management: Track creator, timestamps, artifact counts, system sightings",
+        "IOC Management: Bulk import, malicious/false positive flags, audit history",
+        "IOC Management: Cross-case deduplication with per-case linking"
+      ]
+    },
     {
       "version": "3.32.3",
       "date": "2026-01-11",

@@ -11,12 +11,20 @@ from models.known_user import (
     KnownUser, KnownUserAlias, KnownUserEmail,
     KnownUserCase, KnownUserAudit
 )
+from models.ioc import (
+    IOC, IOCCategory, IOCSystemSighting, IOCCase, IOCAudit,
+    IOC_TYPE_DEFINITIONS, get_ioc_types_by_category, get_all_ioc_types,
+    get_category_for_type
+)
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
-    'KnownSystem', 'KnownSystemIP', 'KnownSystemAlias',
+    'KnownSystem', 'KnownSystemIP', 'KnownSystemMAC', 'KnownSystemAlias',
     'KnownSystemShare', 'KnownSystemCase', 'KnownSystemAudit',
     'OSType', 'SystemType',
     'KnownUser', 'KnownUserAlias', 'KnownUserEmail',
-    'KnownUserCase', 'KnownUserAudit'
+    'KnownUserCase', 'KnownUserAudit',
+    'IOC', 'IOCCategory', 'IOCSystemSighting', 'IOCCase', 'IOCAudit',
+    'IOC_TYPE_DEFINITIONS', 'get_ioc_types_by_category', 'get_all_ioc_types',
+    'get_category_for_type'
 ]

@@ -89,6 +89,13 @@ def create_app():
             KnownSystem, KnownSystemIP, KnownSystemMAC, KnownSystemAlias,
             KnownSystemShare, KnownSystemCase, KnownSystemAudit
         )
+        from models.known_user import (
+            KnownUser, KnownUserAlias, KnownUserEmail,
+            KnownUserCase, KnownUserAudit
+        )
+        from models.ioc import (
+            IOC, IOCSystemSighting, IOCCase, IOCAudit
+        )
         db.create_all()
         
         # Create default admin user if not exists
