@@ -91,10 +91,17 @@ def dashboard_stats():
         live_gb = get_folder_size_gb(Config.STORAGE_FOLDER)
         archive_gb = get_folder_size_gb(os.path.join(Config.BASE_DIR, 'archive'))
         
-        # Software versions
-        from config import Config
+        # Software versions - all pulled live from system
+        # CaseScope version from version.json
+        casescope_version = 'Unknown'
+        try:
+            with open(os.path.join(Config.BASE_DIR, 'version.json'), 'r') as f:
+                casescope_version = json.load(f).get('version', 'Unknown')
+        except Exception:
+            pass
+        
         software = {
-            'casescope': Config.get_version(),
+            'casescope': casescope_version,
             'python': platform.python_version(),
             'flask': get_software_version("pip show flask | grep Version | cut -d' ' -f2"),
             'postgresql': get_software_version("psql --version 2>/dev/null | head -1 | sed 's/psql (PostgreSQL) //'"),
