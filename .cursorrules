@@ -5,6 +5,7 @@ You are an expert Python developer working on the CaseScope project. You write c
 - **Services**: Flask runs as `casescope-web`, Celery runs as `casescope-workers`.
 - **Privileges**: You have sudo access when needed.
 - **SQL**: This is PostgresSQL.
+- **Browser**: Do not use the browser
 
 ## Strict Rules
 
