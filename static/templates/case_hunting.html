@@ -106,7 +106,7 @@ function loadEvents() {
     // Show loading state
     document.getElementById('events-tbody').innerHTML = `
         <tr>
-            <td colspan="4" class="text-center text-muted loading-row">
+            <td colspan="5" class="text-center text-muted loading-row">
                 <span class="spinner-border spinner-border-sm"></span> Loading...
             </td>
         </tr>
@@ -135,7 +135,7 @@ function renderEventsTable(events) {
     if (events.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="4" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="5" class="text-center text-muted" style="padding: 40px;">
                     ${eventsSearch ? 'No events match your search' : 'No events found for this category.'}
                 </td>
             </tr>
@@ -143,14 +143,41 @@ function renderEventsTable(events) {
         return;
     }
     
-    tbody.innerHTML = events.map(e => `
-        <tr class="event-row">
-            <td class="col-timestamp">${e.timestamp}</td>
-            <td class="col-parser"><span class="parser-badge">${e.artifact_type}</span></td>
-            <td class="col-hostname">${e.source_host || '-'}</td>
-            <td class="col-description" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = events.map(e => {
+        const hasHit = e.rule_level && e.rule_level !== '';
+        const rowClass = hasHit ? 'event-row hayabusa-hit' : 'event-row';
+        const severityBadge = getSeverityBadge(e.rule_level);
+        
+        return `
+            <tr class="${rowClass}">
+                <td class="col-timestamp">${e.timestamp}</td>
+                <td class="col-parser"><span class="parser-badge">${e.artifact_type}</span></td>
+                <td class="col-hostname">${e.source_host || '-'}</td>
+                <td class="col-description" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
+                <td class="col-severity">${severityBadge}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Get severity badge HTML based on rule_level
+function getSeverityBadge(ruleLevel) {
+    if (!ruleLevel || ruleLevel === '') return '';
+    
+    const level = ruleLevel.toLowerCase();
+    
+    if (level === 'critical' || level === 'crit' || level === 'high') {
+        return '<span class="badge badge-severity-critical">CRITICAL</span>';
+    } else if (level === 'medium' || level === 'med') {
+        return '<span class="badge badge-severity-medium">MEDIUM</span>';
+    } else if (level === 'low') {
+        return '<span class="badge badge-severity-low">LOW</span>';
+    } else if (level === 'info' || level === 'informational') {
+        return '<span class="badge badge-severity-info">INFO</span>';
+    }
+    
+    // Unknown level - show as-is
+    return `<span class="badge badge-muted">${escapeHtml(ruleLevel.toUpperCase())}</span>`;
 }
 
 // Update pagination controls
@@ -174,7 +201,7 @@ function showEventsError(message) {
     const tbody = document.getElementById('events-tbody');
     tbody.innerHTML = `
         <tr>
-            <td colspan="4" class="text-center text-danger" style="padding: 40px;">
+            <td colspan="5" class="text-center text-danger" style="padding: 40px;">
                 ${message}
             </td>
         </tr>

@@ -1,6 +1,14 @@
 {
-  "version": "3.23.0",
+  "version": "3.24.0",
   "changelog": [
+    {
+      "version": "3.24.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Hunting Events: Added Severity column with color-coded badges (Critical/High=red, Medium=orange, Low=dark yellow, Info=blue)",
+        "Hunting Events: Hayabusa-enriched rows now display in bold purple text for visibility"
+      ]
+    },
     {
       "version": "3.23.0",
       "date": "2026-01-10",

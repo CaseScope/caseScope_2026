@@ -977,7 +977,8 @@ def get_hunting_events(case_id):
             """
             data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
-                       username, process_name, command_line, target_path, search_blob
+                       username, process_name, command_line, target_path, search_blob,
+                       rule_level
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
                   AND search_blob LIKE {{pattern:String}}{type_filter}
@@ -994,7 +995,8 @@ def get_hunting_events(case_id):
             count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}"
             data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
-                       username, process_name, command_line, target_path, search_blob
+                       username, process_name, command_line, target_path, search_blob,
+                       rule_level
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}}{type_filter}
                 ORDER BY timestamp DESC
@@ -1015,7 +1017,7 @@ def get_hunting_events(case_id):
         
         events = []
         for row in data_result.result_rows:
-            timestamp, artifact_type, source_host, channel, provider, username, process_name, command_line, target_path, search_blob = row
+            timestamp, artifact_type, source_host, channel, provider, username, process_name, command_line, target_path, search_blob, rule_level = row
             
             # Build description from available fields
             description = build_event_description(
@@ -1027,7 +1029,8 @@ def get_hunting_events(case_id):
                 'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '-',
                 'artifact_type': artifact_type or '-',
                 'source_host': source_host or '-',
-                'description': description
+                'description': description,
+                'rule_level': rule_level or ''
             })
         
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1

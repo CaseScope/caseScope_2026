@@ -734,6 +734,47 @@ tbody td {
   color: #000;
 }
 
+/* Hayabusa Severity Badges */
+.badge-severity-critical {
+  background-color: rgba(239, 68, 68, 0.25);
+  color: #ff5630;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.badge-severity-medium {
+  background-color: rgba(249, 115, 22, 0.25);
+  color: #f97316;
+  border: 1px solid rgba(249, 115, 22, 0.5);
+}
+
+.badge-severity-low {
+  background-color: rgba(202, 138, 4, 0.25);
+  color: #ca8a04;
+  border: 1px solid rgba(202, 138, 4, 0.5);
+}
+
+.badge-severity-info {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: var(--accent-primary);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+/* Hayabusa Hit Row - Bold Purple Text */
+.events-table .hayabusa-hit td {
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.events-table .hayabusa-hit .parser-badge {
+  color: #000;
+}
+
+/* Severity Column */
+.col-severity {
+  width: 100px;
+  text-align: center;
+}
+
 /* ========================================
    Page Title Section
    ======================================== */
