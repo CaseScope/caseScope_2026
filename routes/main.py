@@ -233,19 +233,27 @@ def case_evidence():
 @login_required
 @case_required
 def case_edr_report():
-    """View or add EDR report for the active case"""
+    """View, add, or edit EDR report for the active case"""
     case = get_active_case()
     
     if request.method == 'POST':
-        new_report = request.form.get('edr_report', '').strip()
-        if new_report:
-            if case.edr_report:
-                # Append new report with separator
-                case.edr_report = case.edr_report + '\n\n*** NEW REPORT ***\n\n' + new_report
+        action = request.form.get('action', 'add')
+        report_content = request.form.get('edr_report', '').strip()
+        
+        if report_content:
+            if action == 'edit':
+                # Replace entire report content
+                case.edr_report = report_content
+                db.session.commit()
+                flash('EDR Report updated successfully', 'success')
             else:
-                case.edr_report = new_report
-            db.session.commit()
-            flash('EDR Report added successfully', 'success')
+                # Add new report (append with separator if existing)
+                if case.edr_report:
+                    case.edr_report = case.edr_report + '\n\n*** NEW REPORT ***\n\n' + report_content
+                else:
+                    case.edr_report = report_content
+                db.session.commit()
+                flash('EDR Report added successfully', 'success')
         else:
             flash('EDR Report content cannot be empty', 'error')
         return redirect(url_for('main.case_edr_report'))

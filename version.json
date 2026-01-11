@@ -1,6 +1,13 @@
 {
-  "version": "3.33.1",
+  "version": "3.33.2",
   "changelog": [
+    {
+      "version": "3.33.2",
+      "date": "2026-01-11",
+      "changes": [
+        "EDR Reports: Added Edit button with modal to modify existing report content"
+      ]
+    },
     {
       "version": "3.33.1",
       "date": "2026-01-11",
