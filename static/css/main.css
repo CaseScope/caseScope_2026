@@ -1436,7 +1436,6 @@ tbody td {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background-color: var(--bg-secondary);
   border-radius: var(--border-radius);
   margin-bottom: 12px;
   font-size: 13px;
