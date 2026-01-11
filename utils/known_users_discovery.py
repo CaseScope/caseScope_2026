@@ -30,14 +30,12 @@ SYSTEM_ACCOUNTS = {
     'NT AUTHORITY', 'BUILTIN', 'WINDOW MANAGER', 'FONT DRIVER HOST',
     'DWMWINDOWHOST', '-', '', 'N/A', 'NA', 'NONE', 'NULL', 'UNKNOWN',
     'IUSR', 'IWAM', 'ASPNET', 'DEFAULTACCOUNT', 'CONTEXT', 'CONTEXT:',
-    'GUEST', 'DEFAULTUSER0', 'WDAGUTILITYACCOUNT',
+    'GUEST', 'DEFAULTUSER0', 'WDAGUTILITYACCOUNT', '-\\-',
 }
 
-# Patterns for system account prefixes (will match UMFD-0 through UMFD-99, DWM-1 through DWM-99, etc.)
-SYSTEM_ACCOUNT_PREFIXES = ('UMFD-', 'DWM-', 'WINRM ', 'FONT DRIVER HOST\\')
-
-# System SIDs to exclude (well-known SIDs)
-SYSTEM_SIDS = {
+# Well-known SIDs to exclude
+SYSTEM_SIDS_EXACT = {
+    'S-1-5-4',   # Interactive
     'S-1-5-18',  # Local System
     'S-1-5-19',  # Local Service  
     'S-1-5-20',  # Network Service
@@ -49,6 +47,10 @@ SYSTEM_SIDS = {
     'S-1-5-32',  # Builtin
 }
 
+# Patterns for system account prefixes (will match UMFD-0 through UMFD-99, DWM-1 through DWM-99, etc.)
+SYSTEM_ACCOUNT_PREFIXES = ('UMFD-', 'DWM-', 'WINRM ', 'FONT DRIVER HOST\\')
+
+
 # SID prefixes to exclude
 SYSTEM_SID_PREFIXES = (
     'S-1-5-90-',   # Window Manager (DWM)
@@ -58,6 +60,46 @@ SYSTEM_SID_PREFIXES = (
     'S-1-5-83-',   # Virtual Machine accounts
     'S-1-5-32-',   # Builtin domain
 )
+
+
+def clean_username(username: str) -> str:
+    """Clean and normalize a username, stripping prefixes and garbage
+    
+    Returns cleaned username or None if it's garbage
+    """
+    if not username:
+        return None
+    
+    username = username.strip()
+    
+    # Strip "Context: " prefix (from Hayabusa parsing)
+    if username.upper().startswith('CONTEXT:'):
+        username = username[8:].strip()
+    if username.upper().startswith('CONTEXT '):
+        username = username[8:].strip()
+    
+    # Check for garbled/corrupted Unicode (non-ASCII characters that aren't valid)
+    # Valid usernames should be mostly ASCII with maybe some extended Latin chars
+    try:
+        # Count non-ASCII characters
+        non_ascii = sum(1 for c in username if ord(c) > 127)
+        if non_ascii > 0:
+            # If more than 20% non-ASCII or has weird Unicode ranges, it's garbage
+            if non_ascii / len(username) > 0.2:
+                return None
+            # Check for specific garbage Unicode ranges
+            for c in username:
+                code = ord(c)
+                # Filter out: control chars, private use, surrogates, unusual scripts
+                if code > 255 and code not in range(0x100, 0x180):  # Extended Latin OK
+                    return None
+    except Exception:
+        return None
+    
+    if not username or len(username) < 2:
+        return None
+    
+    return username
 
 
 def get_redis():
@@ -138,7 +180,12 @@ def is_system_account(username: str, sid: str = None) -> bool:
     
     # Check username against system accounts
     if username:
-        username_upper = username.strip().upper()
+        # Clean the username first
+        cleaned = clean_username(username)
+        if not cleaned:
+            return True  # Garbage username
+        
+        username_upper = cleaned.upper()
         
         # Skip empty or very short usernames
         if len(username_upper) < 2:
@@ -169,7 +216,7 @@ def is_system_account(username: str, sid: str = None) -> bool:
         # Check if username is actually a SID (starts with S-1-)
         if username_upper.startswith('S-1-'):
             # This is a SID in the username field - check if it's a system SID
-            if username_upper in SYSTEM_SIDS:
+            if username_upper in SYSTEM_SIDS_EXACT:
                 return True
             for prefix in SYSTEM_SID_PREFIXES:
                 if username_upper.startswith(prefix):
@@ -191,7 +238,7 @@ def is_system_account(username: str, sid: str = None) -> bool:
         sid_upper = sid.strip().upper()
         
         # Direct match of well-known SIDs
-        if sid_upper in SYSTEM_SIDS:
+        if sid_upper in SYSTEM_SIDS_EXACT:
             return True
         
         # Check for system SID prefixes
@@ -363,11 +410,14 @@ def _get_users_from_events(case_id: int) -> dict:
         )
         
         for row in result.result_rows:
-            username = row[0].strip() if row[0] else None
+            raw_username = row[0].strip() if row[0] else None
             sid = row[1].strip() if row[1] else None
             domain = row[2].strip() if row[2] else None
             count = row[3]
             last_ts = row[4]
+            
+            # Clean the username (strip Context: prefix, filter garbage)
+            username = clean_username(raw_username) if raw_username else None
             
             # If username looks like a SID (S-1-5-...), treat it as the SID
             if username and username.upper().startswith('S-1-') and not sid:
@@ -378,15 +428,19 @@ def _get_users_from_events(case_id: int) -> dict:
             if is_system_account(username, sid):
                 continue
             
+            # Normalize username to get consistent key
+            normalized_username = None
+            if username:
+                normalized_username, extracted_domain = KnownUser.normalize_username(username)
+                if extracted_domain and not domain:
+                    domain = extracted_domain
+            
             # Create unique key for dedup within this query
-            # Use SID as primary key if available, otherwise username
+            # Use SID as primary key if available, otherwise normalized username
             if sid:
                 key = f"SID:{sid.upper()}"
-            elif username:
-                normalized, _ = KnownUser.normalize_username(username)
-                if not normalized:
-                    continue
-                key = f"USER:{normalized}"
+            elif normalized_username:
+                key = f"USER:{normalized_username}"
             else:
                 continue
             
@@ -396,15 +450,18 @@ def _get_users_from_events(case_id: int) -> dict:
                 if last_ts and (not user_stats[key]['last_seen'] or last_ts > user_stats[key]['last_seen']):
                     user_stats[key]['last_seen'] = last_ts
                 # Update username if we have it now but didn't before
-                if username and not user_stats[key].get('username'):
-                    user_stats[key]['username'] = username
+                if normalized_username and not user_stats[key].get('username'):
+                    user_stats[key]['username'] = normalized_username
+                # Update SID if we have it now but didn't before
+                if sid and not user_stats[key].get('sid'):
+                    user_stats[key]['sid'] = sid.upper()
                 # Update domain if we have it now but didn't before
                 if domain and not user_stats[key].get('domain'):
                     user_stats[key]['domain'] = domain
             else:
                 user_stats[key] = {
-                    'username': username,
-                    'sid': sid,
+                    'username': normalized_username,
+                    'sid': sid.upper() if sid else None,
                     'domain': domain,
                     'count': count,
                     'last_seen': last_ts

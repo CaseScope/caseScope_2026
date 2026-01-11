@@ -1,6 +1,17 @@
 {
-  "version": "3.31.1",
+  "version": "3.31.2",
   "changelog": [
+    {
+      "version": "3.31.2",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Users: Strip 'Context: ' prefix from Hayabusa usernames",
+        "Filter garbled/corrupted Unicode usernames",
+        "Aggregate counts across username variations (DOMAIN\\user, user)",
+        "Add S-1-5-4 (Interactive) to exclusion list",
+        "Properly normalize all username formats before dedup"
+      ]
+    },
     {
       "version": "3.31.1",
       "date": "2026-01-11",
