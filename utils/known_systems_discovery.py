@@ -138,6 +138,11 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         dest_stats, server_shares = _get_destination_hosts_and_shares(case_id)
         logger.info(f"Found {len(dest_stats)} unique destination hosts, {len(server_shares)} servers with shares")
         
+        # Source 4: Remote workstations from logon events (systems that connected TO our systems)
+        # CRITICAL for threat hunting - includes attacker workstations!
+        remote_stats = _get_remote_workstations_from_logon_events(case_id)
+        logger.info(f"Found {len(remote_stats)} unique remote workstations from logon events")
+        
         # Merge all stats: combine counts and take latest last_seen
         all_hostname_stats = {}
         
@@ -174,6 +179,10 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         
         # Merge from destination hosts
         for hostname, stats in dest_stats.items():
+            merge_stats(hostname, stats)
+        
+        # Merge from remote workstations (attackers, admins connecting remotely)
+        for hostname, stats in remote_stats.items():
             merge_stats(hostname, stats)
         
         total_hostnames = len(all_hostname_stats)
@@ -534,6 +543,73 @@ def _get_destination_hosts_and_shares(case_id: int) -> Tuple[dict, dict]:
         server_shares[server] = list(server_shares[server])
     
     return dest_stats, server_shares
+
+
+def _get_remote_workstations_from_logon_events(case_id: int) -> dict:
+    """Extract remote workstation names from logon events (4624)
+    
+    These are systems that CONNECTED TO our monitored systems - critical for
+    threat hunting as they may include attacker workstations.
+    
+    Extracts WorkstationName from Event 4624 (Logon) events where:
+    - LogonType is 3 (Network) or 10 (RemoteInteractive/RDP)
+    - WorkstationName is not empty/'-'
+    
+    Returns dict: {hostname: {'count': N, 'last_seen': datetime, 'source': 'remote_logon'}}
+    """
+    from utils.clickhouse import get_client
+    
+    workstation_stats = {}
+    
+    try:
+        client = get_client()
+        
+        # Query for workstation names from logon events
+        # WorkstationName is stored in raw_json EventData
+        result = client.query(
+            """SELECT 
+                 JSONExtractString(JSONExtractString(raw_json, 'EventData'), 'WorkstationName') as workstation,
+                 count() as cnt,
+                 max(timestamp) as last_ts
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND event_id = '4624'
+                 AND artifact_type = 'evtx'
+               GROUP BY workstation
+               HAVING workstation != '' AND workstation != '-'
+               LIMIT 500""",
+            parameters={'case_id': case_id}
+        )
+        
+        for row in result.result_rows:
+            workstation = row[0]
+            count = row[1]
+            last_ts = row[2]
+            
+            if workstation and workstation not in ('-', '', 'null'):
+                # Normalize hostname
+                workstation = workstation.strip().upper()
+                
+                # Skip if it looks like an IP address (some events put IP in WorkstationName)
+                if workstation.replace('.', '').isdigit():
+                    continue
+                
+                # Skip localhost references
+                if workstation in ('LOCALHOST', '127.0.0.1', '-'):
+                    continue
+                
+                workstation_stats[workstation] = {
+                    'count': count,
+                    'last_seen': last_ts,
+                    'source': 'remote_logon'
+                }
+        
+        logger.info(f"Found {len(workstation_stats)} unique remote workstations from logon events")
+                
+    except Exception as e:
+        logger.warning(f"Error getting remote workstations from logon events: {e}")
+    
+    return workstation_stats
 
 
 def _get_hostnames_from_events(case_id: int) -> dict:
