@@ -82,13 +82,240 @@
         <!-- AI Tab -->
         {% if active_tab == 'ai' %}
         <div class="settings-content">
-            <h3 class="settings-section-title">AI Configuration</h3>
-            <p class="text-muted">Configure Ollama and AI-assisted analysis options.</p>
-            <div class="placeholder-content">
-                <span class="placeholder-icon">🚧</span>
-                <span class="placeholder-text">AI settings coming soon...</span>
+            <!-- AI Control Bar -->
+            <div class="ai-control-bar">
+                <div class="ai-toggle-section">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="ai-enabled" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <div class="toggle-label">
+                        <span class="toggle-title">AI Functions</span>
+                        <span class="toggle-description">Enable AI-assisted analysis features</span>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="detect-gpu-btn" onclick="detectGPU()">
+                    <span class="btn-icon">🔍</span> Detect GPU
+                </button>
+            </div>
+
+            <!-- Detection Results -->
+            <div id="gpu-detection-results" class="ai-detection-results" style="display: none;">
+                <!-- GPU Section -->
+                <div class="detection-section">
+                    <h4 class="detection-section-title">
+                        <span class="section-icon">🎮</span> GPU Detection
+                    </h4>
+                    <div id="gpu-info" class="detection-content">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Drivers Section -->
+                <div class="detection-section">
+                    <h4 class="detection-section-title">
+                        <span class="section-icon">📦</span> Drivers
+                    </h4>
+                    <div id="driver-info" class="detection-content">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Ollama Section -->
+                <div class="detection-section">
+                    <h4 class="detection-section-title">
+                        <span class="section-icon">🦙</span> Ollama
+                    </h4>
+                    <div id="ollama-info" class="detection-content">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Models Section -->
+                <div class="detection-section">
+                    <h4 class="detection-section-title">
+                        <span class="section-icon">🧠</span> Installed Models
+                    </h4>
+                    <div id="models-info" class="detection-content">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Initial State -->
+            <div id="gpu-detection-placeholder" class="placeholder-content">
+                <span class="placeholder-icon">🔍</span>
+                <span class="placeholder-text">Click "Detect GPU" to scan your system for GPU and AI capabilities</span>
             </div>
         </div>
+
+        <script>
+        function detectGPU() {
+            const btn = document.getElementById('detect-gpu-btn');
+            const resultsDiv = document.getElementById('gpu-detection-results');
+            const placeholderDiv = document.getElementById('gpu-detection-placeholder');
+            
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
+            
+            fetch('/api/settings/detect-gpu')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Hide placeholder, show results
+                        placeholderDiv.style.display = 'none';
+                        resultsDiv.style.display = 'block';
+                        
+                        // Render GPU info
+                        renderGPUInfo(data);
+                        renderDriverInfo(data);
+                        renderOllamaInfo(data);
+                        renderModelsInfo(data);
+                    } else {
+                        alert('Error detecting GPU: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(err => {
+                    console.error('Error:', err);
+                    alert('Error detecting GPU');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="btn-icon">🔍</span> Detect GPU';
+                });
+        }
+        
+        function renderGPUInfo(data) {
+            const container = document.getElementById('gpu-info');
+            
+            if (!data.gpus || data.gpus.length === 0) {
+                container.innerHTML = '<div class="detection-empty">No GPU detected</div>';
+                return;
+            }
+            
+            let html = '';
+            
+            if (data.gpus.length > 1) {
+                html += `<div class="detection-notice">
+                    <span class="notice-icon">ℹ️</span>
+                    <span>Multiple GPUs detected (${data.gpus.length}). Recommended GPU highlighted.</span>
+                </div>`;
+            }
+            
+            data.gpus.forEach((gpu, idx) => {
+                const isRecommended = data.recommended_gpu && 
+                    data.recommended_gpu.index === gpu.index && 
+                    data.recommended_gpu.name === gpu.name;
+                const vramGB = gpu.vram_total_mb ? (gpu.vram_total_mb / 1024).toFixed(1) : 'Unknown';
+                const vramFreeGB = gpu.vram_free_mb ? (gpu.vram_free_mb / 1024).toFixed(1) : 'Unknown';
+                
+                html += `
+                    <div class="gpu-card ${isRecommended ? 'recommended' : ''}">
+                        ${isRecommended ? '<div class="recommended-badge">✓ Recommended</div>' : ''}
+                        <div class="gpu-name">${escapeHtml(gpu.name)}</div>
+                        <div class="gpu-details">
+                            <div class="gpu-detail-row">
+                                <span class="detail-label">Type:</span>
+                                <span class="detail-value">${gpu.type}</span>
+                            </div>
+                            <div class="gpu-detail-row">
+                                <span class="detail-label">VRAM:</span>
+                                <span class="detail-value">${vramGB} GB total / ${vramFreeGB} GB free</span>
+                            </div>
+                            ${gpu.cuda_version ? `
+                            <div class="gpu-detail-row">
+                                <span class="detail-label">CUDA:</span>
+                                <span class="detail-value">${gpu.cuda_version}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        function renderDriverInfo(data) {
+            const container = document.getElementById('driver-info');
+            
+            if (!data.drivers || data.drivers.length === 0) {
+                container.innerHTML = '<div class="detection-empty">No GPU drivers detected</div>';
+                return;
+            }
+            
+            let html = '<div class="driver-list">';
+            data.drivers.forEach(driver => {
+                html += `
+                    <div class="driver-item">
+                        <span class="driver-name">${escapeHtml(driver.name)}</span>
+                        ${driver.cuda ? `<span class="driver-cuda">${escapeHtml(driver.cuda)}</span>` : ''}
+                    </div>
+                `;
+            });
+            html += '</div>';
+            
+            container.innerHTML = html;
+        }
+        
+        function renderOllamaInfo(data) {
+            const container = document.getElementById('ollama-info');
+            
+            if (!data.ollama.installed) {
+                container.innerHTML = `
+                    <div class="detection-warning">
+                        <span class="warning-icon">⚠️</span>
+                        <span>Ollama is not installed. <a href="https://ollama.ai" target="_blank">Download Ollama</a></span>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="ollama-status">
+                    <span class="status-badge status-success">✓ Installed</span>
+                    <span class="ollama-version">Version ${escapeHtml(data.ollama.version || 'Unknown')}</span>
+                </div>
+            `;
+        }
+        
+        function renderModelsInfo(data) {
+            const container = document.getElementById('models-info');
+            
+            if (!data.ollama.installed) {
+                container.innerHTML = '<div class="detection-empty">Ollama not installed</div>';
+                return;
+            }
+            
+            if (!data.ollama.models || data.ollama.models.length === 0) {
+                container.innerHTML = `
+                    <div class="detection-empty">No models installed. Run <code>ollama pull llama3</code> to install a model.</div>
+                `;
+                return;
+            }
+            
+            let html = '<div class="models-grid">';
+            data.ollama.models.forEach(model => {
+                html += `
+                    <div class="model-card">
+                        <span class="model-name">${escapeHtml(model.name)}</span>
+                        <span class="model-size">${escapeHtml(model.size)}</span>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            
+            container.innerHTML = html;
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        </script>
         {% endif %}
 
         <!-- EVTX/SIGMA Tab -->

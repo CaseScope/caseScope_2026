@@ -2099,3 +2099,147 @@ def bulk_create_iocs(case_uuid):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# AI Settings API
+# ============================================
+
+@api_bp.route('/settings/detect-gpu', methods=['GET'])
+@login_required
+def detect_gpu():
+    """Detect GPU(s), drivers, and Ollama installation"""
+    try:
+        result = {
+            'success': True,
+            'gpus': [],
+            'recommended_gpu': None,
+            'drivers': [],
+            'ollama': {
+                'installed': False,
+                'version': None,
+                'models': []
+            }
+        }
+        
+        # Detect NVIDIA GPUs using nvidia-smi
+        try:
+            nvidia_output = subprocess.run(
+                ['nvidia-smi', '--query-gpu=index,name,memory.total,memory.free,driver_version,cuda_version', 
+                 '--format=csv,noheader,nounits'],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if nvidia_output.returncode == 0 and nvidia_output.stdout.strip():
+                for line in nvidia_output.stdout.strip().split('\n'):
+                    parts = [p.strip() for p in line.split(',')]
+                    if len(parts) >= 6:
+                        gpu = {
+                            'index': int(parts[0]),
+                            'name': parts[1],
+                            'vram_total_mb': int(float(parts[2])),
+                            'vram_free_mb': int(float(parts[3])),
+                            'driver_version': parts[4],
+                            'cuda_version': parts[5],
+                            'type': 'NVIDIA'
+                        }
+                        result['gpus'].append(gpu)
+                        
+                        # Add driver info
+                        driver_info = f"NVIDIA Driver {parts[4]}"
+                        if driver_info not in [d['name'] for d in result['drivers']]:
+                            result['drivers'].append({
+                                'name': driver_info,
+                                'cuda': f"CUDA {parts[5]}"
+                            })
+        except FileNotFoundError:
+            pass  # nvidia-smi not available
+        except Exception as e:
+            pass
+        
+        # Try lspci for additional GPU detection (AMD, Intel)
+        try:
+            lspci_output = subprocess.run(
+                ['lspci', '-v'],
+                capture_output=True, text=True, timeout=10
+            )
+            if lspci_output.returncode == 0:
+                import re
+                # Look for VGA/3D controllers
+                vga_pattern = re.compile(r'(VGA compatible controller|3D controller):\s*(.+)', re.IGNORECASE)
+                for match in vga_pattern.finditer(lspci_output.stdout):
+                    gpu_name = match.group(2).strip()
+                    # Check if this GPU is already in our list (NVIDIA)
+                    if not any(gpu_name in g['name'] for g in result['gpus']):
+                        gpu_type = 'AMD' if 'AMD' in gpu_name or 'Radeon' in gpu_name else \
+                                   'Intel' if 'Intel' in gpu_name else 'Other'
+                        result['gpus'].append({
+                            'index': len(result['gpus']),
+                            'name': gpu_name,
+                            'vram_total_mb': None,
+                            'vram_free_mb': None,
+                            'driver_version': 'Unknown',
+                            'cuda_version': None,
+                            'type': gpu_type
+                        })
+        except Exception:
+            pass
+        
+        # Select recommended GPU (prefer NVIDIA with most VRAM)
+        if result['gpus']:
+            nvidia_gpus = [g for g in result['gpus'] if g['type'] == 'NVIDIA']
+            if nvidia_gpus:
+                # Sort by VRAM (descending)
+                nvidia_gpus.sort(key=lambda x: x['vram_total_mb'] or 0, reverse=True)
+                result['recommended_gpu'] = nvidia_gpus[0]
+            else:
+                result['recommended_gpu'] = result['gpus'][0]
+        
+        # Detect Ollama
+        try:
+            ollama_version = subprocess.run(
+                ['ollama', '--version'],
+                capture_output=True, text=True, timeout=5
+            )
+            if ollama_version.returncode == 0:
+                result['ollama']['installed'] = True
+                version_text = ollama_version.stdout.strip() or ollama_version.stderr.strip()
+                # Extract version number (format: "ollama version is X.X.X")
+                if 'version' in version_text.lower():
+                    import re
+                    version_match = re.search(r'(\d+\.\d+\.\d+)', version_text)
+                    if version_match:
+                        result['ollama']['version'] = version_match.group(1)
+                    else:
+                        result['ollama']['version'] = version_text
+                else:
+                    result['ollama']['version'] = version_text
+                
+                # Get installed models
+                try:
+                    ollama_list = subprocess.run(
+                        ['ollama', 'list'],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if ollama_list.returncode == 0 and ollama_list.stdout.strip():
+                        lines = ollama_list.stdout.strip().split('\n')
+                        for line in lines[1:]:  # Skip header
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                model_name = parts[0]
+                                model_size = parts[2] if len(parts) >= 3 else 'Unknown'
+                                result['ollama']['models'].append({
+                                    'name': model_name,
+                                    'size': model_size
+                                })
+                except Exception:
+                    pass
+        except FileNotFoundError:
+            result['ollama']['installed'] = False
+        except Exception:
+            pass
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

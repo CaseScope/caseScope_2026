@@ -1,6 +1,15 @@
 {
-  "version": "3.34.0",
+  "version": "3.35.0",
   "changelog": [
+    {
+      "version": "3.35.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Settings AI: Enable/disable toggle for AI functions",
+        "Settings AI: Detect GPU button scans system for GPU, drivers, Ollama, and models",
+        "Settings AI: Displays GPU info, VRAM, CUDA, recommends best GPU if multiple found"
+      ]
+    },
     {
       "version": "3.34.0",
       "date": "2026-01-11",
