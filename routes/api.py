@@ -2397,3 +2397,132 @@ def set_ai_settings():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# IOC Extraction from EDR Reports API
+# ============================================
+
+@api_bp.route('/iocs/extraction/check/<case_uuid>')
+@login_required
+def check_edr_reports(case_uuid):
+    """Check if case has EDR reports available for extraction"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        from utils.ioc_extractor import split_edr_reports, get_report_preview
+        
+        has_reports = bool(case.edr_report and case.edr_report.strip())
+        report_count = 0
+        report_previews = []
+        
+        if has_reports:
+            reports = split_edr_reports(case.edr_report)
+            report_count = len(reports)
+            report_previews = [
+                {'index': i, 'preview': get_report_preview(r, 150), 'length': len(r)}
+                for i, r in enumerate(reports)
+            ]
+        
+        return jsonify({
+            'success': True,
+            'has_reports': has_reports,
+            'report_count': report_count,
+            'report_previews': report_previews
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/extraction/extract/<case_uuid>', methods=['POST'])
+@login_required
+def extract_iocs_from_report(case_uuid):
+    """Extract IOCs from a specific EDR report"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        if not case.edr_report or not case.edr_report.strip():
+            return jsonify({'success': False, 'error': 'No EDR reports available'}), 400
+        
+        data = request.get_json()
+        report_index = data.get('report_index', 0)
+        
+        from utils.ioc_extractor import (
+            split_edr_reports, extract_iocs_with_ai, 
+            process_extraction_for_import, get_report_preview
+        )
+        
+        reports = split_edr_reports(case.edr_report)
+        
+        if report_index < 0 or report_index >= len(reports):
+            return jsonify({'success': False, 'error': 'Invalid report index'}), 400
+        
+        report_text = reports[report_index]
+        
+        # Extract IOCs
+        extraction, used_ai = extract_iocs_with_ai(report_text)
+        
+        # Process for import (deduplication, known systems/users matching)
+        processed = process_extraction_for_import(
+            extraction=extraction,
+            case_id=case.id,
+            username=current_user.username
+        )
+        
+        return jsonify({
+            'success': True,
+            'report_index': report_index,
+            'total_reports': len(reports),
+            'report_preview': get_report_preview(report_text, 200),
+            'used_ai': used_ai,
+            'extraction_summary': processed.get('extraction_summary', {}),
+            'iocs_to_import': processed.get('iocs_to_import', []),
+            'known_systems': processed.get('known_systems_results', []),
+            'known_users': processed.get('known_users_results', []),
+            'mitre_indicators': processed.get('mitre_indicators', [])
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/extraction/save/<case_uuid>', methods=['POST'])
+@login_required
+def save_extracted_iocs_api(case_uuid):
+    """Save selected extracted IOCs to the database"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        iocs_data = data.get('iocs', [])
+        known_systems = data.get('known_systems', [])
+        known_users = data.get('known_users', [])
+        
+        from utils.ioc_extractor import save_extracted_iocs
+        
+        results = save_extracted_iocs(
+            iocs_data=iocs_data,
+            case_id=case.id,
+            username=current_user.username,
+            known_systems=known_systems,
+            known_users=known_users
+        )
+        
+        return jsonify({
+            'success': True,
+            'results': results
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500

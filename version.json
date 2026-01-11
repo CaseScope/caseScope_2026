@@ -1,6 +1,20 @@
 {
-  "version": "3.36.0",
+  "version": "3.37.0",
   "changelog": [
+    {
+      "version": "3.37.0",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC Management: Find in Reports button for AI-powered IOC extraction from EDR reports",
+        "IOC Extraction: Splits multiple reports by *** NEW REPORT *** separator, processes one at a time",
+        "IOC Extraction: AI extraction with regex fallback when AI unavailable",
+        "IOC Extraction: Deduplication - merges with existing IOCs, links to case if already exists",
+        "IOC Extraction: Known Systems integration - creates new or marks existing as compromised",
+        "IOC Extraction: Known Users integration - creates new or marks existing as compromised",
+        "IOC Extraction: MITRE ATT&CK technique mapping displayed in extraction results",
+        "IOC Extraction: User review workflow - select IOCs, systems, users before saving"
+      ]
+    },
     {
       "version": "3.36.0",
       "date": "2026-01-11",
