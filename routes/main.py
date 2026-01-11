@@ -181,6 +181,42 @@ def case_hunting():
     return render_template('case_hunting.html', page_title='Hunting', case=case)
 
 
+@main_bp.route('/case/ioc-management')
+@login_required
+@case_required
+def case_ioc_management():
+    """IOC Management - manage indicators of compromise"""
+    case = get_active_case()
+    return render_template('case_ioc_management.html', page_title='IOC Management', case=case)
+
+
+@main_bp.route('/case/known-systems')
+@login_required
+@case_required
+def case_known_systems():
+    """Known Systems - track known systems in the case"""
+    case = get_active_case()
+    return render_template('case_known_systems.html', page_title='Known Systems', case=case)
+
+
+@main_bp.route('/case/known-users')
+@login_required
+@case_required
+def case_known_users():
+    """Known Users - track known users in the case"""
+    case = get_active_case()
+    return render_template('case_known_users.html', page_title='Known Users', case=case)
+
+
+@main_bp.route('/case/evidence')
+@login_required
+@case_required
+def case_evidence():
+    """Evidence - manage case evidence"""
+    case = get_active_case()
+    return render_template('case_evidence.html', page_title='Evidence', case=case)
+
+
 @main_bp.route('/case/edr-report', methods=['GET', 'POST'])
 @login_required
 @case_required

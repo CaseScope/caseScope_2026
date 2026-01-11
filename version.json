@@ -1,6 +1,14 @@
 {
-  "version": "3.27.0",
+  "version": "3.28.0",
   "changelog": [
+    {
+      "version": "3.28.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Left menu: Added Hunting section under Cases",
+        "New pages: IOC Management, Known Systems, Known Users, Evidence (placeholders)"
+      ]
+    },
     {
       "version": "3.27.0",
       "date": "2026-01-10",

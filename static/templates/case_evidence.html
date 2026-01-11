@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📦</span>
+            Evidence
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">📦</span>
+        <span class="card-title">Evidence</span>
+    </div>
+    <div class="card-body" style="padding: 40px; text-align: center;">
+        <p class="text-muted" style="font-size: 1.1rem;">Evidence functionality coming soon.</p>
+        <p class="text-muted">Manage and track collected evidence items, chain of custody, and findings.</p>
+    </div>
+</div>
+{% endblock %}
