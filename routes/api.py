@@ -2157,7 +2157,7 @@ def detect_gpu():
         except Exception as e:
             pass
         
-        # Try lspci for additional GPU detection (AMD, Intel)
+        # Try lspci for additional GPU detection (AMD, Intel, or NVIDIA not found by nvidia-smi)
         try:
             lspci_output = subprocess.run(
                 ['lspci', '-v'],
@@ -2169,21 +2169,78 @@ def detect_gpu():
                 vga_pattern = re.compile(r'(VGA compatible controller|3D controller):\s*(.+)', re.IGNORECASE)
                 for match in vga_pattern.finditer(lspci_output.stdout):
                     gpu_name = match.group(2).strip()
-                    # Check if this GPU is already in our list (NVIDIA)
-                    if not any(gpu_name in g['name'] for g in result['gpus']):
-                        gpu_type = 'AMD' if 'AMD' in gpu_name or 'Radeon' in gpu_name else \
-                                   'Intel' if 'Intel' in gpu_name else 'Other'
+                    # Check if this GPU is already in our list
+                    already_found = any(
+                        gpu_name in g['name'] or g['name'] in gpu_name 
+                        for g in result['gpus']
+                    )
+                    if not already_found:
+                        # Determine GPU type
+                        if 'NVIDIA' in gpu_name.upper():
+                            gpu_type = 'NVIDIA'
+                        elif 'AMD' in gpu_name.upper() or 'RADEON' in gpu_name.upper():
+                            gpu_type = 'AMD'
+                        elif 'INTEL' in gpu_name.upper():
+                            gpu_type = 'Intel'
+                        else:
+                            gpu_type = 'Other'
+                        
                         result['gpus'].append({
                             'index': len(result['gpus']),
                             'name': gpu_name,
                             'vram_total_mb': None,
                             'vram_free_mb': None,
-                            'driver_version': 'Unknown',
+                            'driver_version': None,
                             'cuda_version': None,
                             'type': gpu_type
                         })
         except Exception:
             pass
+        
+        # If we have NVIDIA GPU but no driver info, try to get it separately
+        has_nvidia = any(g['type'] == 'NVIDIA' for g in result['gpus'])
+        if has_nvidia and not result['drivers']:
+            try:
+                # Try nvidia-smi just for driver version
+                driver_check = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=driver_version,cuda_version', '--format=csv,noheader,nounits'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if driver_check.returncode == 0 and driver_check.stdout.strip():
+                    parts = [p.strip() for p in driver_check.stdout.strip().split('\n')[0].split(',')]
+                    if len(parts) >= 2:
+                        driver_ver = parts[0]
+                        cuda_ver = parts[1]
+                        result['drivers'].append({
+                            'name': f"NVIDIA Driver {driver_ver}",
+                            'cuda': f"CUDA {cuda_ver}" if cuda_ver and cuda_ver != '[N/A]' else None
+                        })
+                        # Update GPU records with driver info
+                        for gpu in result['gpus']:
+                            if gpu['type'] == 'NVIDIA':
+                                gpu['driver_version'] = driver_ver
+                                gpu['cuda_version'] = cuda_ver if cuda_ver != '[N/A]' else None
+            except Exception:
+                pass
+        
+        # Try to get NVIDIA VRAM info if missing
+        for gpu in result['gpus']:
+            if gpu['type'] == 'NVIDIA' and gpu['vram_total_mb'] is None:
+                try:
+                    vram_check = subprocess.run(
+                        ['nvidia-smi', '--query-gpu=memory.total,memory.free', '--format=csv,noheader,nounits'],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if vram_check.returncode == 0 and vram_check.stdout.strip():
+                        parts = [p.strip() for p in vram_check.stdout.strip().split('\n')[0].split(',')]
+                        if len(parts) >= 2:
+                            try:
+                                gpu['vram_total_mb'] = int(float(parts[0]))
+                                gpu['vram_free_mb'] = int(float(parts[1]))
+                            except ValueError:
+                                pass
+                except Exception:
+                    pass
         
         # Select recommended GPU (prefer NVIDIA with most VRAM)
         if result['gpus']:

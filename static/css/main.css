@@ -1470,7 +1470,6 @@ tbody td {
 
 .gpu-card.recommended {
   border-left-color: var(--accent-success);
-  background-color: rgba(54, 179, 126, 0.08);
 }
 
 .recommended-badge {
