@@ -164,6 +164,7 @@ class EvtxECmdParser(BaseParser):
                 '-L',                    # JSONL format
                 '-w',                    # Skip wizard
                 '-q',                    # Quiet
+                '-C',                    # Clobber/overwrite existing file
                 '--no-color',
                 '-p', 'all-field-info',  # Get all fields for context
                 '--min-level', 'informational',
@@ -191,11 +192,11 @@ class EvtxECmdParser(BaseParser):
                             continue
                         try:
                             event = json.loads(line)
-                            # Key by Channel + RecordID for correlation
-                            channel = event.get('Channel', '')
+                            # Key by RecordID only for correlation
+                            # (Hayabusa abbreviates channel names: Security->Sec, etc.)
                             record_id = event.get('RecordID')
                             if record_id:
-                                key = f"{channel}:{record_id}"
+                                key = str(record_id)
                                 
                                 # Handle array fields
                                 mitre_tactics = event.get('MitreTactics') or []
@@ -326,8 +327,8 @@ class EvtxECmdParser(BaseParser):
             event_id = str(event.get('EventId', ''))
             record_id = event.get('RecordNumber')
             
-            # Check for Hayabusa detection enrichment
-            detection_key = f"{channel}:{record_id}"
+            # Check for Hayabusa detection enrichment (keyed by RecordID only)
+            detection_key = str(record_id) if record_id else ''
             detection = detections.get(detection_key, {})
             
             # Parse the Payload JSON to extract EventData fields
