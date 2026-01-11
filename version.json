@@ -1,6 +1,18 @@
 {
-  "version": "3.31.0",
+  "version": "3.31.1",
   "changelog": [
+    {
+      "version": "3.31.1",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Users: Improved noise filtering for user discovery",
+        "Exclude hex-encoded SIDs (0103000000... strings)",
+        "Exclude all UMFD-*, DWM-* system accounts",
+        "Exclude S-1-5-90-*, S-1-5-96-*, S-1-5-80-* SID ranges",
+        "Handle raw SIDs in username field (move to SID column)",
+        "Exclude pure numeric usernames, CONTEXT:, and other garbage"
+      ]
+    },
     {
       "version": "3.31.0",
       "date": "2026-01-11",

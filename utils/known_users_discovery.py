@@ -28,16 +28,18 @@ _redis_client = None
 SYSTEM_ACCOUNTS = {
     'SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE', 'ANONYMOUS LOGON',
     'NT AUTHORITY', 'BUILTIN', 'WINDOW MANAGER', 'FONT DRIVER HOST',
-    'DWMWINDOWHOST', 'UMFD-0', 'UMFD-1', 'UMFD-2', 'UMFD-3', 'UMFD-4',
-    '-', '', 'N/A', 'NA', 'NONE', 'NULL', 'UNKNOWN',
-    'DWM-1', 'DWM-2', 'DWM-3', 'DWM-4',
-    'IUSR', 'IWAM', 'ASPNET', 'DEFAULTACCOUNT',
+    'DWMWINDOWHOST', '-', '', 'N/A', 'NA', 'NONE', 'NULL', 'UNKNOWN',
+    'IUSR', 'IWAM', 'ASPNET', 'DEFAULTACCOUNT', 'CONTEXT', 'CONTEXT:',
+    'GUEST', 'DEFAULTUSER0', 'WDAGUTILITYACCOUNT',
 }
+
+# Patterns for system account prefixes (will match UMFD-0 through UMFD-99, DWM-1 through DWM-99, etc.)
+SYSTEM_ACCOUNT_PREFIXES = ('UMFD-', 'DWM-', 'WINRM ', 'FONT DRIVER HOST\\')
 
 # System SIDs to exclude (well-known SIDs)
 SYSTEM_SIDS = {
     'S-1-5-18',  # Local System
-    'S-1-5-19',  # Local Service
+    'S-1-5-19',  # Local Service  
     'S-1-5-20',  # Network Service
     'S-1-5-7',   # Anonymous Logon
     'S-1-5-6',   # Service
@@ -46,6 +48,16 @@ SYSTEM_SIDS = {
     'S-1-1-0',   # Everyone
     'S-1-5-32',  # Builtin
 }
+
+# SID prefixes to exclude
+SYSTEM_SID_PREFIXES = (
+    'S-1-5-90-',   # Window Manager (DWM)
+    'S-1-5-96-',   # Font Driver Host (UMFD)
+    'S-1-5-80-',   # NT Service accounts
+    'S-1-5-82-',   # IIS AppPool accounts
+    'S-1-5-83-',   # Virtual Machine accounts
+    'S-1-5-32-',   # Builtin domain
+)
 
 
 def get_redis():
@@ -128,18 +140,50 @@ def is_system_account(username: str, sid: str = None) -> bool:
     if username:
         username_upper = username.strip().upper()
         
+        # Skip empty or very short usernames
+        if len(username_upper) < 2:
+            return True
+        
         # Direct match
         if username_upper in SYSTEM_ACCOUNTS:
             return True
+        
+        # Check for system account prefixes (UMFD-*, DWM-*, etc.)
+        for prefix in SYSTEM_ACCOUNT_PREFIXES:
+            if username_upper.startswith(prefix):
+                return True
         
         # Check for DOMAIN\SYSTEM pattern
         if '\\' in username_upper:
             user_part = username_upper.split('\\', 1)[1]
             if user_part in SYSTEM_ACCOUNTS:
                 return True
+            for prefix in SYSTEM_ACCOUNT_PREFIXES:
+                if user_part.startswith(prefix):
+                    return True
         
         # Check for machine account (ends with $)
         if username_upper.endswith('$'):
+            return True
+        
+        # Check if username is actually a SID (starts with S-1-)
+        if username_upper.startswith('S-1-'):
+            # This is a SID in the username field - check if it's a system SID
+            if username_upper in SYSTEM_SIDS:
+                return True
+            for prefix in SYSTEM_SID_PREFIXES:
+                if username_upper.startswith(prefix):
+                    return True
+        
+        # Check for hex-encoded SIDs (long hex strings starting with 0103 or 0105)
+        # These are binary SID representations, not real usernames
+        if len(username_upper) > 20 and username_upper.startswith(('0103', '0105', '0101')):
+            # Check if it's mostly hex characters
+            if all(c in '0123456789ABCDEF' for c in username_upper):
+                return True
+        
+        # Exclude pure numeric "usernames" (like "2", "123")
+        if username_upper.isdigit():
             return True
     
     # Check SID against system SIDs
@@ -150,9 +194,15 @@ def is_system_account(username: str, sid: str = None) -> bool:
         if sid_upper in SYSTEM_SIDS:
             return True
         
-        # Check for built-in SIDs (S-1-5-32-xxx)
-        if sid_upper.startswith('S-1-5-32-'):
-            return True
+        # Check for system SID prefixes
+        for prefix in SYSTEM_SID_PREFIXES:
+            if sid_upper.startswith(prefix):
+                return True
+        
+        # Check for hex-encoded SIDs in the SID field too
+        if len(sid_upper) > 20 and sid_upper.startswith(('0103', '0105', '0101')):
+            if all(c in '0123456789ABCDEF' for c in sid_upper):
+                return True
     
     return False
 
@@ -319,6 +369,11 @@ def _get_users_from_events(case_id: int) -> dict:
             count = row[3]
             last_ts = row[4]
             
+            # If username looks like a SID (S-1-5-...), treat it as the SID
+            if username and username.upper().startswith('S-1-') and not sid:
+                sid = username.upper()
+                username = None
+            
             # Skip system accounts
             if is_system_account(username, sid):
                 continue
@@ -326,9 +381,11 @@ def _get_users_from_events(case_id: int) -> dict:
             # Create unique key for dedup within this query
             # Use SID as primary key if available, otherwise username
             if sid:
-                key = f"SID:{sid}"
+                key = f"SID:{sid.upper()}"
             elif username:
                 normalized, _ = KnownUser.normalize_username(username)
+                if not normalized:
+                    continue
                 key = f"USER:{normalized}"
             else:
                 continue
