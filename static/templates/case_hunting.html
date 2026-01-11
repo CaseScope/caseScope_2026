@@ -91,9 +91,13 @@ const EVTX_TYPES = ['evtx'];
 const FIREWALL_TYPES = ['firewall', 'sonicwall'];
 const EDR_TYPES = ['huntress'];
 
+// Track current tab
+let currentTab = 'events';
+
 // Tab switching
 document.addEventListener('DOMContentLoaded', function() {
     const tabs = document.querySelectorAll('.hunting-tab');
+    const filterTile = document.getElementById('events-filter-tile');
     
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
@@ -101,8 +105,16 @@ document.addEventListener('DOMContentLoaded', function() {
             tabs.forEach(t => t.classList.remove('active'));
             this.classList.add('active');
             
+            // Track current tab
+            currentTab = this.dataset.tab || 'events';
+            
             // Get artifact types for this tab
             currentArtifactTypes = this.dataset.types || '';
+            
+            // Show/hide filter tile (Events tab only)
+            if (filterTile) {
+                filterTile.style.display = (currentTab === 'events') ? '' : 'none';
+            }
             
             // Reset pagination and search when switching tabs
             eventsPage = 1;
@@ -157,15 +169,13 @@ function applyFilters() {
 
 // Build artifact types string based on active filters
 function getFilteredArtifactTypes() {
-    // Get tab's base artifact types
-    const tabTypes = currentArtifactTypes.split(',').filter(t => t.trim());
-    
-    // If tab is not "Events" (has specific types like browser), return as-is
-    // The filters only apply to the Events tab
-    const isEventsTab = tabTypes.some(t => EVTX_TYPES.includes(t) || FIREWALL_TYPES.includes(t) || EDR_TYPES.includes(t));
-    if (!isEventsTab) {
+    // Filters only apply to Events tab
+    if (currentTab !== 'events') {
         return currentArtifactTypes;
     }
+    
+    // Get tab's base artifact types
+    const tabTypes = currentArtifactTypes.split(',').filter(t => t.trim());
     
     // Build filtered list based on checkboxes
     let filteredTypes = [];
@@ -207,20 +217,27 @@ function loadEvents() {
     // Build types based on filters
     const filteredTypes = getFilteredArtifactTypes();
     
-    // Determine sigma filter mode based on alertMode dropdown
-    // 'all' mode: show all events, uncheck SIGMA to hide sigma hits
-    // 'only' mode: show only events matching checked alert types
+    // Sigma/severity filters only apply to Events tab
     let sigmaFilter = '';
-    if (eventFilters.alertMode === 'all') {
-        // All Events mode: unchecking hides those events
-        sigmaFilter = eventFilters.sigma ? '' : 'exclude';
-    } else {
-        // Only These mode: only show events matching checked types
-        sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
-    }
+    let severityLevels = '';
+    let alertMode = 'all';
     
-    // Build severity levels filter
-    const severityLevels = getSeverityLevels();
+    if (currentTab === 'events') {
+        // Determine sigma filter mode based on alertMode dropdown
+        // 'all' mode: show all events, uncheck SIGMA to hide sigma hits
+        // 'only' mode: show only events matching checked alert types
+        alertMode = eventFilters.alertMode;
+        if (eventFilters.alertMode === 'all') {
+            // All Events mode: unchecking hides those events
+            sigmaFilter = eventFilters.sigma ? '' : 'exclude';
+        } else {
+            // Only These mode: only show events matching checked types
+            sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
+        }
+        
+        // Build severity levels filter
+        severityLevels = getSeverityLevels();
+    }
     
     // Build params
     const params = new URLSearchParams({
@@ -228,7 +245,7 @@ function loadEvents() {
         per_page: eventsPerPage,
         search: eventsSearch,
         types: filteredTypes,
-        alert_mode: eventFilters.alertMode,
+        alert_mode: alertMode,
         sigma_filter: sigmaFilter,
         severity_levels: severityLevels
     });
