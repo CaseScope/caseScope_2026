@@ -419,9 +419,9 @@ def _get_destination_hosts_and_shares(case_id: int) -> Tuple[dict, dict]:
                     if last_ts and (not dest_stats[netbios]['last_seen'] or last_ts > dest_stats[netbios]['last_seen']):
                         dest_stats[netbios]['last_seen'] = last_ts
                     
-                    # Track shares for this server (exclude IPC$, NETLOGON, SYSVOL)
-                    admin_shares = ('IPC$', 'ADMIN$', 'C$', 'D$', 'NETLOGON', 'SYSVOL')
-                    if share.upper() not in admin_shares:
+                    # Track shares for this server (only exclude hidden admin shares)
+                    hidden_shares = ('IPC$', 'ADMIN$', 'C$', 'D$', 'E$', 'F$')
+                    if share.upper() not in hidden_shares:
                         if netbios not in server_shares:
                             server_shares[netbios] = set()
                         server_shares[netbios].add(share)
