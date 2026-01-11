@@ -1,6 +1,15 @@
 {
-  "version": "3.37.3",
+  "version": "3.37.4",
   "changelog": [
+    {
+      "version": "3.37.4",
+      "date": "2026-01-11",
+      "changes": [
+        "IOC Extraction: Truncate long reports to 12000 chars to prevent timeout",
+        "IOC Extraction: Added 3-minute timeout to Ollama client",
+        "Gunicorn: Increased worker timeout to 300 seconds for AI operations"
+      ]
+    },
     {
       "version": "3.37.3",
       "date": "2026-01-11",

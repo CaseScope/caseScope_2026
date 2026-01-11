@@ -312,7 +312,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         Tuple of (extraction_result, used_ai_bool)
     """
     try:
-        import ollama
+        from ollama import Client
         from models.system_settings import SystemSettings, SettingKeys, AI_MODEL_CONFIG
         
         # Check if AI is enabled
@@ -327,16 +327,25 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             model_config = AI_MODEL_CONFIG.get(gpu_tier, AI_MODEL_CONFIG['8gb'])
             model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')
         
-        # Truncate filemask if present (can be very long)
+        # Truncate report if very long (keep under ~12000 chars for context window)
+        MAX_REPORT_LENGTH = 12000
         truncated_text = report_text
+        if len(truncated_text) > MAX_REPORT_LENGTH:
+            truncated_text = truncated_text[:MAX_REPORT_LENGTH] + "\n\n[... REPORT TRUNCATED FOR PROCESSING ...]"
+            logger.info(f"Report truncated from {len(report_text)} to {MAX_REPORT_LENGTH} chars")
+        
+        # Truncate filemask if present (can be very long)
         if '-filemask="' in truncated_text:
             idx = truncated_text.find('-filemask="')
             end = truncated_text.find('"', idx + 100)
             if end > idx:
                 truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
         
+        # Create client with timeout (3 minutes should be plenty)
+        client = Client(timeout=180.0)
+        
         # Call Ollama
-        response = ollama.chat(
+        response = client.chat(
             model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
