@@ -1,6 +1,14 @@
 {
-  "version": "3.31.4",
+  "version": "3.31.5",
   "changelog": [
+    {
+      "version": "3.31.5",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Users: Strip 'Target: ' prefix from usernames (like Context:)",
+        "Added support for stripping Source:, Subject:, User: prefixes too"
+      ]
+    },
     {
       "version": "3.31.4",
       "date": "2026-01-11",

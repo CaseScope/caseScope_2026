@@ -72,11 +72,22 @@ def clean_username(username: str) -> str:
     
     username = username.strip()
     
-    # Strip "Context: " prefix (from Hayabusa parsing)
-    if username.upper().startswith('CONTEXT:'):
-        username = username[8:].strip()
-    if username.upper().startswith('CONTEXT '):
-        username = username[8:].strip()
+    # Strip common prefixes from Hayabusa/event parsing
+    prefixes_to_strip = [
+        'CONTEXT:', 'CONTEXT ', 
+        'TARGET:', 'TARGET ',
+        'SOURCE:', 'SOURCE ',
+        'USER:', 'USER ',
+        'SUBJECT:', 'SUBJECT ',
+    ]
+    
+    upper = username.upper()
+    for prefix in prefixes_to_strip:
+        if upper.startswith(prefix):
+            username = username[len(prefix):].strip()
+            upper = username.upper()
+            # Check again in case there are nested prefixes
+            break
     
     # Check for garbled/corrupted Unicode (non-ASCII characters that aren't valid)
     # Valid usernames should be mostly ASCII with maybe some extended Latin chars
