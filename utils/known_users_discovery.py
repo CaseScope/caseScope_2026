@@ -308,7 +308,8 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
                     case_id=case_id,
                     added_by=username,
                     artifact_count=stats['count'],
-                    last_seen=stats['last_seen']
+                    last_seen=stats['last_seen'],
+                    alias_formats=stats.get('alias_formats', set())
                 )
                 
                 if created:
@@ -342,7 +343,8 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
                         case_id=case_id,
                         added_by=username,
                         artifact_count=stats['count'],
-                        last_seen=stats['last_seen']
+                        last_seen=stats['last_seen'],
+                        alias_formats=stats.get('alias_formats', set())
                     )
                     if updated:
                         results['users_updated'] += 1
@@ -429,8 +431,16 @@ def _get_users_from_events(case_id: int) -> dict:
                 continue
             
             # Normalize username to get consistent key
+            # DOMAIN\user -> user is the username, DOMAIN\user becomes an alias
             normalized_username = None
+            original_format = None  # Store original format for alias
+            extracted_domain = None
+            
             if username:
+                # Check if it's domain\user format
+                if '\\' in username:
+                    original_format = username.upper()  # JAMESMFG\SBRUNNER
+                
                 normalized_username, extracted_domain = KnownUser.normalize_username(username)
                 if extracted_domain and not domain:
                     domain = extracted_domain
@@ -458,13 +468,19 @@ def _get_users_from_events(case_id: int) -> dict:
                 # Update domain if we have it now but didn't before
                 if domain and not user_stats[key].get('domain'):
                     user_stats[key]['domain'] = domain
+                # Track domain\user formats as aliases
+                if original_format:
+                    if 'alias_formats' not in user_stats[key]:
+                        user_stats[key]['alias_formats'] = set()
+                    user_stats[key]['alias_formats'].add(original_format)
             else:
                 user_stats[key] = {
                     'username': normalized_username,
                     'sid': sid.upper() if sid else None,
                     'domain': domain,
                     'count': count,
-                    'last_seen': last_ts
+                    'last_seen': last_ts,
+                    'alias_formats': {original_format} if original_format else set()
                 }
                 
     except Exception as e:
@@ -474,7 +490,8 @@ def _get_users_from_events(case_id: int) -> dict:
 
 
 def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: str,
-                  artifact_count: int = 1, last_seen: datetime = None) -> Tuple[bool, bool, bool, bool]:
+                  artifact_count: int = 1, last_seen: datetime = None,
+                  alias_formats: set = None) -> Tuple[bool, bool, bool, bool]:
     """Process a single user through deduplication logic
     
     Matching logic:
@@ -485,16 +502,19 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
     5. If no match, create new user
     
     Args:
-        username: The username to process
+        username: The username to process (normalized, without domain)
         sid: Windows SID if available
         domain: Domain if available
         case_id: Case ID for linking
         added_by: User performing discovery
         artifact_count: Number of artifacts referencing this user
         last_seen: Timestamp of most recent artifact with this user
+        alias_formats: Set of DOMAIN\\USER format strings to add as aliases
     
     Returns: (created, updated, alias_added, email_added)
     """
+    if alias_formats is None:
+        alias_formats = set()
     created = False
     updated = False
     alias_added = False
@@ -555,22 +575,23 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
                 new_value=normalized_username
             )
         
-        # Add original username format as alias if different
-        if username and normalized_username and normalized_username != user.username:
-            if user.add_alias(normalized_username):
-                alias_added = True
-                KnownUserAudit.log_change(
-                    user_id=user.id,
-                    changed_by=added_by,
-                    field_name='aliases',
-                    action='create',
-                    new_value=normalized_username
-                )
+        # Add all domain\user formats as aliases
+        for alias_format in alias_formats:
+            if alias_format and alias_format != user.username:
+                if user.add_alias(alias_format):
+                    alias_added = True
+                    KnownUserAudit.log_change(
+                        user_id=user.id,
+                        changed_by=added_by,
+                        field_name='aliases',
+                        action='create',
+                        new_value=alias_format
+                    )
         
-        # Add domain\username format as alias
+        # Add domain\username format as alias if not already in alias_formats
         if domain and normalized_username:
-            domain_user = f"{domain}\\{normalized_username}"
-            if user.add_alias(domain_user):
+            domain_user = f"{domain}\\{normalized_username}".upper()
+            if domain_user not in alias_formats and user.add_alias(domain_user):
                 alias_added = True
                 KnownUserAudit.log_change(
                     user_id=user.id,
@@ -611,10 +632,23 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
             new_value=normalized_username or sid
         )
         
-        # Add domain\username format as alias
+        # Add all domain\user formats as aliases
+        for alias_format in alias_formats:
+            if alias_format:
+                if user.add_alias(alias_format):
+                    alias_added = True
+                    KnownUserAudit.log_change(
+                        user_id=user.id,
+                        changed_by=added_by,
+                        field_name='aliases',
+                        action='create',
+                        new_value=alias_format
+                    )
+        
+        # Add domain\username format as alias if not already in alias_formats
         if domain and normalized_username:
-            domain_user = f"{domain}\\{normalized_username}"
-            if user.add_alias(domain_user):
+            domain_user = f"{domain}\\{normalized_username}".upper()
+            if domain_user not in alias_formats and user.add_alias(domain_user):
                 alias_added = True
                 KnownUserAudit.log_change(
                     user_id=user.id,

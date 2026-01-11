@@ -1,6 +1,16 @@
 {
-  "version": "3.31.2",
+  "version": "3.31.3",
   "changelog": [
+    {
+      "version": "3.31.3",
+      "date": "2026-01-11",
+      "changes": [
+        "Known Users: DOMAIN\\username now stored as alias, not as username",
+        "Username field contains just the user (e.g., SBRUNNER)",
+        "Aliases field contains domain formats (e.g., JAMESMFG\\SBRUNNER)",
+        "All username variations properly aggregated under single user"
+      ]
+    },
     {
       "version": "3.31.2",
       "date": "2026-01-11",
