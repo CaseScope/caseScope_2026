@@ -952,6 +952,7 @@ def get_hunting_events(case_id):
         artifact_types = request.args.get('types', '', type=str).strip()
         alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
+        severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
         
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 500)
@@ -984,13 +985,23 @@ def get_hunting_events(case_id):
             # This effectively means show only non-alert events
             sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
         
+        # Build severity level filter
+        # This filters which SIGMA severity levels to show/hide
+        severity_filter = ""
+        if severity_levels_param:
+            levels_list = [l.strip().lower() for l in severity_levels_param.split(',') if l.strip()]
+            if levels_list:
+                # Build filter: show events with no rule_level OR rule_level in the allowed list
+                quoted_levels = "', '".join(levels_list)
+                severity_filter = f" AND (rule_level IS NULL OR rule_level = '' OR lower(rule_level) IN ('{quoted_levels}'))"
+        
         # Build query with optional search and type filter
         if search:
             # Search in search_blob field
             count_query = f"""
                 SELECT count() FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{severity_filter}
             """
             data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
@@ -998,7 +1009,7 @@ def get_hunting_events(case_id):
                        rule_level
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{severity_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -1009,13 +1020,13 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{severity_filter}"
             data_query = f"""
                 SELECT timestamp, artifact_type, source_host, channel, provider, 
                        username, process_name, command_line, target_path, search_blob,
                        rule_level
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{severity_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """

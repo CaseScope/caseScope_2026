@@ -75,6 +75,12 @@ const eventFilters = {
     analyst: true,    // Placeholder
     ai: true,         // Placeholder
     
+    // SIGMA Filtering - severity levels
+    severityInfo: true,
+    severityLow: true,
+    severityMedium: true,
+    severityHigh: true,  // Includes high and critical
+    
     // Display filters
     noise: false      // Placeholder - show noise events
 };
@@ -133,6 +139,14 @@ function applyFilters() {
     // eventFilters.ioc = document.getElementById('filter-ioc').checked;
     // eventFilters.analyst = document.getElementById('filter-analyst').checked;
     // eventFilters.ai = document.getElementById('filter-ai').checked;
+    
+    // SIGMA Filtering - severity levels
+    eventFilters.severityInfo = document.getElementById('filter-severity-info').checked;
+    eventFilters.severityLow = document.getElementById('filter-severity-low').checked;
+    eventFilters.severityMedium = document.getElementById('filter-severity-medium').checked;
+    eventFilters.severityHigh = document.getElementById('filter-severity-high').checked;
+    
+    // Display filters - placeholder
     // eventFilters.noise = document.getElementById('filter-noise').checked;
     
     // Reset to page 1 and reload
@@ -177,6 +191,16 @@ function getFilteredArtifactTypes() {
     return filteredTypes.join(',');
 }
 
+// Build severity levels string based on checked filters
+function getSeverityLevels() {
+    const levels = [];
+    if (eventFilters.severityInfo) levels.push('info', 'informational');
+    if (eventFilters.severityLow) levels.push('low');
+    if (eventFilters.severityMedium) levels.push('med', 'medium');
+    if (eventFilters.severityHigh) levels.push('high', 'crit', 'critical');
+    return levels.join(',');
+}
+
 // Load events from API
 function loadEvents() {
     // Build types based on filters
@@ -194,6 +218,9 @@ function loadEvents() {
         sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
     }
     
+    // Build severity levels filter
+    const severityLevels = getSeverityLevels();
+    
     // Build params
     const params = new URLSearchParams({
         page: eventsPage,
@@ -201,7 +228,8 @@ function loadEvents() {
         search: eventsSearch,
         types: filteredTypes,
         alert_mode: eventFilters.alertMode,
-        sigma_filter: sigmaFilter
+        sigma_filter: sigmaFilter,
+        severity_levels: severityLevels
     });
     
     // Show loading state

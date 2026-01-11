@@ -1,6 +1,15 @@
 {
-  "version": "3.25.1",
+  "version": "3.26.0",
   "changelog": [
+    {
+      "version": "3.26.0",
+      "date": "2026-01-10",
+      "changes": [
+        "Hunting Events: Added SIGMA Filtering column (4th filter column)",
+        "Filter by severity: Info, Low, Medium, High/Critical",
+        "Unchecking a severity level hides events with that SIGMA severity"
+      ]
+    },
     {
       "version": "3.25.1",
       "date": "2026-01-10",
