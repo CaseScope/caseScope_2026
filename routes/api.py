@@ -2168,6 +2168,9 @@ def detect_gpu():
             pass
         
         # Try lspci for additional GPU detection (AMD, Intel, or NVIDIA not found by nvidia-smi)
+        # Skip if we already have NVIDIA GPUs from nvidia-smi (more accurate data)
+        has_nvidia_from_smi = any(g['type'] == 'NVIDIA' and g['vram_total_mb'] for g in result['gpus'])
+        
         try:
             lspci_output = subprocess.run(
                 ['lspci', '-v'],
@@ -2179,22 +2182,24 @@ def detect_gpu():
                 vga_pattern = re.compile(r'(VGA compatible controller|3D controller):\s*(.+)', re.IGNORECASE)
                 for match in vga_pattern.finditer(lspci_output.stdout):
                     gpu_name = match.group(2).strip()
-                    # Check if this GPU is already in our list
-                    already_found = any(
-                        gpu_name in g['name'] or g['name'] in gpu_name 
-                        for g in result['gpus']
-                    )
+                    
+                    # Determine GPU type
+                    if 'NVIDIA' in gpu_name.upper():
+                        gpu_type = 'NVIDIA'
+                        # Skip NVIDIA from lspci if we already have it from nvidia-smi
+                        if has_nvidia_from_smi:
+                            continue
+                    elif 'AMD' in gpu_name.upper() or 'RADEON' in gpu_name.upper():
+                        gpu_type = 'AMD'
+                    elif 'INTEL' in gpu_name.upper():
+                        gpu_type = 'Intel'
+                    else:
+                        gpu_type = 'Other'
+                    
+                    # Check if this GPU type is already in our list
+                    already_found = any(g['type'] == gpu_type for g in result['gpus'])
+                    
                     if not already_found:
-                        # Determine GPU type
-                        if 'NVIDIA' in gpu_name.upper():
-                            gpu_type = 'NVIDIA'
-                        elif 'AMD' in gpu_name.upper() or 'RADEON' in gpu_name.upper():
-                            gpu_type = 'AMD'
-                        elif 'INTEL' in gpu_name.upper():
-                            gpu_type = 'Intel'
-                        else:
-                            gpu_type = 'Other'
-                        
                         result['gpus'].append({
                             'index': len(result['gpus']),
                             'name': gpu_name,
