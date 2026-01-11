@@ -92,11 +92,18 @@ def dashboard_stats():
         archive_gb = get_folder_size_gb(os.path.join(Config.BASE_DIR, 'archive'))
         
         # Software versions
+        from config import Config
         software = {
+            'casescope': Config.get_version(),
             'python': platform.python_version(),
             'flask': get_software_version("pip show flask | grep Version | cut -d' ' -f2"),
-            'postgresql': get_software_version("psql --version | head -1"),
-            'casescope': '3.1.0'
+            'postgresql': get_software_version("psql --version 2>/dev/null | head -1 | sed 's/psql (PostgreSQL) //'"),
+            'clickhouse': get_software_version("clickhouse-client --version 2>/dev/null | head -1 | sed 's/ClickHouse client version //'"),
+            'redis': get_software_version("redis-server --version 2>/dev/null | awk '{print $3}' | sed 's/v=//'"),
+            'celery': get_software_version("pip show celery | grep Version | cut -d' ' -f2"),
+            'hayabusa': get_software_version("/opt/casescope/bin/hayabusa --version 2>/dev/null | head -1 | awk '{print $2}'"),
+            'dissect': get_software_version("pip show dissect | grep Version | cut -d' ' -f2"),
+            'gunicorn': get_software_version("pip show gunicorn | grep Version | cut -d' ' -f2"),
         }
         
         # Case statistics (placeholder until cases are implemented)

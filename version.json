@@ -1,6 +1,14 @@
 {
-  "version": "3.28.0",
+  "version": "3.29.0",
   "changelog": [
+    {
+      "version": "3.29.0",
+      "date": "2026-01-11",
+      "changes": [
+        "Dashboard: Software Versions now shows all platform components",
+        "Added: ClickHouse, Redis, Celery, Hayabusa, Dissect, Gunicorn"
+      ]
+    },
     {
       "version": "3.28.0",
       "date": "2026-01-11",
