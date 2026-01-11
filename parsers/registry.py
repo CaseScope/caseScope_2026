@@ -347,9 +347,10 @@ class ParserRegistry:
                     score += 100
                     break
             
-            # Check filename patterns
+            # Check filename patterns (check both filename and full path for path-based patterns)
             for pattern in mapping.filename_patterns:
-                if pattern.lower() in filename:
+                pattern_lower = pattern.lower()
+                if pattern_lower in filename or pattern_lower in path_lower:
                     score += 50
                     break
             
