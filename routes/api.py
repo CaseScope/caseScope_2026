@@ -111,13 +111,23 @@ def dashboard_stats():
         except Exception:
             pass
         
+        # ClickHouse server version via Python client
+        clickhouse_ver = 'Unknown'
+        try:
+            import clickhouse_connect
+            ch_client = clickhouse_connect.get_client(host='localhost')
+            result = ch_client.query("SELECT version()")
+            clickhouse_ver = result.result_rows[0][0]
+        except Exception:
+            pass
+        
         software = {
             'casescope': casescope_version,
             'python': platform.python_version(),
             'flask': pkg_version('flask'),
             'celery': pkg_version('celery'),
             'gunicorn': pkg_version('gunicorn'),
-            'clickhouse': pkg_version('clickhouse-connect'),
+            'clickhouse': clickhouse_ver,
             'redis': pkg_version('redis'),
             'hayabusa': hayabusa_ver,
             'dissect': pkg_version('dissect.util'),
