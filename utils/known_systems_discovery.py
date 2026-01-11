@@ -148,12 +148,17 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                 if hostname in all_hostname_stats:
                     # Add counts together
                     all_hostname_stats[hostname]['count'] += stats['count']
-                    # Take the later last_seen
-                    if stats['last_seen'] and (
-                        not all_hostname_stats[hostname]['last_seen'] or 
-                        stats['last_seen'] > all_hostname_stats[hostname]['last_seen']
-                    ):
-                        all_hostname_stats[hostname]['last_seen'] = stats['last_seen']
+                    # Take the later last_seen (handle timezone-aware vs naive)
+                    event_ts = stats['last_seen']
+                    file_ts = all_hostname_stats[hostname]['last_seen']
+                    if event_ts:
+                        # Make both naive for comparison
+                        if hasattr(event_ts, 'replace') and event_ts.tzinfo:
+                            event_ts = event_ts.replace(tzinfo=None)
+                        if file_ts and hasattr(file_ts, 'replace') and file_ts.tzinfo:
+                            file_ts = file_ts.replace(tzinfo=None)
+                        if not file_ts or event_ts > file_ts:
+                            all_hostname_stats[hostname]['last_seen'] = stats['last_seen']
                 else:
                     all_hostname_stats[hostname] = {
                         'count': stats['count'],
@@ -267,6 +272,80 @@ def _get_hostnames_from_case_files(case_uuid: str) -> dict:
     return hostname_stats
 
 
+def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
+    """Get additional system details from ClickHouse events
+    
+    Extracts: IPs, OS type, domain aliases
+    """
+    from utils.clickhouse import get_client
+    
+    details = {
+        'ip_addresses': [],
+        'os_type': None,
+        'aliases': []
+    }
+    
+    try:
+        client = get_client()
+        
+        # Get unique non-localhost IP addresses
+        ip_result = client.query(
+            """SELECT DISTINCT toString(src_ip) as ip
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+                 AND src_ip != toIPv4('0.0.0.0')
+                 AND src_ip != toIPv4('127.0.0.1')
+               LIMIT 20""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in ip_result.result_rows:
+            if row[0] and row[0] != '0.0.0.0':
+                details['ip_addresses'].append(row[0])
+        
+        # Detect OS type from artifact types
+        os_result = client.query(
+            """SELECT artifact_type, count() as cnt
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+               GROUP BY artifact_type
+               ORDER BY cnt DESC
+               LIMIT 5""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in os_result.result_rows:
+            artifact_type = row[0]
+            if artifact_type in ('evtx', 'registry', 'prefetch', 'mft', 'jumplist', 'lnk', 'srum'):
+                details['os_type'] = 'Windows'
+                break
+        
+        # Get domain for alias (hostname.domain)
+        domain_result = client.query(
+            """SELECT DISTINCT domain
+               FROM events 
+               WHERE case_id = {case_id:UInt32} 
+                 AND source_host = {hostname:String}
+                 AND domain != ''
+                 AND domain != {hostname:String}
+                 AND domain NOT IN ('NT AUTHORITY', 'Builtin', 'Font Driver Host', 'Window Manager')
+               LIMIT 5""",
+            parameters={'case_id': case_id, 'hostname': hostname}
+        )
+        for row in domain_result.result_rows:
+            domain = row[0]
+            if domain and '.' in domain:
+                # Add FQDN as alias
+                fqdn = f"{hostname}.{domain}".upper()
+                if fqdn not in details['aliases']:
+                    details['aliases'].append(fqdn)
+                
+    except Exception as e:
+        logger.warning(f"Error getting system details for {hostname}: {e}")
+    
+    return details
+
+
 def _get_hostnames_from_events(case_id: int) -> dict:
     """Get hostname stats from ClickHouse events table
     
@@ -326,6 +405,9 @@ def _process_hostname(hostname: str, case_id: int, username: str,
     if not netbios:
         return created, updated, alias_added
     
+    # Get additional details from ClickHouse events
+    details = _get_system_details_from_events(case_id, hostname)
+    
     # Find existing system
     system, match_type = KnownSystem.find_by_hostname_or_alias(hostname)
     
@@ -335,12 +417,53 @@ def _process_hostname(hostname: str, case_id: int, username: str,
         
         # Update last_seen to artifact timestamp (not now)
         if last_seen:
-            if not system.last_seen or last_seen > system.last_seen:
+            # Handle timezone comparison
+            system_ls = system.last_seen
+            compare_ls = last_seen
+            if compare_ls and hasattr(compare_ls, 'tzinfo') and compare_ls.tzinfo:
+                compare_ls = compare_ls.replace(tzinfo=None)
+            if system_ls and hasattr(system_ls, 'tzinfo') and system_ls.tzinfo:
+                system_ls = system_ls.replace(tzinfo=None)
+            if not system_ls or compare_ls > system_ls:
                 system.last_seen = last_seen
         
         # Set artifact count to actual value found in this case
-        # Note: For multi-case, this shows most recent case's count
         system.artifacts_with_hostname = artifact_count
+        
+        # Auto-populate OS type if not set
+        if not system.os_type and details.get('os_type'):
+            system.os_type = details['os_type']
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=username,
+                field_name='os_type',
+                action='update',
+                old_value=None,
+                new_value=details['os_type']
+            )
+        
+        # Add discovered IPs
+        for ip in details.get('ip_addresses', []):
+            if system.add_ip_address(ip):
+                KnownSystemAudit.log_change(
+                    system_id=system.id,
+                    changed_by=username,
+                    field_name='ip_addresses',
+                    action='create',
+                    new_value=ip
+                )
+        
+        # Add discovered aliases
+        for alias in details.get('aliases', []):
+            if system.add_alias(alias):
+                alias_added = True
+                KnownSystemAudit.log_change(
+                    system_id=system.id,
+                    changed_by=username,
+                    field_name='aliases',
+                    action='create',
+                    new_value=alias
+                )
         
         # Add FQDN as alias if different from hostname
         if fqdn and fqdn != system.hostname.upper():
@@ -377,7 +500,8 @@ def _process_hostname(hostname: str, case_id: int, username: str,
             hostname=netbios,
             artifacts_with_hostname=artifact_count,
             added_on=datetime.utcnow(),
-            last_seen=last_seen if last_seen else datetime.utcnow()
+            last_seen=last_seen if last_seen else datetime.utcnow(),
+            os_type=details.get('os_type')  # Auto-set from artifacts
         )
         db.session.add(system)
         db.session.flush()  # Get the ID
@@ -402,6 +526,29 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                 action='create',
                 new_value=fqdn
             )
+        
+        # Add discovered IPs
+        for ip in details.get('ip_addresses', []):
+            system.add_ip_address(ip)
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=username,
+                field_name='ip_addresses',
+                action='create',
+                new_value=ip
+            )
+        
+        # Add discovered aliases
+        for alias in details.get('aliases', []):
+            if system.add_alias(alias):
+                alias_added = True
+                KnownSystemAudit.log_change(
+                    system_id=system.id,
+                    changed_by=username,
+                    field_name='aliases',
+                    action='create',
+                    new_value=alias
+                )
         
         # Link to case
         system.link_to_case(case_id)
