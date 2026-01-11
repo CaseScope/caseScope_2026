@@ -85,18 +85,27 @@
             <!-- AI Control Bar -->
             <div class="ai-control-bar">
                 <div class="ai-toggle-section">
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="ai-enabled" checked>
+                    <label class="toggle-switch" id="ai-toggle-label">
+                        <input type="checkbox" id="ai-enabled" {{ 'checked' if ai_enabled else '' }} onchange="toggleAI(this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
                     <div class="toggle-label">
                         <span class="toggle-title">AI Functions</span>
-                        <span class="toggle-description">Enable AI-assisted analysis features</span>
+                        <span class="toggle-description" id="ai-toggle-description">Enable AI-assisted analysis features</span>
                     </div>
                 </div>
                 <button type="button" class="btn btn-primary" id="detect-gpu-btn" onclick="detectGPU()">
                     <span class="btn-icon">🔍</span> Detect GPU
                 </button>
+            </div>
+
+            <!-- AI Unavailable Notice -->
+            <div id="ai-unavailable-notice" class="ai-unavailable-notice" style="display: none;">
+                <span class="notice-icon">⚠️</span>
+                <div class="notice-content">
+                    <span class="notice-title">AI Functions Unavailable</span>
+                    <span class="notice-reason" id="ai-unavailable-reason"></span>
+                </div>
             </div>
 
             <!-- Detection Results -->
@@ -150,6 +159,10 @@
         </div>
 
         <script>
+        // Track if requirements are met
+        let aiRequirementsMet = false;
+        let lastDetectionData = null;
+        
         function detectGPU() {
             const btn = document.getElementById('detect-gpu-btn');
             const resultsDiv = document.getElementById('gpu-detection-results');
@@ -163,6 +176,8 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
+                        lastDetectionData = data;
+                        
                         // Hide placeholder, show results
                         placeholderDiv.style.display = 'none';
                         resultsDiv.style.display = 'block';
@@ -172,6 +187,9 @@
                         renderDriverInfo(data);
                         renderOllamaInfo(data);
                         renderModelsInfo(data);
+                        
+                        // Check requirements and update toggle state
+                        checkAIRequirements(data);
                     } else {
                         alert('Error detecting GPU: ' + (data.error || 'Unknown error'));
                     }
@@ -184,6 +202,83 @@
                     btn.disabled = false;
                     btn.innerHTML = '<span class="btn-icon">🔍</span> Detect GPU';
                 });
+        }
+        
+        function checkAIRequirements(data) {
+            const toggle = document.getElementById('ai-enabled');
+            const toggleLabel = document.getElementById('ai-toggle-label');
+            const notice = document.getElementById('ai-unavailable-notice');
+            const reasonSpan = document.getElementById('ai-unavailable-reason');
+            
+            let reasons = [];
+            
+            // Check GPU
+            if (!data.gpus || data.gpus.length === 0) {
+                reasons.push('No GPU detected');
+            }
+            
+            // Check drivers (for NVIDIA, need driver)
+            const hasNvidiaGPU = data.gpus && data.gpus.some(g => g.type === 'NVIDIA');
+            if (hasNvidiaGPU && (!data.drivers || data.drivers.length === 0)) {
+                reasons.push('No GPU drivers found');
+            }
+            
+            // Check Ollama
+            if (!data.ollama || !data.ollama.installed) {
+                reasons.push('Ollama is not installed');
+            }
+            
+            // Check models
+            if (data.ollama && data.ollama.installed && (!data.ollama.models || data.ollama.models.length === 0)) {
+                reasons.push('No Ollama models installed');
+            }
+            
+            if (reasons.length > 0) {
+                // Requirements not met
+                aiRequirementsMet = false;
+                toggle.checked = false;
+                toggle.disabled = true;
+                toggleLabel.classList.add('disabled');
+                notice.style.display = 'flex';
+                reasonSpan.textContent = reasons.join(' • ');
+                
+                // Save the disabled state
+                saveAIEnabled(false);
+            } else {
+                // Requirements met
+                aiRequirementsMet = true;
+                toggle.disabled = false;
+                toggleLabel.classList.remove('disabled');
+                notice.style.display = 'none';
+            }
+        }
+        
+        function toggleAI(enabled) {
+            if (!aiRequirementsMet && enabled) {
+                // Can't enable if requirements not met
+                document.getElementById('ai-enabled').checked = false;
+                return;
+            }
+            saveAIEnabled(enabled);
+        }
+        
+        function saveAIEnabled(enabled) {
+            fetch('/api/settings/ai', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ai_enabled: enabled })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    console.error('Failed to save AI setting:', data.error);
+                }
+            })
+            .catch(err => {
+                console.error('Error saving AI setting:', err);
+            });
         }
         
         function renderGPUInfo(data) {

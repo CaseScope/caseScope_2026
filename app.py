@@ -153,6 +153,7 @@ def create_app():
         from models.ioc import (
             IOC, IOCSystemSighting, IOCCase, IOCAudit
         )
+        from models.system_settings import SystemSettings
         db.create_all()
         
         # Create default admin user if not exists

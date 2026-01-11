@@ -585,5 +585,16 @@ def user_delete(user_id):
 @admin_required
 def settings():
     """System Settings page"""
+    from models.system_settings import SystemSettings, SettingKeys
+    
     tab = request.args.get('tab', 'general')
-    return render_template('settings.html', page_title='Settings', active_tab=tab)
+    
+    # Get AI settings for the AI tab
+    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    ai_default_model = SystemSettings.get(SettingKeys.AI_DEFAULT_MODEL, None)
+    
+    return render_template('settings.html', 
+                           page_title='Settings', 
+                           active_tab=tab,
+                           ai_enabled=ai_enabled,
+                           ai_default_model=ai_default_model)

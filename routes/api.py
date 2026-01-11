@@ -2243,3 +2243,58 @@ def detect_gpu():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/ai', methods=['GET'])
+@login_required
+def get_ai_settings():
+    """Get AI settings including enabled state"""
+    try:
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+        ai_model = SystemSettings.get(SettingKeys.AI_DEFAULT_MODEL, None)
+        
+        return jsonify({
+            'success': True,
+            'ai_enabled': ai_enabled,
+            'ai_default_model': ai_model
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/ai', methods=['POST'])
+@login_required
+def set_ai_settings():
+    """Set AI settings"""
+    try:
+        # Check admin permission
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        data = request.get_json()
+        
+        if 'ai_enabled' in data:
+            SystemSettings.set(
+                SettingKeys.AI_ENABLED, 
+                data['ai_enabled'], 
+                value_type='bool',
+                updated_by=current_user.username
+            )
+        
+        if 'ai_default_model' in data:
+            SystemSettings.set(
+                SettingKeys.AI_DEFAULT_MODEL,
+                data['ai_default_model'],
+                value_type='string',
+                updated_by=current_user.username
+            )
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

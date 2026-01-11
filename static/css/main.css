@@ -1350,6 +1350,48 @@ tbody td {
   color: var(--text-muted);
 }
 
+.ai-unavailable-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background-color: rgba(255, 86, 48, 0.1);
+  border: 1px solid var(--accent-danger);
+  border-radius: var(--border-radius);
+  margin-bottom: 20px;
+}
+
+.ai-unavailable-notice .notice-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.ai-unavailable-notice .notice-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-unavailable-notice .notice-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-danger);
+}
+
+.ai-unavailable-notice .notice-reason {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.toggle-switch.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-switch.disabled .toggle-slider {
+  cursor: not-allowed;
+}
+
 .ai-detection-results {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

@@ -1,6 +1,15 @@
 {
-  "version": "3.35.0",
+  "version": "3.35.1",
   "changelog": [
+    {
+      "version": "3.35.1",
+      "date": "2026-01-11",
+      "changes": [
+        "Settings AI: Toggle disabled when requirements not met (no GPU, no Ollama, no drivers)",
+        "Settings AI: Notice displayed explaining why AI is unavailable",
+        "Settings AI: AI enabled state persisted in database via SystemSettings model"
+      ]
+    },
     {
       "version": "3.35.0",
       "date": "2026-01-11",
