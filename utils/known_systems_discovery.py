@@ -123,24 +123,44 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
     }
     
     try:
-        # Collect hostnames from all sources
-        all_hostnames = set()
+        # Collect hostname stats from all sources
+        # Format: {hostname: {'count': N, 'last_seen': datetime}}
         
         # Source 1: case_files table
-        file_hostnames = _get_hostnames_from_case_files(case_uuid)
-        all_hostnames.update(file_hostnames)
-        logger.info(f"Found {len(file_hostnames)} unique hostnames from case_files")
+        file_stats = _get_hostnames_from_case_files(case_uuid)
+        logger.info(f"Found {len(file_stats)} unique hostnames from case_files")
         
         # Source 2: ClickHouse events
-        event_hostnames = _get_hostnames_from_events(case_id)
-        all_hostnames.update(event_hostnames)
-        logger.info(f"Found {len(event_hostnames)} unique hostnames from events")
+        event_stats = _get_hostnames_from_events(case_id)
+        logger.info(f"Found {len(event_stats)} unique hostnames from events")
         
-        # Remove empty/None values
-        all_hostnames.discard(None)
-        all_hostnames.discard('')
+        # Merge stats: combine counts and take latest last_seen
+        all_hostname_stats = {}
+        for hostname, stats in file_stats.items():
+            if hostname:
+                all_hostname_stats[hostname] = {
+                    'count': stats['count'],
+                    'last_seen': stats['last_seen']
+                }
         
-        total_hostnames = len(all_hostnames)
+        for hostname, stats in event_stats.items():
+            if hostname:
+                if hostname in all_hostname_stats:
+                    # Add counts together
+                    all_hostname_stats[hostname]['count'] += stats['count']
+                    # Take the later last_seen
+                    if stats['last_seen'] and (
+                        not all_hostname_stats[hostname]['last_seen'] or 
+                        stats['last_seen'] > all_hostname_stats[hostname]['last_seen']
+                    ):
+                        all_hostname_stats[hostname]['last_seen'] = stats['last_seen']
+                else:
+                    all_hostname_stats[hostname] = {
+                        'count': stats['count'],
+                        'last_seen': stats['last_seen']
+                    }
+        
+        total_hostnames = len(all_hostname_stats)
         results['hostnames_processed'] = total_hostnames
         logger.info(f"Processing {total_hostnames} total unique hostnames")
         
@@ -148,12 +168,14 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         if track_progress:
             init_discovery_progress(case_uuid, total_hostnames)
         
-        # Process each hostname
+        # Process each hostname with its stats
         processed = 0
-        for hostname in all_hostnames:
+        for hostname, stats in all_hostname_stats.items():
             try:
                 created, updated, alias_added = _process_hostname(
-                    hostname, case_id, username
+                    hostname, case_id, username,
+                    artifact_count=stats['count'],
+                    last_seen=stats['last_seen']
                 )
                 
                 if created:
@@ -214,57 +236,83 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
     return results
 
 
-def _get_hostnames_from_case_files(case_uuid: str) -> set:
-    """Get unique hostnames from case_files table"""
+def _get_hostnames_from_case_files(case_uuid: str) -> dict:
+    """Get hostname stats from case_files table
+    
+    Returns dict: {hostname: {'count': N, 'last_seen': datetime}}
+    """
     from models.case_file import CaseFile
+    from sqlalchemy import func
     
-    hostnames = set()
+    hostname_stats = {}
     
-    # Query unique non-null hostnames for this case
-    rows = db.session.query(CaseFile.hostname).filter(
+    # Query hostname with count and max uploaded_at
+    rows = db.session.query(
+        CaseFile.hostname,
+        func.count(CaseFile.id).label('count'),
+        func.max(CaseFile.uploaded_at).label('last_seen')
+    ).filter(
         CaseFile.case_uuid == case_uuid,
         CaseFile.hostname.isnot(None),
         CaseFile.hostname != ''
-    ).distinct().all()
+    ).group_by(CaseFile.hostname).all()
     
     for row in rows:
         if row[0]:
-            hostnames.add(row[0].strip())
+            hostname_stats[row[0].strip()] = {
+                'count': row[1],
+                'last_seen': row[2]
+            }
     
-    return hostnames
+    return hostname_stats
 
 
-def _get_hostnames_from_events(case_id: int) -> set:
-    """Get unique hostnames from ClickHouse events table"""
+def _get_hostnames_from_events(case_id: int) -> dict:
+    """Get hostname stats from ClickHouse events table
+    
+    Returns dict: {hostname: {'count': N, 'last_seen': datetime}}
+    """
     from utils.clickhouse import get_client
     
-    hostnames = set()
+    hostname_stats = {}
     
     try:
         client = get_client()
         
-        # Query unique source_host from events
+        # Query source_host with count and max timestamp
         result = client.query(
-            """SELECT DISTINCT source_host 
+            """SELECT source_host, count() as cnt, max(timestamp) as last_ts
                FROM events 
                WHERE case_id = {case_id:UInt32} 
                  AND source_host != ''
+               GROUP BY source_host
                LIMIT 10000""",
             parameters={'case_id': case_id}
         )
         
         for row in result.result_rows:
             if row[0]:
-                hostnames.add(row[0].strip())
+                hostname_stats[row[0].strip()] = {
+                    'count': row[1],
+                    'last_seen': row[2]
+                }
                 
     except Exception as e:
         logger.warning(f"Error querying ClickHouse for hostnames: {e}")
     
-    return hostnames
+    return hostname_stats
 
 
-def _process_hostname(hostname: str, case_id: int, username: str) -> Tuple[bool, bool, bool]:
+def _process_hostname(hostname: str, case_id: int, username: str,
+                      artifact_count: int = 1, last_seen: datetime = None) -> Tuple[bool, bool, bool]:
     """Process a single hostname through deduplication logic
+    
+    Args:
+        hostname: The hostname to process
+        case_id: Case ID for linking
+        username: User performing discovery
+        artifact_count: Number of artifacts referencing this hostname
+        last_seen: Timestamp of most recent artifact with this hostname
     
     Returns: (created, updated, alias_added)
     """
@@ -285,11 +333,14 @@ def _process_hostname(hostname: str, case_id: int, username: str) -> Tuple[bool,
         # Update existing system
         updated = True
         
-        # Update last_seen
-        system.last_seen = datetime.utcnow()
+        # Update last_seen to artifact timestamp (not now)
+        if last_seen:
+            if not system.last_seen or last_seen > system.last_seen:
+                system.last_seen = last_seen
         
-        # Increment artifact count
-        system.artifacts_with_hostname += 1
+        # Set artifact count to actual value found in this case
+        # Note: For multi-case, this shows most recent case's count
+        system.artifacts_with_hostname = artifact_count
         
         # Add FQDN as alias if different from hostname
         if fqdn and fqdn != system.hostname.upper():
@@ -324,9 +375,9 @@ def _process_hostname(hostname: str, case_id: int, username: str) -> Tuple[bool,
         
         system = KnownSystem(
             hostname=netbios,
-            artifacts_with_hostname=1,
+            artifacts_with_hostname=artifact_count,
             added_on=datetime.utcnow(),
-            last_seen=datetime.utcnow()
+            last_seen=last_seen if last_seen else datetime.utcnow()
         )
         db.session.add(system)
         db.session.flush()  # Get the ID
