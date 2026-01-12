@@ -1,6 +1,15 @@
 {
-  "version": "3.39.8",
+  "version": "3.39.9",
   "changelog": [
+    {
+      "version": "3.39.9",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC Tagging: Username/Hostname/SID use column + structured field pattern matching",
+        "IOC Tagging: Searches patterns like 'TargetUserName:value' instead of bare substrings",
+        "IOC Tagging: Avoids false positives while still catching all relevant fields"
+      ]
+    },
     {
       "version": "3.39.8",
       "date": "2026-01-12",

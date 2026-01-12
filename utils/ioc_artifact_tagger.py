@@ -225,13 +225,15 @@ def search_artifacts_for_ioc(
     
     where_clause, params = build_search_conditions(search_terms)
     
-    # For identity types (Username, Hostname, SID), ONLY use dedicated column matching
-    # to avoid false positives from substring matching in search_blob
-    # (e.g., "SYSTEM" matching in URLs like "schemas.microsoft.com/systemai")
-    column_only_types = {'Username', 'Hostname', 'SID'}
+    # For identity types (Username, Hostname, SID), use dedicated column matching
+    # PLUS structured field patterns in search_blob to catch all occurrences
+    # This avoids false positives from bare substring matching while still
+    # catching usernames in fields like TargetUserName, SubjectUserName, etc.
+    identity_types = {'Username', 'Hostname', 'SID'}
     
-    if ioc_type in column_only_types:
+    if ioc_type in identity_types:
         column_conditions = []
+        escaped_value = ioc_value.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
         
         if ioc_type == 'Username':
             # Search username column directly (exact match)
@@ -243,16 +245,31 @@ def search_artifacts_for_ioc(
                     if alias and alias.startswith('S-1-'):  # SID pattern
                         params[f'sid_val_{i}'] = alias
                         column_conditions.append(f"sid = {{sid_val_{i}:String}}")
+            # Search structured field patterns in search_blob (key:value format)
+            # These are the Windows event fields that contain usernames
+            username_fields = ['TargetUserName', 'SubjectUserName', 'User', 'AccountName', 'UserName']
+            for i, field in enumerate(username_fields):
+                params[f'ufield_{i}'] = f'%{field.lower()}:{escaped_value}%'
+                column_conditions.append(f"lower(search_blob) LIKE {{ufield_{i}:String}}")
         elif ioc_type == 'Hostname':
             # Search source_host column directly (exact match)
             params['hostname_val'] = ioc_value.lower()
             column_conditions.append(f"lower(source_host) = {{hostname_val:String}}")
+            # Search structured field patterns for hostnames
+            hostname_fields = ['Computer', 'WorkstationName', 'SourceHostname', 'DestinationHostname']
+            for i, field in enumerate(hostname_fields):
+                params[f'hfield_{i}'] = f'%{field.lower()}:{escaped_value}%'
+                column_conditions.append(f"lower(search_blob) LIKE {{hfield_{i}:String}}")
         elif ioc_type == 'SID':
             # Search sid column directly (exact match)
             params['sid_exact'] = ioc_value
             column_conditions.append(f"sid = {{sid_exact:String}}")
+            # Search structured field patterns for SIDs
+            sid_fields = ['TargetUserSid', 'SubjectUserSid', 'UserSid', 'Sid']
+            for i, field in enumerate(sid_fields):
+                params[f'sfield_{i}'] = f'%{field.lower()}:{escaped_value}%'
+                column_conditions.append(f"lower(search_blob) LIKE {{sfield_{i}:String}}")
         
-        # For identity types, ONLY use column matching (no search_blob)
         where_clause = ' OR '.join(column_conditions) if column_conditions else '1=0'
     else:
         # For other IOC types, use search_blob matching with optional alias validation
@@ -363,13 +380,14 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, alias
     # Get short type name for badge
     short_type = get_short_ioc_type(ioc_type)
     
-    # Identity types use column-only matching to avoid false positives
-    column_only_types = {'Username', 'Hostname', 'SID'}
+    # Identity types use column matching PLUS structured field patterns
+    # to catch all occurrences while avoiding false positives
+    identity_types = {'Username', 'Hostname', 'SID'}
     
-    if ioc_type in column_only_types:
-        # Build column-based conditions only
+    if ioc_type in identity_types:
         column_conditions = []
         escaped_value = ioc_value.replace("'", "\\'")
+        escaped_like = ioc_value.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
         
         if ioc_type == 'Username':
             column_conditions.append(f"lower(username) = lower('{escaped_value}')")
@@ -379,10 +397,22 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, alias
                     if alias and alias.startswith('S-1-'):  # SID pattern
                         escaped_alias = alias.replace("'", "\\'")
                         column_conditions.append(f"sid = '{escaped_alias}'")
+            # Search structured field patterns in search_blob (key:value format)
+            username_fields = ['TargetUserName', 'SubjectUserName', 'User', 'AccountName', 'UserName']
+            for field in username_fields:
+                column_conditions.append(f"lower(search_blob) LIKE '%{field.lower()}:{escaped_like}%'")
         elif ioc_type == 'Hostname':
             column_conditions.append(f"lower(source_host) = lower('{escaped_value}')")
+            # Search structured field patterns for hostnames
+            hostname_fields = ['Computer', 'WorkstationName', 'SourceHostname', 'DestinationHostname']
+            for field in hostname_fields:
+                column_conditions.append(f"lower(search_blob) LIKE '%{field.lower()}:{escaped_like}%'")
         elif ioc_type == 'SID':
             column_conditions.append(f"sid = '{escaped_value}'")
+            # Search structured field patterns for SIDs
+            sid_fields = ['TargetUserSid', 'SubjectUserSid', 'UserSid', 'Sid']
+            for field in sid_fields:
+                column_conditions.append(f"lower(search_blob) LIKE '%{field.lower()}:{escaped_like}%'")
         
         full_where = ' OR '.join(column_conditions) if column_conditions else '1=0'
     else:
