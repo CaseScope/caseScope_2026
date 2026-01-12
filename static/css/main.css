@@ -5318,10 +5318,17 @@ input:checked + .slider:before {
 }
 
 .worker-info-bar {
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius);
   padding: 16px;
   margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+}
+
+/* Light mode gets the nice blue tint */
+[data-theme="light"] .worker-info-bar {
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+  border-color: #d0ddf5;
 }
 
 .worker-info-bar .info-loading {
