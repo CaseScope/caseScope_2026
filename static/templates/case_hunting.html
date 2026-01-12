@@ -471,8 +471,8 @@ function loadCaseIOCs() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Filter out very short terms and common words that cause false positives
-                caseIOCValues = (data.values || []).filter(v => v && v.length >= 4);
+                // Server already filters terms appropriately based on IOC type
+                caseIOCValues = (data.values || []).filter(v => v && v.length >= 2);
                 console.log(`Loaded ${caseIOCValues.length} IOC values for highlighting:`, caseIOCValues.slice(0, 5));
             } else {
                 console.error('Failed to load IOC values:', data.error);
@@ -492,7 +492,7 @@ function highlightIOCsInText(text) {
     const matches = [];
     
     for (const ioc of caseIOCValues) {
-        if (!ioc || ioc.length < 4) continue;
+        if (!ioc || ioc.length < 2) continue;
         
         const iocLower = ioc.toLowerCase();
         let pos = 0;

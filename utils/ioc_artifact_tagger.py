@@ -130,11 +130,19 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
             terms.append(domain.lower())
     
     # Deduplicate while preserving order
-    # Filter out very short terms (< 4 chars) to avoid false positives like 'reg' matching 'Registry'
+    # Filter out very short terms (< 4 chars) for types prone to false positives
+    # But allow short terms for types where short values are legitimate
+    types_allowing_short = {
+        'Username', 'Hostname', 'IP Address (IPv4)', 'IP Address (IPv6)',
+        'Email Address', 'Password Hash', 'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash',
+        'API Key', 'SSH Key Fingerprint'
+    }
+    min_length = 2 if ioc_type in types_allowing_short else 4
+    
     seen = set()
     unique_terms = []
     for term in terms:
-        if term and term not in seen and len(term) >= 4:
+        if term and term not in seen and len(term) >= min_length:
             seen.add(term)
             unique_terms.append(term)
     
