@@ -27,6 +27,7 @@
 <div class="card">
     <div class="card-header">
         <div class="settings-tabs">
+            {% if is_admin %}
             <a href="{{ url_for('main.settings', tab='general') }}" 
                class="settings-tab {{ 'active' if active_tab == 'general' else '' }}">
                 <span class="tab-icon">🏠</span>
@@ -42,6 +43,7 @@
                 <span class="tab-icon">🤖</span>
                 <span class="tab-text">AI</span>
             </a>
+            {% endif %}
             <a href="{{ url_for('main.settings', tab='evtx') }}" 
                class="settings-tab {{ 'active' if active_tab == 'evtx' else '' }}">
                 <span class="tab-icon">📋</span>
@@ -55,8 +57,21 @@
         </div>
     </div>
     <div class="card-body" style="padding: 24px;">
+        <!-- Permission Denied Message -->
+        {% if tab_denied %}
+        <div class="settings-content">
+            <div class="permission-denied-notice">
+                <span class="notice-icon">🔒</span>
+                <div class="notice-content">
+                    <h3 class="notice-title">Permission Denied</h3>
+                    <p class="notice-text">This settings tab is restricted to Administrators only.</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- General Tab -->
-        {% if active_tab == 'general' %}
+        {% if active_tab == 'general' and not tab_denied %}
         <div class="settings-content">
             <h3 class="settings-section-title">General Settings</h3>
             <p class="text-muted">General application configuration options.</p>
@@ -350,7 +365,7 @@
         {% endif %}
 
         <!-- Integrations Tab -->
-        {% if active_tab == 'integrations' %}
+        {% if active_tab == 'integrations' and not tab_denied %}
         <div class="settings-content">
             <h3 class="settings-section-title">Integrations</h3>
             <p class="text-muted">Configure external service integrations.</p>
@@ -362,7 +377,7 @@
         {% endif %}
 
         <!-- AI Tab -->
-        {% if active_tab == 'ai' %}
+        {% if active_tab == 'ai' and not tab_denied %}
         <div class="settings-content">
             <!-- AI Control Bar -->
             <div class="ai-control-bar">

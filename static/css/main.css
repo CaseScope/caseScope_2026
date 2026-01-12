@@ -1271,6 +1271,41 @@ tbody td {
   font-weight: 500;
 }
 
+/* Permission Denied Notice */
+.permission-denied-notice {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 40px;
+  background: linear-gradient(135deg, rgba(255, 86, 48, 0.1), rgba(255, 86, 48, 0.05));
+  border: 1px solid rgba(255, 86, 48, 0.3);
+  border-radius: var(--border-radius-lg);
+  margin: 40px auto;
+  max-width: 500px;
+}
+
+.permission-denied-notice .notice-icon {
+  font-size: 48px;
+  opacity: 0.8;
+}
+
+.permission-denied-notice .notice-content {
+  flex: 1;
+}
+
+.permission-denied-notice .notice-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.permission-denied-notice .notice-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
 /* AI Settings Styles */
 .ai-control-bar {
   display: flex;

@@ -1,6 +1,15 @@
 {
-  "version": "3.56.02",
+  "version": "3.57.0",
   "changelog": [
+    {
+      "version": "3.57.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Settings: Analysts can now access Settings page (previously admin-only)",
+        "Settings: Tab-level permissions - General/AI/Integrations admin-only, EVTX/SIGMA/Noise for analysts+admins",
+        "Settings: Permission denied message displayed when accessing restricted tabs"
+      ]
+    },
     {
       "version": "3.56.02",
       "date": "2026-01-12",

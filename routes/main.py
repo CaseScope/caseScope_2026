@@ -398,6 +398,17 @@ def admin_required(f):
     return decorated_function
 
 
+def analyst_or_admin_required(f):
+    """Decorator to require analyst or administrator permission"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not (current_user.is_analyst or current_user.is_administrator):
+            flash('Access denied - Analyst or Administrator access required', 'error')
+            return redirect(url_for('main.index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 @main_bp.route('/users')
 @login_required
 @admin_required
@@ -582,12 +593,33 @@ def user_delete(user_id):
 
 @main_bp.route('/settings')
 @login_required
-@admin_required
+@analyst_or_admin_required
 def settings():
-    """System Settings page"""
+    """System Settings page
+    
+    Tab permissions:
+    - General, AI, Integrations: administrators only
+    - EVTX/SIGMA, Noise: analyst or administrator
+    """
     from models.system_settings import SystemSettings, SettingKeys
     
-    tab = request.args.get('tab', 'general')
+    tab = request.args.get('tab', None)
+    
+    # Define tab permissions
+    admin_only_tabs = ['general', 'ai', 'integrations']
+    analyst_tabs = ['evtx', 'noise']  # Accessible by analyst or admin
+    
+    # Determine accessible tabs based on user role
+    is_admin = current_user.is_administrator
+    
+    # Set default tab based on user role
+    if tab is None:
+        tab = 'general' if is_admin else 'evtx'
+    
+    # Check tab permission
+    tab_denied = False
+    if tab in admin_only_tabs and not is_admin:
+        tab_denied = True
     
     # Get AI settings for the AI tab
     ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
@@ -596,5 +628,7 @@ def settings():
     return render_template('settings.html', 
                            page_title='Settings', 
                            active_tab=tab,
+                           tab_denied=tab_denied,
+                           is_admin=is_admin,
                            ai_enabled=ai_enabled,
                            ai_default_model=ai_default_model)
