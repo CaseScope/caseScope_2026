@@ -196,12 +196,13 @@ def ensure_upload_dirs(case_uuid):
     os.makedirs(staging_path, exist_ok=True)
     os.makedirs(CHUNK_TEMP_DIR, exist_ok=True)
     
-    # Set permissions to casescope user
+    # Set permissions to casescope user with group write and setgid
     for path in [web_path, sftp_path, staging_path]:
         try:
             shutil.chown(path, user='casescope', group='casescope')
+            os.chmod(path, 0o2775)  # rwxrwsr-x - group write + setgid
         except (PermissionError, LookupError):
-            pass  # May not have permission to chown
+            pass  # May not have permission to chown/chmod
     
     return web_path, sftp_path, staging_path
 

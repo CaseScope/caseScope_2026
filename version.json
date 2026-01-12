@@ -1,6 +1,13 @@
 {
-  "version": "3.64.0",
+  "version": "3.64.01",
   "changelog": [
+    {
+      "version": "3.64.01",
+      "date": "2026-01-12",
+      "changes": [
+        "Bulk Upload: Fixed SFTP upload directory permissions (group write + setgid)"
+      ]
+    },
     {
       "version": "3.64.0",
       "date": "2026-01-12",
