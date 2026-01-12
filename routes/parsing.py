@@ -535,14 +535,14 @@ def scrape_evtx_descriptions():
         JSON with task info
     """
     try:
-        from tasks.celery_tasks import celery
+        from tasks.celery_tasks import celery_app
         
         # Admin only
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
         
         # Queue the scraping task
-        task = celery.send_task('tasks.scrape_event_descriptions')
+        task = celery_app.send_task('tasks.scrape_event_descriptions')
         
         logger.info(f"Event description scraping task queued: {task.id}")
         
