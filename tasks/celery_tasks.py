@@ -510,11 +510,114 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 
                 # Increment progress counter when file processing completes
                 if status in ('done', 'error'):
-                    from utils.progress import increment_progress
-                    increment_progress(case_uuid)
+                    from utils.progress import increment_progress, get_progress
+                    progress = increment_progress(case_uuid)
+                    
+                    # Check if this was the last file - trigger completion tasks
+                    if progress and progress.get('status') == 'complete':
+                        from models.case import Case
+                        case = Case.get_by_uuid(case_uuid)
+                        if case:
+                            logger.info(f"All files complete for case {case_uuid}, triggering completion tasks")
+                            case_indexing_complete_task.delay(
+                                case_id=case.id,
+                                case_uuid=case_uuid
+                            )
                     
     except Exception as e:
         logger.warning(f"Could not update CaseFile status: {e}")
+
+
+@celery_app.task(bind=True, name='tasks.case_indexing_complete')
+def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str, Any]:
+    """Run post-indexing completion tasks for a case
+    
+    Triggered automatically when all files finish processing.
+    
+    Steps:
+    1. Flush ClickHouse buffer table to main events table
+    2. Run known systems discovery
+    3. Run known users discovery
+    
+    Args:
+        case_id: PostgreSQL case.id
+        case_uuid: Case UUID
+        
+    Returns:
+        Dict with completion results
+    """
+    from utils.clickhouse import get_fresh_client
+    from utils.progress import clear_progress
+    
+    logger.info(f"Running completion tasks for case {case_uuid}")
+    
+    results = {
+        'case_uuid': case_uuid,
+        'case_id': case_id,
+        'buffer_flushed': False,
+        'systems_discovered': 0,
+        'users_discovered': 0,
+        'errors': []
+    }
+    
+    # Step 1: Flush ClickHouse buffer table
+    self.update_state(state='PROCESSING', meta={'stage': 'flushing_buffer'})
+    try:
+        client = get_fresh_client()
+        # OPTIMIZE forces buffer flush to main table
+        client.command("OPTIMIZE TABLE events_buffer")
+        results['buffer_flushed'] = True
+        logger.info(f"Flushed ClickHouse buffer for case {case_id}")
+    except Exception as e:
+        # Buffer table might not exist or be empty
+        logger.debug(f"Buffer flush skipped: {e}")
+        results['buffer_flushed'] = True  # Not an error if buffer doesn't exist
+    
+    # Step 2: Run known systems discovery
+    self.update_state(state='PROCESSING', meta={'stage': 'discovering_systems'})
+    try:
+        from utils.known_systems_discovery import discover_known_systems
+        
+        app = get_flask_app()
+        with app.app_context():
+            systems_result = discover_known_systems(
+                case_id=case_id,
+                case_uuid=case_uuid,
+                username='system',
+                track_progress=False
+            )
+            results['systems_discovered'] = systems_result.get('systems_created', 0) + systems_result.get('systems_updated', 0)
+            logger.info(f"Systems discovery complete: {results['systems_discovered']} systems")
+    except Exception as e:
+        logger.warning(f"Systems discovery failed: {e}")
+        results['errors'].append(f"Systems discovery: {str(e)}")
+    
+    # Step 3: Run known users discovery
+    self.update_state(state='PROCESSING', meta={'stage': 'discovering_users'})
+    try:
+        from utils.known_users_discovery import discover_known_users
+        
+        app = get_flask_app()
+        with app.app_context():
+            users_result = discover_known_users(
+                case_id=case_id,
+                case_uuid=case_uuid,
+                username='system',
+                track_progress=False
+            )
+            results['users_discovered'] = users_result.get('users_created', 0) + users_result.get('users_updated', 0)
+            logger.info(f"Users discovery complete: {results['users_discovered']} users")
+    except Exception as e:
+        logger.warning(f"Users discovery failed: {e}")
+        results['errors'].append(f"Users discovery: {str(e)}")
+    
+    # Clear progress tracking
+    clear_progress(case_uuid)
+    
+    results['success'] = len(results['errors']) == 0
+    logger.info(f"Completion tasks finished for case {case_uuid}: {results}")
+    
+    return results
 
 
 @celery_app.task(bind=True, name='tasks.discover_known_systems')

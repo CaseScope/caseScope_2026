@@ -1,6 +1,14 @@
 {
-  "version": "3.52.0",
+  "version": "3.53.0",
   "changelog": [
+    {
+      "version": "3.53.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Indexing: Added automatic completion phase after all files are indexed",
+        "Indexing: Completion phase flushes ClickHouse buffer and triggers known systems/users discovery"
+      ]
+    },
     {
       "version": "3.52.0",
       "date": "2026-01-12",
