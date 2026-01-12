@@ -599,8 +599,8 @@
             </div>
         </div>
 
-        <!-- Add/Edit Rule Modal -->
-        <div class="modal-overlay" id="ruleModal" style="display: none;">
+        <!-- Add/Edit Rule Modal - Must be outside scrollable content for proper fixed positioning -->
+        <div class="modal-overlay noise-modal" id="ruleModal" style="display: none;">
             <div class="modal-container" style="max-width: 650px;">
                 <div class="modal-header">
                     <h3 class="modal-title" id="ruleModalTitle">Add Noise Rule</h3>
@@ -1443,6 +1443,23 @@
 
         .no-data a {
             color: var(--accent-primary);
+        }
+
+        /* Modal - Ensure fixed positioning works */
+        .noise-modal {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            z-index: 9999 !important;
+            overflow-y: auto;
+        }
+
+        .noise-modal .modal-container {
+            margin: 40px auto;
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
         }
 
         /* Toggle Switch - Small version for table rows */

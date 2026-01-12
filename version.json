@@ -1,6 +1,14 @@
 {
-  "version": "3.41.1",
+  "version": "3.41.2",
   "changelog": [
+    {
+      "version": "3.41.2",
+      "date": "2026-01-12",
+      "changes": [
+        "Noise Filters: Fixed modal positioning - now properly centered in viewport",
+        "Noise Filters: Modal uses fixed positioning with high z-index to stay visible"
+      ]
+    },
     {
       "version": "3.41.1",
       "date": "2026-01-12",
