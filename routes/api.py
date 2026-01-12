@@ -917,12 +917,17 @@ def get_processing_progress(case_uuid):
             # Active batch in progress
             total_files = progress.get('total', 0)
             processed_files = progress.get('completed', 0)
-            is_processing = progress.get('status') == 'processing'
+            status = progress.get('status', 'idle')
+            is_processing = status == 'processing'
+            is_completing = status == 'completing'
+            completion_phase = progress.get('completion_phase') if is_completing else None
         else:
             # No active batch - idle state
             total_files = 0
             processed_files = 0
             is_processing = False
+            is_completing = False
+            completion_phase = None
         
         # Get active workers processing this case
         workers = []
@@ -957,7 +962,9 @@ def get_processing_progress(case_uuid):
             'total_files': total_files,
             'processed_files': processed_files,
             'workers': workers,
-            'is_processing': is_processing
+            'is_processing': is_processing,
+            'is_completing': is_completing,
+            'completion_phase': completion_phase
         })
         
     except Exception as e:

@@ -547,7 +547,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         Dict with completion results
     """
     from utils.clickhouse import get_fresh_client
-    from utils.progress import clear_progress
+    from utils.progress import clear_progress, set_completion_phase
     
     logger.info(f"Running completion tasks for case {case_uuid}")
     
@@ -561,6 +561,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
     }
     
     # Step 1: Flush ClickHouse buffer table
+    set_completion_phase(case_uuid, 'flushing_buffer')
     self.update_state(state='PROCESSING', meta={'stage': 'flushing_buffer'})
     try:
         client = get_fresh_client()
@@ -574,6 +575,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         results['buffer_flushed'] = True  # Not an error if buffer doesn't exist
     
     # Step 2: Run known systems discovery
+    set_completion_phase(case_uuid, 'discovering_systems')
     self.update_state(state='PROCESSING', meta={'stage': 'discovering_systems'})
     try:
         from utils.known_systems_discovery import discover_known_systems
@@ -593,6 +595,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         results['errors'].append(f"Systems discovery: {str(e)}")
     
     # Step 3: Run known users discovery
+    set_completion_phase(case_uuid, 'discovering_users')
     self.update_state(state='PROCESSING', meta={'stage': 'discovering_users'})
     try:
         from utils.known_users_discovery import discover_known_users

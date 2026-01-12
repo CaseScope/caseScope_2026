@@ -257,6 +257,16 @@ function loadStats() {
         .catch(err => console.error('Error loading stats:', err));
 }
 
+// Get human-readable completion phase name
+function getCompletionPhaseName(phase) {
+    const phases = {
+        'flushing_buffer': 'Flushing events to database...',
+        'discovering_systems': 'Discovering known systems...',
+        'discovering_users': 'Discovering known users...'
+    };
+    return phases[phase] || 'Completing...';
+}
+
 // Load processing progress
 function loadProgress() {
     fetch('/api/files/progress/' + caseUuid)
@@ -266,10 +276,13 @@ function loadProgress() {
                 const processed = data.processed_files;
                 const total = data.total_files;
                 const isProcessing = data.is_processing;
+                const isCompleting = data.is_completing;
+                const completionPhase = data.completion_phase;
                 const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
                 
                 const statusEl = document.getElementById('progress-status');
                 const progressTile = document.getElementById('progress-tile');
+                const workerList = document.getElementById('worker-list');
                 
                 // Detect when a file has completed - refresh file list from server
                 if (lastProcessedCount >= 0 && processed > lastProcessedCount) {
@@ -278,12 +291,34 @@ function loadProgress() {
                 }
                 lastProcessedCount = processed;
                 
+                // Handle completion phase (post-processing tasks)
+                if (isCompleting) {
+                    document.getElementById('progress-bar').style.width = '100%';
+                    document.getElementById('progress-current').textContent = processed;
+                    document.getElementById('progress-total').textContent = total;
+                    statusEl.textContent = 'Completing...';
+                    statusEl.className = 'tile-status status-completing';
+                    progressTile.classList.add('processing');
+                    
+                    // Show completion phase in worker list
+                    workerList.innerHTML = `<div class="worker-item completion-phase">
+                        <span class="worker-name">🔄</span>
+                        <span class="worker-file">${getCompletionPhaseName(completionPhase)}</span>
+                    </div>`;
+                    wasProcessing = true;  // Track for reset detection
+                    return;
+                }
+                
                 // Detect when processing has just finished
-                if (wasProcessing && !isProcessing && processed === total && total > 0) {
+                if (wasProcessing && !isProcessing && !isCompleting && processed === total && total > 0) {
                     // Processing just finished - show complete briefly, then reset
                     statusEl.textContent = 'Complete';
                     statusEl.className = 'tile-status status-complete';
                     progressTile.classList.remove('processing');
+                    
+                    // Refresh stats to show final counts
+                    loadStats();
+                    loadFiles();
                     
                     // Reset progress bar after 5 seconds
                     setTimeout(() => {
@@ -310,19 +345,20 @@ function loadProgress() {
                     resetProgressBar();
                 }
                 
-                wasProcessing = isProcessing;
+                wasProcessing = isProcessing || isCompleting;
                 
-                // Update worker list
-                const workerList = document.getElementById('worker-list');
-                if (data.workers && data.workers.length > 0) {
-                    workerList.innerHTML = data.workers.map(w => 
-                        `<div class="worker-item">
-                            <span class="worker-name">${w.worker}</span>
-                            <span class="worker-file">${w.file}</span>
-                        </div>`
-                    ).join('');
-                } else {
-                    workerList.innerHTML = '<div class="worker-empty">No active workers</div>';
+                // Update worker list (only if not in completion phase)
+                if (!isCompleting) {
+                    if (data.workers && data.workers.length > 0) {
+                        workerList.innerHTML = data.workers.map(w => 
+                            `<div class="worker-item">
+                                <span class="worker-name">${w.worker}</span>
+                                <span class="worker-file">${w.file}</span>
+                            </div>`
+                        ).join('');
+                    } else {
+                        workerList.innerHTML = '<div class="worker-empty">No active workers</div>';
+                    }
                 }
             }
         })

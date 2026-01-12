@@ -172,3 +172,33 @@ def add_to_progress(case_uuid: str, additional_files: int) -> Optional[Dict[str,
     except Exception as e:
         logger.warning(f"Failed to add to progress: {e}")
         return None
+
+
+def set_completion_phase(case_uuid: str, phase: str) -> None:
+    """Set the current completion phase for a case.
+    
+    Called during post-indexing tasks (buffer flush, system/user discovery).
+    
+    Args:
+        case_uuid: Case UUID
+        phase: Current phase name ('flushing_buffer', 'discovering_systems', 
+               'discovering_users', 'done')
+    """
+    try:
+        client = get_redis_client()
+        key = _get_progress_key(case_uuid)
+        
+        data = client.get(key)
+        if data:
+            progress = json.loads(data)
+        else:
+            progress = {'total': 0, 'completed': 0}
+        
+        progress['status'] = 'completing'
+        progress['completion_phase'] = phase
+        
+        client.setex(key, 86400, json.dumps(progress))
+        logger.debug(f"Set completion phase for case {case_uuid}: {phase}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to set completion phase: {e}")

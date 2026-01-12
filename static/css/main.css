@@ -2586,9 +2586,20 @@ tbody td {
   animation: pulse-status 1.5s infinite;
 }
 
+.tile-status.status-completing {
+  color: var(--accent-info);
+  background-color: rgba(79, 195, 247, 0.15);
+  animation: pulse-status 1.5s infinite;
+}
+
 .tile-status.status-complete {
   color: var(--accent-success);
   background-color: rgba(54, 179, 126, 0.15);
+}
+
+.worker-item.completion-phase {
+  background-color: rgba(79, 195, 247, 0.1);
+  border-left: 3px solid var(--accent-info);
 }
 
 @keyframes pulse-status {

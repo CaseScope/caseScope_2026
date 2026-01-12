@@ -1,6 +1,13 @@
 {
-  "version": "3.53.0",
+  "version": "3.54.0",
   "changelog": [
+    {
+      "version": "3.54.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Case Files: Progress bar now shows completion phase status (buffer flush, system/user discovery)"
+      ]
+    },
     {
       "version": "3.53.0",
       "date": "2026-01-12",
