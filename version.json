@@ -1,6 +1,14 @@
 {
-  "version": "3.56.0",
+  "version": "3.56.01",
   "changelog": [
+    {
+      "version": "3.56.01",
+      "date": "2026-01-12",
+      "changes": [
+        "Bugfix: Files with parse errors now moved to storage (not left in staging)",
+        "Bugfix: All processed files (success or error) now stored for reference"
+      ]
+    },
     {
       "version": "3.56.0",
       "date": "2026-01-12",

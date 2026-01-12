@@ -496,8 +496,9 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 if status in ('done', 'error'):
                     cf.processed_at = datetime.utcnow()
                 
-                # Move file from staging to storage when done successfully
-                if status == 'done' and cf.file_path:
+                # Move file from staging to storage when processing completes (success or error)
+                # We keep all files in storage for reference, status indicates parse result
+                if status in ('done', 'error') and cf.file_path:
                     new_path = _move_file_to_storage(cf.file_path)
                     if new_path:
                         cf.file_path = new_path
