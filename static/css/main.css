@@ -2786,6 +2786,73 @@ tbody td {
   white-space: nowrap;
 }
 
+/* Alert Banners (for staging orphans, etc.) */
+.alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid;
+}
+
+.alert-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.alert-banner-icon {
+  font-size: 24px;
+}
+
+.alert-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.alert-banner-text strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.alert-banner-text span {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.alert-banner-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.alert-banner-warning {
+  background-color: rgba(202, 138, 4, 0.15);
+  border-color: rgba(202, 138, 4, 0.4);
+  color: #ca8a04;
+}
+
+.alert-banner-info {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #3b82f6;
+}
+
+.alert-banner-danger {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+.alert-banner-success {
+  background-color: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+}
+
 /* File Table */
 .file-table-container {
   overflow-x: auto;

@@ -644,11 +644,6 @@ def ingest_files():
                 
                 # Check for duplicate (within this case only)
                 existing = CaseFile.find_by_hash(sha256_hash, case_uuid=case_uuid)
-                if existing:
-                    # Duplicate found - delete the file and skip recording
-                    os.remove(file_path)
-                    duplicates_deleted += 1
-                    continue
                 
                 # Get parent ZIP record if this is an extracted file
                 parent_id = None
@@ -660,6 +655,32 @@ def ingest_files():
                 display_filename = pf['filename']
                 if parent_zip:
                     display_filename = f"{parent_zip}/{pf['filename']}"
+                
+                if existing:
+                    # Duplicate found - mark as duplicate instead of deleting
+                    case_file = CaseFile(
+                        case_uuid=case_uuid,
+                        parent_id=parent_id,
+                        duplicate_of_id=existing.id,
+                        filename=display_filename,
+                        original_filename=pf['original_filename'],
+                        file_path=file_path,
+                        file_size=file_size,
+                        sha256_hash=sha256_hash,
+                        hostname=pf['file_info'].get('host', ''),
+                        file_type=pf['file_info'].get('type', 'Other'),
+                        upload_source=pf['file_info'].get('source', 'web'),
+                        is_archive=pf['is_archive'],
+                        is_extracted=pf['is_extracted'],
+                        extraction_status=ExtractionStatus.NA,
+                        status='duplicate',
+                        ingestion_status='not_done',
+                        uploaded_by=uploaded_by
+                    )
+                    db.session.add(case_file)
+                    db.session.flush()
+                    duplicates_deleted += 1  # Keep counter name for compatibility
+                    continue
                 
                 case_file = CaseFile(
                     case_uuid=case_uuid,
@@ -827,12 +848,17 @@ def get_file_list(case_uuid):
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 25, type=int)
         search = request.args.get('search', '', type=str).strip()
+        include_duplicates = request.args.get('include_duplicates', 'false', type=str).lower() == 'true'
         
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 200)
         
         # Build query
         query = CaseFile.query.filter_by(case_uuid=case_uuid)
+        
+        # Exclude duplicates by default
+        if not include_duplicates:
+            query = query.filter(CaseFile.status != 'duplicate')
         
         # Apply search filter
         if search:
@@ -1021,6 +1047,255 @@ def reindex_case_files(case_uuid):
         })
         
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Staging Orphan Management Endpoints
+# ============================================
+
+@api_bp.route('/files/staging/check/<case_uuid>')
+@login_required
+def check_staging_orphans(case_uuid):
+    """Check for orphan files in staging directory for a case
+    
+    Orphan files are files on disk that have no corresponding database record.
+    """
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
+        
+        if not os.path.isdir(staging_path):
+            return jsonify({
+                'success': True,
+                'has_orphans': False,
+                'orphan_count': 0,
+                'orphans': []
+            })
+        
+        # Collect all files in staging
+        staging_files = []
+        for root, dirs, files in os.walk(staging_path):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(file_path, staging_path)
+                staging_files.append({
+                    'path': file_path,
+                    'rel_path': rel_path,
+                    'filename': filename,
+                    'size': os.path.getsize(file_path)
+                })
+        
+        if not staging_files:
+            return jsonify({
+                'success': True,
+                'has_orphans': False,
+                'orphan_count': 0,
+                'orphans': []
+            })
+        
+        # Get all file paths from database for this case
+        db_files = CaseFile.query.filter_by(case_uuid=case_uuid).with_entities(CaseFile.file_path).all()
+        db_paths = {f.file_path for f in db_files if f.file_path}
+        
+        # Find orphans (files in staging not in database)
+        orphans = []
+        for sf in staging_files:
+            if sf['path'] not in db_paths:
+                orphans.append({
+                    'path': sf['path'],
+                    'rel_path': sf['rel_path'],
+                    'filename': sf['filename'],
+                    'size': sf['size']
+                })
+        
+        return jsonify({
+            'success': True,
+            'has_orphans': len(orphans) > 0,
+            'orphan_count': len(orphans),
+            'orphans': orphans[:100]  # Limit response size, show first 100
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error checking staging orphans for case {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/staging/import/<case_uuid>', methods=['POST'])
+@login_required
+def import_staging_orphans(case_uuid):
+    """Import orphan files from staging into the case
+    
+    Creates CaseFile records for orphan files and queues them for parsing.
+    """
+    try:
+        from tasks.celery_tasks import parse_file_task
+        from utils.progress import init_progress
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
+        
+        if not os.path.isdir(staging_path):
+            return jsonify({'success': False, 'error': 'No staging directory found'}), 404
+        
+        # Collect orphan files
+        staging_files = []
+        for root, dirs, files in os.walk(staging_path):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(file_path, staging_path)
+                staging_files.append({
+                    'path': file_path,
+                    'rel_path': rel_path,
+                    'filename': filename
+                })
+        
+        # Get all file paths from database for this case
+        db_files = CaseFile.query.filter_by(case_uuid=case_uuid).with_entities(CaseFile.file_path).all()
+        db_paths = {f.file_path for f in db_files if f.file_path}
+        
+        # Find and import orphans
+        imported = []
+        files_to_queue = []
+        
+        for sf in staging_files:
+            if sf['path'] not in db_paths:
+                try:
+                    file_path = sf['path']
+                    file_size = os.path.getsize(file_path)
+                    sha256_hash = CaseFile.calculate_sha256(file_path)
+                    is_archive = CaseFile.is_zip_file(file_path)
+                    
+                    case_file = CaseFile(
+                        case_uuid=case_uuid,
+                        parent_id=None,
+                        filename=sf['rel_path'],
+                        original_filename=sf['filename'],
+                        file_path=file_path,
+                        file_size=file_size,
+                        sha256_hash=sha256_hash,
+                        hostname='',
+                        file_type='Other',
+                        upload_source='staging_import',
+                        is_archive=is_archive,
+                        is_extracted=False,
+                        extraction_status='n/a',
+                        status='new',
+                        uploaded_by=current_user.username
+                    )
+                    
+                    db.session.add(case_file)
+                    db.session.flush()
+                    
+                    if not is_archive:
+                        files_to_queue.append(case_file)
+                    
+                    imported.append(sf['rel_path'])
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to import staging file {sf['path']}: {e}")
+                    continue
+        
+        db.session.commit()
+        
+        # Queue files for parsing
+        if files_to_queue:
+            init_progress(case_uuid, len(files_to_queue))
+            
+            for cf in files_to_queue:
+                cf.status = 'queued'
+                db.session.flush()
+                
+                parse_file_task.delay(
+                    file_path=cf.file_path,
+                    case_id=case.id,
+                    source_host=cf.hostname or '',
+                    case_file_id=cf.id,
+                )
+            
+            db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'imported_count': len(imported),
+            'queued_for_parsing': len(files_to_queue),
+            'imported': imported[:50]  # Return first 50 filenames
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception(f"Error importing staging orphans for case {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/staging/delete/<case_uuid>', methods=['POST'])
+@login_required
+def delete_staging_orphans(case_uuid):
+    """Delete orphan files from staging directory
+    
+    Only available to administrators.
+    """
+    try:
+        # Check admin permission
+        if current_user.permission_level != 'administrator':
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
+        
+        if not os.path.isdir(staging_path):
+            return jsonify({'success': False, 'error': 'No staging directory found'}), 404
+        
+        # Collect all files in staging
+        staging_files = []
+        for root, dirs, files in os.walk(staging_path):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                staging_files.append(file_path)
+        
+        # Get all file paths from database for this case
+        db_files = CaseFile.query.filter_by(case_uuid=case_uuid).with_entities(CaseFile.file_path).all()
+        db_paths = {f.file_path for f in db_files if f.file_path}
+        
+        # Delete orphans
+        deleted = []
+        for file_path in staging_files:
+            if file_path not in db_paths:
+                try:
+                    os.remove(file_path)
+                    deleted.append(file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete staging file {file_path}: {e}")
+        
+        # Clean up empty directories
+        for root, dirs, files in os.walk(staging_path, topdown=False):
+            for d in dirs:
+                dir_path = os.path.join(root, d)
+                try:
+                    if not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                except Exception:
+                    pass
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': len(deleted)
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error deleting staging orphans for case {case_uuid}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

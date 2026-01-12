@@ -19,6 +19,30 @@
     </div>
 </div>
 
+<!-- Staging Orphan Banner -->
+<div class="alert-banner alert-banner-warning" id="staging-banner" style="display: none;">
+    <div class="alert-banner-content">
+        <div class="alert-banner-icon">📁</div>
+        <div class="alert-banner-text">
+            <strong>Orphan Files Detected</strong>
+            <span id="orphan-count-text">0 files found in staging directory without database records.</span>
+        </div>
+    </div>
+    <div class="alert-banner-actions">
+        <button class="btn btn-success btn-sm" onclick="importOrphans()">
+            📥 Import
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="dismissStagingBanner()">
+            ✕ Ignore
+        </button>
+        {% if current_user.permission_level == 'administrator' %}
+        <button class="btn btn-danger btn-sm" onclick="deleteOrphans()">
+            🗑️ Delete
+        </button>
+        {% endif %}
+    </div>
+</div>
+
 <!-- Statistics Tile -->
 <div class="tile-row">
     <div class="tile tile-stats">
@@ -501,6 +525,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadStats();
     loadProgress();
     loadFiles();
+    checkStagingOrphans();  // Check for orphan files
     
     // Set up auto-refresh intervals
     statsInterval = setInterval(loadStats, 5000);
@@ -571,6 +596,92 @@ function confirmReindex() {
             '<span class="text-danger">Error: ' + err.message + '</span>';
         confirmBtn.disabled = false;
         confirmBtn.innerHTML = '<span>🔄 Retry Reindex</span>';
+    });
+}
+
+// ========================================
+// Staging Orphan Management Functions
+// ========================================
+
+let stagingBannerDismissed = false;
+
+function checkStagingOrphans() {
+    if (stagingBannerDismissed) return;
+    
+    fetch('/api/files/staging/check/' + caseUuid)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.has_orphans) {
+                const banner = document.getElementById('staging-banner');
+                const countText = document.getElementById('orphan-count-text');
+                countText.textContent = data.orphan_count + ' file' + (data.orphan_count === 1 ? '' : 's') + 
+                    ' found in staging directory without database records.';
+                banner.style.display = 'flex';
+            }
+        })
+        .catch(err => console.error('Error checking staging orphans:', err));
+}
+
+function dismissStagingBanner() {
+    document.getElementById('staging-banner').style.display = 'none';
+    stagingBannerDismissed = true;
+}
+
+function importOrphans() {
+    const banner = document.getElementById('staging-banner');
+    const actions = banner.querySelector('.alert-banner-actions');
+    actions.innerHTML = '<span class="text-muted">Importing files...</span>';
+    
+    fetch('/api/files/staging/import/' + caseUuid, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            actions.innerHTML = '<span class="text-success">✓ Imported ' + data.imported_count + ' files</span>';
+            setTimeout(() => {
+                banner.style.display = 'none';
+                loadStats();
+                loadFiles();
+            }, 2000);
+        } else {
+            actions.innerHTML = '<span class="text-danger">Error: ' + (data.error || 'Import failed') + '</span>';
+        }
+    })
+    .catch(err => {
+        console.error('Import error:', err);
+        actions.innerHTML = '<span class="text-danger">Error: ' + err.message + '</span>';
+    });
+}
+
+function deleteOrphans() {
+    if (!confirm('Are you sure you want to permanently delete these orphan files? This cannot be undone.')) {
+        return;
+    }
+    
+    const banner = document.getElementById('staging-banner');
+    const actions = banner.querySelector('.alert-banner-actions');
+    actions.innerHTML = '<span class="text-muted">Deleting files...</span>';
+    
+    fetch('/api/files/staging/delete/' + caseUuid, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            actions.innerHTML = '<span class="text-success">✓ Deleted ' + data.deleted_count + ' files</span>';
+            setTimeout(() => {
+                banner.style.display = 'none';
+            }, 2000);
+        } else {
+            actions.innerHTML = '<span class="text-danger">Error: ' + (data.error || 'Delete failed') + '</span>';
+        }
+    })
+    .catch(err => {
+        console.error('Delete error:', err);
+        actions.innerHTML = '<span class="text-danger">Error: ' + err.message + '</span>';
     });
 }
 </script>

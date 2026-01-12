@@ -1,6 +1,17 @@
 {
-  "version": "3.55.01",
+  "version": "3.56.0",
   "changelog": [
+    {
+      "version": "3.56.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Files: Duplicate files now tracked with 'duplicate' status instead of silently deleted",
+        "Files: Duplicate files hidden from file list by default (stored for audit trail)",
+        "Files: Added staging orphan detection banner on Case Files page",
+        "Files: Orphan files can be imported, ignored, or deleted (admin only)",
+        "API: Added /api/files/staging/check, import, delete endpoints"
+      ]
+    },
     {
       "version": "3.55.01",
       "date": "2026-01-12",

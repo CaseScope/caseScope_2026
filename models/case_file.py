@@ -25,10 +25,11 @@ class FileStatus:
     INGESTING = 'ingesting'  # Currently being parsed
     ERROR = 'error'          # Error during processing
     DONE = 'done'            # Processing complete
+    DUPLICATE = 'duplicate'  # Duplicate of another file in this case
     
     @classmethod
     def all(cls):
-        return [cls.NEW, cls.QUEUED, cls.INGESTING, cls.ERROR, cls.DONE]
+        return [cls.NEW, cls.QUEUED, cls.INGESTING, cls.ERROR, cls.DONE, cls.DUPLICATE]
     
     @classmethod
     def choices(cls):
@@ -37,7 +38,8 @@ class FileStatus:
             (cls.QUEUED, 'Queued'),
             (cls.INGESTING, 'Ingesting'),
             (cls.ERROR, 'Error'),
-            (cls.DONE, 'Done')
+            (cls.DONE, 'Done'),
+            (cls.DUPLICATE, 'Duplicate')
         ]
 
 
@@ -83,6 +85,9 @@ class CaseFile(db.Model):
     # Parent file ID (for extracted files from zip)
     parent_id = db.Column(db.Integer, db.ForeignKey('case_files.id'), nullable=True, index=True)
     
+    # Duplicate tracking - references the original file this is a duplicate of
+    duplicate_of_id = db.Column(db.Integer, db.ForeignKey('case_files.id'), nullable=True, index=True)
+    
     # File information
     filename = db.Column(db.String(512), nullable=False)
     original_filename = db.Column(db.String(512), nullable=False)  # Original name before any renaming
@@ -125,7 +130,10 @@ class CaseFile(db.Model):
     uploaded_by = db.Column(db.String(80), nullable=False)
     
     # Relationship for parent/child files
-    parent = db.relationship('CaseFile', remote_side=[id], backref='extracted_files')
+    parent = db.relationship('CaseFile', remote_side=[id], backref='extracted_files', foreign_keys=[parent_id])
+    
+    # Relationship for duplicate tracking
+    duplicate_of = db.relationship('CaseFile', remote_side=[id], foreign_keys=[duplicate_of_id])
     
     def __repr__(self):
         return f'<CaseFile {self.id}: {self.filename}>'
@@ -136,6 +144,7 @@ class CaseFile(db.Model):
             'id': self.id,
             'case_uuid': self.case_uuid,
             'parent_id': self.parent_id,
+            'duplicate_of_id': self.duplicate_of_id,
             'filename': self.filename,
             'original_filename': self.original_filename,
             'file_path': self.file_path,
@@ -162,8 +171,10 @@ class CaseFile(db.Model):
         """Get file statistics for a case"""
         from sqlalchemy import func
         
-        # Exclude archives from stats - they are containers, not files to process
-        base_query = CaseFile.query.filter_by(case_uuid=case_uuid, is_archive=False)
+        # Exclude archives and duplicates from stats - they are containers/duplicates, not files to process
+        base_query = CaseFile.query.filter_by(case_uuid=case_uuid, is_archive=False).filter(
+            CaseFile.status != FileStatus.DUPLICATE
+        )
         
         total = base_query.count()
         
@@ -216,17 +227,33 @@ class CaseFile(db.Model):
             return False
     
     @staticmethod
-    def get_by_case(case_uuid):
-        """Get all files for a case"""
-        return CaseFile.query.filter_by(case_uuid=case_uuid).order_by(CaseFile.uploaded_at.desc()).all()
+    def get_by_case(case_uuid, include_duplicates=False):
+        """Get all files for a case
+        
+        Args:
+            case_uuid: Case UUID
+            include_duplicates: If True, include duplicate files. Default False.
+        """
+        query = CaseFile.query.filter_by(case_uuid=case_uuid)
+        if not include_duplicates:
+            query = query.filter(CaseFile.status != FileStatus.DUPLICATE)
+        return query.order_by(CaseFile.uploaded_at.desc()).all()
     
     @staticmethod
-    def get_parent_files(case_uuid):
-        """Get only parent files (not extracted) for a case"""
-        return CaseFile.query.filter_by(
+    def get_parent_files(case_uuid, include_duplicates=False):
+        """Get only parent files (not extracted) for a case
+        
+        Args:
+            case_uuid: Case UUID
+            include_duplicates: If True, include duplicate files. Default False.
+        """
+        query = CaseFile.query.filter_by(
             case_uuid=case_uuid,
             is_extracted=False
-        ).order_by(CaseFile.uploaded_at.desc()).all()
+        )
+        if not include_duplicates:
+            query = query.filter(CaseFile.status != FileStatus.DUPLICATE)
+        return query.order_by(CaseFile.uploaded_at.desc()).all()
     
     @staticmethod
     def find_by_hash(sha256_hash, case_uuid=None):
