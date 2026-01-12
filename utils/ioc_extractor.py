@@ -604,6 +604,7 @@ def process_extraction_for_import(
             iocs_to_import.append(ioc_entry)
     
     # Process file paths - generate primary IOC (filename) with path as alias
+    # Uses type-aware deduplication to handle existing File Name IOCs
     for fp_item in iocs_data.get('file_paths', []):
         if isinstance(fp_item, dict):
             value = fp_item.get('value', '').strip()
@@ -623,7 +624,7 @@ def process_extraction_for_import(
         primary_value = alias_result['primary_value']
         aliases = alias_result['aliases']
         
-        # Check if we've already seen this primary value
+        # Check if we've already seen this primary value in THIS extraction
         if primary_value.lower() in seen_values:
             # Add the new path alias to the existing IOC entry
             for entry in iocs_to_import:
@@ -639,15 +640,18 @@ def process_extraction_for_import(
             context_with_action += f" | {context}" if context_with_action else context
         context_with_action += f" | Path: {value}"
         
-        ioc_entry = _create_ioc_entry(
-            value=primary_value,
-            ioc_type=alias_result['primary_type'],
+        # Use type-aware deduplication
+        # For file paths, if File Name IOC exists, add path as alias to it
+        ioc_entry = _create_ioc_entry_with_type_awareness(
+            primary_value=primary_value,
+            primary_type=alias_result['primary_type'],
+            aliases=aliases,
+            original_type='File Path',
             category='File',
             context=context_with_action,
             case_id=case_id
         )
         if ioc_entry:
-            ioc_entry['aliases'] = aliases
             iocs_to_import.append(ioc_entry)
     
     # Process file names
@@ -697,6 +701,7 @@ def process_extraction_for_import(
             iocs_to_import.append(ioc_entry)
     
     # Process commands - generate primary IOC (executable) with command aliases
+    # Uses type-aware deduplication to handle File Name / Command Line overlap
     for cmd_item in iocs_data.get('commands', []):
         if isinstance(cmd_item, dict):
             value = cmd_item.get('value', '').strip()
@@ -716,7 +721,7 @@ def process_extraction_for_import(
         primary_value = alias_result['primary_value']
         aliases = alias_result['aliases']
         
-        # Skip if we've already seen this primary value
+        # Skip if we've already seen this primary value in THIS extraction
         if primary_value.lower() in seen_values:
             # But still add the aliases to the existing IOC entry if possible
             for entry in iocs_to_import:
@@ -732,15 +737,18 @@ def process_extraction_for_import(
             context_with_exe += f" | {context}" if context_with_exe else context
         context_with_exe += f" | Original command: {value[:200]}..." if len(value) > 200 else f" | Original command: {value}"
         
-        ioc_entry = _create_ioc_entry(
-            value=primary_value,
-            ioc_type=alias_result['primary_type'],
-            category='File',  # Executables are File category
+        # Use type-aware deduplication
+        # This checks if File Name IOC exists and handles Command Line separately
+        ioc_entry = _create_ioc_entry_with_type_awareness(
+            primary_value=primary_value,
+            primary_type=alias_result['primary_type'],
+            aliases=aliases,
+            original_type='Command Line',
+            category='File',
             context=context_with_exe,
             case_id=case_id
         )
         if ioc_entry:
-            ioc_entry['aliases'] = aliases
             iocs_to_import.append(ioc_entry)
     
     # Process credentials (passwords, SSH keys, API keys)
@@ -876,6 +884,124 @@ def _create_ioc_entry(
         ).first()
         entry['already_linked'] = existing_link is not None
     
+    return entry
+
+
+def _create_ioc_entry_with_type_awareness(
+    primary_value: str,
+    primary_type: str,
+    aliases: List[str],
+    original_type: str,
+    category: str,
+    context: str,
+    case_id: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Create an IOC entry with smart type-aware deduplication.
+    
+    Handles the case where:
+    - A File Name IOC exists (broad matcher)
+    - We're adding a Command Line that generates the same primary value
+    
+    Logic:
+    1. If File Name IOC exists with same value:
+       - Check if Command Line IOC also exists
+       - If yes: add aliases to Command Line IOC
+       - If no: create new Command Line IOC (keep File Name as broad matcher)
+    2. If no File Name conflict: normal flow
+    
+    Returns dict with ioc data and metadata
+    """
+    from models.ioc import IOC, IOCCase
+    
+    if not primary_value:
+        return None
+    
+    # Check for existing IOCs
+    existing_filename = IOC.find_by_value(primary_value, 'File Name')
+    existing_command = IOC.find_by_value(primary_value, 'Command Line')
+    
+    entry = {
+        'value': primary_value,
+        'ioc_type': primary_type,
+        'category': category,
+        'context': context,
+        'aliases': aliases,
+        'is_new': True,
+        'merge_into_existing': False
+    }
+    
+    # CASE A: Adding a Command Line IOC
+    if original_type == 'Command Line':
+        if existing_command:
+            # Command Line IOC already exists - merge aliases into it
+            entry['existing_ioc_id'] = existing_command.id
+            entry['existing_notes'] = existing_command.notes
+            entry['ioc_type'] = 'Command Line'
+            entry['category'] = 'Process'
+            entry['is_new'] = False
+            entry['merge_into_existing'] = True
+            
+            existing_link = IOCCase.query.filter_by(
+                ioc_id=existing_command.id,
+                case_id=case_id
+            ).first()
+            entry['already_linked'] = existing_link is not None
+        elif existing_filename:
+            # File Name exists but no Command Line - create NEW Command Line IOC
+            # This keeps File Name as broad matcher, Command Line for specific matching
+            entry['ioc_type'] = 'Command Line'
+            entry['category'] = 'Process'
+            entry['is_new'] = True
+            entry['preserve_filename_ioc'] = True
+        else:
+            # No existing IOCs - create new Command Line IOC
+            entry['ioc_type'] = 'Command Line'
+            entry['category'] = 'Process'
+            entry['is_new'] = True
+        
+        return entry
+    
+    # CASE B: Adding a File Path IOC
+    if original_type == 'File Path':
+        if existing_filename:
+            # File Name exists - add path as alias to it
+            entry['existing_ioc_id'] = existing_filename.id
+            entry['existing_notes'] = existing_filename.notes
+            entry['ioc_type'] = 'File Name'
+            entry['is_new'] = False
+            entry['merge_into_existing'] = True
+            
+            existing_link = IOCCase.query.filter_by(
+                ioc_id=existing_filename.id,
+                case_id=case_id
+            ).first()
+            entry['already_linked'] = existing_link is not None
+        else:
+            # No File Name exists - create new File Name IOC with path as alias
+            entry['ioc_type'] = 'File Name'
+            entry['category'] = 'File'
+            entry['is_new'] = True
+        
+        return entry
+    
+    # CASE C: Other IOC types (direct File Name, etc.)
+    existing_same_type = IOC.find_by_value(primary_value, primary_type)
+    if existing_same_type:
+        entry['existing_ioc_id'] = existing_same_type.id
+        entry['existing_notes'] = existing_same_type.notes
+        entry['is_new'] = False
+        entry['merge_into_existing'] = True
+        
+        existing_link = IOCCase.query.filter_by(
+            ioc_id=existing_same_type.id,
+            case_id=case_id
+        ).first()
+        entry['already_linked'] = existing_link is not None
+        return entry
+    
+    # No conflicts - create new IOC
+    entry['is_new'] = True
     return entry
 
 
