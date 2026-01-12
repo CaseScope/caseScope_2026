@@ -1,6 +1,13 @@
 {
-  "version": "3.57.0",
+  "version": "3.57.01",
   "changelog": [
+    {
+      "version": "3.57.01",
+      "date": "2026-01-12",
+      "changes": [
+        "Bugfix: Settings link in left menu now visible to analysts (was still admin-only)"
+      ]
+    },
     {
       "version": "3.57.0",
       "date": "2026-01-12",
