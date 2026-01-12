@@ -1,6 +1,16 @@
 {
-  "version": "3.43.0",
+  "version": "3.44.0",
   "changelog": [
+    {
+      "version": "3.44.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting: Added 'Other' tab for miscellaneous tasks",
+        "Hunting: Added 'Find Noise' feature to tag events matching noise rules",
+        "Hunting: Noise tagging sets noise_matched=true and noise_rules[] on events",
+        "ClickHouse: Added noise_matched (Bool) and noise_rules (Array) columns to events"
+      ]
+    },
     {
       "version": "3.43.0",
       "date": "2026-01-12",

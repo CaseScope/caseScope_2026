@@ -28,6 +28,8 @@ from tasks.celery_tasks import (
     get_case_stats_task,
 )
 
+from tasks.noise_tagger import tag_noise_events
+
 __all__ = [
     'celery_app',
     'parse_file_task',
@@ -36,4 +38,5 @@ __all__ = [
     'delete_case_events_task',
     'update_hayabusa_rules_task',
     'get_case_stats_task',
+    'tag_noise_events',
 ]

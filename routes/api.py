@@ -2639,3 +2639,110 @@ def tag_artifacts_for_case(case_uuid):
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Noise Tagging API
+# ============================================================================
+
+@api_bp.route('/hunting/noise/stats/<int:case_id>')
+@login_required
+def get_noise_stats(case_id):
+    """Get noise statistics for a case"""
+    try:
+        from utils.clickhouse import get_client
+        
+        client = get_client()
+        
+        # Count noise-tagged events
+        result = client.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND noise_matched = true",
+            parameters={'case_id': case_id}
+        )
+        noise_count = result.result_rows[0][0] if result.result_rows else 0
+        
+        # Get total events
+        total_result = client.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+            parameters={'case_id': case_id}
+        )
+        total_count = total_result.result_rows[0][0] if total_result.result_rows else 0
+        
+        return jsonify({
+            'success': True,
+            'case_id': case_id,
+            'noise_count': noise_count,
+            'total_count': total_count,
+            'noise_percentage': round((noise_count / total_count * 100), 2) if total_count > 0 else 0,
+            'last_scan': None  # TODO: Track last scan time in case metadata
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/hunting/noise/tag/<int:case_id>', methods=['POST'])
+@login_required
+def start_noise_tagging(case_id):
+    """Start noise tagging task for a case"""
+    try:
+        from tasks.noise_tagger import tag_noise_events
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Start async task
+        task = tag_noise_events.delay(case_id, current_user.username)
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Noise tagging started'
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/hunting/noise/status/<task_id>')
+@login_required
+def get_noise_task_status(task_id):
+    """Get status of a noise tagging task"""
+    try:
+        from celery.result import AsyncResult
+        from tasks.celery_tasks import celery_app
+        
+        task = AsyncResult(task_id, app=celery_app)
+        
+        response = {
+            'success': True,
+            'task_id': task_id,
+            'state': task.state,
+            'progress': 0,
+            'status': 'Unknown'
+        }
+        
+        if task.state == 'PENDING':
+            response['status'] = 'Waiting to start...'
+            response['progress'] = 0
+        elif task.state == 'PROGRESS':
+            info = task.info or {}
+            response['progress'] = info.get('progress', 0)
+            response['status'] = info.get('status', 'Processing...')
+        elif task.state == 'SUCCESS':
+            response['state'] = 'completed'
+            response['progress'] = 100
+            response['status'] = 'Completed'
+            response['result'] = task.result
+        elif task.state == 'FAILURE':
+            response['state'] = 'failed'
+            response['error'] = str(task.result) if task.result else 'Task failed'
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

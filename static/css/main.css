@@ -5005,3 +5005,200 @@ input:checked + .slider:before {
   padding: 0 2px;
   border-radius: 2px;
 }
+
+/* ========================================
+   Hunting - Other Tab Styles
+   ======================================== */
+.other-tab-content {
+  padding: 24px;
+}
+
+.other-section {
+  margin-bottom: 32px;
+}
+
+.other-section-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.other-section-desc {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  max-width: 700px;
+}
+
+.noise-action-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-lg);
+  padding: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.noise-action-stats {
+  display: flex;
+  gap: 32px;
+}
+
+.noise-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.noise-stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.noise-stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.noise-action-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-lg {
+  padding: 14px 28px;
+  font-size: 16px;
+}
+
+/* Noise Progress */
+.noise-progress {
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.noise-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.noise-progress-title {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.noise-progress-percent {
+  font-weight: 600;
+  color: var(--accent-success);
+}
+
+.noise-progress-bar {
+  height: 8px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.noise-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-success));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.noise-progress-status {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Noise Results */
+.noise-results {
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius);
+  padding: 20px;
+}
+
+.noise-results h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+.noise-summary-stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.noise-summary-stat {
+  background: var(--bg-primary);
+  padding: 16px 24px;
+  border-radius: var(--border-radius);
+  text-align: center;
+  min-width: 140px;
+}
+
+.noise-summary-stat.highlight {
+  background: linear-gradient(135deg, rgba(54, 179, 126, 0.2), rgba(54, 179, 126, 0.1));
+  border: 1px solid var(--accent-success);
+}
+
+.noise-summary-stat .stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.noise-summary-stat .stat-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.noise-results-breakdown {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.noise-results-breakdown th,
+.noise-results-breakdown td {
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.noise-results-breakdown th {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.noise-results-breakdown tr:last-child td {
+  border-bottom: none;
+}
+
+.noise-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 86, 48, 0.1);
+  border-radius: var(--border-radius);
+  color: var(--accent-danger);
+}
+
+.noise-error .error-icon {
+  font-size: 24px;
+}

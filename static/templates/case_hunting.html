@@ -43,10 +43,70 @@
                     <span class="tab-icon">📊</span>
                     <span class="tab-text">Apps & Network</span>
                 </button>
+                <button class="hunting-tab" data-tab="other" data-types="">
+                    <span class="tab-icon">🔧</span>
+                    <span class="tab-text">Other</span>
+                </button>
             </div>
         </div>
         <div class="tile-body hunting-content">
-            {% include 'hunting/tab_events.html' %}
+            <div id="tab-content-events">
+                {% include 'hunting/tab_events.html' %}
+            </div>
+            <div id="tab-content-other" style="display: none;">
+                <div class="other-tab-content">
+                    <div class="other-section">
+                        <h3 class="other-section-title">🔇 Noise Detection</h3>
+                        <p class="other-section-desc">Scan events for known-good software and tag them as noise. This helps filter out legitimate RMM, EDR, backup, and security tools from your investigation.</p>
+                        
+                        <div class="noise-action-card">
+                            <div class="noise-action-info">
+                                <div class="noise-action-stats" id="noiseStats">
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Active Rules:</span>
+                                        <span class="noise-stat-value" id="noiseActiveRules">-</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Last Scan:</span>
+                                        <span class="noise-stat-value" id="noiseLastScan">Never</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Events Tagged:</span>
+                                        <span class="noise-stat-value" id="noiseEventsTagged">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="noise-action-buttons">
+                                <button class="btn btn-primary btn-lg" id="btnFindNoise" onclick="startNoiseTagging()">
+                                    <span class="btn-icon">🔍</span> Find Noise
+                                </button>
+                                <a href="{{ url_for('main.settings', tab='noise') }}" class="btn btn-secondary">
+                                    <span class="btn-icon">⚙️</span> Manage Rules
+                                </a>
+                            </div>
+                        </div>
+                        
+                        <!-- Progress indicator -->
+                        <div class="noise-progress" id="noiseProgress" style="display: none;">
+                            <div class="noise-progress-header">
+                                <span class="noise-progress-title">Scanning for noise...</span>
+                                <span class="noise-progress-percent" id="noiseProgressPercent">0%</span>
+                            </div>
+                            <div class="noise-progress-bar">
+                                <div class="noise-progress-fill" id="noiseProgressFill" style="width: 0%"></div>
+                            </div>
+                            <div class="noise-progress-status" id="noiseProgressStatus">Initializing...</div>
+                        </div>
+                        
+                        <!-- Results -->
+                        <div class="noise-results" id="noiseResults" style="display: none;">
+                            <h4>Scan Results</h4>
+                            <div class="noise-results-summary" id="noiseResultsSummary"></div>
+                            <div class="noise-results-table" id="noiseResultsTable"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -102,6 +162,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const tabs = document.querySelectorAll('.hunting-tab');
     const filterTile = document.getElementById('events-filter-tile');
+    const eventsContent = document.getElementById('tab-content-events');
+    const otherContent = document.getElementById('tab-content-other');
     
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
@@ -115,18 +177,29 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get artifact types for this tab
             currentArtifactTypes = this.dataset.types || '';
             
-            // Show/hide filter tile (Events tab only)
-            if (filterTile) {
-                filterTile.style.display = (currentTab === 'events') ? '' : 'none';
+            // Show/hide content based on tab
+            if (currentTab === 'other') {
+                eventsContent.style.display = 'none';
+                otherContent.style.display = 'block';
+                if (filterTile) filterTile.style.display = 'none';
+                // Load noise stats when switching to Other tab
+                loadNoiseStats();
+            } else {
+                eventsContent.style.display = 'block';
+                otherContent.style.display = 'none';
+                // Show/hide filter tile (Events tab only)
+                if (filterTile) {
+                    filterTile.style.display = (currentTab === 'events') ? '' : 'none';
+                }
+                
+                // Reset pagination and search when switching tabs
+                eventsPage = 1;
+                eventsSearch = '';
+                document.getElementById('events-search').value = '';
+                
+                // Reload events with new filter
+                loadEvents();
             }
-            
-            // Reset pagination and search when switching tabs
-            eventsPage = 1;
-            eventsSearch = '';
-            document.getElementById('events-search').value = '';
-            
-            // Reload events with new filter
-            loadEvents();
         });
     });
     
@@ -780,6 +853,170 @@ function formatBytes(bytes) {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// ============================================
+// Noise Tagging Functions
+// ============================================
+
+let noiseTaskId = null;
+let noisePollingInterval = null;
+
+function loadNoiseStats() {
+    // Load active rules count
+    fetch('/settings/noise/api/stats')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('noiseActiveRules').textContent = data.active_rules;
+            }
+        });
+    
+    // Load noise stats for this case
+    fetch(`/api/hunting/noise/stats/${caseId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('noiseEventsTagged').textContent = data.noise_count.toLocaleString();
+                if (data.last_scan) {
+                    document.getElementById('noiseLastScan').textContent = data.last_scan;
+                }
+            }
+        })
+        .catch(err => console.error('Error loading noise stats:', err));
+}
+
+function startNoiseTagging() {
+    const btn = document.getElementById('btnFindNoise');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    
+    // Show progress
+    document.getElementById('noiseProgress').style.display = 'block';
+    document.getElementById('noiseResults').style.display = 'none';
+    document.getElementById('noiseProgressPercent').textContent = '0%';
+    document.getElementById('noiseProgressFill').style.width = '0%';
+    document.getElementById('noiseProgressStatus').textContent = 'Starting noise scan...';
+    
+    fetch(`/api/hunting/noise/tag/${caseId}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                noiseTaskId = data.task_id;
+                // Start polling for progress
+                noisePollingInterval = setInterval(pollNoiseProgress, 1000);
+            } else {
+                showNoiseError(data.error || 'Failed to start noise tagging');
+                resetNoiseButton();
+            }
+        })
+        .catch(err => {
+            showNoiseError('Error starting noise scan: ' + err.message);
+            resetNoiseButton();
+        });
+}
+
+function pollNoiseProgress() {
+    if (!noiseTaskId) return;
+    
+    fetch(`/api/hunting/noise/status/${noiseTaskId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const progress = data.progress || 0;
+                document.getElementById('noiseProgressPercent').textContent = progress + '%';
+                document.getElementById('noiseProgressFill').style.width = progress + '%';
+                document.getElementById('noiseProgressStatus').textContent = data.status || 'Processing...';
+                
+                if (data.state === 'completed' || data.state === 'SUCCESS') {
+                    clearInterval(noisePollingInterval);
+                    noisePollingInterval = null;
+                    showNoiseResults(data.result);
+                    resetNoiseButton();
+                    loadNoiseStats();
+                } else if (data.state === 'failed' || data.state === 'FAILURE') {
+                    clearInterval(noisePollingInterval);
+                    noisePollingInterval = null;
+                    showNoiseError(data.error || 'Noise tagging failed');
+                    resetNoiseButton();
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error polling noise status:', err);
+        });
+}
+
+function showNoiseResults(result) {
+    document.getElementById('noiseProgress').style.display = 'none';
+    document.getElementById('noiseResults').style.display = 'block';
+    
+    const summary = document.getElementById('noiseResultsSummary');
+    summary.innerHTML = `
+        <div class="noise-summary-stats">
+            <div class="noise-summary-stat">
+                <span class="stat-value">${(result.total_events || 0).toLocaleString()}</span>
+                <span class="stat-label">Events Scanned</span>
+            </div>
+            <div class="noise-summary-stat highlight">
+                <span class="stat-value">${(result.total_tagged || 0).toLocaleString()}</span>
+                <span class="stat-label">Noise Tagged</span>
+            </div>
+            <div class="noise-summary-stat">
+                <span class="stat-value">${result.noise_percentage || 0}%</span>
+                <span class="stat-label">Noise %</span>
+            </div>
+        </div>
+    `;
+    
+    // Show per-rule breakdown
+    const table = document.getElementById('noiseResultsTable');
+    if (result.rule_matches && result.rule_matches.length > 0) {
+        let html = `
+            <table class="noise-results-breakdown">
+                <thead>
+                    <tr>
+                        <th>Rule</th>
+                        <th>Category</th>
+                        <th>Matches</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        for (const rule of result.rule_matches) {
+            html += `
+                <tr>
+                    <td>${escapeHtml(rule.name)}</td>
+                    <td><span class="badge badge-muted">${escapeHtml(rule.category || '-')}</span></td>
+                    <td>${(rule.count || 0).toLocaleString()}</td>
+                </tr>
+            `;
+        }
+        
+        html += '</tbody></table>';
+        table.innerHTML = html;
+    } else {
+        table.innerHTML = '<p class="text-muted">No events matched noise rules.</p>';
+    }
+}
+
+function showNoiseError(message) {
+    document.getElementById('noiseProgress').style.display = 'none';
+    document.getElementById('noiseResults').style.display = 'block';
+    document.getElementById('noiseResultsSummary').innerHTML = `
+        <div class="noise-error">
+            <span class="error-icon">❌</span>
+            <span class="error-message">${escapeHtml(message)}</span>
+        </div>
+    `;
+    document.getElementById('noiseResultsTable').innerHTML = '';
+}
+
+function resetNoiseButton() {
+    const btn = document.getElementById('btnFindNoise');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Find Noise';
 }
 </script>
 {% endblock %}
