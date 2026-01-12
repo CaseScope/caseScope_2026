@@ -347,24 +347,8 @@ function getSeverityBadge(ruleLevel) {
 function getIOCBadges(iocTypes) {
     if (!iocTypes || iocTypes.length === 0) return '';
     
-    const icons = {
-        'IP': '🌐',
-        'Domain': '🌐',
-        'Host': '💻',
-        'URL': '🔗',
-        'Hash': '🔑',
-        'File': '📄',
-        'Process': '⚙️',
-        'Command': '💻',
-        'Registry': '🗂️',
-        'User': '👤',
-        'Email': '📧',
-        'Credential': '🔐'
-    };
-    
     return iocTypes.map(type => {
-        const icon = icons[type] || '🏷️';
-        return `<span class="badge badge-ioc" title="IOC: ${type}">${icon} ${type}</span>`;
+        return `<span class="badge badge-ioc" title="IOC: ${type}">${type}</span>`;
     }).join(' ');
 }
 
