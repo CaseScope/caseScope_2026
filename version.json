@@ -1,6 +1,13 @@
 {
-  "version": "3.47.0",
+  "version": "3.47.1",
   "changelog": [
+    {
+      "version": "3.47.1",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Find Logins button now searches for Event ID 4624"
+      ]
+    },
     {
       "version": "3.47.0",
       "date": "2026-01-12",
