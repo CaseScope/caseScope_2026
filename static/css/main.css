@@ -69,7 +69,7 @@
 }
 
 [data-theme="light"] .main-content {
-  background: linear-gradient(90deg, #f8fafc 0%, #e0e7ff 50%, #f8fafc 100%);
+  background: linear-gradient(90deg, #f3f4f6 0%, #e8eaed 50%, #f3f4f6 100%);
   background-attachment: fixed;
 }
 
