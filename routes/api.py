@@ -1,6 +1,7 @@
 """API routes for CaseScope"""
 import os
 import json
+import logging
 import platform
 import subprocess
 import shutil
@@ -13,6 +14,8 @@ from models.user import User
 from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
 from config import Config
+
+logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
