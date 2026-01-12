@@ -133,6 +133,15 @@ class NoiseRule(db.Model):
     Each rule defines a pattern to match against event data.
     Rules can be enabled/disabled independently.
     Rule is only active if: category.is_enabled AND rule.is_enabled
+    
+    Pattern Syntax:
+        - Comma (,) = OR matching: "screenconnect,control" matches either
+        - Plus (+) = AND condition: "screenconnect+abc123" must contain both
+        - Combined: "screenconnect,control+clientUID" = (screenconnect OR control) AND clientUID
+        
+    The AND conditions apply to ALL OR patterns. This is useful for:
+        - ScreenConnect with client-specific UIDs
+        - Any tool where multiple executables share a common identifier
     """
     __tablename__ = 'noise_rules'
     
@@ -216,6 +225,93 @@ class NoiseRule(db.Model):
             NoiseRule.is_enabled == True,
             NoiseRule.filter_type == filter_type
         ).order_by(NoiseRule.priority.asc()).all()
+    
+    def parse_pattern(self):
+        """Parse pattern into OR patterns and AND conditions
+        
+        Pattern format: "pattern1,pattern2+condition1+condition2"
+        - Comma separates OR patterns (match any)
+        - Plus separates AND conditions (must all be present)
+        
+        Returns: (or_patterns: list, and_conditions: list)
+        """
+        # Split by + to separate AND conditions
+        parts = self.pattern.split('+')
+        
+        # First part contains OR patterns (comma-separated)
+        or_patterns = [p.strip() for p in parts[0].split(',') if p.strip()]
+        
+        # Remaining parts are AND conditions
+        and_conditions = [p.strip() for p in parts[1:] if p.strip()]
+        
+        return or_patterns, and_conditions
+    
+    def matches(self, value, full_event_text=None):
+        """Check if value matches this rule's pattern
+        
+        Args:
+            value: The specific field value to check against OR patterns
+            full_event_text: Full event text/data to check AND conditions against
+                            (if None, uses value for both)
+        
+        Returns: True if matches, False otherwise
+        """
+        import re
+        import fnmatch
+        
+        if not value:
+            return False
+        
+        or_patterns, and_conditions = self.parse_pattern()
+        
+        # Normalize for case-insensitive matching
+        check_value = value if self.is_case_sensitive else value.lower()
+        check_full = (full_event_text or value) if self.is_case_sensitive else (full_event_text or value).lower()
+        
+        # Check OR patterns - at least one must match
+        or_matched = False
+        for pattern in or_patterns:
+            check_pattern = pattern if self.is_case_sensitive else pattern.lower()
+            
+            if self._pattern_matches(check_value, check_pattern):
+                or_matched = True
+                break
+        
+        if not or_matched:
+            return False
+        
+        # Check AND conditions - all must be present in full event
+        for condition in and_conditions:
+            check_condition = condition if self.is_case_sensitive else condition.lower()
+            
+            # AND conditions always use "contains" matching against full event
+            if check_condition not in check_full:
+                return False
+        
+        return True
+    
+    def _pattern_matches(self, value, pattern):
+        """Check if value matches pattern based on match_mode"""
+        import re
+        import fnmatch
+        
+        if self.match_mode == NoiseMatchMode.EXACT:
+            return value == pattern
+        elif self.match_mode == NoiseMatchMode.CONTAINS:
+            return pattern in value
+        elif self.match_mode == NoiseMatchMode.STARTS_WITH:
+            return value.startswith(pattern)
+        elif self.match_mode == NoiseMatchMode.ENDS_WITH:
+            return value.endswith(pattern)
+        elif self.match_mode == NoiseMatchMode.WILDCARD:
+            return fnmatch.fnmatch(value, pattern)
+        elif self.match_mode == NoiseMatchMode.REGEX:
+            try:
+                return bool(re.search(pattern, value))
+            except re.error:
+                return False
+        else:
+            return pattern in value  # Default to contains
 
 
 class NoiseRuleAudit(db.Model):

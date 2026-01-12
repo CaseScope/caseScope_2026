@@ -1,6 +1,16 @@
 {
-  "version": "3.41.2",
+  "version": "3.42.0",
   "changelog": [
+    {
+      "version": "3.42.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Noise Filters: Added AND condition support with + syntax",
+        "Noise Filters: Pattern format - comma for OR, plus for AND conditions",
+        "Noise Filters: Example: screenconnect,control+clientUID matches (screenconnect OR control) AND clientUID",
+        "Noise Filters: Updated pattern input with visual help showing syntax"
+      ]
+    },
     {
       "version": "3.41.2",
       "date": "2026-01-12",
