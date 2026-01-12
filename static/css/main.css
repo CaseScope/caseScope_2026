@@ -4960,17 +4960,18 @@ input:checked + .slider:before {
 
 /* IOC badge styling */
 .badge-ioc {
-  background: linear-gradient(135deg, #a93226, #922b21);
+  background: #922b21;
   color: #fff;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-left: 4px;
-  font-weight: 500;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin: 1px 2px;
+  font-weight: 600;
   display: inline-block;
   vertical-align: middle;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  border: 1px solid rgba(0,0,0,0.2);
 }
 
 /* Stack badges vertically if too many */

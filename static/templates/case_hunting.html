@@ -347,9 +347,9 @@ function getSeverityBadge(ruleLevel) {
 function getIOCBadges(iocTypes) {
     if (!iocTypes || iocTypes.length === 0) return '';
     
-    return iocTypes.map(type => {
-        return `<span class="badge badge-ioc" title="IOC: ${type}">${type}</span>`;
-    }).join(' ');
+    // Join multiple types with middot separator in a single badge
+    const typesStr = iocTypes.join(' · ');
+    return `<span class="badge badge-ioc" title="IOC types: ${iocTypes.join(', ')}">${typesStr}</span>`;
 }
 
 // Update pagination controls
