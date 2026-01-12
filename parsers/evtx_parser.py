@@ -550,6 +550,42 @@ class EvtxECmdParser(BaseParser):
             self.warnings.append(f"Error transforming event: {e}")
             logger.exception(f"Event transformation error: {e}")
             return None
+    
+    @classmethod
+    def update_rules(cls, rules_dir: str = None) -> bool:
+        """Update Hayabusa/Sigma rules
+        
+        Args:
+            rules_dir: Rules directory (default: cls.HAYABUSA_RULES)
+            
+        Returns:
+            True if update succeeded
+        """
+        rules_dir = rules_dir or cls.HAYABUSA_RULES
+        hayabusa_bin = cls.HAYABUSA_BIN
+        
+        if not os.path.exists(hayabusa_bin):
+            logger.error(f"Hayabusa binary not found: {hayabusa_bin}")
+            return False
+        
+        try:
+            cmd = [hayabusa_bin, 'update-rules', '-r', rules_dir]
+            logger.info(f"Running: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                logger.info("Hayabusa rules updated successfully")
+                return True
+            else:
+                logger.error(f"Rule update failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Rule update timed out after 5 minutes")
+            return False
+        except Exception as e:
+            logger.exception(f"Failed to update Hayabusa rules: {e}")
+            return False
 
 
 class EvtxFallbackParser(BaseParser):

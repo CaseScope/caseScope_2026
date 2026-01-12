@@ -1,6 +1,16 @@
 {
-  "version": "3.57.01",
+  "version": "3.58.0",
   "changelog": [
+    {
+      "version": "3.58.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Settings: EVTX/SIGMA tab now shows Sigma rule statistics (rule count, last updated)",
+        "Settings: Added Update Rules button for admins to download latest Hayabusa rules",
+        "API: New /api/parsing/sigma-rules/stats endpoint for rule information",
+        "Bugfix: Fixed update_hayabusa_rules_task referencing non-existent HayabusaParser class"
+      ]
+    },
     {
       "version": "3.57.01",
       "date": "2026-01-12",

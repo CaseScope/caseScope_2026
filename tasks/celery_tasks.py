@@ -378,12 +378,12 @@ def update_hayabusa_rules_task() -> Dict[str, Any]:
     Returns:
         Dict with update status
     """
-    from parsers.evtx_parser import HayabusaParser
+    from parsers.evtx_parser import EvtxECmdParser
     
     logger.info("Updating Hayabusa rules")
     
     try:
-        success = HayabusaParser.update_rules()
+        success = EvtxECmdParser.update_rules()
         return {
             'success': success,
             'message': 'Rules updated successfully' if success else 'Rule update failed',

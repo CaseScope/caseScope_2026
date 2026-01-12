@@ -5613,3 +5613,143 @@ input:checked + .slider:before {
     flex-direction: column;
   }
 }
+
+/* ========================================
+   Sigma Rules Settings Styles
+   ======================================== */
+.sigma-rules-section {
+  margin-top: 20px;
+}
+
+.sigma-rules-section .section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.sigma-rules-section .section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sigma-rules-section .section-icon {
+  font-size: 20px;
+}
+
+.sigma-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sigma-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 16px;
+  transition: all var(--transition-fast);
+}
+
+.sigma-stat-card:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.sigma-stat-card.stat-highlight {
+  border-color: var(--accent-primary);
+  background: linear-gradient(135deg, rgba(76, 154, 255, 0.1) 0%, var(--bg-secondary) 100%);
+}
+
+.sigma-stat-card .stat-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.sigma-stat-card .stat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sigma-stat-card .stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sigma-stat-card .stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sigma-info-bar {
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sigma-info-bar .info-loading {
+  color: var(--text-secondary);
+}
+
+.sigma-info-bar .info-success {
+  color: var(--accent-success);
+  font-weight: 500;
+}
+
+.sigma-info-bar .info-warning {
+  color: var(--accent-warning);
+  font-weight: 500;
+}
+
+.sigma-info-bar .info-error {
+  color: var(--accent-danger);
+}
+
+.sigma-info-bar .info-version {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-left: 8px;
+}
+
+.sigma-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.sigma-actions .action-help {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .sigma-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .sigma-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}

@@ -388,6 +388,71 @@ def get_case_file_status(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@parsing_bp.route('/sigma-rules/stats', methods=['GET'])
+@login_required
+def get_sigma_rules_stats():
+    """Get Sigma/Hayabusa rule statistics
+    
+    Returns:
+        JSON with rule count and last update timestamp
+    """
+    try:
+        import subprocess
+        from pathlib import Path
+        
+        rules_dir = Path(Config.RULES_FOLDER)
+        hayabusa_rules = rules_dir / 'hayabusa'
+        sigma_rules = rules_dir / 'sigma'
+        
+        # Count rules
+        hayabusa_count = len(list(hayabusa_rules.rglob('*.yml'))) if hayabusa_rules.exists() else 0
+        sigma_count = len(list(sigma_rules.rglob('*.yml'))) if sigma_rules.exists() else 0
+        total_count = hayabusa_count + sigma_count
+        
+        # Get last modification time (newest file in rules directories)
+        last_updated = None
+        newest_time = 0
+        
+        for rules_path in [hayabusa_rules, sigma_rules]:
+            if rules_path.exists():
+                for yml_file in rules_path.rglob('*.yml'):
+                    mtime = yml_file.stat().st_mtime
+                    if mtime > newest_time:
+                        newest_time = mtime
+        
+        if newest_time > 0:
+            from datetime import datetime
+            last_updated = datetime.fromtimestamp(newest_time).isoformat()
+        
+        # Get hayabusa version if available
+        hayabusa_version = None
+        hayabusa_bin = os.path.join(Config.BIN_FOLDER, 'hayabusa')
+        if os.path.exists(hayabusa_bin):
+            try:
+                result = subprocess.run(
+                    [hayabusa_bin, '--version'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    hayabusa_version = result.stdout.strip().split('\n')[0]
+            except Exception:
+                pass
+        
+        return jsonify({
+            'success': True,
+            'hayabusa_rules': hayabusa_count,
+            'sigma_rules': sigma_count,
+            'total_rules': total_count,
+            'last_updated': last_updated,
+            'hayabusa_version': hayabusa_version,
+            'hayabusa_available': os.path.exists(hayabusa_bin),
+        })
+        
+    except Exception as e:
+        logger.exception("Error getting sigma rule stats")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @parsing_bp.route('/update-rules', methods=['POST'])
 @login_required
 def update_hayabusa_rules():
