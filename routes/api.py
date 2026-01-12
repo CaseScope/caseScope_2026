@@ -1064,26 +1064,56 @@ def get_hunting_events(case_id):
         """
         
         if search:
-            # Search in search_blob field
+            # Parse search for exclusions: -"term" or -term excludes, regular terms include
+            import re
+            # Find all -"quoted terms" and -unquoted_terms
+            exclude_pattern = re.compile(r'-"([^"]+)"|-(\S+)')
+            excludes = []
+            for match in exclude_pattern.finditer(search):
+                term = match.group(1) or match.group(2)
+                if term:
+                    excludes.append(term)
+            
+            # Remove exclusion patterns from search to get the main search term
+            main_search = exclude_pattern.sub('', search).strip()
+            
+            # Build search conditions
+            search_conditions = []
+            params = {
+                'case_id': case_id,
+                'limit': per_page,
+                'offset': offset
+            }
+            
+            # Main search term (if any)
+            if main_search:
+                params['pattern'] = f'%{main_search}%'
+                search_conditions.append("search_blob LIKE {pattern:String}")
+            
+            # Add exclusion conditions
+            for i, excl in enumerate(excludes):
+                param_name = f'excl_{i}'
+                params[param_name] = f'%{excl}%'
+                search_conditions.append(f"search_blob NOT LIKE {{{param_name}:String}}")
+            
+            # Combine conditions
+            if search_conditions:
+                search_filter = " AND ".join(search_conditions)
+                search_clause = f" AND {search_filter}"
+            else:
+                search_clause = ""
+            
             count_query = f"""
                 SELECT count() FROM events 
-                WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
-            params = {
-                'case_id': case_id,
-                'pattern': f'%{search}%',
-                'limit': per_page,
-                'offset': offset
-            }
         else:
             count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}"
             data_query = f"""

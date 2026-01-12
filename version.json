@@ -1,6 +1,14 @@
 {
-  "version": "3.47.1",
+  "version": "3.48.0",
   "changelog": [
+    {
+      "version": "3.48.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Search now supports exclusions with -term or -\"quoted term\" syntax",
+        "Hunting Events: Find Logins excludes NT AUTHORITY, ANONYMOUS LOGON, and machine accounts"
+      ]
+    },
     {
       "version": "3.47.1",
       "date": "2026-01-12",
