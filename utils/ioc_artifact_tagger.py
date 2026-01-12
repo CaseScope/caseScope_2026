@@ -86,10 +86,22 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
             terms.append(name_no_ext.lower())
     
     elif ioc_type == 'Command Line':
-        # For command lines, only use the full value - don't extract individual executables
-        # This prevents "powershell.exe" from matching every PowerShell event
-        # The full command like "powershell -ExecutionPolicy Bypass" is more meaningful
-        pass  # Full value already added above
+        # Extract executable names from command line
+        # Look for .exe, .bat, .cmd, .ps1, etc.
+        exe_pattern = r'[\\/]?([a-zA-Z0-9_\-\.]+\.(exe|bat|cmd|ps1|vbs|js|dll|msi))'
+        matches = re.findall(exe_pattern, value, re.IGNORECASE)
+        for match in matches:
+            terms.append(match[0].lower())
+        
+        # Also try to extract the first token (likely the executable)
+        first_token = value.split()[0] if value.split() else ''
+        if first_token:
+            # Remove quotes
+            first_token = first_token.strip('"\'')
+            # Get just filename if it's a path
+            first_token_name = os.path.basename(first_token.replace('\\', '/'))
+            if first_token_name:
+                terms.append(first_token_name.lower())
     
     elif ioc_type == 'Process Name':
         # Add without .exe extension if present
