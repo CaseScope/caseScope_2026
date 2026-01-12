@@ -2714,7 +2714,7 @@ def restart_worker_service():
         import subprocess
         
         result = subprocess.run(
-            ['sudo', 'systemctl', 'restart', 'casescope-workers'],
+            ['sudo', '/usr/bin/systemctl', 'restart', 'casescope-workers'],
             capture_output=True,
             text=True,
             timeout=30
