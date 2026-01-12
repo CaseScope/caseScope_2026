@@ -43,6 +43,37 @@ IOC_TYPE_SHORT_NAMES = {
 }
 
 
+# Common Windows executables that appear in almost every log - too noisy for IOC matching
+# These will be excluded from IOC term extraction to avoid flagging every event
+COMMON_EXECUTABLES_BLOCKLIST = {
+    # Shell/scripting
+    'powershell.exe', 'powershell', 'cmd.exe', 'cmd', 'wscript.exe', 'cscript.exe',
+    'mshta.exe', 'bash.exe', 'sh.exe',
+    # Core Windows
+    'svchost.exe', 'svchost', 'services.exe', 'lsass.exe', 'csrss.exe', 'smss.exe',
+    'wininit.exe', 'winlogon.exe', 'dwm.exe', 'explorer.exe', 'explorer',
+    'taskhostw.exe', 'taskhost.exe', 'runtimebroker.exe', 'sihost.exe',
+    'conhost.exe', 'dllhost.exe', 'backgroundtaskhost.exe',
+    # System utilities
+    'notepad.exe', 'notepad', 'mmc.exe', 'regedit.exe', 'taskmgr.exe',
+    'control.exe', 'rundll32.exe', 'regsvr32.exe', 'msiexec.exe',
+    'sc.exe', 'net.exe', 'net1.exe', 'netsh.exe', 'ipconfig.exe', 'ping.exe',
+    'systeminfo.exe', 'whoami.exe', 'hostname.exe', 'nslookup.exe',
+    # Office
+    'winword.exe', 'excel.exe', 'powerpnt.exe', 'outlook.exe', 'msaccess.exe',
+    # Browsers
+    'chrome.exe', 'firefox.exe', 'msedge.exe', 'iexplore.exe',
+    # Windows Defender / Security
+    'msmpeng.exe', 'mpcmdrun.exe', 'securityhealthservice.exe',
+    # WMI
+    'wmiprvse.exe', 'wmic.exe',
+    # Updates/installers
+    'wuauclt.exe', 'trustedinstaller.exe', 'tiworker.exe',
+    # Search
+    'searchindexer.exe', 'searchprotocolhost.exe',
+}
+
+
 def get_short_ioc_type(ioc_type: str) -> str:
     """Get shortened IOC type name for badges."""
     return IOC_TYPE_SHORT_NAMES.get(ioc_type, ioc_type.split()[0] if ioc_type else 'IOC')
@@ -142,9 +173,13 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
     seen = set()
     unique_terms = []
     for term in terms:
-        if term and term not in seen and len(term) >= min_length:
-            seen.add(term)
-            unique_terms.append(term)
+        if not term or term in seen or len(term) < min_length:
+            continue
+        # Skip common Windows executables that appear everywhere (too noisy)
+        if term in COMMON_EXECUTABLES_BLOCKLIST:
+            continue
+        seen.add(term)
+        unique_terms.append(term)
     
     return unique_terms
 
