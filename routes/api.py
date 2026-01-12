@@ -1721,6 +1721,47 @@ def get_ioc_types():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/iocs/values/<int:case_id>')
+@login_required
+def get_ioc_values_for_case(case_id):
+    """Get just IOC values for a case (for highlighting in event modal)"""
+    try:
+        from models.ioc import IOC, IOCCase
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get all IOC values linked to this case (excluding false positives)
+        ioc_links = IOCCase.query.filter_by(case_id=case_id).all()
+        ioc_ids = [link.ioc_id for link in ioc_links]
+        
+        if not ioc_ids:
+            return jsonify({'success': True, 'values': []})
+        
+        iocs = IOC.query.filter(
+            IOC.id.in_(ioc_ids),
+            IOC.false_positive == False
+        ).all()
+        
+        # Extract searchable values (filenames from paths, etc.)
+        from utils.ioc_artifact_tagger import extract_searchable_terms
+        
+        values = set()
+        for ioc in iocs:
+            terms = extract_searchable_terms(ioc.value, ioc.ioc_type)
+            values.update(terms)
+        
+        return jsonify({
+            'success': True,
+            'values': list(values)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/iocs/list/<case_uuid>')
 @login_required
 def get_iocs_for_case(case_uuid):

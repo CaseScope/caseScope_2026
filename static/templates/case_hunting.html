@@ -60,6 +60,7 @@ let eventsPerPage = 50;
 let eventsSearch = '';
 let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
 let currentEventsData = []; // Store current page's event data for modal display
+let caseIOCValues = []; // Store IOC values for highlighting in modal
 
 // Filter state
 const eventFilters = {
@@ -96,6 +97,9 @@ let currentTab = 'events';
 
 // Tab switching
 document.addEventListener('DOMContentLoaded', function() {
+    // Load IOC values for highlighting in modal
+    loadCaseIOCs();
+    
     const tabs = document.querySelectorAll('.hunting-tab');
     const filterTile = document.getElementById('events-filter-tile');
     
@@ -429,6 +433,9 @@ function showEventDetail(index) {
     const event = currentEventsData[index];
     if (!event) return;
     
+    // Set flag for IOC highlighting in detailRow
+    currentEventHasIOC = event.ioc_types && event.ioc_types.length > 0;
+    
     // Update modal title with event type and timestamp
     document.getElementById('event-modal-title').textContent = 
         `${event.artifact_type.toUpperCase()} Event - ${event.timestamp}`;
@@ -456,6 +463,48 @@ document.addEventListener('keydown', function(e) {
         closeEventModal();
     }
 });
+
+// Load IOC values for this case (for highlighting in modal)
+function loadCaseIOCs() {
+    fetch(`/api/iocs/values/${caseId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                caseIOCValues = data.values || [];
+                console.log(`Loaded ${caseIOCValues.length} IOC values for highlighting`);
+            }
+        })
+        .catch(err => console.error('Error loading IOC values:', err));
+}
+
+// Highlight IOC matches in text (returns HTML with red spans)
+function highlightIOCsInText(text) {
+    if (!text || !caseIOCValues.length) return escapeHtml(String(text));
+    
+    let result = escapeHtml(String(text));
+    const textLower = text.toLowerCase();
+    
+    // Sort IOCs by length (longest first) to avoid partial replacements
+    const sortedIOCs = [...caseIOCValues].sort((a, b) => b.length - a.length);
+    
+    for (const ioc of sortedIOCs) {
+        if (!ioc || ioc.length < 3) continue; // Skip very short values
+        
+        const iocLower = ioc.toLowerCase();
+        const escapedIOC = escapeHtml(ioc);
+        
+        // Case-insensitive search and replace with highlighting
+        const regex = new RegExp(escapeRegex(escapedIOC), 'gi');
+        result = result.replace(regex, match => `<span class="ioc-highlight">${match}</span>`);
+    }
+    
+    return result;
+}
+
+// Escape regex special characters
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function buildEventDetailHTML(event) {
     let html = '';
@@ -512,10 +561,13 @@ function buildEventDetailHTML(event) {
         
         // Command line gets its own full-width section if present
         if (event.command_line) {
+            const cmdDisplay = currentEventHasIOC 
+                ? highlightIOCsInText(event.command_line)
+                : escapeHtml(event.command_line);
             html += `
                 <div class="event-detail-section full-width">
                     <h4>💻 Command Line</h4>
-                    <div class="event-detail-blob">${escapeHtml(event.command_line)}</div>
+                    <div class="event-detail-blob">${cmdDisplay}</div>
                 </div>
             `;
         }
@@ -641,6 +693,9 @@ function formatLogonType(logonType) {
     return typeStr;
 }
 
+// Track current event for IOC highlighting
+let currentEventHasIOC = false;
+
 function detailRow(label, value) {
     if (value === null || value === undefined || value === '') {
         return `
@@ -650,10 +705,16 @@ function detailRow(label, value) {
             </div>
         `;
     }
+    
+    // Use IOC highlighting if current event has IOC matches
+    const displayValue = currentEventHasIOC 
+        ? highlightIOCsInText(String(value))
+        : escapeHtml(String(value));
+    
     return `
         <div class="event-detail-row">
             <span class="event-detail-label">${label}</span>
-            <span class="event-detail-value">${escapeHtml(String(value))}</span>
+            <span class="event-detail-value">${displayValue}</span>
         </div>
     `;
 }
