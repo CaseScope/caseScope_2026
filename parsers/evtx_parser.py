@@ -348,27 +348,50 @@ class EvtxECmdParser(BaseParser):
                     pass
             
             # Extract normalized fields from EvtxECmd output + Payload
-            username = (
-                event.get('UserName') or
-                event_data.get('TargetUserName') or
-                event_data.get('SubjectUserName') or
-                event_data.get('User')
-            )
+            # For logon events (4624, 4625, 4634, 4647, 4648), prioritize Target over Subject
+            event_id_str = str(event.get('EventId', ''))
+            is_logon_event = event_id_str in ('4624', '4625', '4634', '4647', '4648')
+            
+            if is_logon_event:
+                # For logon events, Target is the actual user logging in/out
+                username = (
+                    event_data.get('TargetUserName') or
+                    event.get('UserName') or
+                    event_data.get('SubjectUserName') or
+                    event_data.get('User')
+                )
+                domain = (
+                    event_data.get('TargetDomainName') or
+                    event_data.get('SubjectDomainName') or
+                    event_data.get('Domain')
+                )
+                sid = (
+                    event_data.get('TargetUserSid') or
+                    event_data.get('SubjectUserSid') or
+                    event_data.get('TargetSid')
+                )
+            else:
+                # For other events, use standard priority
+                username = (
+                    event.get('UserName') or
+                    event_data.get('TargetUserName') or
+                    event_data.get('SubjectUserName') or
+                    event_data.get('User')
+                )
+                domain = (
+                    event_data.get('TargetDomainName') or
+                    event_data.get('SubjectDomainName') or
+                    event_data.get('Domain')
+                )
+                sid = (
+                    event_data.get('TargetUserSid') or
+                    event_data.get('SubjectUserSid') or
+                    event_data.get('TargetSid')
+                )
+            
             # Clean up username (remove SID suffix if present)
             if username and ' (' in username:
                 username = username.split(' (')[0]
-            
-            domain = (
-                event_data.get('TargetDomainName') or
-                event_data.get('SubjectDomainName') or
-                event_data.get('Domain')
-            )
-            
-            sid = (
-                event_data.get('TargetUserSid') or
-                event_data.get('SubjectUserSid') or
-                event_data.get('TargetSid')
-            )
             
             # Process info - from PayloadData or EventData
             process_name = (

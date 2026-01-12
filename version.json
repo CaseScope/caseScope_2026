@@ -1,6 +1,13 @@
 {
-  "version": "3.50.1",
+  "version": "3.51.0",
   "changelog": [
+    {
+      "version": "3.51.0",
+      "date": "2026-01-12",
+      "changes": [
+        "EVTX Parser: Logon events (4624/4625/4634/4647/4648) now show TargetUserName instead of SubjectUserName"
+      ]
+    },
     {
       "version": "3.50.1",
       "date": "2026-01-12",
