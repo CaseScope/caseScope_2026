@@ -5031,7 +5031,8 @@ input:checked + .slider:before {
 }
 
 .noise-action-card {
-  background: var(--bg-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius-lg);
   padding: 24px;
   display: flex;
@@ -5120,7 +5121,8 @@ input:checked + .slider:before {
 
 /* Noise Results */
 .noise-results {
-  background: var(--bg-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   padding: 20px;
 }
