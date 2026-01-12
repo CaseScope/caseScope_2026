@@ -1,6 +1,13 @@
 {
-  "version": "3.61.0",
+  "version": "3.61.01",
   "changelog": [
+    {
+      "version": "3.61.01",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Added RDP Sessions and Console Sessions placeholder buttons"
+      ]
+    },
     {
       "version": "3.61.0",
       "date": "2026-01-12",
