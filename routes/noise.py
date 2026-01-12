@@ -19,15 +19,14 @@ logger = logging.getLogger(__name__)
 noise_bp = Blueprint('noise', __name__, url_prefix='/settings/noise')
 
 
-def analyst_required(f):
-    """Decorator to require at least analyst role"""
+def analyst_required_api(f):
+    """Decorator to require at least analyst role for API endpoints (returns JSON)"""
     @wraps(f)
     @login_required
     def decorated_function(*args, **kwargs):
-        from config import PermissionLevel
-        if current_user.permission_level < PermissionLevel.ANALYST:
-            flash('Analyst access required', 'error')
-            return redirect(url_for('main.dashboard'))
+        # Check if user is analyst or administrator
+        if not (current_user.is_analyst or current_user.is_administrator):
+            return jsonify({'success': False, 'error': 'Analyst or Administrator access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -52,7 +51,7 @@ def api_list_categories():
 
 
 @noise_bp.route('/api/categories/<int:category_id>/toggle', methods=['POST'])
-@analyst_required
+@analyst_required_api
 def api_toggle_category(category_id):
     """Toggle a category enabled/disabled (master switch for all rules in category)"""
     try:
@@ -168,7 +167,7 @@ def api_get_rule(rule_id):
 
 
 @noise_bp.route('/api/rules/add', methods=['POST'])
-@analyst_required
+@analyst_required_api
 def api_add_rule():
     """Add a new custom noise filter rule"""
     try:
@@ -230,7 +229,7 @@ def api_add_rule():
 
 
 @noise_bp.route('/api/rules/<int:rule_id>/edit', methods=['POST'])
-@analyst_required
+@analyst_required_api
 def api_edit_rule(rule_id):
     """Edit an existing noise filter rule"""
     try:
@@ -301,7 +300,7 @@ def api_edit_rule(rule_id):
 
 
 @noise_bp.route('/api/rules/<int:rule_id>/toggle', methods=['POST'])
-@analyst_required
+@analyst_required_api
 def api_toggle_rule(rule_id):
     """Toggle a noise filter rule enabled/disabled"""
     try:
@@ -338,7 +337,7 @@ def api_toggle_rule(rule_id):
 
 
 @noise_bp.route('/api/rules/<int:rule_id>/delete', methods=['POST'])
-@analyst_required
+@analyst_required_api
 def api_delete_rule(rule_id):
     """Delete a custom noise filter rule (system defaults cannot be deleted)"""
     try:
@@ -424,7 +423,7 @@ def api_noise_stats():
 
 
 @noise_bp.route('/api/seed', methods=['POST'])
-@analyst_required
+@analyst_required_api
 def api_seed_defaults():
     """Seed default categories and rules (only if empty)"""
     try:

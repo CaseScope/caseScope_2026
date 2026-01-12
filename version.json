@@ -1,6 +1,15 @@
 {
-  "version": "3.41.0",
+  "version": "3.41.1",
   "changelog": [
+    {
+      "version": "3.41.1",
+      "date": "2026-01-12",
+      "changes": [
+        "Noise Filters: Fixed permission check for API endpoints (Analyst/Admin can now modify)",
+        "Noise Filters: Added inline toggle slider in table rows for quick enable/disable",
+        "Noise Filters: Removed redundant status column, toggle is now first column"
+      ]
+    },
     {
       "version": "3.41.0",
       "date": "2026-01-12",

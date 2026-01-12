@@ -577,13 +577,13 @@
                 <table class="noise-rules-table" id="rulesTable">
                     <thead>
                         <tr>
+                            <th style="width: 60px;">Enabled</th>
                             <th style="width: 40px;"></th>
                             <th>Rule</th>
                             <th style="width: 140px;">Category</th>
                             <th style="width: 120px;">Type</th>
                             <th>Pattern</th>
-                            <th style="width: 100px;">Status</th>
-                            <th style="width: 140px;">Actions</th>
+                            <th style="width: 100px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="rulesBody">
@@ -808,12 +808,18 @@
             
             let html = '';
             rules.forEach(rule => {
-                const statusClass = rule.is_active ? 'status-active' : (rule.is_enabled ? 'status-enabled' : 'status-disabled');
-                const statusText = rule.is_active ? 'Active' : (rule.is_enabled ? 'Enabled' : 'Disabled');
                 const systemBadge = rule.is_system_default ? '<span class="badge badge-info">System</span>' : '';
+                const inactiveNote = !rule.is_active && rule.is_enabled ? '<span class="inactive-note" title="Category is disabled">⚠️</span>' : '';
                 
                 html += `
-                    <tr class="${rule.is_active ? '' : 'row-inactive'}">
+                    <tr class="${rule.is_enabled ? '' : 'row-inactive'}">
+                        <td class="toggle-cell">
+                            <label class="toggle-switch-sm" title="${rule.is_enabled ? 'Click to disable' : 'Click to enable'}">
+                                <input type="checkbox" ${rule.is_enabled ? 'checked' : ''} onchange="toggleRule(${rule.id}, this.checked)">
+                                <span class="toggle-slider-sm"></span>
+                            </label>
+                            ${inactiveNote}
+                        </td>
                         <td class="icon-cell">${rule.category_icon || '📁'}</td>
                         <td>
                             <div class="rule-name">${escapeHtml(rule.name)} ${systemBadge}</div>
@@ -822,11 +828,7 @@
                         <td><span class="badge badge-muted">${escapeHtml(rule.category_name)}</span></td>
                         <td><span class="type-badge">${escapeHtml(rule.filter_type_label)}</span></td>
                         <td><code class="rule-pattern">${escapeHtml(rule.pattern)}</code></td>
-                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                         <td class="actions-cell">
-                            <button class="btn-icon-sm" onclick="toggleRule(${rule.id}, ${!rule.is_enabled})" title="${rule.is_enabled ? 'Disable' : 'Enable'}">
-                                ${rule.is_enabled ? '🔇' : '🔊'}
-                            </button>
                             <button class="btn-icon-sm" onclick="editRule(${rule.id})" title="Edit">✏️</button>
                             ${!rule.is_system_default ? `<button class="btn-icon-sm btn-danger-icon" onclick="deleteRule(${rule.id}, '${escapeHtml(rule.name)}')" title="Delete">🗑️</button>` : ''}
                         </td>
@@ -1441,6 +1443,73 @@
 
         .no-data a {
             color: var(--accent-primary);
+        }
+
+        /* Toggle Switch - Small version for table rows */
+        .toggle-cell {
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .toggle-switch-sm {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            cursor: pointer;
+        }
+
+        .toggle-switch-sm input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider-sm {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 22px;
+            transition: all var(--transition-fast);
+        }
+
+        .toggle-slider-sm:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: var(--text-secondary);
+            border-radius: 50%;
+            transition: all var(--transition-fast);
+        }
+
+        .toggle-switch-sm input:checked + .toggle-slider-sm {
+            background-color: var(--accent-success);
+            border-color: var(--accent-success);
+        }
+
+        .toggle-switch-sm input:checked + .toggle-slider-sm:before {
+            transform: translateX(18px);
+            background-color: white;
+        }
+
+        .toggle-switch-sm:hover .toggle-slider-sm {
+            border-color: var(--accent-primary);
+        }
+
+        .inactive-note {
+            font-size: 14px;
+            cursor: help;
         }
         </style>
         {% endif %}
