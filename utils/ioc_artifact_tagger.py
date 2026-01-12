@@ -48,90 +48,85 @@ def get_short_ioc_type(ioc_type: str) -> str:
     return IOC_TYPE_SHORT_NAMES.get(ioc_type, ioc_type.split()[0] if ioc_type else 'IOC')
 
 
-def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
+def extract_searchable_terms(value: str, ioc_type: str) -> List[Tuple[str, bool]]:
     """Extract searchable terms from an IOC value.
     
     For file paths, extracts the filename.
     For command lines, extracts executables.
     For other types, returns the value as-is plus any useful substrings.
     
-    Returns list of terms to search for (case-insensitive).
+    Returns list of (term, is_filename) tuples for case-insensitive search.
+    is_filename=True means the term needs word-boundary matching to avoid
+    false positives (e.g., 'd.bat' should not match 'build.bat').
     """
+    # List of (term, is_filename) tuples
     terms = []
     value = value.strip()
     
     if not value:
         return terms
     
-    # Always add the full value (lowercase for comparison)
-    terms.append(value.lower())
+    # Full value is never a "filename" - it's the complete IOC value
+    terms.append((value.lower(), False))
     
     if ioc_type in ('File Path', 'Process Path'):
-        # Extract filename from path
-        # Handle both Windows and Unix paths
+        # Extract filename from path - this IS a filename, needs boundary matching
         filename = os.path.basename(value.replace('\\', '/'))
         if filename and filename.lower() != value.lower():
-            terms.append(filename.lower())
+            terms.append((filename.lower(), True))  # is_filename=True
         
-        # Also try just the name without extension for common executables
-        name_no_ext = os.path.splitext(filename)[0]
-        if name_no_ext and len(name_no_ext) >= 4:
-            # Only add if it's a meaningful name (avoids false positives from short names)
-            terms.append(name_no_ext.lower())
+        # Skip name-without-extension - too prone to false positives
+        # e.g., 'log1' from 'log1.log' matches '.LOG1' files
     
     elif ioc_type == 'File Name':
-        # Add name without extension as well
-        name_no_ext = os.path.splitext(value)[0]
-        if name_no_ext and name_no_ext.lower() != value.lower():
-            terms.append(name_no_ext.lower())
+        # The value itself is a filename - needs boundary matching
+        # Replace the first entry with is_filename=True
+        terms[0] = (value.lower(), True)
     
     elif ioc_type == 'Command Line':
-        # Extract executable names from command line
-        # Look for .exe, .bat, .cmd, .ps1, etc.
+        # Extract executable names from command line - these are filenames
         exe_pattern = r'[\\/]?([a-zA-Z0-9_\-\.]+\.(exe|bat|cmd|ps1|vbs|js|dll|msi))'
         matches = re.findall(exe_pattern, value, re.IGNORECASE)
         for match in matches:
-            terms.append(match[0].lower())
+            terms.append((match[0].lower(), True))  # is_filename=True
         
-        # Also try to extract the first token (likely the executable)
+        # First token extraction - if it's a standalone command like "rdpclip"
         first_token = value.split()[0] if value.split() else ''
         if first_token:
-            # Remove quotes
             first_token = first_token.strip('"\'')
-            # Get just filename if it's a path
             first_token_name = os.path.basename(first_token.replace('\\', '/'))
-            if first_token_name:
-                terms.append(first_token_name.lower())
+            if first_token_name and not any(first_token_name.lower() == t[0] for t in terms):
+                # Short command names need boundary matching
+                terms.append((first_token_name.lower(), True))
     
     elif ioc_type == 'Process Name':
+        # Process names are filenames - need boundary matching
+        terms[0] = (value.lower(), True)
         # Add without .exe extension if present
         if value.lower().endswith('.exe'):
-            terms.append(value[:-4].lower())
+            terms.append((value[:-4].lower(), True))
     
     elif ioc_type in ('Registry Key', 'Registry Value'):
         # For registry, also search for the last component
         parts = value.replace('/', '\\').split('\\')
         if len(parts) > 1 and parts[-1]:
-            terms.append(parts[-1].lower())
+            terms.append((parts[-1].lower(), False))
     
     elif ioc_type in ('Domain', 'FQDN', 'Hostname'):
         # Domain matching - also try just the hostname part
         parts = value.split('.')
         if len(parts) > 1:
-            terms.append(parts[0].lower())  # Just the hostname
+            terms.append((parts[0].lower(), False))
     
     elif ioc_type == 'URL':
         # Extract domain/hostname from URL
         domain_match = re.search(r'://([^/]+)', value)
         if domain_match:
             domain = domain_match.group(1)
-            # Remove port if present
             domain = domain.split(':')[0]
-            terms.append(domain.lower())
+            terms.append((domain.lower(), False))
     
     # Deduplicate while preserving order
-    # Filter out very short terms (< 4 chars) for types prone to false positives
-    # But allow short terms for types where short values are legitimate
     types_allowing_short = {
         'Username', 'Hostname', 'IP Address (IPv4)', 'IP Address (IPv6)',
         'Email Address', 'Password Hash', 'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash',
@@ -141,28 +136,49 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
     
     seen = set()
     unique_terms = []
-    for term in terms:
+    for term, is_filename in terms:
         if term and term not in seen and len(term) >= min_length:
             seen.add(term)
-            unique_terms.append(term)
+            unique_terms.append((term, is_filename))
     
     return unique_terms
 
 
-def build_search_conditions(search_terms: List[str], param_prefix: str = 'term') -> Tuple[str, Dict]:
+def build_search_conditions(search_terms: List[Tuple[str, bool]], param_prefix: str = 'term') -> Tuple[str, Dict]:
     """Build SQL WHERE conditions and parameters for search terms.
+    
+    Args:
+        search_terms: List of (term, is_filename) tuples. Filenames use word-boundary matching.
+        param_prefix: Prefix for parameter names
     
     Returns (where_clause, params_dict)
     """
     conditions = []
     params = {}
     
-    for i, term in enumerate(search_terms):
+    for i, (term, is_filename) in enumerate(search_terms):
         # Escape special characters for LIKE
         escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-        param_name = f'{param_prefix}_{i}'
-        params[param_name] = f'%{escaped_term}%'
-        conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
+        
+        if is_filename:
+            # For filenames, require word boundary (path separator, space, or start)
+            # This prevents 'd.bat' from matching 'build.bat'
+            param_base = f'{param_prefix}_{i}'
+            params[f'{param_base}_bs'] = f'%\\{escaped_term}%'  # backslash prefix
+            params[f'{param_base}_fs'] = f'%/{escaped_term}%'   # forward slash prefix
+            params[f'{param_base}_sp'] = f'% {escaped_term}%'   # space prefix
+            params[f'{param_base}_qt'] = f'%"{escaped_term}%'   # quote prefix
+            conditions.append(
+                f"(lower(search_blob) LIKE {{{param_base}_bs:String}} "
+                f"OR lower(search_blob) LIKE {{{param_base}_fs:String}} "
+                f"OR lower(search_blob) LIKE {{{param_base}_sp:String}} "
+                f"OR lower(search_blob) LIKE {{{param_base}_qt:String}})"
+            )
+        else:
+            # For full paths, hashes, IPs etc - standard substring match
+            param_name = f'{param_prefix}_{i}'
+            params[param_name] = f'%{escaped_term}%'
+            conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
     
     where_clause = ' OR '.join(conditions) if conditions else '1=0'
     return where_clause, params
@@ -246,7 +262,7 @@ def search_artifacts_for_ioc(
             'earliest': None,
             'latest': None,
             'artifact_types': {},
-            'matched_terms': search_terms
+            'matched_terms': [term for term, _ in search_terms]
         }
     
     # Get artifact type breakdown if we have matches
@@ -272,7 +288,7 @@ def search_artifacts_for_ioc(
         'earliest': earliest,
         'latest': latest,
         'artifact_types': artifact_types,
-        'matched_terms': search_terms
+        'matched_terms': [term for term, _ in search_terms]
     }
 
 
@@ -320,9 +336,18 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, alias
     
     # Build the primary search conditions
     primary_conditions = []
-    for term in search_terms:
+    for term, is_filename in search_terms:
         escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-        primary_conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
+        if is_filename:
+            # Word-boundary matching for filenames
+            primary_conditions.append(
+                f"(lower(search_blob) LIKE '%\\\\{escaped_term}%' "
+                f"OR lower(search_blob) LIKE '%/{escaped_term}%' "
+                f"OR lower(search_blob) LIKE '% {escaped_term}%' "
+                f"OR lower(search_blob) LIKE '%\"{escaped_term}%')"
+            )
+        else:
+            primary_conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
     
     primary_where = ' OR '.join(primary_conditions)
     

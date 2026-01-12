@@ -1,6 +1,14 @@
 {
-  "version": "3.39.1",
+  "version": "3.39.2",
   "changelog": [
+    {
+      "version": "3.39.2",
+      "date": "2026-01-12",
+      "changes": [
+        "FIX: IOC matching now uses word-boundary detection for filenames",
+        "FIX: Eliminates false positives (e.g., d.bat no longer matches build.bat)"
+      ]
+    },
     {
       "version": "3.39.1",
       "date": "2026-01-12",
