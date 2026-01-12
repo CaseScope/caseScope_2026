@@ -744,6 +744,76 @@ tbody td {
   color: var(--accent-success);
 }
 
+/* Enrichment Detail Styles */
+.enrichment-data {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.enrichment-score {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.enrichment-score.score-high {
+  background-color: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+.enrichment-score.score-medium {
+  background-color: rgba(245, 158, 11, 0.25);
+  color: #f59e0b;
+}
+
+.enrichment-score.score-low {
+  background-color: rgba(0, 184, 217, 0.2);
+  color: #00b8d9;
+}
+
+.badge-tlp-red {
+  background-color: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+.badge-tlp-amber {
+  background-color: rgba(245, 158, 11, 0.25);
+  color: #f59e0b;
+}
+
+.badge-tlp-green {
+  background-color: rgba(54, 179, 126, 0.2);
+  color: var(--accent-success);
+}
+
+.badge-tlp-white, .badge-tlp-clear {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.badge-label {
+  background-color: rgba(138, 43, 226, 0.2);
+  color: #a78bfa;
+}
+
+.badge-threat-actor {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.badge-campaign {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.badge-malware {
+  background-color: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
 /* Parser Badge */
 .parser-badge {
   display: inline-block;

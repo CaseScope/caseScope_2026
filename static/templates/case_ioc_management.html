@@ -235,6 +235,14 @@
                     </div>
                 </div>
                 
+                <!-- OpenCTI Enrichment -->
+                <div class="ioc-detail-section full-width" id="enrichmentSection" style="display: none;">
+                    <h4>🧠 OpenCTI Enrichment</h4>
+                    <div class="enrichment-content" id="detailEnrichment">
+                        <span class="text-muted">Not enriched</span>
+                    </div>
+                </div>
+                
                 <!-- Status -->
                 <div class="ioc-detail-section full-width">
                     <h4>Status</h4>
@@ -896,6 +904,100 @@ function populateDetailModal(ioc) {
     
     // Store current IOC aliases for add/remove operations
     currentIOCAliases = ioc.aliases || [];
+    
+    // OpenCTI Enrichment
+    const enrichmentSection = document.getElementById('enrichmentSection');
+    const enrichmentEl = document.getElementById('detailEnrichment');
+    
+    if (ioc.opencti_enrichment) {
+        enrichmentSection.style.display = 'block';
+        const enrichment = ioc.opencti_enrichment;
+        
+        if (enrichment.found) {
+            let html = '<div class="enrichment-data">';
+            
+            // Score with color coding
+            const score = enrichment.score || 0;
+            const scoreClass = score >= 70 ? 'score-high' : (score >= 40 ? 'score-medium' : 'score-low');
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Score:</span>
+                <span class="ioc-detail-value"><span class="enrichment-score ${scoreClass}">${score}</span></span>
+            </div>`;
+            
+            // TLP
+            if (enrichment.tlp) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">TLP:</span>
+                    <span class="ioc-detail-value"><span class="badge badge-tlp-${enrichment.tlp.toLowerCase()}">${enrichment.tlp}</span></span>
+                </div>`;
+            }
+            
+            // Labels
+            if (enrichment.labels && enrichment.labels.length > 0) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Labels:</span>
+                    <span class="ioc-detail-value">${enrichment.labels.map(l => `<span class="badge badge-label">${escapeHtml(l)}</span>`).join(' ')}</span>
+                </div>`;
+            }
+            
+            // Threat Actors
+            if (enrichment.threat_actors && enrichment.threat_actors.length > 0) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Threat Actors:</span>
+                    <span class="ioc-detail-value">${enrichment.threat_actors.map(t => `<span class="badge badge-threat-actor">${escapeHtml(t)}</span>`).join(' ')}</span>
+                </div>`;
+            }
+            
+            // Campaigns
+            if (enrichment.campaigns && enrichment.campaigns.length > 0) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Campaigns:</span>
+                    <span class="ioc-detail-value">${enrichment.campaigns.map(c => `<span class="badge badge-campaign">${escapeHtml(c)}</span>`).join(' ')}</span>
+                </div>`;
+            }
+            
+            // Malware
+            if (enrichment.malware && enrichment.malware.length > 0) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Malware:</span>
+                    <span class="ioc-detail-value">${enrichment.malware.map(m => `<span class="badge badge-malware">${escapeHtml(m)}</span>`).join(' ')}</span>
+                </div>`;
+            }
+            
+            // Description
+            if (enrichment.description) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">Description:</span>
+                    <span class="ioc-detail-value">${escapeHtml(enrichment.description)}</span>
+                </div>`;
+            }
+            
+            // Enriched timestamp
+            if (ioc.opencti_enriched_at) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Enriched:</span>
+                    <span class="ioc-detail-value text-muted">${formatDateTime(ioc.opencti_enriched_at)}</span>
+                </div>`;
+            }
+            
+            html += '</div>';
+            enrichmentEl.innerHTML = html;
+        } else {
+            // Checked but not found
+            let html = '<div class="enrichment-data">';
+            html += '<span class="text-muted">No threat intelligence found in OpenCTI</span>';
+            if (enrichment.checked_at || ioc.opencti_enriched_at) {
+                html += `<div class="ioc-detail-row" style="margin-top: 0.5rem;">
+                    <span class="ioc-detail-label">Checked:</span>
+                    <span class="ioc-detail-value text-muted">${formatDateTime(enrichment.checked_at || ioc.opencti_enriched_at)}</span>
+                </div>`;
+            }
+            html += '</div>';
+            enrichmentEl.innerHTML = html;
+        }
+    } else {
+        enrichmentSection.style.display = 'none';
+    }
     
     // Systems list
     const systemsEl = document.getElementById('detailSystems');

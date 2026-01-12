@@ -1,6 +1,15 @@
 {
-  "version": "3.59.02",
+  "version": "3.59.03",
   "changelog": [
+    {
+      "version": "3.59.03",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC Detail Modal: Added OpenCTI enrichment section",
+        "Shows score, TLP, labels, threat actors, campaigns, malware, and description",
+        "Color-coded badges for different threat intelligence categories"
+      ]
+    },
     {
       "version": "3.59.02",
       "date": "2026-01-12",
