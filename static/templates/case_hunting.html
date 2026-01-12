@@ -472,7 +472,7 @@ function loadCaseIOCs() {
         .then(data => {
             if (data.success) {
                 // Server already filters terms appropriately based on IOC type
-                caseIOCValues = (data.values || []).filter(v => v && v.length >= 2);
+                caseIOCValues = (data.values || []).filter(v => v && typeof v === 'string' && v.length >= 2);
                 console.log(`Loaded ${caseIOCValues.length} IOC values for highlighting:`, caseIOCValues.slice(0, 5));
             } else {
                 console.error('Failed to load IOC values:', data.error);
@@ -492,7 +492,7 @@ function highlightIOCsInText(text) {
     const matches = [];
     
     for (const ioc of caseIOCValues) {
-        if (!ioc || ioc.length < 2) continue;
+        if (!ioc || typeof ioc !== 'string' || ioc.length < 2) continue;
         
         const iocLower = ioc.toLowerCase();
         let pos = 0;

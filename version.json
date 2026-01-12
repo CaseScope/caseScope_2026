@@ -1,6 +1,13 @@
 {
-  "version": "3.39.4",
+  "version": "3.39.5",
   "changelog": [
+    {
+      "version": "3.39.5",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting: Fixed event detail modal error when IOC values contain non-string data"
+      ]
+    },
     {
       "version": "3.39.4",
       "date": "2026-01-12",
