@@ -1,6 +1,14 @@
 {
-  "version": "3.61.02",
+  "version": "3.62.0",
   "changelog": [
+    {
+      "version": "3.62.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Added OR operator support using pipe (e.g., admin|tabadmin)",
+        "Hunting Events: Updated helper text showing AND, OR, exclusion, and Event ID operators"
+      ]
+    },
     {
       "version": "3.61.02",
       "date": "2026-01-12",

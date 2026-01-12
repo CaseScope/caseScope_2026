@@ -1421,10 +1421,25 @@ def get_hunting_events(case_id):
             }
             
             # Main search term (if any) - split by spaces for multiple terms
+            # Terms joined by | are OR conditions, space-separated terms are AND
             if main_search:
                 terms = main_search.split()
                 for i, term in enumerate(terms):
-                    if term.isdigit():
+                    # Check for OR groups (pipe-separated)
+                    if '|' in term:
+                        or_parts = [p.strip() for p in term.split('|') if p.strip()]
+                        if or_parts:
+                            or_conditions = []
+                            for j, part in enumerate(or_parts):
+                                param_name = f'or_{i}_{j}'
+                                if part.isdigit():
+                                    params[param_name] = part
+                                    or_conditions.append(f"event_id = {{{param_name}:String}}")
+                                else:
+                                    params[param_name] = f'%{part}%'
+                                    or_conditions.append(f"search_blob LIKE {{{param_name}:String}}")
+                            search_conditions.append(f"({' OR '.join(or_conditions)})")
+                    elif term.isdigit():
                         # Numeric terms match event_id exactly
                         params[f'event_id_{i}'] = term
                         search_conditions.append(f"event_id = {{event_id_{i}:String}}")
