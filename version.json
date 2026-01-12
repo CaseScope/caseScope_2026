@@ -1,6 +1,13 @@
 {
-  "version": "3.48.2",
+  "version": "3.48.3",
   "changelog": [
+    {
+      "version": "3.48.3",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Fixed event_id search type mismatch (String not UInt32)"
+      ]
+    },
     {
       "version": "3.48.2",
       "date": "2026-01-12",

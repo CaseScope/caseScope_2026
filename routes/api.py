@@ -1089,8 +1089,8 @@ def get_hunting_events(case_id):
             if main_search:
                 # If it's a pure number, search event_id field specifically
                 if main_search.isdigit():
-                    params['event_id_search'] = int(main_search)
-                    search_conditions.append("event_id = {event_id_search:UInt32}")
+                    params['event_id_search'] = main_search
+                    search_conditions.append("event_id = {event_id_search:String}")
                 else:
                     params['pattern'] = f'%{main_search}%'
                     search_conditions.append("search_blob LIKE {pattern:String}")
