@@ -235,6 +235,12 @@
                     <h4>Status</h4>
                     <div class="ioc-status-row">
                         <label class="switch">
+                            <input type="checkbox" id="detailActive" onchange="updateIOCField('active', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="switch-label">Active</span>
+                        
+                        <label class="switch" style="margin-left: 24px;">
                             <input type="checkbox" id="detailMalicious" onchange="updateIOCField('malicious', this.checked)">
                             <span class="slider"></span>
                         </label>
@@ -684,7 +690,7 @@ function renderIOCs(iocs) {
     countEl.textContent = `${iocs.length} IOC${iocs.length !== 1 ? 's' : ''}`;
     
     tbody.innerHTML = iocs.map(ioc => `
-        <tr class="ioc-row ${ioc.malicious ? 'malicious' : ''} ${ioc.false_positive ? 'false-positive' : ''}" 
+        <tr class="ioc-row ${ioc.malicious ? 'malicious' : ''} ${ioc.false_positive ? 'false-positive' : ''} ${!ioc.active ? 'inactive' : ''}" 
             onclick="openDetailModal(${ioc.id})">
             <td class="category-cell">
                 <span class="category-badge category-${ioc.category.toLowerCase()}">${getCategoryIcon(ioc.category)} ${ioc.category}</span>
@@ -697,9 +703,10 @@ function renderIOCs(iocs) {
             <td class="count-cell">${ioc.artifact_count}</td>
             <td class="count-cell">${ioc.system_count}</td>
             <td class="status-cell">
+                ${!ioc.active ? '<span class="badge badge-warning">Inactive</span>' : ''}
                 ${ioc.malicious ? '<span class="badge badge-danger">Malicious</span>' : ''}
                 ${ioc.false_positive ? '<span class="badge badge-muted">FP</span>' : ''}
-                ${!ioc.malicious && !ioc.false_positive ? '<span class="badge badge-info">Unknown</span>' : ''}
+                ${ioc.active && !ioc.malicious && !ioc.false_positive ? '<span class="badge badge-info">Unknown</span>' : ''}
             </td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openDetailModal(${ioc.id})">View</button>
@@ -848,6 +855,7 @@ function populateDetailModal(ioc) {
     document.getElementById('detailFirstSeen').textContent = formatDateTime(ioc.first_seen_in_artifacts) || 'Never';
     document.getElementById('detailLastSeen').textContent = formatDateTime(ioc.last_seen_in_artifacts) || 'Never';
     document.getElementById('detailArtifactCount').textContent = ioc.artifact_count;
+    document.getElementById('detailActive').checked = ioc.active;
     document.getElementById('detailMalicious').checked = ioc.malicious;
     document.getElementById('detailFalsePositive').checked = ioc.false_positive;
     document.getElementById('detailNotes').value = ioc.notes || '';

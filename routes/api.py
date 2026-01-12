@@ -1742,7 +1742,8 @@ def get_ioc_values_for_case(case_id):
         
         iocs = IOC.query.filter(
             IOC.id.in_(ioc_ids),
-            IOC.false_positive == False
+            IOC.false_positive == False,
+            IOC.active == True
         ).all()
         
         # Extract searchable values (filenames from paths, etc.)
@@ -1960,14 +1961,14 @@ def update_ioc(ioc_id):
             return jsonify({'success': False, 'error': 'Field name required'}), 400
         
         # Allowed fields to update
-        allowed_fields = ['notes', 'malicious', 'false_positive', 'aliases']
+        allowed_fields = ['notes', 'malicious', 'false_positive', 'active', 'aliases']
         if field_name not in allowed_fields:
             return jsonify({'success': False, 'error': f'Cannot update field: {field_name}'}), 400
         
         old_value = getattr(ioc, field_name)
         
         # Handle boolean fields
-        if field_name in ['malicious', 'false_positive']:
+        if field_name in ['malicious', 'false_positive', 'active']:
             new_value = bool(new_value)
         
         # Handle aliases field (list of strings)

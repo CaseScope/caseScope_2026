@@ -496,8 +496,11 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     from models.ioc import IOC, IOCCase
     from models.database import db
     
-    # Get all IOCs that are NOT marked as false positives
-    iocs = IOC.query.filter(IOC.false_positive == False).all()
+    # Get all IOCs that are active and NOT marked as false positives
+    iocs = IOC.query.filter(
+        IOC.false_positive == False,
+        IOC.active == True
+    ).all()
     
     if not iocs:
         return {

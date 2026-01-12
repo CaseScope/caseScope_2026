@@ -318,6 +318,7 @@ class IOC(db.Model):
     # Status flags
     malicious = db.Column(db.Boolean, nullable=False, default=False)
     false_positive = db.Column(db.Boolean, nullable=False, default=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
     
     # Relationships
     system_sightings = db.relationship('IOCSystemSighting', backref='ioc', 
@@ -402,6 +403,7 @@ class IOC(db.Model):
             'notes': self.notes,
             'malicious': self.malicious,
             'false_positive': self.false_positive,
+            'active': self.active,
             'system_count': self.system_sightings.count(),
             'case_count': self.cases.count(),
             'systems': [s.to_dict() for s in self.system_sightings.limit(10)],
