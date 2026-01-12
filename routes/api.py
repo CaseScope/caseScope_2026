@@ -364,8 +364,8 @@ def preflight_check():
                 file_hash = CaseFile.calculate_sha256(source_path)
                 file_hashes[filename] = file_hash
                 
-                # Check for existing file with same hash
-                existing = CaseFile.find_by_hash(file_hash)
+                # Check for existing file with same hash (within this case only)
+                existing = CaseFile.find_by_hash(file_hash, case_uuid=case_uuid)
                 if existing:
                     duplicates.append({
                         'new_file': filename,
@@ -642,8 +642,8 @@ def ingest_files():
                 if not sha256_hash:
                     sha256_hash = CaseFile.calculate_sha256(file_path)
                 
-                # Check for duplicate
-                existing = CaseFile.find_by_hash(sha256_hash)
+                # Check for duplicate (within this case only)
+                existing = CaseFile.find_by_hash(sha256_hash, case_uuid=case_uuid)
                 if existing:
                     # Duplicate found - delete the file and skip recording
                     os.remove(file_path)

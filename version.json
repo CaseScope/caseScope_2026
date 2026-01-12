@@ -1,6 +1,13 @@
 {
-  "version": "3.55.0",
+  "version": "3.55.01",
   "changelog": [
+    {
+      "version": "3.55.01",
+      "date": "2026-01-12",
+      "changes": [
+        "Bugfix: File duplicate detection now checks within active case only, not cross-case"
+      ]
+    },
     {
       "version": "3.55.0",
       "date": "2026-01-12",
