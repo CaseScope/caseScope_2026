@@ -16,6 +16,11 @@ from models.ioc import (
     IOC_TYPE_DEFINITIONS, get_ioc_types_by_category, get_all_ioc_types,
     get_category_for_type
 )
+from models.noise import (
+    NoiseCategory, NoiseRule, NoiseRuleAudit,
+    NoiseFilterType, NoiseMatchMode,
+    seed_noise_defaults
+)
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -26,5 +31,7 @@ __all__ = [
     'KnownUserCase', 'KnownUserAudit',
     'IOC', 'IOCCategory', 'IOCSystemSighting', 'IOCCase', 'IOCAudit',
     'IOC_TYPE_DEFINITIONS', 'get_ioc_types_by_category', 'get_all_ioc_types',
-    'get_category_for_type'
+    'get_category_for_type',
+    'NoiseCategory', 'NoiseRule', 'NoiseRuleAudit',
+    'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults'
 ]

@@ -486,14 +486,963 @@
 
         <!-- Noise Tab -->
         {% if active_tab == 'noise' %}
-        <div class="settings-content">
-            <h3 class="settings-section-title">Noise Filtering</h3>
-            <p class="text-muted">Configure noise filtering rules to reduce false positives.</p>
-            <div class="placeholder-content">
-                <span class="placeholder-icon">🚧</span>
-                <span class="placeholder-text">Noise filter settings coming soon...</span>
+        <div class="settings-content noise-content">
+            <!-- Header with Add Rule button -->
+            <div class="noise-header">
+                <div>
+                    <h3 class="settings-section-title">Noise Filtering</h3>
+                    <p class="text-muted">Filter known-good software from hunting results. Enable rules matching your client's environment.</p>
+                </div>
+                <button class="btn btn-primary" onclick="showAddRuleModal()">
+                    <span class="btn-icon">➕</span> Add Rule
+                </button>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="noise-stats" id="noiseStats">
+                <div class="noise-stat-card">
+                    <div class="stat-icon">📁</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statCategories">-</span>
+                        <span class="stat-label">Categories</span>
+                    </div>
+                </div>
+                <div class="noise-stat-card">
+                    <div class="stat-icon">📋</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statTotalRules">-</span>
+                        <span class="stat-label">Total Rules</span>
+                    </div>
+                </div>
+                <div class="noise-stat-card stat-highlight">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statActiveRules">-</span>
+                        <span class="stat-label">Active Rules</span>
+                    </div>
+                </div>
+                <div class="noise-stat-card">
+                    <div class="stat-icon">⚙️</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statSystemRules">-</span>
+                        <span class="stat-label">System Defaults</span>
+                    </div>
+                </div>
+                <div class="noise-stat-card">
+                    <div class="stat-icon">✏️</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statCustomRules">-</span>
+                        <span class="stat-label">Custom Rules</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Categories Section -->
+            <div class="noise-section">
+                <h4 class="noise-section-title">Categories</h4>
+                <p class="text-muted" style="margin-bottom: 12px;">Toggle category to enable/disable all rules within. Click to filter rules list.</p>
+                <div class="noise-categories" id="noiseCategories">
+                    <div class="loading-indicator">Loading categories...</div>
+                </div>
+            </div>
+
+            <!-- Filters & Search -->
+            <div class="noise-filters">
+                <input type="text" id="ruleSearch" class="noise-search" placeholder="Search rules..." onkeyup="debounceSearch()">
+                <select id="categoryFilter" class="noise-select" onchange="filterRules()">
+                    <option value="">All Categories</option>
+                </select>
+                <select id="statusFilter" class="noise-select" onchange="filterRules()">
+                    <option value="">All Status</option>
+                    <option value="active">Active Only</option>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">Disabled</option>
+                    <option value="system">System Defaults</option>
+                    <option value="custom">Custom Rules</option>
+                </select>
+                <select id="typeFilter" class="noise-select" onchange="filterRules()">
+                    <option value="">All Types</option>
+                    <option value="process_name">Process Name</option>
+                    <option value="file_path">File Path</option>
+                    <option value="command_line">Command Line</option>
+                    <option value="hash">Hash</option>
+                    <option value="service_name">Service Name</option>
+                    <option value="network">Network</option>
+                    <option value="registry">Registry</option>
+                </select>
+            </div>
+
+            <!-- Rules Table -->
+            <div class="noise-rules-container">
+                <table class="noise-rules-table" id="rulesTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Rule</th>
+                            <th style="width: 140px;">Category</th>
+                            <th style="width: 120px;">Type</th>
+                            <th>Pattern</th>
+                            <th style="width: 100px;">Status</th>
+                            <th style="width: 140px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rulesBody">
+                        <tr><td colspan="7" class="loading-cell">Loading rules...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="noise-pagination" id="rulesPagination" style="display: none;">
+                <span class="pagination-info" id="paginationInfo"></span>
+                <div class="pagination-buttons" id="paginationButtons"></div>
             </div>
         </div>
+
+        <!-- Add/Edit Rule Modal -->
+        <div class="modal-overlay" id="ruleModal" style="display: none;">
+            <div class="modal-container" style="max-width: 650px;">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="ruleModalTitle">Add Noise Rule</h3>
+                    <button class="modal-close" onclick="closeModal('ruleModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="ruleForm">
+                        <input type="hidden" id="ruleId">
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Category <span class="required">*</span></label>
+                                <select id="ruleCategoryId" class="form-input" required>
+                                    <option value="">Select category...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Rule Name <span class="required">*</span></label>
+                                <input type="text" id="ruleName" class="form-input" placeholder="e.g., ConnectWise Automate" required>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <textarea id="ruleDescription" class="form-input" rows="2" placeholder="Optional description of what this rule filters"></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Filter Type <span class="required">*</span></label>
+                                <select id="ruleFilterType" class="form-input" required>
+                                    <option value="process_name">Process Name</option>
+                                    <option value="file_path">File Path</option>
+                                    <option value="command_line">Command Line</option>
+                                    <option value="hash">Hash (MD5/SHA256)</option>
+                                    <option value="service_name">Service Name</option>
+                                    <option value="network">Network (IP/Domain)</option>
+                                    <option value="registry">Registry Key/Value</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Match Mode <span class="required">*</span></label>
+                                <select id="ruleMatchMode" class="form-input" required>
+                                    <option value="contains">Contains</option>
+                                    <option value="exact">Exact Match</option>
+                                    <option value="starts_with">Starts With</option>
+                                    <option value="ends_with">Ends With</option>
+                                    <option value="wildcard">Wildcard (* and ?)</option>
+                                    <option value="regex">Regular Expression</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Pattern <span class="required">*</span></label>
+                            <input type="text" id="rulePattern" class="form-input" placeholder="e.g., ltsvc,ltservice,labtech" required>
+                            <span class="form-help">Use commas for OR matching (any match). Example: "rmm,agent,service"</span>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 1;">
+                                <label class="form-label">Priority</label>
+                                <input type="number" id="rulePriority" class="form-input" value="100" min="1" max="1000">
+                                <span class="form-help">Lower = higher priority</span>
+                            </div>
+                            <div class="form-group" style="flex: 2;">
+                                <label class="form-label">Options</label>
+                                <div class="form-checkboxes">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="ruleCaseSensitive">
+                                        <span>Case Sensitive</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="ruleEnabled" checked>
+                                        <span>Enabled</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeModal('ruleModal')">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveRule()">Save Rule</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        let currentPage = 1;
+        let searchTimeout = null;
+        let categoriesData = [];
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadCategories();
+            loadRules();
+        });
+
+        function loadStats() {
+            fetch('/settings/noise/api/stats')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('statCategories').textContent = data.enabled_categories + '/' + data.total_categories;
+                        document.getElementById('statTotalRules').textContent = data.total_rules;
+                        document.getElementById('statActiveRules').textContent = data.active_rules;
+                        document.getElementById('statSystemRules').textContent = data.system_rules;
+                        document.getElementById('statCustomRules').textContent = data.custom_rules;
+                    }
+                });
+        }
+
+        function loadCategories() {
+            fetch('/settings/noise/api/categories')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        categoriesData = data.categories;
+                        renderCategories(data.categories);
+                        populateCategoryDropdowns(data.categories);
+                    }
+                });
+        }
+
+        function renderCategories(categories) {
+            const container = document.getElementById('noiseCategories');
+            if (categories.length === 0) {
+                container.innerHTML = '<div class="no-data">No categories found. <a href="#" onclick="seedDefaults()">Seed defaults</a></div>';
+                return;
+            }
+            
+            let html = '';
+            categories.forEach(cat => {
+                const activeClass = cat.is_enabled ? 'category-active' : 'category-disabled';
+                html += `
+                    <div class="noise-category-card ${activeClass}" onclick="filterByCategory(${cat.id})">
+                        <div class="category-header">
+                            <span class="category-icon">${cat.icon || '📁'}</span>
+                            <span class="category-name">${escapeHtml(cat.name)}</span>
+                        </div>
+                        <div class="category-stats">
+                            <span class="category-count">${cat.enabled_rule_count}/${cat.rule_count} rules</span>
+                        </div>
+                        <button class="category-toggle" onclick="event.stopPropagation(); toggleCategory(${cat.id}, ${!cat.is_enabled})" title="${cat.is_enabled ? 'Disable category' : 'Enable category'}">
+                            ${cat.is_enabled ? '✓' : '○'}
+                        </button>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function populateCategoryDropdowns(categories) {
+            const filterSelect = document.getElementById('categoryFilter');
+            const modalSelect = document.getElementById('ruleCategoryId');
+            
+            // Clear existing options (except first)
+            filterSelect.innerHTML = '<option value="">All Categories</option>';
+            modalSelect.innerHTML = '<option value="">Select category...</option>';
+            
+            categories.forEach(cat => {
+                filterSelect.innerHTML += `<option value="${cat.id}">${cat.icon} ${escapeHtml(cat.name)}</option>`;
+                modalSelect.innerHTML += `<option value="${cat.id}">${cat.icon} ${escapeHtml(cat.name)}</option>`;
+            });
+        }
+
+        function loadRules(page = 1) {
+            currentPage = page;
+            const params = new URLSearchParams({
+                page: page,
+                per_page: 25,
+                q: document.getElementById('ruleSearch').value,
+                category: document.getElementById('categoryFilter').value,
+                status: document.getElementById('statusFilter').value,
+                filter_type: document.getElementById('typeFilter').value
+            });
+            
+            const tbody = document.getElementById('rulesBody');
+            tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Loading...</td></tr>';
+            
+            fetch(`/settings/noise/api/rules?${params}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        renderRules(data.rules);
+                        renderPagination(data);
+                    } else {
+                        tbody.innerHTML = `<tr><td colspan="7" class="error-cell">Error: ${data.error}</td></tr>`;
+                    }
+                })
+                .catch(err => {
+                    tbody.innerHTML = `<tr><td colspan="7" class="error-cell">Error loading rules</td></tr>`;
+                });
+        }
+
+        function renderRules(rules) {
+            const tbody = document.getElementById('rulesBody');
+            
+            if (rules.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No rules found</td></tr>';
+                return;
+            }
+            
+            let html = '';
+            rules.forEach(rule => {
+                const statusClass = rule.is_active ? 'status-active' : (rule.is_enabled ? 'status-enabled' : 'status-disabled');
+                const statusText = rule.is_active ? 'Active' : (rule.is_enabled ? 'Enabled' : 'Disabled');
+                const systemBadge = rule.is_system_default ? '<span class="badge badge-info">System</span>' : '';
+                
+                html += `
+                    <tr class="${rule.is_active ? '' : 'row-inactive'}">
+                        <td class="icon-cell">${rule.category_icon || '📁'}</td>
+                        <td>
+                            <div class="rule-name">${escapeHtml(rule.name)} ${systemBadge}</div>
+                            ${rule.description ? `<div class="rule-desc">${escapeHtml(rule.description)}</div>` : ''}
+                        </td>
+                        <td><span class="badge badge-muted">${escapeHtml(rule.category_name)}</span></td>
+                        <td><span class="type-badge">${escapeHtml(rule.filter_type_label)}</span></td>
+                        <td><code class="rule-pattern">${escapeHtml(rule.pattern)}</code></td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td class="actions-cell">
+                            <button class="btn-icon-sm" onclick="toggleRule(${rule.id}, ${!rule.is_enabled})" title="${rule.is_enabled ? 'Disable' : 'Enable'}">
+                                ${rule.is_enabled ? '🔇' : '🔊'}
+                            </button>
+                            <button class="btn-icon-sm" onclick="editRule(${rule.id})" title="Edit">✏️</button>
+                            ${!rule.is_system_default ? `<button class="btn-icon-sm btn-danger-icon" onclick="deleteRule(${rule.id}, '${escapeHtml(rule.name)}')" title="Delete">🗑️</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function renderPagination(data) {
+            const pagination = document.getElementById('rulesPagination');
+            const info = document.getElementById('paginationInfo');
+            const buttons = document.getElementById('paginationButtons');
+            
+            if (data.total_pages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+            
+            pagination.style.display = 'flex';
+            info.textContent = `Page ${data.page} of ${data.total_pages} (${data.total} rules)`;
+            
+            let html = '';
+            if (data.page > 1) {
+                html += `<button class="btn btn-sm btn-secondary" onclick="loadRules(${data.page - 1})">← Prev</button>`;
+            }
+            
+            for (let i = Math.max(1, data.page - 2); i <= Math.min(data.total_pages, data.page + 2); i++) {
+                html += `<button class="btn btn-sm ${i === data.page ? 'btn-primary' : 'btn-secondary'}" onclick="loadRules(${i})">${i}</button>`;
+            }
+            
+            if (data.page < data.total_pages) {
+                html += `<button class="btn btn-sm btn-secondary" onclick="loadRules(${data.page + 1})">Next →</button>`;
+            }
+            
+            buttons.innerHTML = html;
+        }
+
+        function debounceSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => loadRules(1), 300);
+        }
+
+        function filterRules() {
+            loadRules(1);
+        }
+
+        function filterByCategory(categoryId) {
+            document.getElementById('categoryFilter').value = categoryId;
+            filterRules();
+        }
+
+        function toggleCategory(categoryId, enable) {
+            fetch(`/settings/noise/api/categories/${categoryId}/toggle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_enabled: enable })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(`Category ${enable ? 'enabled' : 'disabled'}`, 'success');
+                    loadStats();
+                    loadCategories();
+                    loadRules(currentPage);
+                } else {
+                    showNotification(data.error || 'Failed to toggle category', 'error');
+                }
+            });
+        }
+
+        function toggleRule(ruleId, enable) {
+            fetch(`/settings/noise/api/rules/${ruleId}/toggle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_enabled: enable })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(`Rule ${enable ? 'enabled' : 'disabled'}`, 'success');
+                    loadStats();
+                    loadCategories();
+                    loadRules(currentPage);
+                } else {
+                    showNotification(data.error || 'Failed to toggle rule', 'error');
+                }
+            });
+        }
+
+        function showAddRuleModal() {
+            document.getElementById('ruleModalTitle').textContent = 'Add Noise Rule';
+            document.getElementById('ruleForm').reset();
+            document.getElementById('ruleId').value = '';
+            document.getElementById('ruleEnabled').checked = true;
+            document.getElementById('rulePriority').value = 100;
+            document.getElementById('ruleModal').style.display = 'flex';
+        }
+
+        function editRule(ruleId) {
+            fetch(`/settings/noise/api/rules/${ruleId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const rule = data.rule;
+                        document.getElementById('ruleModalTitle').textContent = 'Edit Noise Rule';
+                        document.getElementById('ruleId').value = rule.id;
+                        document.getElementById('ruleCategoryId').value = rule.category_id;
+                        document.getElementById('ruleName').value = rule.name;
+                        document.getElementById('ruleDescription').value = rule.description || '';
+                        document.getElementById('ruleFilterType').value = rule.filter_type;
+                        document.getElementById('ruleMatchMode').value = rule.match_mode;
+                        document.getElementById('rulePattern').value = rule.pattern;
+                        document.getElementById('rulePriority').value = rule.priority;
+                        document.getElementById('ruleCaseSensitive').checked = rule.is_case_sensitive;
+                        document.getElementById('ruleEnabled').checked = rule.is_enabled;
+                        document.getElementById('ruleModal').style.display = 'flex';
+                    }
+                });
+        }
+
+        function saveRule() {
+            const ruleId = document.getElementById('ruleId').value;
+            const isEdit = ruleId !== '';
+            
+            const data = {
+                category_id: parseInt(document.getElementById('ruleCategoryId').value),
+                name: document.getElementById('ruleName').value,
+                description: document.getElementById('ruleDescription').value,
+                filter_type: document.getElementById('ruleFilterType').value,
+                match_mode: document.getElementById('ruleMatchMode').value,
+                pattern: document.getElementById('rulePattern').value,
+                priority: parseInt(document.getElementById('rulePriority').value),
+                is_case_sensitive: document.getElementById('ruleCaseSensitive').checked,
+                is_enabled: document.getElementById('ruleEnabled').checked
+            };
+            
+            if (!data.category_id || !data.name || !data.pattern) {
+                showNotification('Please fill in all required fields', 'error');
+                return;
+            }
+            
+            const url = isEdit ? `/settings/noise/api/rules/${ruleId}/edit` : '/settings/noise/api/rules/add';
+            
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    closeModal('ruleModal');
+                    showNotification(`Rule ${isEdit ? 'updated' : 'created'} successfully`, 'success');
+                    loadStats();
+                    loadCategories();
+                    loadRules(currentPage);
+                } else {
+                    showNotification(result.error || 'Failed to save rule', 'error');
+                }
+            });
+        }
+
+        function deleteRule(ruleId, ruleName) {
+            if (!confirm(`Delete rule "${ruleName}"?\n\nThis cannot be undone.`)) return;
+            
+            fetch(`/settings/noise/api/rules/${ruleId}/delete`, { method: 'POST' })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.success) {
+                        showNotification('Rule deleted', 'success');
+                        loadStats();
+                        loadCategories();
+                        loadRules(currentPage);
+                    } else {
+                        showNotification(result.error || 'Failed to delete rule', 'error');
+                    }
+                });
+        }
+
+        function seedDefaults() {
+            fetch('/settings/noise/api/seed', { method: 'POST' })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.success) {
+                        showNotification(result.message, 'success');
+                        loadStats();
+                        loadCategories();
+                        loadRules();
+                    } else {
+                        showNotification(result.error || 'Failed to seed defaults', 'error');
+                    }
+                });
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `flash-message flash-${type}`;
+            notification.innerHTML = `
+                <span class="flash-icon">${type === 'success' ? '✓' : '✕'}</span>
+                <span class="flash-text">${message}</span>
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 4000);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Close modal on escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+            }
+        });
+        </script>
+
+        <style>
+        /* Noise Filter Styles */
+        .noise-content {
+            max-width: 1400px;
+        }
+
+        .noise-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .noise-stats {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .noise-stat-card {
+            background: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 140px;
+        }
+
+        .noise-stat-card.stat-highlight {
+            background: linear-gradient(135deg, rgba(54, 179, 126, 0.2), rgba(54, 179, 126, 0.1));
+            border: 1px solid var(--accent-success);
+        }
+
+        .stat-icon {
+            font-size: 24px;
+        }
+
+        .stat-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .noise-section {
+            margin-bottom: 24px;
+        }
+
+        .noise-section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .noise-categories {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .noise-category-card {
+            background: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+            padding: 12px 16px;
+            min-width: 180px;
+            cursor: pointer;
+            position: relative;
+            transition: all var(--transition-fast);
+            border: 2px solid transparent;
+        }
+
+        .noise-category-card:hover {
+            background: var(--bg-hover);
+        }
+
+        .noise-category-card.category-active {
+            border-color: var(--accent-success);
+        }
+
+        .noise-category-card.category-disabled {
+            opacity: 0.6;
+        }
+
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .category-icon {
+            font-size: 18px;
+        }
+
+        .category-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .category-stats {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .category-toggle {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition-fast);
+        }
+
+        .category-active .category-toggle {
+            border-color: var(--accent-success);
+            background: var(--accent-success);
+            color: white;
+        }
+
+        .noise-filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .noise-search {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .noise-select {
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            color: var(--text-primary);
+            font-size: 14px;
+            min-width: 150px;
+        }
+
+        .noise-rules-container {
+            background: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        .noise-rules-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .noise-rules-table th {
+            background: var(--bg-tertiary);
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 500;
+            font-size: 13px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .noise-rules-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+
+        .noise-rules-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .noise-rules-table tr.row-inactive {
+            opacity: 0.6;
+        }
+
+        .noise-rules-table tr:hover {
+            background: var(--bg-hover);
+        }
+
+        .icon-cell {
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .rule-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .rule-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .rule-pattern {
+            background: var(--bg-tertiary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            max-width: 200px;
+            display: inline-block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .type-badge {
+            background: var(--bg-tertiary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: rgba(54, 179, 126, 0.2);
+            color: var(--accent-success);
+        }
+
+        .status-enabled {
+            background: rgba(255, 171, 0, 0.2);
+            color: var(--accent-warning);
+        }
+
+        .status-disabled {
+            background: rgba(139, 147, 164, 0.2);
+            color: var(--text-secondary);
+        }
+
+        .actions-cell {
+            white-space: nowrap;
+        }
+
+        .btn-icon-sm {
+            background: transparent;
+            border: none;
+            padding: 6px 8px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 4px;
+            transition: background var(--transition-fast);
+        }
+
+        .btn-icon-sm:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .btn-danger-icon:hover {
+            background: rgba(255, 86, 48, 0.2);
+        }
+
+        .loading-cell, .empty-cell, .error-cell {
+            text-align: center;
+            padding: 40px !important;
+            color: var(--text-secondary);
+        }
+
+        .error-cell {
+            color: var(--accent-danger);
+        }
+
+        .noise-pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            padding: 12px 0;
+        }
+
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 16px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .form-label .required {
+            color: var(--accent-danger);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .form-help {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .form-checkboxes {
+            display: flex;
+            gap: 20px;
+            padding-top: 8px;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: var(--text-primary);
+        }
+
+        .checkbox-label input {
+            width: 16px;
+            height: 16px;
+        }
+
+        .loading-indicator, .no-data {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .no-data a {
+            color: var(--accent-primary);
+        }
+        </style>
         {% endif %}
     </div>
 </div>

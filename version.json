@@ -1,6 +1,18 @@
 {
-  "version": "3.40.0",
+  "version": "3.41.0",
   "changelog": [
+    {
+      "version": "3.41.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Noise Filters: New Settings > Noise tab for managing known-good software filters",
+        "Noise Filters: Categories for RMM, EDR, Remote Access, Backup, Security tools",
+        "Noise Filters: Individual rule enable/disable for per-client customization",
+        "Noise Filters: Support for process_name, file_path, command_line, hash, service, network, registry",
+        "Noise Filters: Pattern matching with contains, exact, wildcard, regex modes",
+        "Noise Filters: System default rules (disabled by default) with 38 common tools"
+      ]
+    },
     {
       "version": "3.40.0",
       "date": "2026-01-12",

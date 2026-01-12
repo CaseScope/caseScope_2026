@@ -130,11 +130,13 @@ def create_app():
     from routes.auth import auth_bp
     from routes.api import api_bp
     from routes.parsing import parsing_bp
+    from routes.noise import noise_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(parsing_bp)
+    app.register_blueprint(noise_bp)
     
     # Create database tables
     with app.app_context():
@@ -153,8 +155,14 @@ def create_app():
         from models.ioc import (
             IOC, IOCSystemSighting, IOCCase, IOCAudit
         )
+        from models.noise import (
+            NoiseCategory, NoiseRule, NoiseRuleAudit, seed_noise_defaults
+        )
         from models.system_settings import SystemSettings
         db.create_all()
+        
+        # Seed noise filter defaults if not exists
+        seed_noise_defaults()
         
         # Create default admin user if not exists
         from config import PermissionLevel
