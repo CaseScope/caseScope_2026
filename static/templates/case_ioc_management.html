@@ -22,6 +22,10 @@
             <span class="btn-icon">🔍</span>
             Find in Reports
         </button>
+        <button class="btn btn-warning" onclick="openTagArtifactsModal()" id="btnTagArtifacts">
+            <span class="btn-icon">🏷️</span>
+            Tag Artifacts
+        </button>
     </div>
 </div>
 
@@ -321,6 +325,91 @@
         </div>
         <div class="modal-footer">
             <button class="btn btn-primary" onclick="closeAuditModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Tag Artifacts Modal -->
+<div id="tagArtifactsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-tag-artifacts">
+        <div class="modal-header">
+            <h3 class="modal-title">
+                <span id="tagModalTitle">🏷️ Tag Artifacts with IOCs</span>
+            </h3>
+            <button class="modal-close" onclick="closeTagArtifactsModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <!-- Initial State -->
+            <div id="tagInitialState" class="tag-section">
+                <div class="tag-info-box">
+                    <h4>What does this do?</h4>
+                    <p>This feature searches <strong>ALL artifacts</strong> in this case (ClickHouse events) 
+                       for matches against <strong>ALL IOCs</strong> in the database.</p>
+                    <ul>
+                        <li>🔍 <strong>Case-insensitive</strong> matching</li>
+                        <li>📁 <strong>Partial path matching</strong>: "winscp.exe" matches "C:\Windows\WinSCP.exe"</li>
+                        <li>⚙️ <strong>Command extraction</strong>: Finds executables in command lines</li>
+                        <li>🔗 <strong>Auto-links</strong>: IOCs with matches are linked to this case</li>
+                    </ul>
+                    <p class="tag-warning">⚠️ This may take a moment for large cases.</p>
+                </div>
+            </div>
+            
+            <!-- Progress State -->
+            <div id="tagProgressState" class="tag-section" style="display: none;">
+                <div class="tag-progress-container">
+                    <div class="spinner"></div>
+                    <p>Searching artifacts for IOC matches...</p>
+                    <p class="progress-hint">This may take a minute for large cases</p>
+                </div>
+            </div>
+            
+            <!-- Results State -->
+            <div id="tagResultsState" class="tag-section" style="display: none;">
+                <div class="tag-results-summary">
+                    <div class="tag-result-stat">
+                        <span class="stat-value" id="tagStatSearched">0</span>
+                        <span class="stat-label">IOCs Searched</span>
+                    </div>
+                    <div class="tag-result-stat tag-stat-success">
+                        <span class="stat-value" id="tagStatMatched">0</span>
+                        <span class="stat-label">IOCs with Matches</span>
+                    </div>
+                    <div class="tag-result-stat tag-stat-info">
+                        <span class="stat-value" id="tagStatLinked">0</span>
+                        <span class="stat-label">Newly Linked</span>
+                    </div>
+                    <div class="tag-result-stat">
+                        <span class="stat-value" id="tagStatArtifacts">0</span>
+                        <span class="stat-label">Artifact Matches</span>
+                    </div>
+                </div>
+                
+                <div class="tag-results-details">
+                    <h4>Matched IOCs</h4>
+                    <div class="tag-results-table-container">
+                        <table class="tag-results-table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Value</th>
+                                    <th>Matches</th>
+                                    <th>Artifact Types</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tagResultsBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeTagArtifactsModal()" id="btnCancelTag">Close</button>
+            <button class="btn btn-primary" onclick="startTagging()" id="btnStartTag">
+                Start Tagging
+            </button>
         </div>
     </div>
 </div>
@@ -1416,6 +1505,121 @@ function formatBytes(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ============================================
+// Tag Artifacts - IOC Artifact Matching
+// ============================================
+
+function openTagArtifactsModal() {
+    // Reset to initial state
+    document.getElementById('tagInitialState').style.display = 'block';
+    document.getElementById('tagProgressState').style.display = 'none';
+    document.getElementById('tagResultsState').style.display = 'none';
+    document.getElementById('btnStartTag').style.display = 'inline-block';
+    document.getElementById('btnStartTag').disabled = false;
+    document.getElementById('tagModalTitle').textContent = '🏷️ Tag Artifacts with IOCs';
+    
+    document.getElementById('tagArtifactsModal').style.display = 'flex';
+}
+
+function closeTagArtifactsModal() {
+    document.getElementById('tagArtifactsModal').style.display = 'none';
+    // Refresh IOC list to show updated counts
+    loadIOCs();
+}
+
+function startTagging() {
+    // Show progress
+    document.getElementById('tagInitialState').style.display = 'none';
+    document.getElementById('tagProgressState').style.display = 'block';
+    document.getElementById('tagResultsState').style.display = 'none';
+    document.getElementById('btnStartTag').style.display = 'none';
+    document.getElementById('tagModalTitle').textContent = '🏷️ Searching Artifacts...';
+    
+    fetch(`/api/iocs/tag-artifacts/${caseUuid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            renderTagResults(data);
+        } else {
+            showError('Tagging failed: ' + (data.error || 'Unknown error'));
+            // Reset to initial state
+            document.getElementById('tagInitialState').style.display = 'block';
+            document.getElementById('tagProgressState').style.display = 'none';
+            document.getElementById('btnStartTag').style.display = 'inline-block';
+            document.getElementById('tagModalTitle').textContent = '🏷️ Tag Artifacts with IOCs';
+        }
+    })
+    .catch(err => {
+        showError('Tagging error: ' + err.message);
+        document.getElementById('tagInitialState').style.display = 'block';
+        document.getElementById('tagProgressState').style.display = 'none';
+        document.getElementById('btnStartTag').style.display = 'inline-block';
+        document.getElementById('tagModalTitle').textContent = '🏷️ Tag Artifacts with IOCs';
+    });
+}
+
+function renderTagResults(data) {
+    // Hide progress, show results
+    document.getElementById('tagProgressState').style.display = 'none';
+    document.getElementById('tagResultsState').style.display = 'block';
+    document.getElementById('tagModalTitle').textContent = '🏷️ Tagging Complete!';
+    
+    // Update summary stats
+    document.getElementById('tagStatSearched').textContent = data.total_iocs_searched || 0;
+    document.getElementById('tagStatMatched').textContent = data.iocs_with_matches || 0;
+    document.getElementById('tagStatLinked').textContent = data.new_links_created || 0;
+    document.getElementById('tagStatArtifacts').textContent = formatNumber(data.total_artifact_matches || 0);
+    
+    // Render details table
+    const tbody = document.getElementById('tagResultsBody');
+    const details = data.details || [];
+    
+    if (details.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center text-muted">
+                    No IOCs matched any artifacts in this case.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = details.map(d => {
+        const artifactTypes = d.artifact_types || {};
+        const typesList = Object.entries(artifactTypes)
+            .slice(0, 3)
+            .map(([type, count]) => `${type}: ${count}`)
+            .join(', ');
+        const moreTypes = Object.keys(artifactTypes).length > 3 
+            ? ` +${Object.keys(artifactTypes).length - 3} more` 
+            : '';
+        
+        const statusBadge = d.was_linked 
+            ? '<span class="badge badge-info">Updated</span>'
+            : '<span class="badge badge-success">Newly Linked</span>';
+        
+        return `
+            <tr>
+                <td>${escapeHtml(d.ioc_type || '')}</td>
+                <td class="value-cell" title="${escapeHtml(d.value || '')}">${escapeHtml(d.value || '')}</td>
+                <td class="count-cell">${formatNumber(d.match_count || 0)}</td>
+                <td class="types-cell">${escapeHtml(typesList)}${moreTypes}</td>
+                <td>${statusBadge}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function formatNumber(num) {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
 }
 </script>
 {% endblock %}

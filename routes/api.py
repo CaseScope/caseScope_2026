@@ -2535,3 +2535,41 @@ def save_extracted_iocs_api(case_uuid):
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/tag-artifacts/<case_uuid>', methods=['POST'])
+@login_required
+def tag_artifacts_for_case(case_uuid):
+    """Search all artifacts in case for IOC matches and update artifact counts.
+    
+    This performs case-insensitive partial matching for:
+    - File paths: matches filename (e.g., "winscp.exe" matches "c:\\windows\\winscp.exe")
+    - Hashes: exact match
+    - IPs: exact match
+    - Commands: extracts executables and matches those
+    - Registry: partial match
+    """
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        from utils.ioc_artifact_tagger import tag_all_iocs_globally
+        
+        # Search all IOCs against this case's artifacts
+        results = tag_all_iocs_globally(case.id)
+        
+        return jsonify({
+            'success': results.get('success', False),
+            'total_iocs_searched': results.get('total_iocs', 0),
+            'iocs_with_matches': results.get('iocs_with_matches', 0),
+            'new_links_created': results.get('new_links_created', 0),
+            'total_artifact_matches': results.get('total_artifact_matches', 0),
+            'details': results.get('details', []),
+            'error': results.get('error')
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500

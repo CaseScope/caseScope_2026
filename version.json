@@ -1,6 +1,16 @@
 {
-  "version": "3.37.5",
+  "version": "3.38.0",
   "changelog": [
+    {
+      "version": "3.38.0",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC: Added Tag Artifacts feature - searches all case artifacts for IOC matches",
+        "IOC: Partial matching (winscp.exe matches C:\\Windows\\WinSCP.exe)",
+        "IOC: Case-insensitive search across all artifact types",
+        "IOC: Auto-links matching IOCs to case and updates artifact counts"
+      ]
+    },
     {
       "version": "3.37.5",
       "date": "2026-01-11",
