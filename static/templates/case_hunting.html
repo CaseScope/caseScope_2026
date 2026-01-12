@@ -148,8 +148,8 @@ function applyFilters() {
     // Alert Type mode and filters
     eventFilters.alertMode = document.getElementById('alert-filter-mode').value;
     eventFilters.sigma = document.getElementById('filter-sigma').checked;
+    eventFilters.ioc = document.getElementById('filter-ioc').checked;
     // Placeholders - read but not used yet
-    // eventFilters.ioc = document.getElementById('filter-ioc').checked;
     // eventFilters.analyst = document.getElementById('filter-analyst').checked;
     // eventFilters.ai = document.getElementById('filter-ai').checked;
     
@@ -217,8 +217,9 @@ function loadEvents() {
     // Build types based on filters
     const filteredTypes = getFilteredArtifactTypes();
     
-    // Sigma/severity filters only apply to Events tab
+    // Sigma/severity/IOC filters only apply to Events tab
     let sigmaFilter = '';
+    let iocFilter = '';
     let severityLevels = '';
     let alertMode = 'all';
     
@@ -230,9 +231,11 @@ function loadEvents() {
         if (eventFilters.alertMode === 'all') {
             // All Events mode: unchecking hides those events
             sigmaFilter = eventFilters.sigma ? '' : 'exclude';
+            iocFilter = eventFilters.ioc ? '' : 'exclude';
         } else {
             // Only These mode: only show events matching checked types
             sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
+            iocFilter = eventFilters.ioc ? 'only' : 'exclude_all';
         }
         
         // Build severity levels filter
@@ -247,6 +250,7 @@ function loadEvents() {
         types: filteredTypes,
         alert_mode: alertMode,
         sigma_filter: sigmaFilter,
+        ioc_filter: iocFilter,
         severity_levels: severityLevels
     });
     
@@ -295,8 +299,15 @@ function renderEventsTable(events) {
     
     tbody.innerHTML = events.map((e, index) => {
         const hasHit = e.rule_level && e.rule_level !== '';
-        const rowClass = hasHit ? 'event-row hayabusa-hit clickable-row' : 'event-row clickable-row';
+        const hasIOC = e.ioc_types && e.ioc_types.length > 0;
+        
+        // Build row class - IOC match takes precedence for styling
+        let rowClass = 'event-row clickable-row';
+        if (hasIOC) rowClass += ' ioc-match';
+        if (hasHit) rowClass += ' hayabusa-hit';
+        
         const severityBadge = getSeverityBadge(e.rule_level);
+        const iocBadges = getIOCBadges(e.ioc_types);
         const eventId = e.event_id ? e.event_id : '-';
         
         return `
@@ -306,7 +317,7 @@ function renderEventsTable(events) {
                 <td class="col-hostname">${e.source_host || '-'}</td>
                 <td class="col-event-id">${eventId}</td>
                 <td class="col-description" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
-                <td class="col-severity">${severityBadge}</td>
+                <td class="col-severity">${severityBadge}${iocBadges}</td>
             </tr>
         `;
     }).join('');
@@ -330,6 +341,31 @@ function getSeverityBadge(ruleLevel) {
     
     // Unknown level - show as-is
     return `<span class="badge badge-muted">${escapeHtml(ruleLevel.toUpperCase())}</span>`;
+}
+
+// Get IOC type badges HTML
+function getIOCBadges(iocTypes) {
+    if (!iocTypes || iocTypes.length === 0) return '';
+    
+    const icons = {
+        'IP': '🌐',
+        'Domain': '🌐',
+        'Host': '💻',
+        'URL': '🔗',
+        'Hash': '🔑',
+        'File': '📄',
+        'Process': '⚙️',
+        'Command': '💻',
+        'Registry': '🗂️',
+        'User': '👤',
+        'Email': '📧',
+        'Credential': '🔐'
+    };
+    
+    return iocTypes.map(type => {
+        const icon = icons[type] || '🏷️';
+        return `<span class="badge badge-ioc" title="IOC: ${type}">${icon} ${type}</span>`;
+    }).join(' ');
 }
 
 // Update pagination controls

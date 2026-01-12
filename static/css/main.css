@@ -4940,3 +4940,39 @@ input:checked + .slider:before {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
 }
+
+/* ========================================
+   IOC Event Highlighting
+   ======================================== */
+
+/* IOC matched row - red tinted text */
+.event-row.ioc-match {
+  color: #e74c3c;
+}
+
+.event-row.ioc-match td {
+  color: #e74c3c;
+}
+
+.event-row.ioc-match:hover {
+  background: rgba(231, 76, 60, 0.1);
+}
+
+/* IOC badge styling */
+.badge-ioc {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+  font-weight: 500;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Stack badges vertically if too many */
+.col-severity {
+  white-space: normal;
+  max-width: 200px;
+}

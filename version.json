@@ -1,6 +1,16 @@
 {
-  "version": "3.38.0",
+  "version": "3.39.0",
   "changelog": [
+    {
+      "version": "3.39.0",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC: Events with IOC matches now highlighted in red in artifact list",
+        "IOC: IOC type badges displayed on matching events (IP, File, Hash, etc.)",
+        "IOC: Enabled IOCs Found filter in hunting events tab",
+        "IOC: Tag Artifacts now marks events with ioc_types for visual highlighting"
+      ]
+    },
     {
       "version": "3.38.0",
       "date": "2026-01-12",

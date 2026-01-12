@@ -987,6 +987,7 @@ def get_hunting_events(case_id):
         artifact_types = request.args.get('types', '', type=str).strip()
         alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
+        ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
         severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
         
         # Limit per_page to reasonable values
@@ -1020,6 +1021,18 @@ def get_hunting_events(case_id):
             # This effectively means show only non-alert events
             sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
         
+        # Build IOC filter based on mode
+        ioc_filter = ""
+        if ioc_filter_param == 'exclude':
+            # Hide events with IOC matches (All Events mode, IOC unchecked)
+            ioc_filter = " AND length(ioc_types) = 0"
+        elif ioc_filter_param == 'only':
+            # Show only events with IOC matches (Only These mode, IOC checked)
+            ioc_filter = " AND length(ioc_types) > 0"
+        elif ioc_filter_param == 'exclude_all':
+            # Only These mode with nothing checked - show no IOC events
+            ioc_filter = " AND length(ioc_types) = 0"
+        
         # Build severity level filter
         # This filters which SIGMA severity levels to show/hide
         severity_filter = ""
@@ -1041,7 +1054,7 @@ def get_hunting_events(case_id):
             src_ip, dst_ip, src_port, dst_port,
             reg_key, reg_value, reg_data,
             rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-            search_blob, extra_fields
+            search_blob, extra_fields, ioc_types
         """
         
         if search:
@@ -1049,13 +1062,13 @@ def get_hunting_events(case_id):
             count_query = f"""
                 SELECT count() FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{severity_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{severity_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -1066,11 +1079,11 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{severity_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}"
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{severity_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -1097,7 +1110,7 @@ def get_hunting_events(case_id):
              src_ip, dst_ip, src_port, dst_port,
              reg_key, reg_value, reg_data,
              rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-             search_blob, extra_fields) = row
+             search_blob, extra_fields, ioc_types) = row
             
             # Build description from available fields
             description = build_event_description(
@@ -1148,7 +1161,8 @@ def get_hunting_events(case_id):
                 'mitre_tactics': list(mitre_tactics) if mitre_tactics else [],
                 'mitre_tags': list(mitre_tags) if mitre_tags else [],
                 'search_blob': search_blob or '',
-                'extra_fields': extra_fields or '{}'
+                'extra_fields': extra_fields or '{}',
+                'ioc_types': list(ioc_types) if ioc_types else []
             })
         
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1

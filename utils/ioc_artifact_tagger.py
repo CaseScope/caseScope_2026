@@ -3,6 +3,8 @@
 Searches ClickHouse artifacts for IOC matches and updates artifact counts.
 Handles partial matching (e.g., "winscp.exe" in "c:\\windows\\winscp.exe")
 and case-insensitive comparisons.
+
+Also marks matching events with IOC types for visual highlighting.
 """
 import os
 import re
@@ -13,6 +15,37 @@ from typing import Dict, List, Optional, Tuple, Any
 from utils.clickhouse import get_fresh_client
 
 logger = logging.getLogger(__name__)
+
+
+# Simplified IOC type names for badges
+IOC_TYPE_SHORT_NAMES = {
+    'IP Address (IPv4)': 'IP',
+    'IP Address (IPv6)': 'IP',
+    'Domain': 'Domain',
+    'FQDN': 'Domain',
+    'Hostname': 'Host',
+    'URL': 'URL',
+    'MD5 Hash': 'Hash',
+    'SHA1 Hash': 'Hash',
+    'SHA256 Hash': 'Hash',
+    'File Path': 'File',
+    'File Name': 'File',
+    'Process Name': 'Process',
+    'Process Path': 'Process',
+    'Command Line': 'Command',
+    'Registry Key': 'Registry',
+    'Registry Value': 'Registry',
+    'Username': 'User',
+    'Email Address': 'Email',
+    'Password Hash': 'Credential',
+    'SSH Key Fingerprint': 'Credential',
+    'API Key': 'Credential',
+}
+
+
+def get_short_ioc_type(ioc_type: str) -> str:
+    """Get shortened IOC type name for badges."""
+    return IOC_TYPE_SHORT_NAMES.get(ioc_type, ioc_type.split()[0] if ioc_type else 'IOC')
 
 
 def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
@@ -107,6 +140,25 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
     return unique_terms
 
 
+def build_search_conditions(search_terms: List[str], param_prefix: str = 'term') -> Tuple[str, Dict]:
+    """Build SQL WHERE conditions and parameters for search terms.
+    
+    Returns (where_clause, params_dict)
+    """
+    conditions = []
+    params = {}
+    
+    for i, term in enumerate(search_terms):
+        # Escape special characters for LIKE
+        escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        param_name = f'{param_prefix}_{i}'
+        params[param_name] = f'%{escaped_term}%'
+        conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
+    
+    where_clause = ' OR '.join(conditions) if conditions else '1=0'
+    return where_clause, params
+
+
 def search_artifacts_for_ioc(
     case_id: int,
     ioc_value: str,
@@ -140,18 +192,8 @@ def search_artifacts_for_ioc(
             'matched_terms': []
         }
     
-    # Build OR query for all terms
-    # Using case-insensitive LIKE on search_blob
-    conditions = []
-    params = {'case_id': case_id}
-    
-    for i, term in enumerate(search_terms):
-        # Escape special characters for LIKE
-        escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-        params[f'term_{i}'] = f'%{escaped_term}%'
-        conditions.append(f"lower(search_blob) LIKE {{term_{i}:String}}")
-    
-    where_clause = ' OR '.join(conditions)
+    where_clause, params = build_search_conditions(search_terms)
+    params['case_id'] = case_id
     
     # Get aggregate stats
     query = f"""
@@ -207,96 +249,85 @@ def search_artifacts_for_ioc(
     }
 
 
-def tag_all_iocs_for_case(case_id: int) -> Dict[str, Any]:
-    """Tag all IOCs linked to a case by searching artifacts.
+def reset_ioc_types_for_case(case_id: int) -> bool:
+    """Reset all ioc_types arrays to empty for a case.
     
-    Updates artifact_count, first_seen_in_artifacts, last_seen_in_artifacts
-    for each IOC based on actual ClickHouse search results.
-    
-    Returns summary of updates made.
+    This is called before re-tagging to ensure clean state.
     """
-    from models.ioc import IOC, IOCCase
-    from models.database import db
-    
-    # Get all IOCs linked to this case (excluding false positives)
-    ioc_links = IOCCase.query.filter_by(case_id=case_id).all()
-    ioc_ids = [link.ioc_id for link in ioc_links]
-    
-    if not ioc_ids:
-        return {
-            'success': True,
-            'total_iocs': 0,
-            'iocs_with_matches': 0,
-            'total_artifact_matches': 0,
-            'details': []
-        }
-    
-    # Filter out false positives
-    iocs = IOC.query.filter(
-        IOC.id.in_(ioc_ids),
-        IOC.false_positive == False
-    ).all()
-    
-    results = {
-        'success': True,
-        'total_iocs': len(iocs),
-        'iocs_with_matches': 0,
-        'total_artifact_matches': 0,
-        'details': []
-    }
-    
-    for ioc in iocs:
-        try:
-            search_result = search_artifacts_for_ioc(
-                case_id=case_id,
-                ioc_value=ioc.value,
-                ioc_type=ioc.ioc_type
-            )
-            
-            detail = {
-                'ioc_id': ioc.id,
-                'ioc_type': ioc.ioc_type,
-                'value': ioc.value[:50] + ('...' if len(ioc.value) > 50 else ''),
-                'match_count': search_result['match_count'],
-                'searched_terms': search_result['matched_terms'],
-                'artifact_types': search_result['artifact_types']
-            }
-            
-            if search_result['match_count'] > 0:
-                results['iocs_with_matches'] += 1
-                results['total_artifact_matches'] += search_result['match_count']
-                
-                # Update IOC record
-                ioc.artifact_count = search_result['match_count']
-                
-                if search_result['earliest']:
-                    ioc.first_seen_in_artifacts = search_result['earliest']
-                if search_result['latest']:
-                    ioc.last_seen_in_artifacts = search_result['latest']
-            else:
-                # Reset counts if no matches found
-                ioc.artifact_count = 0
-            
-            results['details'].append(detail)
-            
-        except Exception as e:
-            logger.error(f"Error tagging IOC {ioc.id}: {e}")
-            results['details'].append({
-                'ioc_id': ioc.id,
-                'ioc_type': ioc.ioc_type,
-                'value': ioc.value[:50],
-                'error': str(e)
-            })
+    client = get_fresh_client()
     
     try:
-        db.session.commit()
+        # Use ALTER TABLE UPDATE for MergeTree
+        client.command(
+            f"ALTER TABLE events UPDATE ioc_types = [] WHERE case_id = {case_id}"
+        )
+        logger.info(f"Reset ioc_types for case {case_id}")
+        return True
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"Failed to commit IOC updates: {e}")
-        results['success'] = False
-        results['error'] = str(e)
+        logger.error(f"Error resetting ioc_types for case {case_id}: {e}")
+        return False
+
+
+def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str) -> int:
+    """Mark matching events with an IOC type.
     
-    return results
+    Adds the IOC type to the ioc_types array for matching events.
+    Uses arrayPushBack to append without duplicates.
+    
+    Returns number of events updated.
+    """
+    client = get_fresh_client()
+    
+    search_terms = extract_searchable_terms(ioc_value, ioc_type)
+    if not search_terms:
+        return 0
+    
+    where_clause, params = build_search_conditions(search_terms)
+    params['case_id'] = case_id
+    
+    # Get short type name for badge
+    short_type = get_short_ioc_type(ioc_type)
+    
+    try:
+        # First check how many will be updated
+        count_query = f"""
+            SELECT count() FROM events 
+            WHERE case_id = {{case_id:UInt32}} 
+              AND ({where_clause})
+              AND NOT has(ioc_types, '{short_type}')
+        """
+        count_result = client.query(count_query, parameters=params)
+        update_count = count_result.result_rows[0][0] if count_result.result_rows else 0
+        
+        if update_count > 0:
+            # Update events to add IOC type (only if not already present)
+            update_query = f"""
+                ALTER TABLE events UPDATE 
+                    ioc_types = arrayPushBack(ioc_types, '{short_type}')
+                WHERE case_id = {case_id}
+                  AND ({where_clause.replace('{', '').replace('}', '').replace(':String', '')})
+                  AND NOT has(ioc_types, '{short_type}')
+            """
+            # For ALTER TABLE UPDATE, we need to inline the parameters
+            # Build the query with inlined values
+            inline_query = f"ALTER TABLE events UPDATE ioc_types = arrayPushBack(ioc_types, '{short_type}') WHERE case_id = {case_id} AND ("
+            
+            conditions = []
+            for i, term in enumerate(search_terms):
+                escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+                conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
+            
+            inline_query += ' OR '.join(conditions)
+            inline_query += f") AND NOT has(ioc_types, '{short_type}')"
+            
+            client.command(inline_query)
+            logger.debug(f"Marked {update_count} events with IOC type '{short_type}'")
+        
+        return update_count
+        
+    except Exception as e:
+        logger.error(f"Error marking events with IOC type: {e}")
+        return 0
 
 
 def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
@@ -304,6 +335,8 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     
     This searches every IOC (not just case-linked ones) against
     the case's artifacts to find new matches.
+    
+    Also marks matching events with IOC types for visual highlighting.
     
     Skips IOCs marked as false positives.
     
@@ -322,6 +355,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
             'iocs_with_matches': 0,
             'new_links_created': 0,
             'total_artifact_matches': 0,
+            'events_tagged': 0,
             'details': []
         }
     
@@ -331,9 +365,15 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         'iocs_with_matches': 0,
         'new_links_created': 0,
         'total_artifact_matches': 0,
+        'events_tagged': 0,
         'details': []
     }
     
+    # Step 1: Reset all ioc_types for this case (clean slate)
+    logger.info(f"Resetting ioc_types for case {case_id}")
+    reset_ioc_types_for_case(case_id)
+    
+    # Step 2: Search and mark each IOC
     for ioc in iocs:
         try:
             search_result = search_artifacts_for_ioc(
@@ -345,6 +385,14 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
             if search_result['match_count'] > 0:
                 results['iocs_with_matches'] += 1
                 results['total_artifact_matches'] += search_result['match_count']
+                
+                # Mark matching events with IOC type
+                events_marked = mark_events_with_ioc_type(
+                    case_id=case_id,
+                    ioc_value=ioc.value,
+                    ioc_type=ioc.ioc_type
+                )
+                results['events_tagged'] += events_marked
                 
                 # Check if already linked to case
                 existing_link = IOCCase.query.filter_by(
@@ -373,6 +421,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                 results['details'].append({
                     'ioc_id': ioc.id,
                     'ioc_type': ioc.ioc_type,
+                    'short_type': get_short_ioc_type(ioc.ioc_type),
                     'value': ioc.value[:50] + ('...' if len(ioc.value) > 50 else ''),
                     'match_count': search_result['match_count'],
                     'artifact_types': search_result['artifact_types'],
