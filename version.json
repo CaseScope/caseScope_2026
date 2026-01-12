@@ -1,6 +1,16 @@
 {
-  "version": "3.54.0",
+  "version": "3.55.0",
   "changelog": [
+    {
+      "version": "3.55.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Settings: Added Worker Settings to General tab",
+        "Settings: Worker concurrency is now user-configurable (2-16 workers)",
+        "Settings: Intelligent worker limits based on system cores (3/4 recommended)",
+        "Settings: Override option allows using up to all available cores"
+      ]
+    },
     {
       "version": "3.54.0",
       "date": "2026-01-12",

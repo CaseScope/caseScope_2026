@@ -2577,6 +2577,247 @@ def set_ai_settings():
 
 
 # ============================================
+# Worker Settings API
+# ============================================
+
+@api_bp.route('/settings/workers', methods=['GET'])
+@login_required
+def get_worker_settings():
+    """Get current worker settings and system limits"""
+    try:
+        from models.system_settings import (
+            SystemSettings, SettingKeys, 
+            get_worker_limits, get_worker_concurrency, get_worker_override,
+            WORKER_OPTIONS
+        )
+        
+        limits = get_worker_limits()
+        current_concurrency = get_worker_concurrency()
+        override_enabled = get_worker_override()
+        
+        return jsonify({
+            'success': True,
+            'settings': {
+                'concurrency': current_concurrency,
+                'override_recommended': override_enabled
+            },
+            'limits': limits,
+            'options': WORKER_OPTIONS
+        })
+        
+    except Exception as e:
+        logger.exception("Error getting worker settings")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/workers', methods=['POST'])
+@login_required
+def set_worker_settings():
+    """Set worker concurrency settings
+    
+    Validates against system limits and updates systemd service.
+    Requires service restart to take effect.
+    """
+    try:
+        # Check admin permission
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        from models.system_settings import (
+            SystemSettings, SettingKeys,
+            get_worker_limits, WORKER_OPTIONS
+        )
+        
+        data = request.get_json()
+        concurrency = data.get('concurrency')
+        override_recommended = data.get('override_recommended', False)
+        
+        if concurrency is None:
+            return jsonify({'success': False, 'error': 'Concurrency value required'}), 400
+        
+        try:
+            concurrency = int(concurrency)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Invalid concurrency value'}), 400
+        
+        # Validate against limits
+        limits = get_worker_limits()
+        
+        # Must be a valid option
+        if concurrency not in WORKER_OPTIONS:
+            return jsonify({
+                'success': False, 
+                'error': f'Invalid concurrency value. Must be one of: {WORKER_OPTIONS}'
+            }), 400
+        
+        # Determine effective max based on override setting
+        if override_recommended:
+            max_allowed = limits['absolute_max']
+        else:
+            max_allowed = limits['recommended_max']
+        
+        # Clamp to allowed maximum
+        original_concurrency = concurrency
+        if concurrency > max_allowed:
+            concurrency = max_allowed
+        
+        # Save settings
+        SystemSettings.set(
+            SettingKeys.WORKER_OVERRIDE_RECOMMENDED,
+            override_recommended,
+            value_type='bool',
+            updated_by=current_user.username
+        )
+        
+        SystemSettings.set(
+            SettingKeys.WORKER_CONCURRENCY,
+            concurrency,
+            value_type='int',
+            updated_by=current_user.username
+        )
+        
+        # Update systemd service file
+        update_result = _update_worker_service_concurrency(concurrency)
+        
+        response = {
+            'success': True,
+            'concurrency': concurrency,
+            'override_recommended': override_recommended,
+            'service_updated': update_result['success'],
+            'requires_restart': True
+        }
+        
+        if original_concurrency != concurrency:
+            response['clamped'] = True
+            response['original_value'] = original_concurrency
+            response['message'] = f'Concurrency clamped from {original_concurrency} to {concurrency} (max allowed: {max_allowed})'
+        
+        if not update_result['success']:
+            response['service_error'] = update_result.get('error', 'Unknown error')
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.exception("Error setting worker settings")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/workers/restart', methods=['POST'])
+@login_required
+def restart_worker_service():
+    """Restart the Celery worker service to apply new settings"""
+    try:
+        # Check admin permission
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        import subprocess
+        
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'casescope-workers'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'success': True,
+                'message': 'Worker service restarted successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to restart service: {result.stderr}'
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Service restart timed out'
+        }), 500
+    except Exception as e:
+        logger.exception("Error restarting worker service")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _update_worker_service_concurrency(concurrency: int) -> dict:
+    """Update the systemd service file with new concurrency value
+    
+    Args:
+        concurrency: New worker concurrency value
+        
+    Returns:
+        dict with success status and any error message
+    """
+    import subprocess
+    import re
+    
+    service_file = '/etc/systemd/system/casescope-workers.service'
+    
+    try:
+        # Read current service file
+        with open(service_file, 'r') as f:
+            content = f.read()
+        
+        # Update concurrency in ExecStart line
+        new_content = re.sub(
+            r'(--concurrency=)\d+',
+            f'\\g<1>{concurrency}',
+            content
+        )
+        
+        if new_content == content:
+            # Pattern not found, try to add it
+            new_content = re.sub(
+                r'(ExecStart=.*worker.*--loglevel=\w+)',
+                f'\\g<1> --concurrency={concurrency}',
+                content
+            )
+        
+        # Write to temp file and use sudo to move it
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.service', delete=False) as tf:
+            tf.write(new_content)
+            temp_path = tf.name
+        
+        # Copy temp file to systemd location with sudo
+        result = subprocess.run(
+            ['sudo', 'cp', temp_path, service_file],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        # Clean up temp file
+        import os
+        os.unlink(temp_path)
+        
+        if result.returncode != 0:
+            return {'success': False, 'error': f'Failed to update service file: {result.stderr}'}
+        
+        # Reload systemd daemon
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'daemon-reload'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            return {'success': False, 'error': f'Failed to reload systemd: {result.stderr}'}
+        
+        logger.info(f"Updated worker concurrency to {concurrency}")
+        return {'success': True}
+        
+    except FileNotFoundError:
+        return {'success': False, 'error': 'Service file not found'}
+    except Exception as e:
+        logger.exception("Error updating worker service")
+        return {'success': False, 'error': str(e)}
+
+
+# ============================================
 # IOC Extraction from EDR Reports API
 # ============================================
 

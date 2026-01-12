@@ -93,6 +93,10 @@ class SettingKeys:
     AI_DEFAULT_MODEL = 'ai_default_model'
     AI_GPU_INDEX = 'ai_gpu_index'
     AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detection
+    
+    # Worker settings
+    WORKER_CONCURRENCY = 'worker_concurrency'
+    WORKER_OVERRIDE_RECOMMENDED = 'worker_override_recommended'
 
 
 # AI Model Configuration based on GPU VRAM
@@ -156,3 +160,64 @@ def get_model_for_function(function_name, vram_mb):
     if config:
         return config.get(function_name)
     return None
+
+
+# Worker Settings Helpers
+WORKER_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16]
+
+
+def get_system_cores():
+    """Get the number of CPU cores on the system"""
+    import os
+    return os.cpu_count() or 4
+
+
+def get_worker_limits():
+    """Calculate worker limits based on system cores
+    
+    Returns:
+        dict with:
+            - total_cores: Total system cores
+            - recommended_max: 3/4 of cores (floor to even number, min 2)
+            - absolute_max: Total cores (floor to even number, min 2)
+            - default: Half of recommended max (floor to even, min 2)
+    """
+    total_cores = get_system_cores()
+    
+    # Recommended max is 3/4 of cores
+    recommended_raw = int(total_cores * 0.75)
+    # Floor to nearest even number from our options
+    recommended_max = max(2, max([o for o in WORKER_OPTIONS if o <= recommended_raw], default=2))
+    
+    # Absolute max is total cores (can't exceed)
+    absolute_max = max(2, max([o for o in WORKER_OPTIONS if o <= total_cores], default=2))
+    
+    # Default is half of recommended max
+    default_raw = recommended_max // 2
+    default = max(2, max([o for o in WORKER_OPTIONS if o <= default_raw], default=2))
+    
+    return {
+        'total_cores': total_cores,
+        'recommended_max': recommended_max,
+        'absolute_max': absolute_max,
+        'default': default
+    }
+
+
+def get_worker_concurrency():
+    """Get the current worker concurrency setting
+    
+    Returns:
+        int: Current concurrency value, or default if not set
+    """
+    limits = get_worker_limits()
+    return SystemSettings.get(SettingKeys.WORKER_CONCURRENCY, limits['default'])
+
+
+def get_worker_override():
+    """Check if user has overridden recommended limits
+    
+    Returns:
+        bool: True if override is enabled
+    """
+    return SystemSettings.get(SettingKeys.WORKER_OVERRIDE_RECOMMENDED, False)

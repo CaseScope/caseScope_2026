@@ -60,11 +60,293 @@
         <div class="settings-content">
             <h3 class="settings-section-title">General Settings</h3>
             <p class="text-muted">General application configuration options.</p>
-            <div class="placeholder-content">
-                <span class="placeholder-icon">🚧</span>
-                <span class="placeholder-text">General settings coming soon...</span>
+            
+            <!-- Worker Settings Section -->
+            <div class="settings-section worker-settings">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">⚙️</span>
+                        Worker Settings
+                    </h4>
+                </div>
+                
+                <div class="worker-info-bar" id="workerInfoBar">
+                    <div class="info-loading">Loading system information...</div>
+                </div>
+                
+                <div class="worker-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Worker Concurrency</label>
+                            <select id="workerConcurrency" class="form-input worker-select" onchange="validateWorkerSelection()">
+                                <!-- Options populated by JS -->
+                            </select>
+                            <span class="form-help" id="workerHelp">Number of parallel worker processes</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Override Recommendation</label>
+                            <div class="checkbox-wrapper">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="workerOverride" onchange="toggleOverride()">
+                                    <span>Allow exceeding recommended limit</span>
+                                </label>
+                            </div>
+                            <span class="form-help">Enable to use up to all available cores (not recommended)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="worker-actions">
+                        <button class="btn btn-primary" id="saveWorkerBtn" onclick="saveWorkerSettings()">
+                            <span class="btn-icon">💾</span> Save Settings
+                        </button>
+                        <button class="btn btn-warning" id="restartWorkerBtn" onclick="restartWorkers()" style="display: none;">
+                            <span class="btn-icon">🔄</span> Restart Workers
+                        </button>
+                    </div>
+                    
+                    <div class="worker-status" id="workerStatus" style="display: none;"></div>
+                </div>
             </div>
         </div>
+        
+        <script>
+        // Worker settings state
+        let workerLimits = null;
+        let workerOptions = [];
+        let currentSettings = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadWorkerSettings();
+        });
+        
+        function loadWorkerSettings() {
+            fetch('/api/settings/workers')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        workerLimits = data.limits;
+                        workerOptions = data.options;
+                        currentSettings = data.settings;
+                        
+                        renderWorkerInfo();
+                        populateWorkerOptions();
+                        
+                        // Set current values
+                        document.getElementById('workerConcurrency').value = currentSettings.concurrency;
+                        document.getElementById('workerOverride').checked = currentSettings.override_recommended;
+                        
+                        validateWorkerSelection();
+                    } else {
+                        showWorkerError('Failed to load settings: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading worker settings:', err);
+                    showWorkerError('Failed to load worker settings');
+                });
+        }
+        
+        function renderWorkerInfo() {
+            const infoBar = document.getElementById('workerInfoBar');
+            const overrideEnabled = document.getElementById('workerOverride').checked;
+            const maxAllowed = overrideEnabled ? workerLimits.absolute_max : workerLimits.recommended_max;
+            
+            infoBar.innerHTML = `
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">System Cores</span>
+                        <span class="info-value">${workerLimits.total_cores}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Recommended Max</span>
+                        <span class="info-value info-recommended">${workerLimits.recommended_max}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Maximum Allowed</span>
+                        <span class="info-value ${overrideEnabled ? 'info-warning' : ''}">${maxAllowed}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Default</span>
+                        <span class="info-value">${workerLimits.default}</span>
+                    </div>
+                </div>
+                <div class="info-note">
+                    <span class="note-icon">💡</span>
+                    <span>We recommend using no more than ${workerLimits.recommended_max} workers (¾ of your ${workerLimits.total_cores} cores) to maintain system responsiveness.</span>
+                </div>
+            `;
+        }
+        
+        function populateWorkerOptions() {
+            const select = document.getElementById('workerConcurrency');
+            const overrideEnabled = document.getElementById('workerOverride').checked;
+            const maxAllowed = overrideEnabled ? workerLimits.absolute_max : workerLimits.recommended_max;
+            
+            select.innerHTML = '';
+            
+            workerOptions.forEach(opt => {
+                if (opt <= workerLimits.absolute_max) {
+                    const option = document.createElement('option');
+                    option.value = opt;
+                    option.textContent = `${opt} workers`;
+                    
+                    // Disable options beyond max allowed
+                    if (opt > maxAllowed) {
+                        option.disabled = true;
+                        option.textContent += ' (exceeds limit)';
+                    }
+                    
+                    // Mark default
+                    if (opt === workerLimits.default) {
+                        option.textContent += ' (default)';
+                    }
+                    
+                    // Mark recommended max
+                    if (opt === workerLimits.recommended_max) {
+                        option.textContent += ' (recommended max)';
+                    }
+                    
+                    select.appendChild(option);
+                }
+            });
+        }
+        
+        function toggleOverride() {
+            const overrideEnabled = document.getElementById('workerOverride').checked;
+            const select = document.getElementById('workerConcurrency');
+            const currentValue = parseInt(select.value);
+            
+            // Repopulate options with new limits
+            populateWorkerOptions();
+            renderWorkerInfo();
+            
+            // If current value exceeds new max, clamp it
+            const maxAllowed = overrideEnabled ? workerLimits.absolute_max : workerLimits.recommended_max;
+            if (currentValue > maxAllowed) {
+                select.value = maxAllowed;
+                showWorkerStatus(`Value clamped to maximum allowed: ${maxAllowed}`, 'warning');
+            } else {
+                select.value = currentValue;
+            }
+            
+            validateWorkerSelection();
+        }
+        
+        function validateWorkerSelection() {
+            const select = document.getElementById('workerConcurrency');
+            const value = parseInt(select.value);
+            const helpEl = document.getElementById('workerHelp');
+            const overrideEnabled = document.getElementById('workerOverride').checked;
+            const maxAllowed = overrideEnabled ? workerLimits.absolute_max : workerLimits.recommended_max;
+            
+            if (value > workerLimits.recommended_max) {
+                helpEl.innerHTML = '⚠️ Exceeds recommended limit. May impact system performance.';
+                helpEl.classList.add('help-warning');
+            } else {
+                helpEl.textContent = 'Number of parallel worker processes';
+                helpEl.classList.remove('help-warning');
+            }
+        }
+        
+        function saveWorkerSettings() {
+            const btn = document.getElementById('saveWorkerBtn');
+            const concurrency = parseInt(document.getElementById('workerConcurrency').value);
+            const overrideRecommended = document.getElementById('workerOverride').checked;
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> Saving...';
+            
+            fetch('/api/settings/workers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    concurrency: concurrency,
+                    override_recommended: overrideRecommended
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    let message = 'Settings saved successfully.';
+                    if (data.clamped) {
+                        message = data.message;
+                    }
+                    if (data.requires_restart) {
+                        message += ' Restart workers to apply changes.';
+                        document.getElementById('restartWorkerBtn').style.display = 'inline-flex';
+                    }
+                    showWorkerStatus(message, 'success');
+                    
+                    // Reload to get updated values
+                    loadWorkerSettings();
+                } else {
+                    showWorkerStatus('Failed to save: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Error saving worker settings:', err);
+                showWorkerStatus('Failed to save settings', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">💾</span> Save Settings';
+            });
+        }
+        
+        function restartWorkers() {
+            const btn = document.getElementById('restartWorkerBtn');
+            
+            if (!confirm('Restart worker service? This will interrupt any running tasks.')) {
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> Restarting...';
+            
+            fetch('/api/settings/workers/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showWorkerStatus('Workers restarted successfully!', 'success');
+                    btn.style.display = 'none';
+                } else {
+                    showWorkerStatus('Restart failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Error restarting workers:', err);
+                showWorkerStatus('Failed to restart workers', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">🔄</span> Restart Workers';
+            });
+        }
+        
+        function showWorkerStatus(message, type) {
+            const statusEl = document.getElementById('workerStatus');
+            statusEl.style.display = 'block';
+            statusEl.className = `worker-status status-${type}`;
+            statusEl.innerHTML = `
+                <span class="status-icon">${type === 'success' ? '✓' : type === 'warning' ? '⚠️' : '✕'}</span>
+                <span class="status-text">${message}</span>
+            `;
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+        
+        function showWorkerError(message) {
+            const infoBar = document.getElementById('workerInfoBar');
+            infoBar.innerHTML = `<div class="info-error">⚠️ ${message}</div>`;
+        }
+        </script>
         {% endif %}
 
         <!-- Integrations Tab -->

@@ -5284,3 +5284,223 @@ input:checked + .slider:before {
   color: var(--text-muted);
   font-size: 11px;
 }
+
+/* ============================================
+   Worker Settings Styles
+   ============================================ */
+
+.worker-settings {
+  margin-top: 24px;
+  padding: 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+}
+
+.worker-settings .section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.worker-settings .section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.worker-settings .section-icon {
+  font-size: 20px;
+}
+
+.worker-info-bar {
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.worker-info-bar .info-loading {
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 8px;
+}
+
+.worker-info-bar .info-error {
+  color: var(--accent-danger);
+  text-align: center;
+  padding: 8px;
+}
+
+.worker-info-bar .info-grid {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.worker-info-bar .info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.worker-info-bar .info-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.worker-info-bar .info-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.worker-info-bar .info-recommended {
+  color: var(--accent-success);
+}
+
+.worker-info-bar .info-warning {
+  color: var(--accent-warning);
+}
+
+.worker-info-bar .info-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.worker-info-bar .note-icon {
+  flex-shrink: 0;
+}
+
+.worker-form .form-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.worker-form .form-group {
+  flex: 1;
+}
+
+.worker-form .form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.worker-form .form-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.worker-form .form-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.worker-form .form-help {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.worker-form .form-help.help-warning {
+  color: var(--accent-warning);
+}
+
+.worker-form .checkbox-wrapper {
+  padding: 10px 0;
+}
+
+.worker-form .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.worker-form .checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-primary);
+}
+
+.worker-select {
+  min-width: 200px;
+}
+
+.worker-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.worker-status {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: var(--border-radius);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.worker-status.status-success {
+  background: rgba(54, 179, 126, 0.15);
+  color: var(--accent-success);
+}
+
+.worker-status.status-warning {
+  background: rgba(255, 171, 0, 0.15);
+  color: var(--accent-warning);
+}
+
+.worker-status.status-error {
+  background: rgba(255, 86, 48, 0.15);
+  color: var(--accent-danger);
+}
+
+.worker-status .status-icon {
+  font-size: 16px;
+}
+
+.worker-status .status-text {
+  font-size: 14px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .worker-form .form-row {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .worker-info-bar .info-grid {
+    gap: 16px;
+  }
+  
+  .worker-actions {
+    flex-direction: column;
+  }
+}
