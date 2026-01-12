@@ -1751,7 +1751,10 @@ def get_ioc_values_for_case(case_id):
         values = set()
         for ioc in iocs:
             terms = extract_searchable_terms(ioc.value, ioc.ioc_type)
-            values.update(terms)
+            # terms is a list of (term, is_filename) tuples - extract just the term strings
+            for term, _ in terms:
+                if term:
+                    values.add(term)
         
         return jsonify({
             'success': True,

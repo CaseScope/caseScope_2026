@@ -687,10 +687,32 @@ function buildEventDetailHTML(event) {
     
     // Raw Data (search blob)
     if (event.search_blob) {
+        let rawContent = event.search_blob;
+        let formattedRaw;
+        
+        // Try to parse and pretty-print JSON
+        try {
+            // Check if blob contains JSON (look for { or [)
+            const jsonMatch = rawContent.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[1]);
+                formattedRaw = JSON.stringify(parsed, null, 2);
+            } else {
+                formattedRaw = rawContent;
+            }
+        } catch (e) {
+            formattedRaw = rawContent;
+        }
+        
+        // Apply IOC highlighting if event has IOC matches
+        const rawDisplay = currentEventHasIOC 
+            ? highlightIOCsInText(formattedRaw)
+            : escapeHtml(formattedRaw);
+        
         html += `
             <div class="event-detail-section full-width">
                 <h4>📝 Raw Data</h4>
-                <div class="event-detail-blob">${escapeHtml(event.search_blob)}</div>
+                <div class="event-detail-blob">${rawDisplay}</div>
             </div>
         `;
     }

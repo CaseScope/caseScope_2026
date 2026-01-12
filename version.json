@@ -1,6 +1,15 @@
 {
-  "version": "3.39.5",
+  "version": "3.39.6",
   "changelog": [
+    {
+      "version": "3.39.6",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting: Fixed IOC highlighting - API now returns string values instead of tuples",
+        "Hunting: Raw data now formats JSON with proper indentation",
+        "Hunting: Raw data section now highlights IOC matches"
+      ]
+    },
     {
       "version": "3.39.5",
       "date": "2026-01-12",
