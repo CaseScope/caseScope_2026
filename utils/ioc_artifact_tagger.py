@@ -455,12 +455,24 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                 
                 # Update artifact stats
                 ioc.artifact_count = search_result['match_count']
-                if search_result['earliest']:
-                    if not ioc.first_seen_in_artifacts or search_result['earliest'] < ioc.first_seen_in_artifacts:
-                        ioc.first_seen_in_artifacts = search_result['earliest']
-                if search_result['latest']:
-                    if not ioc.last_seen_in_artifacts or search_result['latest'] > ioc.last_seen_in_artifacts:
-                        ioc.last_seen_in_artifacts = search_result['latest']
+                
+                # Handle datetime comparison - normalize to naive UTC for comparison
+                # ClickHouse may return timezone-aware, PostgreSQL stores naive
+                earliest = search_result['earliest']
+                latest = search_result['latest']
+                
+                # Strip timezone info if present for comparison
+                if earliest and hasattr(earliest, 'tzinfo') and earliest.tzinfo is not None:
+                    earliest = earliest.replace(tzinfo=None)
+                if latest and hasattr(latest, 'tzinfo') and latest.tzinfo is not None:
+                    latest = latest.replace(tzinfo=None)
+                
+                if earliest:
+                    if not ioc.first_seen_in_artifacts or earliest < ioc.first_seen_in_artifacts:
+                        ioc.first_seen_in_artifacts = earliest
+                if latest:
+                    if not ioc.last_seen_in_artifacts or latest > ioc.last_seen_in_artifacts:
+                        ioc.last_seen_in_artifacts = latest
                 
                 results['details'].append({
                     'ioc_id': ioc.id,
