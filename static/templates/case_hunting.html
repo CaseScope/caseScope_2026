@@ -236,8 +236,8 @@ function applyFilters() {
     eventFilters.severityMedium = document.getElementById('filter-severity-medium').checked;
     eventFilters.severityHigh = document.getElementById('filter-severity-high').checked;
     
-    // Display filters - placeholder
-    // eventFilters.noise = document.getElementById('filter-noise').checked;
+    // Display filters
+    eventFilters.noise = document.getElementById('filter-noise').checked;
     
     // Reset to page 1 and reload
     eventsPage = 1;
@@ -320,6 +320,9 @@ function loadEvents() {
     }
     
     // Build params
+    // Noise filter - show noise if checkbox is checked
+    const showNoise = currentTab === 'events' ? eventFilters.noise : false;
+    
     const params = new URLSearchParams({
         page: eventsPage,
         per_page: eventsPerPage,
@@ -328,7 +331,8 @@ function loadEvents() {
         alert_mode: alertMode,
         sigma_filter: sigmaFilter,
         ioc_filter: iocFilter,
-        severity_levels: severityLevels
+        severity_levels: severityLevels,
+        show_noise: showNoise
     });
     
     // Show loading state

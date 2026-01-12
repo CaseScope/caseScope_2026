@@ -1,6 +1,14 @@
 {
-  "version": "3.44.0",
+  "version": "3.45.0",
   "changelog": [
+    {
+      "version": "3.45.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting: Enabled 'Noise Events' filter - excludes noise by default",
+        "Hunting: Check 'Noise Events' box to include noise-tagged events in results"
+      ]
+    },
     {
       "version": "3.44.0",
       "date": "2026-01-12",

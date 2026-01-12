@@ -989,6 +989,7 @@ def get_hunting_events(case_id):
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
         severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
+        show_noise = request.args.get('show_noise', 'false', type=str).strip().lower() == 'true'
         
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 500)
@@ -1043,6 +1044,11 @@ def get_hunting_events(case_id):
                 quoted_levels = "', '".join(levels_list)
                 severity_filter = f" AND (rule_level IS NULL OR rule_level = '' OR lower(rule_level) IN ('{quoted_levels}'))"
         
+        # Build noise filter - by default, exclude noise events unless show_noise is true
+        noise_filter = ""
+        if not show_noise:
+            noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        
         # Build query with optional search and type filter
         # All columns to fetch for event details modal
         event_columns = """
@@ -1062,13 +1068,13 @@ def get_hunting_events(case_id):
             count_query = f"""
                 SELECT count() FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
-                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}
+                  AND search_blob LIKE {{pattern:String}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -1079,11 +1085,11 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}"
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
