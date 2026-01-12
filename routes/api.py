@@ -1087,8 +1087,13 @@ def get_hunting_events(case_id):
             
             # Main search term (if any)
             if main_search:
-                params['pattern'] = f'%{main_search}%'
-                search_conditions.append("search_blob LIKE {pattern:String}")
+                # If it's a pure number, search event_id field specifically
+                if main_search.isdigit():
+                    params['event_id_search'] = int(main_search)
+                    search_conditions.append("event_id = {event_id_search:UInt32}")
+                else:
+                    params['pattern'] = f'%{main_search}%'
+                    search_conditions.append("search_blob LIKE {pattern:String}")
             
             # Add exclusion conditions
             for i, excl in enumerate(excludes):

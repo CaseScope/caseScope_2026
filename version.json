@@ -1,6 +1,13 @@
 {
-  "version": "3.48.1",
+  "version": "3.48.2",
   "changelog": [
+    {
+      "version": "3.48.2",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Numeric searches now match event_id field exactly instead of full-text"
+      ]
+    },
     {
       "version": "3.48.1",
       "date": "2026-01-12",
