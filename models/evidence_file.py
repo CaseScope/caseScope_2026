@@ -53,7 +53,8 @@ class EvidenceFile(db.Model):
         from sqlalchemy import func
         
         total_files = cls.query.filter_by(case_uuid=case_uuid).count()
-        total_size = db.session.query(func.sum(cls.file_size)).filter_by(case_uuid=case_uuid).scalar() or 0
+        total_size_raw = db.session.query(func.sum(cls.file_size)).filter_by(case_uuid=case_uuid).scalar() or 0
+        total_size = int(total_size_raw)  # Convert Decimal to int for JSON serialization
         
         # File type breakdown
         file_types = db.session.query(
@@ -64,6 +65,6 @@ class EvidenceFile(db.Model):
         return {
             'total_files': total_files,
             'total_size': total_size,
-            'total_size_gb': total_size / (1024 * 1024 * 1024),
-            'file_types': {ft or 'UNKNOWN': count for ft, count in file_types}
+            'total_size_gb': float(total_size / (1024 * 1024 * 1024)),
+            'file_types': {ft or 'UNKNOWN': int(count) for ft, count in file_types}
         }
