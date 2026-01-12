@@ -29,6 +29,7 @@ from tasks.celery_tasks import (
 )
 
 from tasks.noise_tagger import tag_noise_events
+from tasks.task_scrape_events import scrape_event_descriptions_task
 
 __all__ = [
     'celery_app',
@@ -39,4 +40,5 @@ __all__ = [
     'update_hayabusa_rules_task',
     'get_case_stats_task',
     'tag_noise_events',
+    'scrape_event_descriptions_task',
 ]

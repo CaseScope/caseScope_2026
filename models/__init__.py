@@ -21,6 +21,7 @@ from models.noise import (
     NoiseFilterType, NoiseMatchMode,
     seed_noise_defaults
 )
+from models.event_description import EventDescription
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -33,5 +34,6 @@ __all__ = [
     'IOC_TYPE_DEFINITIONS', 'get_ioc_types_by_category', 'get_all_ioc_types',
     'get_category_for_type',
     'NoiseCategory', 'NoiseRule', 'NoiseRuleAudit',
-    'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults'
+    'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults',
+    'EventDescription'
 ]

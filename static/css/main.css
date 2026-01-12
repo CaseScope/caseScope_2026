@@ -5865,3 +5865,32 @@ input:checked + .slider:before {
     gap: 12px;
   }
 }
+
+/* EVTX Descriptions Source Breakdown */
+.evtx-source-breakdown {
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.evtx-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evtx-source-list .source-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.evtx-source-list .source-tag:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}

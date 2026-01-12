@@ -1275,6 +1275,79 @@
                 </div>
                 {% endif %}
             </div>
+            
+            <!-- EVTX Event Descriptions Section -->
+            <div class="settings-section evtx-descriptions-section" style="margin-top: 2rem;">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">📜</span>
+                        EVTX Event Descriptions
+                    </h4>
+                </div>
+                <p class="text-muted">Enhanced descriptions for Windows Event Log IDs, scraped from authoritative security resources.</p>
+                
+                <div class="sigma-stats-grid" id="evtxStats">
+                    <div class="sigma-stat-card stat-highlight">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="evtxStatTotal">-</span>
+                            <span class="stat-label">Total Events</span>
+                        </div>
+                    </div>
+                    <div class="sigma-stat-card">
+                        <div class="stat-icon">🔒</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="evtxStatSecurity">-</span>
+                            <span class="stat-label">Security</span>
+                        </div>
+                    </div>
+                    <div class="sigma-stat-card">
+                        <div class="stat-icon">🔎</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="evtxStatSysmon">-</span>
+                            <span class="stat-label">Sysmon</span>
+                        </div>
+                    </div>
+                    <div class="sigma-stat-card">
+                        <div class="stat-icon">⚙️</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="evtxStatSystem">-</span>
+                            <span class="stat-label">System</span>
+                        </div>
+                    </div>
+                    <div class="sigma-stat-card">
+                        <div class="stat-icon">🕐</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="evtxStatUpdated">-</span>
+                            <span class="stat-label">Last Updated</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sigma-info-bar" id="evtxInfoBar">
+                    <div class="info-loading">Loading event description information...</div>
+                </div>
+                
+                <!-- Source breakdown -->
+                <div id="evtxSourceBreakdown" class="evtx-source-breakdown" style="display: none; margin-top: 1rem;">
+                    <h5 style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">Sources</h5>
+                    <div id="evtxSourceList" class="evtx-source-list"></div>
+                </div>
+                
+                {% if is_admin %}
+                <div class="sigma-actions">
+                    <button class="btn btn-primary" id="scrapeEvtxBtn" onclick="scrapeEvtxDescriptions()">
+                        <span class="btn-icon">🔄</span>
+                        Scrape Descriptions
+                    </button>
+                    <span class="action-help">Download latest event descriptions from security resources</span>
+                </div>
+                {% else %}
+                <div class="sigma-actions">
+                    <span class="action-help text-muted">Administrator access required to update descriptions</span>
+                </div>
+                {% endif %}
+            </div>
         </div>
         
         <script>
@@ -1407,8 +1480,153 @@
             return div.innerHTML;
         }
         
+        // EVTX Event Descriptions Management
+        async function loadEvtxStats() {
+            try {
+                const response = await fetch('/api/parsing/evtx-descriptions/stats');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('evtxStatTotal').textContent = data.total_events.toLocaleString();
+                    
+                    // Get counts by source
+                    const bySource = data.by_source || {};
+                    document.getElementById('evtxStatSecurity').textContent = (bySource['Security'] || 0).toLocaleString();
+                    document.getElementById('evtxStatSysmon').textContent = (bySource['Microsoft-Windows-Sysmon/Operational'] || 0).toLocaleString();
+                    document.getElementById('evtxStatSystem').textContent = (bySource['System'] || 0).toLocaleString();
+                    
+                    // Format last updated
+                    if (data.last_updated) {
+                        const date = new Date(data.last_updated);
+                        document.getElementById('evtxStatUpdated').textContent = date.toLocaleDateString();
+                    } else {
+                        document.getElementById('evtxStatUpdated').textContent = 'Never';
+                    }
+                    
+                    // Update info bar
+                    let infoHtml = '';
+                    if (data.total_events > 0) {
+                        const categoryCount = Object.keys(data.by_category || {}).length;
+                        infoHtml = `<span class="info-success">✓ ${data.total_events} events loaded across ${categoryCount} categories</span>`;
+                    } else {
+                        infoHtml = `<span class="info-warning">⚠ No event descriptions loaded. Click "Scrape Descriptions" to populate.</span>`;
+                    }
+                    document.getElementById('evtxInfoBar').innerHTML = infoHtml;
+                    
+                    // Show source breakdown
+                    const byWebsite = data.by_website || {};
+                    if (Object.keys(byWebsite).length > 0) {
+                        let sourceHtml = '';
+                        for (const [site, count] of Object.entries(byWebsite)) {
+                            const displayName = site === 'embedded_data' ? 'Built-in Data' : site;
+                            sourceHtml += `<span class="source-tag">${escapeHtml(displayName)}: ${count}</span> `;
+                        }
+                        document.getElementById('evtxSourceList').innerHTML = sourceHtml;
+                        document.getElementById('evtxSourceBreakdown').style.display = 'block';
+                    }
+                } else {
+                    document.getElementById('evtxInfoBar').innerHTML = 
+                        `<span class="info-error">Error loading stats: ${escapeHtml(data.error)}</span>`;
+                }
+            } catch (error) {
+                console.error('Error loading EVTX stats:', error);
+                document.getElementById('evtxInfoBar').innerHTML = 
+                    `<span class="info-error">Failed to load event description information</span>`;
+            }
+        }
+        
+        async function scrapeEvtxDescriptions() {
+            const btn = document.getElementById('scrapeEvtxBtn');
+            const originalHtml = btn.innerHTML;
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> Scraping...';
+            
+            try {
+                const response = await fetch('/api/parsing/evtx-descriptions/scrape', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    btn.innerHTML = '<span class="btn-icon">✓</span> Scraping Started';
+                    btn.classList.add('btn-success');
+                    
+                    // Poll for completion
+                    if (data.task_id) {
+                        pollEvtxScrapeStatus(data.task_id, btn, originalHtml);
+                    } else {
+                        setTimeout(() => {
+                            btn.innerHTML = originalHtml;
+                            btn.classList.remove('btn-success');
+                            btn.disabled = false;
+                            loadEvtxStats();
+                        }, 3000);
+                    }
+                } else {
+                    btn.innerHTML = '<span class="btn-icon">✕</span> Failed';
+                    btn.classList.add('btn-danger');
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                        btn.classList.remove('btn-danger');
+                        btn.disabled = false;
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('Error scraping EVTX descriptions:', error);
+                btn.innerHTML = '<span class="btn-icon">✕</span> Error';
+                btn.classList.add('btn-danger');
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-danger');
+                    btn.disabled = false;
+                }, 3000);
+            }
+        }
+        
+        async function pollEvtxScrapeStatus(taskId, btn, originalHtml) {
+            try {
+                const response = await fetch(`/api/parsing/evtx-descriptions/scrape/status/${taskId}`);
+                const data = await response.json();
+                
+                if (data.ready) {
+                    if (data.result) {
+                        const result = data.result;
+                        btn.innerHTML = `<span class="btn-icon">✓</span> Done! +${result.added} new, ${result.updated} updated`;
+                        btn.classList.remove('btn-primary');
+                        btn.classList.add('btn-success');
+                    } else if (data.state === 'FAILURE') {
+                        btn.innerHTML = '<span class="btn-icon">✕</span> Failed';
+                        btn.classList.add('btn-danger');
+                    }
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                        btn.classList.remove('btn-success', 'btn-danger');
+                        btn.classList.add('btn-primary');
+                        btn.disabled = false;
+                        loadEvtxStats();
+                    }, 4000);
+                } else {
+                    // Still running - show progress
+                    if (data.status) {
+                        btn.innerHTML = `<span class="btn-icon">⏳</span> ${data.status}`;
+                    }
+                    setTimeout(() => pollEvtxScrapeStatus(taskId, btn, originalHtml), 2000);
+                }
+            } catch (error) {
+                console.error('Error polling EVTX scrape task:', error);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }
+        
         // Load stats on page load
-        document.addEventListener('DOMContentLoaded', loadSigmaStats);
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSigmaStats();
+            loadEvtxStats();
+        });
         </script>
         {% endif %}
 

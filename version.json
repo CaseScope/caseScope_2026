@@ -1,6 +1,18 @@
 {
-  "version": "3.59.03",
+  "version": "3.60.0",
   "changelog": [
+    {
+      "version": "3.60.0",
+      "date": "2026-01-12",
+      "changes": [
+        "EVTX Descriptions: Added event description scraping system from authoritative security resources",
+        "Settings EVTX/SIGMA: New EVTX Event Descriptions section with stats (total, by source, by category)",
+        "Settings EVTX/SIGMA: Scrape Descriptions button downloads latest event descriptions",
+        "Scrapes ultimatewindowssecurity.com, manageengine.com, plus embedded Sysmon/Security events",
+        "400+ Windows event descriptions with categories, sources, and reference URLs",
+        "API endpoints: /api/parsing/evtx-descriptions/stats, /scrape, /lookup"
+      ]
+    },
     {
       "version": "3.59.03",
       "date": "2026-01-12",

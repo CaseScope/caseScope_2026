@@ -493,3 +493,143 @@ def update_hayabusa_rules():
     except Exception as e:
         logger.exception("Error queuing rule update")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# EVTX Event Description API Endpoints
+# ============================================================================
+
+@parsing_bp.route('/evtx-descriptions/stats', methods=['GET'])
+@login_required
+def get_evtx_description_stats():
+    """Get EVTX event description statistics
+    
+    Returns:
+        JSON with event description stats
+    """
+    try:
+        from models.event_description import EventDescription
+        
+        stats = EventDescription.get_stats()
+        
+        return jsonify({
+            'success': True,
+            'total_events': stats['total'],
+            'by_source': stats['by_source'],
+            'by_category': stats['by_category'],
+            'by_website': stats['by_website'],
+            'last_updated': stats['last_updated']
+        })
+        
+    except Exception as e:
+        logger.exception("Error getting EVTX description stats")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/scrape', methods=['POST'])
+@login_required
+def scrape_evtx_descriptions():
+    """Trigger EVTX description scraping task
+    
+    Returns:
+        JSON with task info
+    """
+    try:
+        from tasks.celery_tasks import celery
+        
+        # Admin only
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        # Queue the scraping task
+        task = celery.send_task('tasks.scrape_event_descriptions')
+        
+        logger.info(f"Event description scraping task queued: {task.id}")
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Scraping task started'
+        })
+        
+    except Exception as e:
+        logger.exception("Error starting EVTX scrape task")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/scrape/status/<task_id>', methods=['GET'])
+@login_required
+def get_evtx_scrape_status(task_id):
+    """Check status of EVTX description scraping task
+    
+    Returns:
+        JSON with task status
+    """
+    try:
+        from celery.result import AsyncResult
+        
+        task = AsyncResult(task_id)
+        
+        response = {
+            'task_id': task_id,
+            'state': task.state,
+            'ready': task.ready()
+        }
+        
+        if task.state == 'PROGRESS':
+            response['status'] = task.info.get('status', '')
+        elif task.state == 'SUCCESS':
+            response['result'] = task.result
+        elif task.state == 'FAILURE':
+            response['error'] = str(task.info)
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.exception("Error checking EVTX scrape task status")
+        return jsonify({'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/lookup', methods=['GET'])
+@login_required
+def lookup_evtx_description():
+    """Look up a specific event description
+    
+    Query params:
+        event_id: The Windows Event ID
+        channel: The event log channel (e.g., Security, System)
+    
+    Returns:
+        JSON with event description if found
+    """
+    try:
+        from utils.evtx_descriptions import get_event_description
+        
+        event_id = request.args.get('event_id', '')
+        channel = request.args.get('channel', '')
+        
+        if not event_id:
+            return jsonify({'success': False, 'error': 'event_id required'}), 400
+        
+        title, description = get_event_description(event_id, channel)
+        
+        if title:
+            return jsonify({
+                'success': True,
+                'found': True,
+                'event_id': event_id,
+                'channel': channel,
+                'title': title,
+                'description': description
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'found': False,
+                'event_id': event_id,
+                'channel': channel
+            })
+        
+    except Exception as e:
+        logger.exception("Error looking up EVTX description")
+        return jsonify({'success': False, 'error': str(e)}), 500

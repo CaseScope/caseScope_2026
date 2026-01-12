@@ -159,6 +159,7 @@ def create_app():
             NoiseCategory, NoiseRule, NoiseRuleAudit, seed_noise_defaults
         )
         from models.system_settings import SystemSettings
+        from models.event_description import EventDescription
         db.create_all()
         
         # Seed noise filter defaults if not exists
