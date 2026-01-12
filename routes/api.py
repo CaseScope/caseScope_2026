@@ -1420,9 +1420,53 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
             
-            # Main search term (if any) - split by spaces for multiple terms
-            # Terms joined by | are OR conditions, space-separated terms are AND
-            if main_search:
+            # Helper function to build conditions for a group of AND terms
+            def build_group_conditions(group_str, prefix):
+                """Build AND conditions for space-separated terms in a group"""
+                group_conditions = []
+                terms = group_str.split()
+                for j, term in enumerate(terms):
+                    param_name = f'{prefix}_{j}'
+                    # Check for simple OR within term (no parentheses)
+                    if '|' in term and '(' not in term:
+                        or_parts = [p.strip() for p in term.split('|') if p.strip()]
+                        if or_parts:
+                            or_conds = []
+                            for k, part in enumerate(or_parts):
+                                or_param = f'{prefix}_{j}_{k}'
+                                if part.isdigit():
+                                    params[or_param] = part
+                                    or_conds.append(f"event_id = {{{or_param}:String}}")
+                                else:
+                                    params[or_param] = f'%{part}%'
+                                    or_conds.append(f"search_blob LIKE {{{or_param}:String}}")
+                            group_conditions.append(f"({' OR '.join(or_conds)})")
+                    elif term.isdigit():
+                        params[param_name] = term
+                        group_conditions.append(f"event_id = {{{param_name}:String}}")
+                    else:
+                        params[param_name] = f'%{term}%'
+                        group_conditions.append(f"search_blob LIKE {{{param_name}:String}}")
+                return group_conditions
+            
+            # Check for parentheses groups: (group1) | (group2) | ...
+            paren_group_pattern = re.compile(r'\(([^)]+)\)')
+            paren_groups = paren_group_pattern.findall(main_search)
+            
+            if paren_groups and '|' in main_search:
+                # We have parentheses groups with OR between them
+                # Parse: (term1 term2) | (term3 term4) -> (t1 AND t2) OR (t3 AND t4)
+                group_conditions_list = []
+                for i, group in enumerate(paren_groups):
+                    group_conds = build_group_conditions(group.strip(), f'grp{i}')
+                    if group_conds:
+                        group_conditions_list.append(f"({' AND '.join(group_conds)})")
+                
+                if group_conditions_list:
+                    search_conditions.append(f"({' OR '.join(group_conditions_list)})")
+            elif main_search:
+                # No parentheses groups - use original logic
+                # Terms joined by | are OR conditions, space-separated terms are AND
                 terms = main_search.split()
                 for i, term in enumerate(terms):
                     # Check for OR groups (pipe-separated)

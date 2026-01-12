@@ -1,6 +1,15 @@
 {
-  "version": "3.62.0",
+  "version": "3.63.0",
   "changelog": [
+    {
+      "version": "3.63.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Added parentheses grouping for complex searches",
+        "Hunting Events: Example: (4625 tabadmin) | (4624 admin) = (4625 AND tabadmin) OR (4624 AND admin)",
+        "Hunting Events: Updated helper text with grouping syntax"
+      ]
+    },
     {
       "version": "3.62.0",
       "date": "2026-01-12",
