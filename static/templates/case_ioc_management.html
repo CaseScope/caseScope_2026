@@ -26,6 +26,10 @@
             <span class="btn-icon">🏷️</span>
             Tag Artifacts
         </button>
+        <button class="btn btn-info" onclick="enrichAllIOCs()" id="btnOpenCTIEnrich" disabled title="OpenCTI integration not enabled">
+            <span class="btn-icon">🧠</span>
+            OpenCTI Enrich
+        </button>
     </div>
 </div>
 
@@ -564,10 +568,14 @@ let currentCategory = '';
 let currentType = '';
 let searchDebounce = null;
 
+// OpenCTI state
+let openctiEnabled = false;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadIOCTypes();
     loadIOCs();
+    checkOpenCTIStatus();
 });
 
 // Load IOC type definitions
@@ -1725,6 +1733,83 @@ function formatNumber(num) {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toString();
+}
+
+// ============================================
+// OpenCTI Enrichment
+// ============================================
+
+function checkOpenCTIStatus() {
+    fetch('/api/settings/opencti')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.settings.enabled) {
+                openctiEnabled = true;
+                const btn = document.getElementById('btnOpenCTIEnrich');
+                btn.disabled = false;
+                btn.title = 'Enrich all IOCs with OpenCTI threat intelligence';
+            }
+        })
+        .catch(err => {
+            console.log('OpenCTI status check failed:', err);
+        });
+}
+
+function enrichAllIOCs() {
+    if (!openctiEnabled) {
+        alert('OpenCTI integration is not enabled. Enable it in Settings → Integrations.');
+        return;
+    }
+    
+    // Get all IOC IDs for this case
+    const iocIds = iocsData.map(ioc => ioc.id);
+    
+    if (iocIds.length === 0) {
+        alert('No IOCs to enrich');
+        return;
+    }
+    
+    if (!confirm(`Enrich ${iocIds.length} IOC(s) with OpenCTI threat intelligence?\n\nThis will query your OpenCTI instance for each IOC.`)) {
+        return;
+    }
+    
+    const btn = document.getElementById('btnOpenCTIEnrich');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Enriching...';
+    
+    fetch('/api/iocs/bulk-enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ioc_ids: iocIds })
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🧠</span> OpenCTI Enrich';
+        
+        if (data.success) {
+            let msg = `OpenCTI Enrichment Complete!\n\n`;
+            msg += `Enriched: ${data.enriched_count} IOC(s)\n`;
+            msg += `Found in OpenCTI: ${data.found_count}\n`;
+            msg += `Not Found: ${data.not_found_count}`;
+            if (data.skipped_count > 0) {
+                msg += `\nSkipped: ${data.skipped_count} (Command Line IOCs)`;
+            }
+            if (data.error_count > 0) {
+                msg += `\nErrors: ${data.error_count}`;
+            }
+            
+            alert(msg);
+            loadIOCs(); // Refresh list
+        } else {
+            alert('Enrichment failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🧠</span> OpenCTI Enrich';
+        alert('Error: ' + err.message);
+    });
 }
 </script>
 {% endblock %}

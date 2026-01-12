@@ -5114,6 +5114,27 @@ input:checked + .slider:before {
   box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
 }
 
+/* Button info style - teal/cyan for OpenCTI */
+.btn-info {
+  background: linear-gradient(135deg, #00b8d9, #0096c7);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+
+.btn-info:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0096c7, #00b8d9);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 184, 217, 0.4);
+}
+
+.btn-info:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ========================================
    IOC Event Highlighting
    ======================================== */

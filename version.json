@@ -1,6 +1,14 @@
 {
-  "version": "3.59.0",
+  "version": "3.59.01",
   "changelog": [
+    {
+      "version": "3.59.01",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC Management: Added OpenCTI Enrich button to bulk enrich all case IOCs",
+        "Button disabled when OpenCTI integration is not enabled"
+      ]
+    },
     {
       "version": "3.59.0",
       "date": "2026-01-12",

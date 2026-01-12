@@ -1,0 +1,138 @@
+Collecting pycti
+  Downloading pycti-6.9.7-py3-none-any.whl.metadata (5.5 kB)
+Collecting datefinder~=0.7.3 (from pycti)
+  Downloading datefinder-0.7.3-py2.py3-none-any.whl.metadata (3.0 kB)
+Collecting pika~=1.3.0 (from pycti)
+  Downloading pika-1.3.2-py3-none-any.whl.metadata (13 kB)
+Requirement already satisfied: pydantic<3,>=2.8.2 in ./venv/lib/python3.12/site-packages (from pycti) (2.12.5)
+Collecting python-magic~=0.4.27 (from pycti)
+  Downloading python_magic-0.4.27-py2.py3-none-any.whl.metadata (5.8 kB)
+Collecting python_json_logger~=3.3.0 (from pycti)
+  Downloading python_json_logger-3.3.0-py3-none-any.whl.metadata (4.0 kB)
+Collecting PyYAML~=6.0 (from pycti)
+  Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Requirement already satisfied: requests<3,>=2.32.0 in ./venv/lib/python3.12/site-packages (from pycti) (2.32.5)
+Collecting setuptools~=80.9.0 (from pycti)
+  Downloading setuptools-80.9.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting cachetools~=5.5.2 (from pycti)
+  Downloading cachetools-5.5.2-py3-none-any.whl.metadata (5.4 kB)
+Collecting prometheus-client~=0.22.1 (from pycti)
+  Downloading prometheus_client-0.22.1-py3-none-any.whl.metadata (1.9 kB)
+Collecting opentelemetry-api~=1.35.0 (from pycti)
+  Downloading opentelemetry_api-1.35.0-py3-none-any.whl.metadata (1.5 kB)
+Collecting opentelemetry-sdk~=1.35.0 (from pycti)
+  Downloading opentelemetry_sdk-1.35.0-py3-none-any.whl.metadata (1.5 kB)
+Collecting deprecation~=2.1.0 (from pycti)
+  Downloading deprecation-2.1.0-py2.py3-none-any.whl.metadata (4.6 kB)
+Collecting fastapi<0.125.0,>=0.124.0 (from pycti)
+  Downloading fastapi-0.124.4-py3-none-any.whl.metadata (30 kB)
+Collecting uvicorn<0.36.0,>=0.34.0 (from uvicorn[standard]<0.36.0,>=0.34.0->pycti)
+  Downloading uvicorn-0.35.0-py3-none-any.whl.metadata (6.5 kB)
+Collecting filigran-sseclient>=1.0.2 (from pycti)
+  Downloading filigran_sseclient-1.0.2-py3-none-any.whl.metadata (1.9 kB)
+Collecting stix2~=3.0.1 (from pycti)
+  Downloading stix2-3.0.1-py2.py3-none-any.whl.metadata (10 kB)
+Collecting regex>=2017.02.08 (from datefinder~=0.7.3->pycti)
+  Downloading regex-2025.11.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 40.5/40.5 kB 4.4 MB/s eta 0:00:00
+Requirement already satisfied: python-dateutil>=2.4.2 in ./venv/lib/python3.12/site-packages (from datefinder~=0.7.3->pycti) (2.9.0.post0)
+Requirement already satisfied: pytz in ./venv/lib/python3.12/site-packages (from datefinder~=0.7.3->pycti) (2025.2)
+Requirement already satisfied: packaging in ./venv/lib/python3.12/site-packages (from deprecation~=2.1.0->pycti) (25.0)
+Collecting starlette<0.51.0,>=0.40.0 (from fastapi<0.125.0,>=0.124.0->pycti)
+  Downloading starlette-0.50.0-py3-none-any.whl.metadata (6.3 kB)
+Requirement already satisfied: typing-extensions>=4.8.0 in ./venv/lib/python3.12/site-packages (from fastapi<0.125.0,>=0.124.0->pycti) (4.15.0)
+Collecting annotated-doc>=0.0.2 (from fastapi<0.125.0,>=0.124.0->pycti)
+  Downloading annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+Requirement already satisfied: six in ./venv/lib/python3.12/site-packages (from filigran-sseclient>=1.0.2->pycti) (1.17.0)
+Collecting importlib-metadata<8.8.0,>=6.0 (from opentelemetry-api~=1.35.0->pycti)
+  Downloading importlib_metadata-8.7.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting opentelemetry-semantic-conventions==0.56b0 (from opentelemetry-sdk~=1.35.0->pycti)
+  Downloading opentelemetry_semantic_conventions-0.56b0-py3-none-any.whl.metadata (2.4 kB)
+Requirement already satisfied: annotated-types>=0.6.0 in ./venv/lib/python3.12/site-packages (from pydantic<3,>=2.8.2->pycti) (0.7.0)
+Requirement already satisfied: pydantic-core==2.41.5 in ./venv/lib/python3.12/site-packages (from pydantic<3,>=2.8.2->pycti) (2.41.5)
+Requirement already satisfied: typing-inspection>=0.4.2 in ./venv/lib/python3.12/site-packages (from pydantic<3,>=2.8.2->pycti) (0.4.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in ./venv/lib/python3.12/site-packages (from requests<3,>=2.32.0->pycti) (3.4.4)
+Requirement already satisfied: idna<4,>=2.5 in ./venv/lib/python3.12/site-packages (from requests<3,>=2.32.0->pycti) (3.11)
+Requirement already satisfied: urllib3<3,>=1.21.1 in ./venv/lib/python3.12/site-packages (from requests<3,>=2.32.0->pycti) (2.6.3)
+Requirement already satisfied: certifi>=2017.4.17 in ./venv/lib/python3.12/site-packages (from requests<3,>=2.32.0->pycti) (2026.1.4)
+Collecting simplejson (from stix2~=3.0.1->pycti)
+  Downloading simplejson-3.20.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (3.2 kB)
+Collecting stix2-patterns>=1.2.0 (from stix2~=3.0.1->pycti)
+  Downloading stix2_patterns-2.0.0-py2.py3-none-any.whl.metadata (8.3 kB)
+Requirement already satisfied: click>=7.0 in ./venv/lib/python3.12/site-packages (from uvicorn<0.36.0,>=0.34.0->uvicorn[standard]<0.36.0,>=0.34.0->pycti) (8.3.1)
+Requirement already satisfied: h11>=0.8 in ./venv/lib/python3.12/site-packages (from uvicorn<0.36.0,>=0.34.0->uvicorn[standard]<0.36.0,>=0.34.0->pycti) (0.16.0)
+Collecting httptools>=0.6.3 (from uvicorn[standard]<0.36.0,>=0.34.0->pycti)
+  Downloading httptools-0.7.1-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (3.5 kB)
+Requirement already satisfied: python-dotenv>=0.13 in ./venv/lib/python3.12/site-packages (from uvicorn[standard]<0.36.0,>=0.34.0->pycti) (1.2.1)
+Collecting uvloop>=0.15.1 (from uvicorn[standard]<0.36.0,>=0.34.0->pycti)
+  Downloading uvloop-0.22.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (4.9 kB)
+Collecting watchfiles>=0.13 (from uvicorn[standard]<0.36.0,>=0.34.0->pycti)
+  Downloading watchfiles-1.1.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.9 kB)
+Collecting websockets>=10.4 (from uvicorn[standard]<0.36.0,>=0.34.0->pycti)
+  Downloading websockets-16.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (6.8 kB)
+Collecting zipp>=3.20 (from importlib-metadata<8.8.0,>=6.0->opentelemetry-api~=1.35.0->pycti)
+  Downloading zipp-3.23.0-py3-none-any.whl.metadata (3.6 kB)
+Requirement already satisfied: anyio<5,>=3.6.2 in ./venv/lib/python3.12/site-packages (from starlette<0.51.0,>=0.40.0->fastapi<0.125.0,>=0.124.0->pycti) (4.12.1)
+Collecting antlr4-python3-runtime~=4.9.0 (from stix2-patterns>=1.2.0->stix2~=3.0.1->pycti)
+  Downloading antlr4-python3-runtime-4.9.3.tar.gz (117 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 117.0/117.0 kB 7.5 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Downloading pycti-6.9.7-py3-none-any.whl (330 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 330.7/330.7 kB 17.3 MB/s eta 0:00:00
+Downloading cachetools-5.5.2-py3-none-any.whl (10 kB)
+Downloading datefinder-0.7.3-py2.py3-none-any.whl (10 kB)
+Downloading deprecation-2.1.0-py2.py3-none-any.whl (11 kB)
+Downloading fastapi-0.124.4-py3-none-any.whl (113 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 113.3/113.3 kB 22.2 MB/s eta 0:00:00
+Downloading filigran_sseclient-1.0.2-py3-none-any.whl (6.0 kB)
+Downloading opentelemetry_api-1.35.0-py3-none-any.whl (65 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 65.6/65.6 kB 11.3 MB/s eta 0:00:00
+Downloading opentelemetry_sdk-1.35.0-py3-none-any.whl (119 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 119.4/119.4 kB 23.3 MB/s eta 0:00:00
+Downloading opentelemetry_semantic_conventions-0.56b0-py3-none-any.whl (201 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 201.6/201.6 kB 7.4 MB/s eta 0:00:00
+Downloading pika-1.3.2-py3-none-any.whl (155 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 155.4/155.4 kB 19.9 MB/s eta 0:00:00
+Downloading prometheus_client-0.22.1-py3-none-any.whl (58 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 58.7/58.7 kB 11.8 MB/s eta 0:00:00
+Downloading python_json_logger-3.3.0-py3-none-any.whl (15 kB)
+Downloading python_magic-0.4.27-py2.py3-none-any.whl (13 kB)
+Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 807.9/807.9 kB 20.6 MB/s eta 0:00:00
+Using cached setuptools-80.9.0-py3-none-any.whl (1.2 MB)
+Downloading stix2-3.0.1-py2.py3-none-any.whl (177 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 177.8/177.8 kB 21.6 MB/s eta 0:00:00
+Downloading uvicorn-0.35.0-py3-none-any.whl (66 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 66.4/66.4 kB 7.7 MB/s eta 0:00:00
+Downloading annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+Downloading httptools-0.7.1-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (517 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 517.7/517.7 kB 20.0 MB/s eta 0:00:00
+Downloading importlib_metadata-8.7.1-py3-none-any.whl (27 kB)
+Downloading regex-2025.11.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (803 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 803.5/803.5 kB 18.8 MB/s eta 0:00:00
+Downloading starlette-0.50.0-py3-none-any.whl (74 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 74.0/74.0 kB 16.1 MB/s eta 0:00:00
+Downloading stix2_patterns-2.0.0-py2.py3-none-any.whl (65 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 65.9/65.9 kB 14.8 MB/s eta 0:00:00
+Downloading uvloop-0.22.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (4.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.4/4.4 MB 12.9 MB/s eta 0:00:00
+Downloading watchfiles-1.1.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (456 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 456.8/456.8 kB 6.7 MB/s eta 0:00:00
+Downloading websockets-16.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (184 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 184.9/184.9 kB 6.4 MB/s eta 0:00:00
+Downloading simplejson-3.20.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl (152 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 152.4/152.4 kB 7.5 MB/s eta 0:00:00
+Downloading zipp-3.23.0-py3-none-any.whl (10 kB)
+Building wheels for collected packages: antlr4-python3-runtime
+  Building wheel for antlr4-python3-runtime (pyproject.toml): started
+  Building wheel for antlr4-python3-runtime (pyproject.toml): finished with status 'done'
+  Created wheel for antlr4-python3-runtime: filename=antlr4_python3_runtime-4.9.3-py3-none-any.whl size=144591 sha256=47a6f5ba898154b120f52e72ad1ff37ed954c8ae49db5e37bb7b5e2e8a71450c
+  Stored in directory: /opt/casescope/.cache/pip/wheels/1f/be/48/13754633f1d08d1fbfc60d5e80ae1e5d7329500477685286cd
+Successfully built antlr4-python3-runtime
+Installing collected packages: antlr4-python3-runtime, zipp, websockets, uvloop, uvicorn, stix2-patterns, simplejson, setuptools, regex, PyYAML, python-magic, python_json_logger, prometheus-client, pika, httptools, deprecation, cachetools, annotated-doc, watchfiles, stix2, starlette, importlib-metadata, filigran-sseclient, datefinder, opentelemetry-api, fastapi, opentelemetry-semantic-conventions, opentelemetry-sdk, pycti
+Successfully installed PyYAML-6.0.3 annotated-doc-0.0.4 antlr4-python3-runtime-4.9.3 cachetools-5.5.2 datefinder-0.7.3 deprecation-2.1.0 fastapi-0.124.4 filigran-sseclient-1.0.2 httptools-0.7.1 importlib-metadata-8.7.1 opentelemetry-api-1.35.0 opentelemetry-sdk-1.35.0 opentelemetry-semantic-conventions-0.56b0 pika-1.3.2 prometheus-client-0.22.1 pycti-6.9.7 python-magic-0.4.27 python_json_logger-3.3.0 regex-2025.11.3 setuptools-80.9.0 simplejson-3.20.2 starlette-0.50.0 stix2-3.0.1 stix2-patterns-2.0.0 uvicorn-0.35.0 uvloop-0.22.1 watchfiles-1.1.1 websockets-16.0 zipp-3.23.0
