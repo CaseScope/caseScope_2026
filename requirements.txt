@@ -45,3 +45,4 @@ typing-extensions>=4.0.0
 
 # OpenCTI Integration
 pycti>=6.0.0
+beautifulsoup4
