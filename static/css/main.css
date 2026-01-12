@@ -2165,6 +2165,36 @@ tbody td {
   overflow-y: auto;
 }
 
+/* Event Alert Banners */
+.event-alert-banners {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 16px;
+  grid-column: 1 / -1;
+}
+
+.event-alert-banner {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+}
+
+.event-alert-banner.banner-ioc {
+  background-color: #7f1d1d;
+}
+
+.event-alert-banner.banner-sigma {
+  background-color: #581c87;
+}
+
+.event-alert-banner.banner-noise {
+  background-color: #854d0e;
+  color: #fef3c7;
+}
+
 .event-detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

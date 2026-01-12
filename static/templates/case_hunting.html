@@ -619,6 +619,25 @@ function escapeRegex(string) {
 function buildEventDetailHTML(event) {
     let html = '';
     
+    // Alert Banners
+    const hasIOC = event.ioc_types && event.ioc_types.length > 0;
+    const hasSigma = event.rule_level && event.rule_level !== '';
+    const hasNoise = event.noise_matched === true;
+    
+    if (hasIOC || hasSigma || hasNoise) {
+        html += '<div class="event-alert-banners">';
+        if (hasIOC) {
+            html += '<div class="event-alert-banner banner-ioc">⚠️ IOC Match Found</div>';
+        }
+        if (hasSigma) {
+            html += '<div class="event-alert-banner banner-sigma">🎯 SIGMA Rule Matched</div>';
+        }
+        if (hasNoise) {
+            html += '<div class="event-alert-banner banner-noise">📢 Potential Noise Artifact</div>';
+        }
+        html += '</div>';
+    }
+    
     // Source Information (skip IOC highlighting for metadata/paths)
     html += `
         <div class="event-detail-section">

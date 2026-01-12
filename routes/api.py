@@ -1060,7 +1060,7 @@ def get_hunting_events(case_id):
             src_ip, dst_ip, src_port, dst_port,
             reg_key, reg_value, reg_data,
             rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-            search_blob, extra_fields, ioc_types
+            search_blob, extra_fields, ioc_types, noise_matched
         """
         
         if search:
@@ -1154,7 +1154,7 @@ def get_hunting_events(case_id):
              src_ip, dst_ip, src_port, dst_port,
              reg_key, reg_value, reg_data,
              rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-             search_blob, extra_fields, ioc_types) = row
+             search_blob, extra_fields, ioc_types, noise_matched) = row
             
             # Build description from available fields
             description = build_event_description(
@@ -1206,7 +1206,8 @@ def get_hunting_events(case_id):
                 'mitre_tags': list(mitre_tags) if mitre_tags else [],
                 'search_blob': search_blob or '',
                 'extra_fields': extra_fields or '{}',
-                'ioc_types': list(ioc_types) if ioc_types else []
+                'ioc_types': list(ioc_types) if ioc_types else [],
+                'noise_matched': bool(noise_matched) if noise_matched else False
             })
         
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1

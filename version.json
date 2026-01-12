@@ -1,6 +1,14 @@
 {
-  "version": "3.49.1",
+  "version": "3.50.0",
   "changelog": [
+    {
+      "version": "3.50.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Event modal now shows alert banners for IOC, SIGMA, and Noise matches",
+        "Hunting Events: Added noise_matched flag to event data"
+      ]
+    },
     {
       "version": "3.49.1",
       "date": "2026-01-12",
