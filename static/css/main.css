@@ -2169,7 +2169,7 @@ tbody td {
 .event-alert-banners {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 8px;
   margin-bottom: 16px;
   grid-column: 1 / -1;
 }
@@ -2179,20 +2179,26 @@ tbody td {
   font-size: 13px;
   font-weight: 600;
   text-align: center;
-  color: #fff;
+  border-radius: 6px;
+  border: 1px solid;
 }
 
 .event-alert-banner.banner-ioc {
-  background-color: #7f1d1d;
+  background-color: rgba(239, 68, 68, 0.25);
+  color: #ff5630;
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .event-alert-banner.banner-sigma {
-  background-color: #581c87;
+  background-color: rgba(147, 51, 234, 0.25);
+  color: #a855f7;
+  border-color: rgba(147, 51, 234, 0.5);
 }
 
 .event-alert-banner.banner-noise {
-  background-color: #854d0e;
-  color: #fef3c7;
+  background-color: rgba(202, 138, 4, 0.25);
+  color: #ca8a04;
+  border-color: rgba(202, 138, 4, 0.5);
 }
 
 .event-detail-grid {

@@ -1,6 +1,13 @@
 {
-  "version": "3.50.0",
+  "version": "3.50.1",
   "changelog": [
+    {
+      "version": "3.50.1",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Alert banners now use semi-transparent style matching severity badges"
+      ]
+    },
     {
       "version": "3.50.0",
       "date": "2026-01-12",
