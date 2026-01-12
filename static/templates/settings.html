@@ -655,21 +655,25 @@
                         </div>
                         
                         <div class="form-group">
-                            <label class="form-label">Pattern <span class="required">*</span></label>
-                            <input type="text" id="rulePattern" class="form-input" placeholder="e.g., screenconnect,screenconnectservice+abc123def" required>
-                            <div class="pattern-help">
-                                <div class="pattern-help-row">
-                                    <code>,</code> <span>OR matching (any match)</span>
-                                    <span class="pattern-example">screenconnect,control</span>
-                                </div>
-                                <div class="pattern-help-row">
-                                    <code>+</code> <span>AND condition (must also contain)</span>
-                                    <span class="pattern-example">screenconnect+abc123</span>
-                                </div>
-                                <div class="pattern-help-combined">
-                                    <strong>Combined:</strong> <code>screenconnect,control+clientUID</code> = (screenconnect OR control) AND clientUID
-                                </div>
-                            </div>
+                            <label class="form-label">Pattern (OR) <span class="required">*</span></label>
+                            <input type="text" id="rulePattern" class="form-input" placeholder="e.g., screenconnect,screenconnectservice,control" required>
+                            <span class="form-help">Match if ANY of these are found (comma-separated)</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">AND Patterns <span class="optional">(optional)</span></label>
+                            <input type="text" id="rulePatternAnd" class="form-input" placeholder="e.g., abc123clientUID,def456serverID">
+                            <span class="form-help">Must ALSO contain ANY of these (comma-separated)</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">NOT Patterns <span class="optional">(optional)</span></label>
+                            <input type="text" id="rulePatternNot" class="form-input" placeholder="e.g., www.example.com,browser">
+                            <span class="form-help">Exclude if ANY of these are found (comma-separated)</span>
+                        </div>
+                        
+                        <div class="pattern-logic-box">
+                            <strong>Logic:</strong> (Pattern1 OR Pattern2) AND (AND1 OR AND2) AND NOT (NOT1 OR NOT2)
                         </div>
                         
                         <div class="form-row">
@@ -935,6 +939,8 @@
             document.getElementById('ruleModalTitle').textContent = 'Add Noise Rule';
             document.getElementById('ruleForm').reset();
             document.getElementById('ruleId').value = '';
+            document.getElementById('rulePatternAnd').value = '';
+            document.getElementById('rulePatternNot').value = '';
             document.getElementById('ruleEnabled').checked = true;
             document.getElementById('rulePriority').value = 100;
             document.getElementById('ruleModal').style.display = 'flex';
@@ -954,6 +960,8 @@
                         document.getElementById('ruleFilterType').value = rule.filter_type;
                         document.getElementById('ruleMatchMode').value = rule.match_mode;
                         document.getElementById('rulePattern').value = rule.pattern;
+                        document.getElementById('rulePatternAnd').value = rule.pattern_and || '';
+                        document.getElementById('rulePatternNot').value = rule.pattern_not || '';
                         document.getElementById('rulePriority').value = rule.priority;
                         document.getElementById('ruleCaseSensitive').checked = rule.is_case_sensitive;
                         document.getElementById('ruleEnabled').checked = rule.is_enabled;
@@ -973,6 +981,8 @@
                 filter_type: document.getElementById('ruleFilterType').value,
                 match_mode: document.getElementById('ruleMatchMode').value,
                 pattern: document.getElementById('rulePattern').value,
+                pattern_and: document.getElementById('rulePatternAnd').value,
+                pattern_not: document.getElementById('rulePatternNot').value,
                 priority: parseInt(document.getElementById('rulePriority').value),
                 is_case_sensitive: document.getElementById('ruleCaseSensitive').checked,
                 is_enabled: document.getElementById('ruleEnabled').checked

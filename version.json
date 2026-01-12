@@ -1,6 +1,17 @@
 {
-  "version": "3.45.0",
+  "version": "3.46.0",
   "changelog": [
+    {
+      "version": "3.46.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Noise Filters: Added 'Any Field' filter type for full-text matching",
+        "Noise Filters: Added separate AND Patterns field (must also contain ANY)",
+        "Noise Filters: Added NOT Patterns field (exclude if ANY match)",
+        "Noise Filters: Improved UI with 3 clear pattern fields instead of inline syntax",
+        "Noise Filters: Updated noise tagger to use new pattern logic"
+      ]
+    },
     {
       "version": "3.45.0",
       "date": "2026-01-12",

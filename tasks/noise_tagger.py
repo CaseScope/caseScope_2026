@@ -77,6 +77,7 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
         
         # Map filter types to ClickHouse columns
         filter_type_columns = {
+            'any_field': 'search_blob',
             'process_name': 'process_name',
             'file_path': 'process_path',
             'command_line': 'command_line',
@@ -115,12 +116,12 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             })
             
             column = filter_type_columns.get(rule.filter_type, 'search_blob')
-            or_patterns, and_conditions = rule.parse_pattern()
+            or_patterns, and_patterns, not_patterns = rule.parse_pattern()
             
             if not or_patterns:
                 continue
             
-            # Build LIKE conditions for OR patterns
+            # Build LIKE conditions for OR patterns (match ANY)
             or_clauses = []
             for pattern in or_patterns:
                 escaped = pattern.replace("'", "''").replace("\\", "\\\\")
@@ -129,21 +130,37 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
                 else:
                     or_clauses.append(f"lower({column}) LIKE '%{escaped.lower()}%'")
             
-            # Build AND conditions
+            # Build AND conditions (must ALSO match ANY of these in search_blob)
             and_clauses = []
-            for condition in and_conditions:
-                escaped = condition.replace("'", "''").replace("\\", "\\\\")
-                if rule.is_case_sensitive:
-                    and_clauses.append(f"search_blob LIKE '%{escaped}%'")
-                else:
-                    and_clauses.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
+            if and_patterns:
+                and_or_parts = []
+                for pattern in and_patterns:
+                    escaped = pattern.replace("'", "''").replace("\\", "\\\\")
+                    if rule.is_case_sensitive:
+                        and_or_parts.append(f"search_blob LIKE '%{escaped}%'")
+                    else:
+                        and_or_parts.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
+                if and_or_parts:
+                    and_clauses.append(f"({' OR '.join(and_or_parts)})")
             
-            # Build WHERE clause
+            # Build NOT conditions (must NOT match ANY of these in search_blob)
+            not_clauses = []
+            for pattern in not_patterns:
+                escaped = pattern.replace("'", "''").replace("\\", "\\\\")
+                if rule.is_case_sensitive:
+                    not_clauses.append(f"search_blob NOT LIKE '%{escaped}%'")
+                else:
+                    not_clauses.append(f"lower(search_blob) NOT LIKE '%{escaped.lower()}%'")
+            
+            # Build WHERE clause: (OR patterns) AND (AND patterns) AND NOT (NOT patterns)
             where_parts = [f"case_id = {case_id}"]
             where_parts.append(f"({' OR '.join(or_clauses)})")
             
             if and_clauses:
                 where_parts.extend(and_clauses)
+            
+            if not_clauses:
+                where_parts.extend(not_clauses)
             
             where_clause = " AND ".join(where_parts)
             

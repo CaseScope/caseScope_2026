@@ -200,6 +200,8 @@ def api_add_rule():
             description=data.get('description', ''),
             filter_type=data['filter_type'],
             pattern=data['pattern'],
+            pattern_and=data.get('pattern_and', ''),
+            pattern_not=data.get('pattern_not', ''),
             match_mode=match_mode,
             is_case_sensitive=data.get('is_case_sensitive', False),
             is_enabled=data.get('is_enabled', True),
@@ -265,6 +267,14 @@ def api_edit_rule(rule_id):
         if 'pattern' in data and data['pattern'] != rule.pattern:
             changes['pattern'] = {'old': rule.pattern, 'new': data['pattern']}
             rule.pattern = data['pattern']
+        
+        if 'pattern_and' in data and data.get('pattern_and', '') != (rule.pattern_and or ''):
+            changes['pattern_and'] = {'old': rule.pattern_and, 'new': data['pattern_and']}
+            rule.pattern_and = data['pattern_and']
+        
+        if 'pattern_not' in data and data.get('pattern_not', '') != (rule.pattern_not or ''):
+            changes['pattern_not'] = {'old': rule.pattern_not, 'new': data['pattern_not']}
+            rule.pattern_not = data['pattern_not']
         
         if 'match_mode' in data and data['match_mode'] != rule.match_mode:
             if data['match_mode'] not in NoiseMatchMode.all():

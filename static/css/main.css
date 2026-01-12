@@ -5205,3 +5205,26 @@ input:checked + .slider:before {
 .noise-error .error-icon {
   font-size: 24px;
 }
+
+/* Pattern logic box for noise rules */
+.pattern-logic-box {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.pattern-logic-box strong {
+  color: var(--text-primary);
+}
+
+/* Optional label styling */
+.optional {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 11px;
+}

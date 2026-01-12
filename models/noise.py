@@ -10,6 +10,7 @@ from models.database import db
 
 class NoiseFilterType:
     """Filter type options for noise rules"""
+    ANY_FIELD = 'any_field'
     PROCESS_NAME = 'process_name'
     FILE_PATH = 'file_path'
     COMMAND_LINE = 'command_line'
@@ -21,13 +22,14 @@ class NoiseFilterType:
     @classmethod
     def all(cls):
         return [
-            cls.PROCESS_NAME, cls.FILE_PATH, cls.COMMAND_LINE,
+            cls.ANY_FIELD, cls.PROCESS_NAME, cls.FILE_PATH, cls.COMMAND_LINE,
             cls.HASH, cls.SERVICE_NAME, cls.NETWORK, cls.REGISTRY
         ]
     
     @classmethod
     def choices(cls):
         return [
+            (cls.ANY_FIELD, 'Any Field (Full Text)'),
             (cls.PROCESS_NAME, 'Process Name'),
             (cls.FILE_PATH, 'File Path'),
             (cls.COMMAND_LINE, 'Command Line'),
@@ -158,7 +160,9 @@ class NoiseRule(db.Model):
     
     # Filter configuration
     filter_type = db.Column(db.String(50), nullable=False, index=True)
-    pattern = db.Column(db.String(2000), nullable=False)
+    pattern = db.Column(db.String(2000), nullable=False)  # OR patterns (comma-separated)
+    pattern_and = db.Column(db.String(2000), default='')  # AND patterns (comma-separated, OR within)
+    pattern_not = db.Column(db.String(2000), default='')  # NOT patterns (comma-separated, exclude if any match)
     match_mode = db.Column(db.String(20), default=NoiseMatchMode.CONTAINS)
     is_case_sensitive = db.Column(db.Boolean, default=False)
     
@@ -192,6 +196,8 @@ class NoiseRule(db.Model):
             'filter_type': self.filter_type,
             'filter_type_label': NoiseFilterType.labels().get(self.filter_type, self.filter_type),
             'pattern': self.pattern,
+            'pattern_and': self.pattern_and or '',
+            'pattern_not': self.pattern_not or '',
             'match_mode': self.match_mode,
             'match_mode_label': NoiseMatchMode.labels().get(self.match_mode, self.match_mode),
             'is_case_sensitive': self.is_case_sensitive,
@@ -227,31 +233,38 @@ class NoiseRule(db.Model):
         ).order_by(NoiseRule.priority.asc()).all()
     
     def parse_pattern(self):
-        """Parse pattern into OR patterns and AND conditions
+        """Parse pattern fields into OR, AND, and NOT pattern lists
         
-        Pattern format: "pattern1,pattern2+condition1+condition2"
-        - Comma separates OR patterns (match any)
-        - Plus separates AND conditions (must all be present)
+        Pattern fields:
+        - pattern: OR patterns (comma-separated) - match if ANY matches
+        - pattern_and: AND patterns (comma-separated) - must ALSO match ANY of these
+        - pattern_not: NOT patterns (comma-separated) - must NOT match ANY of these
         
-        Returns: (or_patterns: list, and_conditions: list)
+        Returns: (or_patterns: list, and_patterns: list, not_patterns: list)
         """
-        # Split by + to separate AND conditions
-        parts = self.pattern.split('+')
+        # Parse OR patterns from main pattern field
+        or_patterns = [p.strip() for p in self.pattern.split(',') if p.strip()]
         
-        # First part contains OR patterns (comma-separated)
-        or_patterns = [p.strip() for p in parts[0].split(',') if p.strip()]
+        # Parse AND patterns (must also contain any of these)
+        and_patterns = []
+        if self.pattern_and:
+            and_patterns = [p.strip() for p in self.pattern_and.split(',') if p.strip()]
         
-        # Remaining parts are AND conditions
-        and_conditions = [p.strip() for p in parts[1:] if p.strip()]
+        # Parse NOT patterns (must not contain any of these)
+        not_patterns = []
+        if self.pattern_not:
+            not_patterns = [p.strip() for p in self.pattern_not.split(',') if p.strip()]
         
-        return or_patterns, and_conditions
+        return or_patterns, and_patterns, not_patterns
     
     def matches(self, value, full_event_text=None):
         """Check if value matches this rule's pattern
         
+        Logic: (OR1 or OR2) AND (AND1 or AND2) AND NOT (NOT1 or NOT2)
+        
         Args:
             value: The specific field value to check against OR patterns
-            full_event_text: Full event text/data to check AND conditions against
+            full_event_text: Full event text/data to check AND/NOT conditions against
                             (if None, uses value for both)
         
         Returns: True if matches, False otherwise
@@ -262,7 +275,7 @@ class NoiseRule(db.Model):
         if not value:
             return False
         
-        or_patterns, and_conditions = self.parse_pattern()
+        or_patterns, and_patterns, not_patterns = self.parse_pattern()
         
         # Normalize for case-insensitive matching
         check_value = value if self.is_case_sensitive else value.lower()
@@ -280,13 +293,22 @@ class NoiseRule(db.Model):
         if not or_matched:
             return False
         
-        # Check AND conditions - all must be present in full event
-        for condition in and_conditions:
-            check_condition = condition if self.is_case_sensitive else condition.lower()
-            
-            # AND conditions always use "contains" matching against full event
-            if check_condition not in check_full:
+        # Check AND patterns - if any specified, at least one must match in full event
+        if and_patterns:
+            and_matched = False
+            for pattern in and_patterns:
+                check_pattern = pattern if self.is_case_sensitive else pattern.lower()
+                if check_pattern in check_full:
+                    and_matched = True
+                    break
+            if not and_matched:
                 return False
+        
+        # Check NOT patterns - if any match, exclude this event
+        for pattern in not_patterns:
+            check_pattern = pattern if self.is_case_sensitive else pattern.lower()
+            if check_pattern in check_full:
+                return False  # Excluded
         
         return True
     
