@@ -1,6 +1,13 @@
 {
-  "version": "3.46.0",
+  "version": "3.47.0",
   "changelog": [
+    {
+      "version": "3.47.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Added automated search buttons (Find Logins, Find Failed Logins, Find AV Alerts, Find VPN Sessions, Find VPN Failed)"
+      ]
+    },
     {
       "version": "3.46.0",
       "date": "2026-01-12",

@@ -3002,6 +3002,13 @@ tbody td {
   gap: 12px;
 }
 
+.auto-search-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
 .events-search-input {
   flex: 1;
   padding: 10px 14px;
