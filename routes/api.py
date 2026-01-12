@@ -964,6 +964,56 @@ def get_processing_progress(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/files/reindex/<case_uuid>', methods=['POST'])
+@login_required
+def reindex_case_files(case_uuid):
+    """Reindex all files for a case - wipes ClickHouse and DB data, re-scans storage"""
+    try:
+        from tasks.celery_tasks import reindex_case_task
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Check storage directory exists
+        storage_path = os.path.join(Config.STORAGE_FOLDER, case_uuid)
+        if not os.path.isdir(storage_path):
+            return jsonify({
+                'success': False, 
+                'error': 'No storage directory found for this case'
+            }), 404
+        
+        # Count files to be reindexed
+        file_count = 0
+        for root, dirs, files in os.walk(storage_path):
+            file_count += len(files)
+        
+        if file_count == 0:
+            return jsonify({
+                'success': False,
+                'error': 'No files found in storage directory'
+            }), 404
+        
+        # Queue the reindex task
+        task = reindex_case_task.delay(
+            case_uuid=case_uuid,
+            case_id=case.id,
+            username=current_user.username
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'case_uuid': case_uuid,
+            'files_queued': file_count,
+            'message': 'Reindex started'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Hunting API Endpoints
 # ============================================

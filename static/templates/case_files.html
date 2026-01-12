@@ -13,6 +13,9 @@
         <a href="{{ url_for('main.case_upload') }}" class="btn btn-primary">
             <span>📤 Upload Files</span>
         </a>
+        <button class="btn btn-warning" onclick="showReindexModal()">
+            <span>🔄 Reindex Case</span>
+        </button>
     </div>
 </div>
 
@@ -132,6 +135,35 @@
                 <span class="page-indicator">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
                 <button class="btn btn-secondary btn-sm" id="btn-next" onclick="nextPage()" disabled>Next →</button>
             </div>
+        </div>
+    </div>
+</div>
+<!-- Reindex Confirmation Modal -->
+<div class="modal-overlay" id="reindexModal" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">⚠️ Reindex Case</h3>
+        </div>
+        <div class="modal-body">
+            <p>This will perform a <strong>clean reindex</strong> of all case files:</p>
+            <ul class="text-muted" style="margin: 16px 0; padding-left: 20px;">
+                <li>Delete all indexed events from ClickHouse</li>
+                <li>Reset all file processing records</li>
+                <li>Re-scan and re-index all files in storage</li>
+            </ul>
+            <p class="text-success"><strong>Files in storage will NOT be deleted.</strong></p>
+            <div class="reindex-status" id="reindexStatus" style="display: none; margin-top: 16px;">
+                <div class="progress">
+                    <div class="progress-bar progress-bar-animated" id="reindexBar" style="width: 0%"></div>
+                </div>
+                <p class="text-muted text-center mt-2" id="reindexMessage">Initializing...</p>
+            </div>
+        </div>
+        <div class="modal-footer" id="reindexFooter">
+            <button class="btn btn-secondary" onclick="closeReindexModal()">Cancel</button>
+            <button class="btn btn-warning" id="reindexConfirmBtn" onclick="confirmReindex()">
+                <span>🔄 Confirm Reindex</span>
+            </button>
         </div>
     </div>
 </div>
@@ -444,5 +476,66 @@ window.addEventListener('beforeunload', function() {
     clearInterval(statsInterval);
     clearInterval(progressInterval);
 });
+
+// ========================================
+// Reindex Case Functions
+// ========================================
+
+function showReindexModal() {
+    document.getElementById('reindexModal').style.display = 'flex';
+    document.getElementById('reindexStatus').style.display = 'none';
+    document.getElementById('reindexFooter').style.display = 'flex';
+    document.getElementById('reindexConfirmBtn').disabled = false;
+}
+
+function closeReindexModal() {
+    document.getElementById('reindexModal').style.display = 'none';
+}
+
+function confirmReindex() {
+    const confirmBtn = document.getElementById('reindexConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+    
+    document.getElementById('reindexStatus').style.display = 'block';
+    document.getElementById('reindexBar').style.width = '10%';
+    document.getElementById('reindexMessage').textContent = 'Deleting indexed events...';
+    
+    fetch('/api/files/reindex/' + caseUuid, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('reindexBar').style.width = '100%';
+            document.getElementById('reindexMessage').innerHTML = 
+                '<span class="text-success">✓ Reindex started!</span><br>' +
+                '<span class="text-muted">' + data.files_queued + ' files queued for parsing</span>';
+            
+            // Refresh stats and file list after brief delay
+            setTimeout(() => {
+                loadStats();
+                loadFiles();
+                closeReindexModal();
+                resetProgressBar();
+            }, 2000);
+        } else {
+            document.getElementById('reindexBar').style.width = '0%';
+            document.getElementById('reindexMessage').innerHTML = 
+                '<span class="text-danger">Error: ' + (data.error || 'Unknown error') + '</span>';
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<span>🔄 Retry Reindex</span>';
+        }
+    })
+    .catch(err => {
+        console.error('Reindex error:', err);
+        document.getElementById('reindexBar').style.width = '0%';
+        document.getElementById('reindexMessage').innerHTML = 
+            '<span class="text-danger">Error: ' + err.message + '</span>';
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<span>🔄 Retry Reindex</span>';
+    });
+}
 </script>
 {% endblock %}

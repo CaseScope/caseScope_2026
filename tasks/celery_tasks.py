@@ -579,6 +579,200 @@ def discover_known_users_task(self, case_id: int, case_uuid: str, username: str 
     return results
 
 
+@celery_app.task(bind=True, name='tasks.reindex_case')
+def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'system') -> Dict[str, Any]:
+    """Reindex all files for a case - clean slate re-ingestion
+    
+    Steps:
+    1. Delete all events from ClickHouse for case_id
+    2. Delete all CaseFile records for case_uuid
+    3. Scan storage/{case_uuid}/ recursively
+    4. Create new CaseFile records for each file found
+    5. Queue parse_file_task for each non-archive file
+    
+    Args:
+        case_uuid: Case UUID
+        case_id: PostgreSQL case.id (used as ClickHouse case_id)
+        username: User who triggered the reindex
+        
+    Returns:
+        Dict with reindex results
+    """
+    from models.database import db
+    from models.case_file import CaseFile
+    from utils.clickhouse import get_fresh_client
+    from utils.progress import init_progress
+    from config import Config
+    
+    logger.info(f"Starting reindex for case {case_uuid}")
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        # =============================================
+        # STEP 1: Delete all ClickHouse events
+        # =============================================
+        self.update_state(state='PROCESSING', meta={'stage': 'deleting_events'})
+        
+        try:
+            client = get_fresh_client()
+            
+            # Count events before deletion
+            count_result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+                parameters={'case_id': case_id}
+            )
+            events_deleted = count_result.result_rows[0][0] if count_result.result_rows else 0
+            
+            # Delete events
+            client.command(f"ALTER TABLE events DELETE WHERE case_id = {case_id}")
+            
+            # Also delete from buffer table
+            try:
+                client.command(f"ALTER TABLE events_buffer DELETE WHERE case_id = {case_id}")
+            except:
+                pass  # Buffer might not exist
+                
+            logger.info(f"Deleted {events_deleted} events from ClickHouse for case {case_id}")
+            
+        except Exception as e:
+            logger.error(f"Error deleting ClickHouse events: {e}")
+            return {'success': False, 'error': f'ClickHouse deletion failed: {str(e)}'}
+        
+        # =============================================
+        # STEP 2: Delete all CaseFile records
+        # =============================================
+        self.update_state(state='PROCESSING', meta={'stage': 'deleting_records'})
+        
+        try:
+            files_deleted = CaseFile.query.filter_by(case_uuid=case_uuid).delete()
+            db.session.commit()
+            logger.info(f"Deleted {files_deleted} CaseFile records for case {case_uuid}")
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error deleting CaseFile records: {e}")
+            return {'success': False, 'error': f'Database deletion failed: {str(e)}'}
+        
+        # =============================================
+        # STEP 3: Scan storage directory
+        # =============================================
+        self.update_state(state='PROCESSING', meta={'stage': 'scanning_storage'})
+        
+        storage_path = os.path.join(Config.STORAGE_FOLDER, case_uuid)
+        
+        if not os.path.isdir(storage_path):
+            return {'success': False, 'error': 'Storage directory not found'}
+        
+        # Collect all files
+        files_found = []
+        for root, dirs, files in os.walk(storage_path):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(file_path, storage_path)
+                files_found.append({
+                    'path': file_path,
+                    'filename': rel_path,
+                    'original_filename': filename
+                })
+        
+        if not files_found:
+            return {
+                'success': True,
+                'events_deleted': events_deleted,
+                'records_deleted': files_deleted,
+                'files_found': 0,
+                'files_queued': 0,
+                'message': 'No files found in storage'
+            }
+        
+        logger.info(f"Found {len(files_found)} files in storage for case {case_uuid}")
+        
+        # =============================================
+        # STEP 4: Create CaseFile records and queue parsing
+        # =============================================
+        self.update_state(state='PROCESSING', meta={
+            'stage': 'creating_records',
+            'total_files': len(files_found)
+        })
+        
+        files_to_queue = []
+        
+        for idx, file_info in enumerate(files_found):
+            try:
+                file_path = file_info['path']
+                file_size = os.path.getsize(file_path)
+                sha256_hash = CaseFile.calculate_sha256(file_path)
+                is_archive = CaseFile.is_zip_file(file_path)
+                
+                case_file = CaseFile(
+                    case_uuid=case_uuid,
+                    parent_id=None,
+                    filename=file_info['filename'],
+                    original_filename=file_info['original_filename'],
+                    file_path=file_path,
+                    file_size=file_size,
+                    sha256_hash=sha256_hash,
+                    hostname='',
+                    file_type='Other',
+                    upload_source='reindex',
+                    is_archive=is_archive,
+                    is_extracted=False,
+                    extraction_status='n/a',
+                    status='new',
+                    uploaded_by=username
+                )
+                
+                db.session.add(case_file)
+                db.session.flush()
+                
+                # Queue non-archive files for parsing
+                if not is_archive:
+                    files_to_queue.append(case_file)
+                    
+            except Exception as e:
+                logger.warning(f"Error processing file {file_info['filename']}: {e}")
+                continue
+        
+        db.session.commit()
+        
+        # =============================================
+        # STEP 5: Initialize progress and queue parsing tasks
+        # =============================================
+        self.update_state(state='PROCESSING', meta={
+            'stage': 'queuing_tasks',
+            'files_to_queue': len(files_to_queue)
+        })
+        
+        if files_to_queue:
+            init_progress(case_uuid, len(files_to_queue))
+            
+            for cf in files_to_queue:
+                cf.status = 'queued'
+                db.session.flush()
+                
+                parse_file_task.delay(
+                    file_path=cf.file_path,
+                    case_id=case_id,
+                    source_host=cf.hostname or '',
+                    case_file_id=cf.id,
+                )
+            
+            db.session.commit()
+        
+        logger.info(f"Reindex complete for case {case_uuid}: {len(files_to_queue)} files queued for parsing")
+        
+        return {
+            'success': True,
+            'case_uuid': case_uuid,
+            'events_deleted': events_deleted,
+            'records_deleted': files_deleted,
+            'files_found': len(files_found),
+            'files_queued': len(files_to_queue),
+            'message': 'Reindex complete'
+        }
+
+
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
     'update-hayabusa-rules-weekly': {

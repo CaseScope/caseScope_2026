@@ -1,6 +1,13 @@
 {
-  "version": "3.51.0",
+  "version": "3.52.0",
   "changelog": [
+    {
+      "version": "3.52.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Case Files: Added Reindex Case button to wipe all indexed data and re-parse files from storage"
+      ]
+    },
     {
       "version": "3.51.0",
       "date": "2026-01-12",
