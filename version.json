@@ -1,6 +1,16 @@
 {
-  "version": "3.63.0",
+  "version": "3.64.0",
   "changelog": [
+    {
+      "version": "3.64.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Evidence Files: Added evidence upload feature (not parsed/processed)",
+        "Evidence Files: Direct HTTP upload and bulk import from /opt/casescope/evidence_uploads/",
+        "Evidence Files: Files stored in /opt/casescope/evidence/{case_uuid}/ separate from parsing pipeline",
+        "Evidence Files: Support for download, description editing, and admin-only deletion"
+      ]
+    },
     {
       "version": "3.63.0",
       "date": "2026-01-12",

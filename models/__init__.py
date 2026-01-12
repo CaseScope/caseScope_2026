@@ -22,6 +22,7 @@ from models.noise import (
     seed_noise_defaults
 )
 from models.event_description import EventDescription
+from models.evidence_file import EvidenceFile
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -35,5 +36,6 @@ __all__ = [
     'get_category_for_type',
     'NoiseCategory', 'NoiseRule', 'NoiseRuleAudit',
     'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults',
-    'EventDescription'
+    'EventDescription',
+    'EvidenceFile'
 ]

@@ -26,6 +26,10 @@ class Config:
     BIN_FOLDER = os.path.join(BASE_DIR, 'bin')
     RULES_FOLDER = os.path.join(BASE_DIR, 'rules')
     
+    # Evidence storage (NOT parsed - separate from processing pipeline)
+    EVIDENCE_FOLDER = os.path.join(BASE_DIR, 'evidence')
+    EVIDENCE_BULK_FOLDER = os.path.join(BASE_DIR, 'evidence_uploads')
+    
     # SSL
     SSL_CERT = os.environ.get('SSL_CERT') or '/opt/casescope/ssl/cert.pem'
     SSL_KEY = os.environ.get('SSL_KEY') or '/opt/casescope/ssl/key.pem'

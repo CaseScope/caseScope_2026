@@ -5,7 +5,7 @@
     <div class="page-title-section">
         <h1 class="page-title">
             <span class="page-title-icon">📦</span>
-            Evidence
+            Evidence Files
         </h1>
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
@@ -24,14 +24,395 @@
     {% endif %}
 {% endwith %}
 
-<div class="card">
-    <div class="card-header">
-        <span class="card-icon">📦</span>
-        <span class="card-title">Evidence</span>
-    </div>
-    <div class="card-body" style="padding: 40px; text-align: center;">
-        <p class="text-muted" style="font-size: 1.1rem;">Evidence functionality coming soon.</p>
-        <p class="text-muted">Manage and track collected evidence items, chain of custody, and findings.</p>
+<div class="alert alert-warning">
+    <span class="alert-icon">⚠️</span>
+    <div>
+        <strong>NOTE:</strong> This is NOT for logs. Store items like screenshots, exports, and evidence that should be retained but NOT processed/parsed.
     </div>
 </div>
+
+<div class="stats-grid stats-grid-2">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">📁</span>
+            <span class="card-title">Evidence Statistics</span>
+        </div>
+        <div class="card-body">
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-label">Total Files</div>
+                    <div class="stat-value" id="stat-total-files">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Total Space</div>
+                    <div class="stat-value" id="stat-total-space">—</div>
+                </div>
+            </div>
+            <div id="file-type-breakdown" class="file-type-grid"></div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">📤</span>
+            <span class="card-title">Upload Evidence</span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted" style="margin-bottom: 1rem;">
+                Upload screenshots, exported files, or other evidence items.
+            </p>
+            
+            <div class="upload-section">
+                <h4 class="upload-title">Direct Upload</h4>
+                <div class="upload-controls">
+                    <input type="file" id="evidenceFiles" multiple class="file-input">
+                    <button onclick="uploadEvidenceFiles()" class="btn btn-primary" id="uploadBtn">
+                        <span>📤</span> Upload Files
+                    </button>
+                </div>
+            </div>
+            
+            <div class="upload-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                <h4 class="upload-title">Bulk Import</h4>
+                <p class="text-muted text-small">
+                    Copy files to <code>/opt/casescope/evidence_uploads/</code> then click import:
+                </p>
+                <button onclick="bulkImportEvidence()" class="btn btn-success" id="bulkImportBtn">
+                    <span>📥</span> Import from Bulk Folder
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header card-header-with-actions">
+        <div>
+            <span class="card-icon">📄</span>
+            <span class="card-title">Evidence Files</span>
+            <span class="text-muted" id="files-count-label"></span>
+        </div>
+        <div class="card-actions">
+            <input type="text" 
+                   id="searchInput" 
+                   placeholder="🔍 Search files..." 
+                   class="search-input"
+                   onkeyup="debounceSearch()">
+        </div>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div id="files-loading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <span>Loading evidence files...</span>
+        </div>
+        
+        <div id="files-empty" class="empty-state" style="display: none;">
+            <div class="empty-icon">📄</div>
+            <h3>No evidence files uploaded yet</h3>
+            <p>Upload screenshots, exported files, or other evidence items</p>
+        </div>
+        
+        <div id="files-table-container" style="display: none;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Description</th>
+                        <th>Uploaded</th>
+                        <th>By</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="files-tbody"></tbody>
+            </table>
+        </div>
+        
+        <div id="pagination-container" class="pagination-container" style="display: none;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let searchTimer = null;
+
+function debounceSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        currentPage = 1;
+        loadEvidenceFiles();
+    }, 300);
+}
+
+function loadEvidenceFiles() {
+    const search = document.getElementById('searchInput').value;
+    const url = `/evidence/list?page=${currentPage}&search=${encodeURIComponent(search)}`;
+    
+    document.getElementById('files-loading').style.display = 'flex';
+    document.getElementById('files-table-container').style.display = 'none';
+    document.getElementById('files-empty').style.display = 'none';
+    document.getElementById('pagination-container').style.display = 'none';
+    
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('files-loading').style.display = 'none';
+            
+            if (!data.success) {
+                console.error('Error loading evidence:', data.error);
+                return;
+            }
+            
+            // Update stats
+            document.getElementById('stat-total-files').textContent = data.stats.total_files;
+            document.getElementById('stat-total-space').textContent = data.stats.total_size_gb.toFixed(2) + ' GB';
+            
+            // File type breakdown
+            const typeGrid = document.getElementById('file-type-breakdown');
+            const types = data.stats.file_types || {};
+            if (Object.keys(types).length > 0) {
+                typeGrid.innerHTML = Object.entries(types)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([type, count]) => `
+                        <div class="file-type-item">
+                            <span class="file-type-count">${count}</span>
+                            <span class="file-type-name">${type}</span>
+                        </div>
+                    `).join('');
+            } else {
+                typeGrid.innerHTML = '';
+            }
+            
+            // Update count label
+            document.getElementById('files-count-label').textContent = 
+                `(${data.total} file${data.total !== 1 ? 's' : ''})`;
+            
+            if (data.files.length === 0) {
+                document.getElementById('files-empty').style.display = 'flex';
+                return;
+            }
+            
+            // Render table
+            const tbody = document.getElementById('files-tbody');
+            tbody.innerHTML = data.files.map(file => `
+                <tr data-file-id="${file.id}">
+                    <td>
+                        <strong>${escapeHtml(file.original_filename)}</strong>
+                        ${file.file_hash ? `<br><span class="text-muted text-small">${file.file_hash.substring(0, 16)}...</span>` : ''}
+                    </td>
+                    <td><span class="badge badge-info">${file.file_type || 'UNKNOWN'}</span></td>
+                    <td>${file.size_display}</td>
+                    <td class="description-cell" id="desc-${file.id}">
+                        ${file.description ? escapeHtml(file.description.substring(0, 80)) + (file.description.length > 80 ? '...' : '') : '<span class="text-muted">—</span>'}
+                    </td>
+                    <td>
+                        <span class="text-muted">${file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '—'}</span>
+                        ${file.uploaded_at ? `<br><span class="text-muted text-small">${new Date(file.uploaded_at).toLocaleTimeString()}</span>` : ''}
+                    </td>
+                    <td><span class="text-muted">${file.uploaded_by || '—'}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <a href="/evidence/${file.id}/download" class="btn btn-sm btn-info" title="Download">📥</a>
+                            ${canEdit() ? `<button onclick="editDescription(${file.id}, '${escapeHtml((file.description || '').replace(/'/g, "\\'"))}')" class="btn btn-sm btn-warning" title="Edit">✏️</button>` : ''}
+                            ${isAdmin() ? `<button onclick="deleteEvidence(${file.id}, '${escapeHtml(file.original_filename.replace(/'/g, "\\'"))}')" class="btn btn-sm btn-danger" title="Delete">🗑️</button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+            
+            document.getElementById('files-table-container').style.display = 'block';
+            
+            // Pagination
+            if (data.pages > 1) {
+                renderPagination(data.page, data.pages, data.total);
+                document.getElementById('pagination-container').style.display = 'flex';
+            }
+        })
+        .catch(err => {
+            console.error('Error:', err);
+            document.getElementById('files-loading').style.display = 'none';
+        });
+}
+
+function renderPagination(page, pages, total) {
+    const container = document.getElementById('pagination-container');
+    let html = `<div class="pagination-info">Page ${page} of ${pages} (${total} items)</div>`;
+    html += '<div class="pagination-buttons">';
+    
+    if (page > 1) {
+        html += `<button onclick="goToPage(1)" class="btn btn-sm">««</button>`;
+        html += `<button onclick="goToPage(${page - 1})" class="btn btn-sm">‹ Prev</button>`;
+    }
+    
+    const start = Math.max(1, page - 2);
+    const end = Math.min(pages, page + 2);
+    
+    for (let i = start; i <= end; i++) {
+        if (i === page) {
+            html += `<button class="btn btn-sm btn-primary" disabled>${i}</button>`;
+        } else {
+            html += `<button onclick="goToPage(${i})" class="btn btn-sm">${i}</button>`;
+        }
+    }
+    
+    if (page < pages) {
+        html += `<button onclick="goToPage(${page + 1})" class="btn btn-sm">Next ›</button>`;
+        html += `<button onclick="goToPage(${pages})" class="btn btn-sm">»»</button>`;
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function goToPage(page) {
+    currentPage = page;
+    loadEvidenceFiles();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function canEdit() {
+    return '{{ current_user.permission_level }}' !== 'viewer';
+}
+
+function isAdmin() {
+    return '{{ current_user.permission_level }}' === 'administrator';
+}
+
+function uploadEvidenceFiles() {
+    const fileInput = document.getElementById('evidenceFiles');
+    const files = fileInput.files;
+    
+    if (!files || files.length === 0) {
+        alert('Please select files to upload');
+        return;
+    }
+    
+    const btn = document.getElementById('uploadBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Uploading...';
+    
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    
+    fetch('/evidence/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            fileInput.value = '';
+            loadEvidenceFiles();
+        } else {
+            alert('Error: ' + data.error + (data.errors ? '\n' + data.errors.join('\n') : ''));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Upload failed: ' + error.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    });
+}
+
+function bulkImportEvidence() {
+    if (!confirm('📥 Bulk Import Evidence Files\n\nThis will import all files from /opt/casescope/evidence_uploads/ folder.\n\nContinue?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('bulkImportBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Importing...';
+    
+    fetch('/evidence/bulk_import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            loadEvidenceFiles();
+        } else {
+            alert('Error: ' + data.error + (data.errors ? '\n' + data.errors.join('\n') : ''));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Import failed: ' + error.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    });
+}
+
+function editDescription(evidenceId, currentDescription) {
+    const newDescription = prompt('Edit description for this evidence file:', currentDescription);
+    
+    if (newDescription === null) return;
+    
+    fetch(`/evidence/${evidenceId}/edit`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ description: newDescription })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadEvidenceFiles();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Update failed: ' + error.message);
+    });
+}
+
+function deleteEvidence(evidenceId, filename) {
+    if (!confirm(`🗑️ Delete Evidence File\n\nFile: ${filename}\n\nThis will permanently delete the file.\n\nContinue?`)) {
+        return;
+    }
+    
+    fetch(`/evidence/${evidenceId}/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Evidence file deleted');
+            loadEvidenceFiles();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Delete failed: ' + error.message);
+    });
+}
+
+// Load on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadEvidenceFiles();
+});
+</script>
 {% endblock %}

@@ -131,12 +131,14 @@ def create_app():
     from routes.api import api_bp
     from routes.parsing import parsing_bp
     from routes.noise import noise_bp
+    from routes.evidence import evidence_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(parsing_bp)
     app.register_blueprint(noise_bp)
+    app.register_blueprint(evidence_bp)
     
     # Create database tables
     with app.app_context():
@@ -160,6 +162,7 @@ def create_app():
         )
         from models.system_settings import SystemSettings
         from models.event_description import EventDescription
+        from models.evidence_file import EvidenceFile
         db.create_all()
         
         # Seed noise filter defaults if not exists
