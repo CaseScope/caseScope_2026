@@ -218,7 +218,7 @@ def tag_all_iocs_for_case(case_id: int) -> Dict[str, Any]:
     from models.ioc import IOC, IOCCase
     from models.database import db
     
-    # Get all IOCs linked to this case
+    # Get all IOCs linked to this case (excluding false positives)
     ioc_links = IOCCase.query.filter_by(case_id=case_id).all()
     ioc_ids = [link.ioc_id for link in ioc_links]
     
@@ -231,7 +231,11 @@ def tag_all_iocs_for_case(case_id: int) -> Dict[str, Any]:
             'details': []
         }
     
-    iocs = IOC.query.filter(IOC.id.in_(ioc_ids)).all()
+    # Filter out false positives
+    iocs = IOC.query.filter(
+        IOC.id.in_(ioc_ids),
+        IOC.false_positive == False
+    ).all()
     
     results = {
         'success': True,
@@ -301,13 +305,15 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     This searches every IOC (not just case-linked ones) against
     the case's artifacts to find new matches.
     
+    Skips IOCs marked as false positives.
+    
     Returns summary of updates and new links created.
     """
     from models.ioc import IOC, IOCCase
     from models.database import db
     
-    # Get all IOCs
-    iocs = IOC.query.all()
+    # Get all IOCs that are NOT marked as false positives
+    iocs = IOC.query.filter(IOC.false_positive == False).all()
     
     if not iocs:
         return {
