@@ -97,6 +97,13 @@ class SettingKeys:
     # Worker settings
     WORKER_CONCURRENCY = 'worker_concurrency'
     WORKER_OVERRIDE_RECOMMENDED = 'worker_override_recommended'
+    
+    # OpenCTI integration settings
+    OPENCTI_ENABLED = 'opencti_enabled'
+    OPENCTI_URL = 'opencti_url'
+    OPENCTI_API_KEY = 'opencti_api_key'
+    OPENCTI_SSL_VERIFY = 'opencti_ssl_verify'
+    OPENCTI_AUTO_ENRICH = 'opencti_auto_enrich'  # Auto-enrich IOCs on creation
 
 
 # AI Model Configuration based on GPU VRAM

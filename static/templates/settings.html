@@ -368,12 +368,454 @@
         {% if active_tab == 'integrations' and not tab_denied %}
         <div class="settings-content">
             <h3 class="settings-section-title">Integrations</h3>
-            <p class="text-muted">Configure external service integrations.</p>
-            <div class="placeholder-content">
-                <span class="placeholder-icon">🚧</span>
-                <span class="placeholder-text">Integration settings coming soon...</span>
+            <p class="text-muted">Configure external service integrations for threat intelligence enrichment.</p>
+            
+            <!-- OpenCTI Integration Section -->
+            <div class="settings-section integration-section">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">🧠</span>
+                        OpenCTI Integration
+                    </h4>
+                    <p class="section-description">Enrich IOCs with threat intelligence from OpenCTI</p>
+                </div>
+                
+                <!-- Enable Toggle -->
+                <div class="integration-toggle-row">
+                    <label class="toggle-switch" id="opencti-toggle-label">
+                        <input type="checkbox" id="opencti-enabled" onchange="toggleOpenCTI(this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <div class="toggle-label">
+                        <span class="toggle-title">Enable OpenCTI Integration</span>
+                        <span class="toggle-description">Lookup IOCs against your OpenCTI threat intelligence platform</span>
+                    </div>
+                </div>
+                
+                <!-- Configuration Form -->
+                <div class="integration-config" id="opencti-config">
+                    <div class="form-group">
+                        <label class="form-label">OpenCTI URL</label>
+                        <input type="url" 
+                               id="opencti-url" 
+                               class="form-input" 
+                               placeholder="https://opencti.example.com"
+                               style="max-width: 500px;">
+                        <span class="form-help">Full URL to your OpenCTI instance (e.g., https://opencti.example.com)</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <div class="input-with-toggle" style="max-width: 500px;">
+                            <input type="password" 
+                                   id="opencti-api-key" 
+                                   class="form-input" 
+                                   placeholder="Enter OpenCTI API key"
+                                   style="font-family: monospace;">
+                            <button type="button" class="btn-icon-toggle" onclick="togglePasswordVisibility('opencti-api-key', this)">
+                                👁️
+                            </button>
+                        </div>
+                        <span class="form-help">API key from OpenCTI (Profile → API Tokens)</span>
+                    </div>
+                    
+                    <div class="form-row" style="gap: 24px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Options</label>
+                            <div class="form-checkboxes" style="flex-direction: column; gap: 12px;">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="opencti-ssl-verify">
+                                    <span>Verify SSL Certificate</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="opencti-auto-enrich">
+                                    <span>Auto-enrich IOCs on creation</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="integration-actions">
+                        <button type="button" class="btn btn-secondary" id="opencti-test-btn" onclick="testOpenCTI()">
+                            <span class="btn-icon">🔌</span> Test Connection
+                        </button>
+                        <button type="button" class="btn btn-primary" id="opencti-save-btn" onclick="saveOpenCTI()">
+                            <span class="btn-icon">💾</span> Save Settings
+                        </button>
+                    </div>
+                    
+                    <!-- Status Message -->
+                    <div class="integration-status" id="opencti-status" style="display: none;"></div>
+                    
+                    <!-- Info Box -->
+                    <div class="integration-info-box">
+                        <h5 class="info-box-title">📋 Enrichment Behavior</h5>
+                        <ul class="info-box-list">
+                            <li>Checks IOCs against OpenCTI threat intelligence database</li>
+                            <li>Returns threat actor, campaign, and malware associations</li>
+                            <li>Provides confidence score and TLP classification</li>
+                            <li>Enrichment data stored with each IOC for reference</li>
+                            <li><strong>IOC Types Enriched:</strong> IP, Domain, Hostname, Hash, Email, URL, Registry</li>
+                            <li><strong>IOC Types Skipped:</strong> Command Line (environment-specific)</li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
+        
+        <script>
+        // OpenCTI Settings
+        let openctiSettings = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadOpenCTISettings();
+        });
+        
+        function loadOpenCTISettings() {
+            fetch('/api/settings/opencti')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        openctiSettings = data.settings;
+                        
+                        // Populate form
+                        document.getElementById('opencti-enabled').checked = openctiSettings.enabled;
+                        document.getElementById('opencti-url').value = openctiSettings.url || '';
+                        document.getElementById('opencti-api-key').value = openctiSettings.api_key || '';
+                        document.getElementById('opencti-ssl-verify').checked = openctiSettings.ssl_verify;
+                        document.getElementById('opencti-auto-enrich').checked = openctiSettings.auto_enrich;
+                        
+                        // Update config visibility
+                        updateOpenCTIConfigVisibility(openctiSettings.enabled);
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading OpenCTI settings:', err);
+                });
+        }
+        
+        function toggleOpenCTI(enabled) {
+            updateOpenCTIConfigVisibility(enabled);
+        }
+        
+        function updateOpenCTIConfigVisibility(enabled) {
+            const config = document.getElementById('opencti-config');
+            if (enabled) {
+                config.style.opacity = '1';
+                config.style.pointerEvents = 'auto';
+            } else {
+                config.style.opacity = '0.5';
+                config.style.pointerEvents = 'none';
+            }
+        }
+        
+        function testOpenCTI() {
+            const btn = document.getElementById('opencti-test-btn');
+            const statusDiv = document.getElementById('opencti-status');
+            
+            const url = document.getElementById('opencti-url').value.trim();
+            const apiKey = document.getElementById('opencti-api-key').value.trim();
+            const sslVerify = document.getElementById('opencti-ssl-verify').checked;
+            
+            if (!url || !apiKey) {
+                showOpenCTIStatus('URL and API key are required', 'error');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> Testing...';
+            
+            fetch('/api/settings/opencti/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: url,
+                    api_key: apiKey,
+                    ssl_verify: sslVerify
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showOpenCTIStatus('✓ ' + data.message, 'success');
+                } else {
+                    showOpenCTIStatus('✗ ' + data.message, 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Error testing OpenCTI:', err);
+                showOpenCTIStatus('✗ Connection test failed', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">🔌</span> Test Connection';
+            });
+        }
+        
+        function saveOpenCTI() {
+            const btn = document.getElementById('opencti-save-btn');
+            
+            const settings = {
+                enabled: document.getElementById('opencti-enabled').checked,
+                url: document.getElementById('opencti-url').value.trim(),
+                api_key: document.getElementById('opencti-api-key').value.trim(),
+                ssl_verify: document.getElementById('opencti-ssl-verify').checked,
+                auto_enrich: document.getElementById('opencti-auto-enrich').checked
+            };
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> Saving...';
+            
+            fetch('/api/settings/opencti', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showOpenCTIStatus('✓ Settings saved successfully', 'success');
+                    openctiSettings = settings;
+                } else {
+                    showOpenCTIStatus('✗ Failed to save: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Error saving OpenCTI settings:', err);
+                showOpenCTIStatus('✗ Failed to save settings', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">💾</span> Save Settings';
+            });
+        }
+        
+        function showOpenCTIStatus(message, type) {
+            const statusDiv = document.getElementById('opencti-status');
+            statusDiv.style.display = 'block';
+            statusDiv.className = `integration-status status-${type}`;
+            statusDiv.textContent = message;
+            
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function togglePasswordVisibility(inputId, button) {
+            const input = document.getElementById(inputId);
+            if (input.type === 'password') {
+                input.type = 'text';
+                button.textContent = '🔒';
+            } else {
+                input.type = 'password';
+                button.textContent = '👁️';
+            }
+        }
+        </script>
+        
+        <style>
+        /* Integration Section Styles */
+        .integration-section {
+            background: var(--bg-secondary);
+            border-radius: var(--border-radius-lg);
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .section-header {
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 4px 0;
+        }
+        
+        .section-icon {
+            font-size: 20px;
+        }
+        
+        .section-description {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin: 0;
+        }
+        
+        .integration-toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+        }
+        
+        .toggle-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .toggle-title {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .toggle-description {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        
+        .integration-config {
+            transition: opacity var(--transition-normal);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: border-color var(--transition-fast);
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+        
+        .form-help {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 16px;
+        }
+        
+        .form-checkboxes {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: var(--text-primary);
+        }
+        
+        .checkbox-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-primary);
+        }
+        
+        .input-with-toggle {
+            position: relative;
+            display: flex;
+        }
+        
+        .input-with-toggle .form-input {
+            padding-right: 40px;
+        }
+        
+        .btn-icon-toggle {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            font-size: 16px;
+            opacity: 0.7;
+            transition: opacity var(--transition-fast);
+        }
+        
+        .btn-icon-toggle:hover {
+            opacity: 1;
+        }
+        
+        .integration-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+        
+        .integration-status {
+            padding: 12px 16px;
+            border-radius: var(--border-radius);
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        
+        .integration-status.status-success {
+            background: rgba(54, 179, 126, 0.15);
+            color: var(--accent-success);
+            border: 1px solid var(--accent-success);
+        }
+        
+        .integration-status.status-error {
+            background: rgba(255, 86, 48, 0.15);
+            color: var(--accent-danger);
+            border: 1px solid var(--accent-danger);
+        }
+        
+        .integration-info-box {
+            background: var(--bg-tertiary);
+            border-radius: var(--border-radius);
+            padding: 16px 20px;
+            border-left: 3px solid var(--accent-info);
+            margin-top: 20px;
+        }
+        
+        .info-box-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 12px 0;
+        }
+        
+        .info-box-list {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.8;
+        }
+        
+        .info-box-list li {
+            margin-bottom: 2px;
+        }
+        </style>
         {% endif %}
 
         <!-- AI Tab -->

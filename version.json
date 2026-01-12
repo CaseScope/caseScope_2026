@@ -1,6 +1,17 @@
 {
-  "version": "3.58.01",
+  "version": "3.59.0",
   "changelog": [
+    {
+      "version": "3.59.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Feature: OpenCTI integration for IOC threat intelligence enrichment",
+        "Settings: Integrations tab now has OpenCTI configuration (URL, API key, SSL, auto-enrich)",
+        "API: New endpoints for OpenCTI settings, connection test, and IOC enrichment",
+        "IOC Model: Added opencti_enrichment and opencti_enriched_at fields",
+        "Utils: Added opencti.py client module using pycti library"
+      ]
+    },
     {
       "version": "3.58.01",
       "date": "2026-01-12",

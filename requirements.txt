@@ -42,3 +42,6 @@ psutil>=5.9.0
 
 # Typing
 typing-extensions>=4.0.0
+
+# OpenCTI Integration
+pycti>=6.0.0

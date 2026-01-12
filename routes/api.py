@@ -3326,3 +3326,243 @@ def get_noise_task_status(task_id):
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# OpenCTI Integration API
+# ============================================
+
+@api_bp.route('/settings/opencti', methods=['GET'])
+@login_required
+def get_opencti_settings():
+    """Get OpenCTI integration settings"""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        return jsonify({
+            'success': True,
+            'settings': {
+                'enabled': SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False),
+                'url': SystemSettings.get(SettingKeys.OPENCTI_URL, ''),
+                'api_key': SystemSettings.get(SettingKeys.OPENCTI_API_KEY, ''),
+                'ssl_verify': SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False),
+                'auto_enrich': SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False)
+            }
+        })
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error getting settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/opencti', methods=['POST'])
+@login_required
+def set_opencti_settings():
+    """Set OpenCTI integration settings"""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        data = request.get_json()
+        
+        # Save settings
+        if 'enabled' in data:
+            SystemSettings.set(SettingKeys.OPENCTI_ENABLED, data['enabled'], 
+                             value_type='bool', updated_by=current_user.username)
+        
+        if 'url' in data:
+            url = data['url'].strip().rstrip('/')
+            SystemSettings.set(SettingKeys.OPENCTI_URL, url, 
+                             value_type='string', updated_by=current_user.username)
+        
+        if 'api_key' in data:
+            SystemSettings.set(SettingKeys.OPENCTI_API_KEY, data['api_key'].strip(), 
+                             value_type='string', updated_by=current_user.username)
+        
+        if 'ssl_verify' in data:
+            SystemSettings.set(SettingKeys.OPENCTI_SSL_VERIFY, data['ssl_verify'], 
+                             value_type='bool', updated_by=current_user.username)
+        
+        if 'auto_enrich' in data:
+            SystemSettings.set(SettingKeys.OPENCTI_AUTO_ENRICH, data['auto_enrich'], 
+                             value_type='bool', updated_by=current_user.username)
+        
+        logger.info(f"[OpenCTI] Settings updated by {current_user.username}")
+        
+        return jsonify({'success': True, 'message': 'OpenCTI settings saved'})
+        
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error saving settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/opencti/test', methods=['POST'])
+@login_required
+def test_opencti_connection():
+    """Test OpenCTI connection with provided or saved credentials"""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from utils.opencti import OpenCTIClient
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        data = request.get_json() or {}
+        
+        # Use provided values or fall back to saved settings
+        url = data.get('url', '').strip() or SystemSettings.get(SettingKeys.OPENCTI_URL, '')
+        api_key = data.get('api_key', '').strip() or SystemSettings.get(SettingKeys.OPENCTI_API_KEY, '')
+        ssl_verify = data.get('ssl_verify', SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False))
+        
+        if not url or not api_key:
+            return jsonify({
+                'success': False, 
+                'message': 'URL and API key are required'
+            })
+        
+        # Create client and test connection
+        client = OpenCTIClient(url, api_key, ssl_verify)
+        
+        if client.init_error:
+            return jsonify({
+                'success': False,
+                'message': f'Connection failed: {client.init_error}'
+            })
+        
+        if client.ping():
+            return jsonify({
+                'success': True,
+                'message': 'Connection successful! OpenCTI is accessible'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Connection failed - Could not reach OpenCTI or invalid credentials'
+            })
+            
+    except Exception as e:
+        logger.error(f"[OpenCTI] Connection test failed: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Connection failed: {str(e)}'
+        })
+
+
+@api_bp.route('/ioc/<int:ioc_id>/enrich', methods=['POST'])
+@login_required
+def enrich_ioc(ioc_id):
+    """Enrich a single IOC with OpenCTI threat intelligence"""
+    try:
+        from models.ioc import IOC
+        from utils.opencti import enrich_ioc as do_enrich
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        # Check if OpenCTI is enabled
+        if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
+            return jsonify({
+                'success': False, 
+                'error': 'OpenCTI integration is not enabled'
+            }), 400
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        result = do_enrich(ioc)
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'message': f'IOC enriched successfully',
+                'enrichment': json.loads(ioc.opencti_enrichment) if ioc.opencti_enrichment else None,
+                'enriched_at': ioc.opencti_enriched_at.isoformat() if ioc.opencti_enriched_at else None
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Enrichment failed - check logs for details'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error enriching IOC {ioc_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/ioc/<int:ioc_id>/enrichment', methods=['GET'])
+@login_required
+def get_ioc_enrichment(ioc_id):
+    """Get OpenCTI enrichment data for an IOC"""
+    try:
+        from models.ioc import IOC
+        
+        ioc = IOC.query.get(ioc_id)
+        if not ioc:
+            return jsonify({'success': False, 'error': 'IOC not found'}), 404
+        
+        if not ioc.opencti_enrichment:
+            return jsonify({
+                'success': False, 
+                'error': 'No enrichment data available'
+            }), 404
+        
+        enrichment = json.loads(ioc.opencti_enrichment)
+        
+        return jsonify({
+            'success': True,
+            'ioc_id': ioc_id,
+            'ioc_value': ioc.value,
+            'ioc_type': ioc.ioc_type,
+            'enrichment': enrichment,
+            'enriched_at': ioc.opencti_enriched_at.isoformat() if ioc.opencti_enriched_at else None
+        })
+        
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error getting enrichment for IOC {ioc_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/bulk-enrich', methods=['POST'])
+@login_required
+def bulk_enrich_iocs():
+    """Bulk enrich multiple IOCs with OpenCTI threat intelligence"""
+    try:
+        from models.ioc import IOC
+        from utils.opencti import enrich_iocs_batch
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        # Check if OpenCTI is enabled
+        if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
+            return jsonify({
+                'success': False, 
+                'error': 'OpenCTI integration is not enabled'
+            }), 400
+        
+        data = request.get_json()
+        ioc_ids = data.get('ioc_ids', [])
+        
+        if not ioc_ids or not isinstance(ioc_ids, list):
+            return jsonify({
+                'success': False, 
+                'error': 'IOC IDs array required'
+            }), 400
+        
+        # Get IOCs
+        iocs = IOC.query.filter(IOC.id.in_(ioc_ids)).all()
+        
+        if not iocs:
+            return jsonify({
+                'success': False, 
+                'error': 'No valid IOCs found'
+            }), 404
+        
+        result = enrich_iocs_batch(iocs)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error in bulk enrichment: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

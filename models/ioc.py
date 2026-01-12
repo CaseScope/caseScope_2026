@@ -320,6 +320,10 @@ class IOC(db.Model):
     false_positive = db.Column(db.Boolean, nullable=False, default=False)
     active = db.Column(db.Boolean, nullable=False, default=True)
     
+    # OpenCTI integration
+    opencti_enrichment = db.Column(db.Text, nullable=True)  # JSON: enriched data from OpenCTI
+    opencti_enriched_at = db.Column(db.DateTime, nullable=True)
+    
     # Relationships
     system_sightings = db.relationship('IOCSystemSighting', backref='ioc', 
                                        lazy='dynamic', cascade='all, delete-orphan')
@@ -388,6 +392,16 @@ class IOC(db.Model):
     
     def to_dict(self):
         """Convert to dictionary for API responses"""
+        import json
+        
+        # Parse OpenCTI enrichment if available
+        opencti_data = None
+        if self.opencti_enrichment:
+            try:
+                opencti_data = json.loads(self.opencti_enrichment)
+            except (json.JSONDecodeError, TypeError):
+                opencti_data = None
+        
         return {
             'id': self.id,
             'uuid': self.uuid,
@@ -404,6 +418,8 @@ class IOC(db.Model):
             'malicious': self.malicious,
             'false_positive': self.false_positive,
             'active': self.active,
+            'opencti_enrichment': opencti_data,
+            'opencti_enriched_at': self.opencti_enriched_at.isoformat() if self.opencti_enriched_at else None,
             'system_count': self.system_sightings.count(),
             'case_count': self.cases.count(),
             'systems': [s.to_dict() for s in self.system_sightings.limit(10)],
