@@ -435,6 +435,7 @@ function showEventDetail(index) {
     
     // Set flag for IOC highlighting in detailRow
     currentEventHasIOC = event.ioc_types && event.ioc_types.length > 0;
+    console.log('IOC Debug - Event IOC types:', event.ioc_types, 'Has IOC:', currentEventHasIOC, 'IOC values count:', caseIOCValues.length);
     
     // Update modal title with event type and timestamp
     document.getElementById('event-modal-title').textContent = 
@@ -470,8 +471,11 @@ function loadCaseIOCs() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                caseIOCValues = data.values || [];
-                console.log(`Loaded ${caseIOCValues.length} IOC values for highlighting`);
+                // Filter out very short terms and common words that cause false positives
+                caseIOCValues = (data.values || []).filter(v => v && v.length >= 4);
+                console.log(`Loaded ${caseIOCValues.length} IOC values for highlighting:`, caseIOCValues.slice(0, 5));
+            } else {
+                console.error('Failed to load IOC values:', data.error);
             }
         })
         .catch(err => console.error('Error loading IOC values:', err));
@@ -481,22 +485,51 @@ function loadCaseIOCs() {
 function highlightIOCsInText(text) {
     if (!text || !caseIOCValues.length) return escapeHtml(String(text));
     
-    let result = escapeHtml(String(text));
-    const textLower = text.toLowerCase();
+    const textStr = String(text);
+    const textLower = textStr.toLowerCase();
     
-    // Sort IOCs by length (longest first) to avoid partial replacements
-    const sortedIOCs = [...caseIOCValues].sort((a, b) => b.length - a.length);
+    // Find all matches with their positions
+    const matches = [];
     
-    for (const ioc of sortedIOCs) {
-        if (!ioc || ioc.length < 3) continue; // Skip very short values
+    for (const ioc of caseIOCValues) {
+        if (!ioc || ioc.length < 4) continue;
         
         const iocLower = ioc.toLowerCase();
-        const escapedIOC = escapeHtml(ioc);
-        
-        // Case-insensitive search and replace with highlighting
-        const regex = new RegExp(escapeRegex(escapedIOC), 'gi');
-        result = result.replace(regex, match => `<span class="ioc-highlight">${match}</span>`);
+        let pos = 0;
+        while ((pos = textLower.indexOf(iocLower, pos)) !== -1) {
+            matches.push({
+                start: pos,
+                end: pos + ioc.length,
+                text: textStr.substring(pos, pos + ioc.length)
+            });
+            pos += 1;
+        }
     }
+    
+    if (matches.length === 0) return escapeHtml(textStr);
+    
+    // Sort by start position, merge overlapping ranges
+    matches.sort((a, b) => a.start - b.start);
+    const merged = [matches[0]];
+    for (let i = 1; i < matches.length; i++) {
+        const last = merged[merged.length - 1];
+        if (matches[i].start <= last.end) {
+            last.end = Math.max(last.end, matches[i].end);
+            last.text = textStr.substring(last.start, last.end);
+        } else {
+            merged.push(matches[i]);
+        }
+    }
+    
+    // Build result with highlights
+    let result = '';
+    let lastEnd = 0;
+    for (const m of merged) {
+        result += escapeHtml(textStr.substring(lastEnd, m.start));
+        result += `<span class="ioc-highlight">${escapeHtml(m.text)}</span>`;
+        lastEnd = m.end;
+    }
+    result += escapeHtml(textStr.substring(lastEnd));
     
     return result;
 }

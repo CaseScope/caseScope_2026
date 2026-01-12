@@ -75,8 +75,8 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
         
         # Also try just the name without extension for common executables
         name_no_ext = os.path.splitext(filename)[0]
-        if name_no_ext and len(name_no_ext) > 2:
-            # Only add if it's a meaningful name (not just "a" or similar)
+        if name_no_ext and len(name_no_ext) >= 4:
+            # Only add if it's a meaningful name (avoids false positives from short names)
             terms.append(name_no_ext.lower())
     
     elif ioc_type == 'File Name':
@@ -130,10 +130,11 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[str]:
             terms.append(domain.lower())
     
     # Deduplicate while preserving order
+    # Filter out very short terms (< 4 chars) to avoid false positives like 'reg' matching 'Registry'
     seen = set()
     unique_terms = []
     for term in terms:
-        if term and term not in seen and len(term) >= 2:
+        if term and term not in seen and len(term) >= 4:
             seen.add(term)
             unique_terms.append(term)
     
