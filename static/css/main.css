@@ -3207,6 +3207,23 @@ tbody td {
   margin: 0;
 }
 
+.tile-helper-text {
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.tile-helper-text code {
+  font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  font-style: normal;
+  background: var(--bg-tertiary);
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: var(--accent-color);
+}
+
 .events-tile .tile-body {
   padding: 16px;
 }
