@@ -225,7 +225,31 @@ def search_artifacts_for_ioc(
     
     where_clause, params = build_search_conditions(search_terms)
     
-    # If aliases exist, add alias validation
+    # For certain types, also search dedicated columns for more precise matching
+    # Column matches are added as OR conditions (don't require alias validation)
+    column_conditions = []
+    
+    if ioc_type == 'Username':
+        # Search username column directly (exact match)
+        params['username_val'] = ioc_value.lower()
+        column_conditions.append(f"lower(username) = {{username_val:String}}")
+        # If we have aliases (which may include SID), search sid column too
+        if aliases:
+            for i, alias in enumerate(aliases):
+                if alias and alias.startswith('S-1-'):  # SID pattern
+                    params[f'sid_val_{i}'] = alias
+                    column_conditions.append(f"sid = {{sid_val_{i}:String}}")
+    elif ioc_type == 'Hostname':
+        # Search source_host column directly (exact match)
+        params['hostname_val'] = ioc_value.lower()
+        column_conditions.append(f"lower(source_host) = {{hostname_val:String}}")
+    elif ioc_type == 'SID':
+        # Search sid column directly (exact match)
+        params['sid_exact'] = ioc_value
+        column_conditions.append(f"sid = {{sid_exact:String}}")
+    
+    # Build the search_blob clause with optional alias validation
+    search_blob_clause = where_clause
     if aliases and len(aliases) > 0:
         alias_conditions = []
         for i, alias in enumerate(aliases):
@@ -235,7 +259,14 @@ def search_artifacts_for_ioc(
             alias_conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
         
         alias_clause = ' OR '.join(alias_conditions)
-        where_clause = f"({where_clause}) AND ({alias_clause})"
+        search_blob_clause = f"({where_clause}) AND ({alias_clause})"
+    
+    # Combine: column matches OR (search_blob matches with alias validation)
+    if column_conditions:
+        column_clause = ' OR '.join(column_conditions)
+        where_clause = f"({column_clause}) OR ({search_blob_clause})"
+    else:
+        where_clause = search_blob_clause
     
     params['case_id'] = case_id
     

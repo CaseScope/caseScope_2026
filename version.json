@@ -1,6 +1,15 @@
 {
-  "version": "3.39.3",
+  "version": "3.39.4",
   "changelog": [
+    {
+      "version": "3.39.4",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC: Username IOCs now include SID as alias for combined matching",
+        "IOC: Username/Hostname matching searches dedicated columns (username, sid, source_host)",
+        "IOC: Removed separate SID IOC - SID now stored as Username alias"
+      ]
+    },
     {
       "version": "3.39.3",
       "date": "2026-01-12",

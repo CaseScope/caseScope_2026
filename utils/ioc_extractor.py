@@ -1327,33 +1327,21 @@ def save_extracted_iocs(
                     new_user.link_to_case(case_id)
                     
                     # Create Username IOC for compromised user
+                    # Include SID as alias if available - matching will search sid column too
+                    user_aliases = [sid] if sid else None
                     try:
                         user_ioc, created = IOC.get_or_create(
                             value=normalized or username_val,
                             ioc_type='Username',
                             category=get_category_for_type('Username'),
-                            created_by=username
+                            created_by=username,
+                            aliases=user_aliases
                         )
                         user_ioc.link_to_case(case_id)
                         if created:
                             logger.info(f"Created Username IOC for compromised user: {normalized or username_val}")
                     except ValueError as e:
                         logger.debug(f"Username IOC error: {e}")
-                    
-                    # Create SID IOC if available
-                    if sid:
-                        try:
-                            sid_ioc, created = IOC.get_or_create(
-                                value=sid,
-                                ioc_type='SID',
-                                category=get_category_for_type('SID'),
-                                created_by=username
-                            )
-                            sid_ioc.link_to_case(case_id)
-                            if created:
-                                logger.info(f"Created SID IOC: {sid}")
-                        except ValueError as e:
-                            logger.debug(f"SID IOC error: {e}")
                     
                     KnownUserAudit.log_change(
                         user_id=new_user.id,
@@ -1375,34 +1363,22 @@ def save_extracted_iocs(
                             user.notes = f"Marked compromised from EDR report extraction by {username}"
                         
                         # Create Username IOC for compromised user
+                        # Include SID as alias if available - matching will search sid column too
+                        user_sid = sid or user.sid
+                        user_aliases = [user_sid] if user_sid else None
                         try:
                             user_ioc, created = IOC.get_or_create(
                                 value=user.username,
                                 ioc_type='Username',
                                 category=get_category_for_type('Username'),
-                                created_by=username
+                                created_by=username,
+                                aliases=user_aliases
                             )
                             user_ioc.link_to_case(case_id)
                             if created:
                                 logger.info(f"Created Username IOC for compromised user: {user.username}")
                         except ValueError as e:
                             logger.debug(f"Username IOC error: {e}")
-                        
-                        # Create SID IOC if available
-                        user_sid = sid or user.sid
-                        if user_sid:
-                            try:
-                                sid_ioc, created = IOC.get_or_create(
-                                    value=user_sid,
-                                    ioc_type='SID',
-                                    category=get_category_for_type('SID'),
-                                    created_by=username
-                                )
-                                sid_ioc.link_to_case(case_id)
-                                if created:
-                                    logger.info(f"Created SID IOC: {user_sid}")
-                            except ValueError as e:
-                                logger.debug(f"SID IOC error: {e}")
                         
                         KnownUserAudit.log_change(
                             user_id=user.id,
