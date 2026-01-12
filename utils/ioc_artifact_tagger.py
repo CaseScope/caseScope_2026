@@ -225,47 +225,49 @@ def search_artifacts_for_ioc(
     
     where_clause, params = build_search_conditions(search_terms)
     
-    # For certain types, also search dedicated columns for more precise matching
-    # Column matches are added as OR conditions (don't require alias validation)
-    column_conditions = []
+    # For identity types (Username, Hostname, SID), ONLY use dedicated column matching
+    # to avoid false positives from substring matching in search_blob
+    # (e.g., "SYSTEM" matching in URLs like "schemas.microsoft.com/systemai")
+    column_only_types = {'Username', 'Hostname', 'SID'}
     
-    if ioc_type == 'Username':
-        # Search username column directly (exact match)
-        params['username_val'] = ioc_value.lower()
-        column_conditions.append(f"lower(username) = {{username_val:String}}")
-        # If we have aliases (which may include SID), search sid column too
-        if aliases:
-            for i, alias in enumerate(aliases):
-                if alias and alias.startswith('S-1-'):  # SID pattern
-                    params[f'sid_val_{i}'] = alias
-                    column_conditions.append(f"sid = {{sid_val_{i}:String}}")
-    elif ioc_type == 'Hostname':
-        # Search source_host column directly (exact match)
-        params['hostname_val'] = ioc_value.lower()
-        column_conditions.append(f"lower(source_host) = {{hostname_val:String}}")
-    elif ioc_type == 'SID':
-        # Search sid column directly (exact match)
-        params['sid_exact'] = ioc_value
-        column_conditions.append(f"sid = {{sid_exact:String}}")
-    
-    # Build the search_blob clause with optional alias validation
-    search_blob_clause = where_clause
-    if aliases and len(aliases) > 0:
-        alias_conditions = []
-        for i, alias in enumerate(aliases):
-            escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-            param_name = f'alias_{i}'
-            params[param_name] = f'%{escaped_alias}%'
-            alias_conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
+    if ioc_type in column_only_types:
+        column_conditions = []
         
-        alias_clause = ' OR '.join(alias_conditions)
-        search_blob_clause = f"({where_clause}) AND ({alias_clause})"
-    
-    # Combine: column matches OR (search_blob matches with alias validation)
-    if column_conditions:
-        column_clause = ' OR '.join(column_conditions)
-        where_clause = f"({column_clause}) OR ({search_blob_clause})"
+        if ioc_type == 'Username':
+            # Search username column directly (exact match)
+            params['username_val'] = ioc_value.lower()
+            column_conditions.append(f"lower(username) = {{username_val:String}}")
+            # If we have aliases (which may include SID), search sid column too
+            if aliases:
+                for i, alias in enumerate(aliases):
+                    if alias and alias.startswith('S-1-'):  # SID pattern
+                        params[f'sid_val_{i}'] = alias
+                        column_conditions.append(f"sid = {{sid_val_{i}:String}}")
+        elif ioc_type == 'Hostname':
+            # Search source_host column directly (exact match)
+            params['hostname_val'] = ioc_value.lower()
+            column_conditions.append(f"lower(source_host) = {{hostname_val:String}}")
+        elif ioc_type == 'SID':
+            # Search sid column directly (exact match)
+            params['sid_exact'] = ioc_value
+            column_conditions.append(f"sid = {{sid_exact:String}}")
+        
+        # For identity types, ONLY use column matching (no search_blob)
+        where_clause = ' OR '.join(column_conditions) if column_conditions else '1=0'
     else:
+        # For other IOC types, use search_blob matching with optional alias validation
+        search_blob_clause = where_clause
+        if aliases and len(aliases) > 0:
+            alias_conditions = []
+            for i, alias in enumerate(aliases):
+                escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                param_name = f'alias_{i}'
+                params[param_name] = f'%{escaped_alias}%'
+                alias_conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
+            
+            alias_clause = ' OR '.join(alias_conditions)
+            search_blob_clause = f"({where_clause}) AND ({alias_clause})"
+        
         where_clause = search_blob_clause
     
     params['case_id'] = case_id
@@ -349,54 +351,74 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, alias
     Adds the IOC type to the ioc_types array for matching events.
     Uses arrayPushBack to append without duplicates.
     
-    If aliases are provided, uses two-tier matching:
-    1. Find events matching the primary IOC value
-    2. Only mark events where an alias also matches (contextual validation)
+    For identity types (Username, Hostname, SID), uses dedicated column matching only
+    to avoid false positives from substring matching in search_blob.
     
-    If no aliases, marks all events matching the primary value.
+    For other types, uses search_blob matching with optional alias validation.
     
     Returns number of events updated.
     """
     client = get_fresh_client()
     
-    search_terms = extract_searchable_terms(ioc_value, ioc_type)
-    if not search_terms:
-        return 0
-    
     # Get short type name for badge
     short_type = get_short_ioc_type(ioc_type)
     
-    # Build the primary search conditions
-    primary_conditions = []
-    for term, is_filename in search_terms:
-        escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-        if is_filename:
-            # Word-boundary matching for filenames
-            primary_conditions.append(
-                f"(lower(search_blob) LIKE '%\\\\{escaped_term}%' "
-                f"OR lower(search_blob) LIKE '%/{escaped_term}%' "
-                f"OR lower(search_blob) LIKE '% {escaped_term}%' "
-                f"OR lower(search_blob) LIKE '%\"{escaped_term}%')"
-            )
-        else:
-            primary_conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
+    # Identity types use column-only matching to avoid false positives
+    column_only_types = {'Username', 'Hostname', 'SID'}
     
-    primary_where = ' OR '.join(primary_conditions)
-    
-    # If aliases exist, add alias validation conditions
-    # Events must match BOTH the primary IOC AND at least one alias
-    if aliases and len(aliases) > 0:
-        alias_conditions = []
-        for alias in aliases:
-            # Aliases should be matched as substrings
-            escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-            alias_conditions.append(f"lower(search_blob) LIKE '%{escaped_alias}%'")
+    if ioc_type in column_only_types:
+        # Build column-based conditions only
+        column_conditions = []
+        escaped_value = ioc_value.replace("'", "\\'")
         
-        alias_where = ' OR '.join(alias_conditions)
-        full_where = f"({primary_where}) AND ({alias_where})"
+        if ioc_type == 'Username':
+            column_conditions.append(f"lower(username) = lower('{escaped_value}')")
+            # If we have aliases (which may include SID), search sid column too
+            if aliases:
+                for alias in aliases:
+                    if alias and alias.startswith('S-1-'):  # SID pattern
+                        escaped_alias = alias.replace("'", "\\'")
+                        column_conditions.append(f"sid = '{escaped_alias}'")
+        elif ioc_type == 'Hostname':
+            column_conditions.append(f"lower(source_host) = lower('{escaped_value}')")
+        elif ioc_type == 'SID':
+            column_conditions.append(f"sid = '{escaped_value}'")
+        
+        full_where = ' OR '.join(column_conditions) if column_conditions else '1=0'
     else:
-        # No aliases - any match on primary value counts
-        full_where = primary_where
+        # For other IOC types, use search_blob matching
+        search_terms = extract_searchable_terms(ioc_value, ioc_type)
+        if not search_terms:
+            return 0
+        
+        # Build the primary search conditions
+        primary_conditions = []
+        for term, is_filename in search_terms:
+            escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+            if is_filename:
+                # Word-boundary matching for filenames
+                primary_conditions.append(
+                    f"(lower(search_blob) LIKE '%\\\\{escaped_term}%' "
+                    f"OR lower(search_blob) LIKE '%/{escaped_term}%' "
+                    f"OR lower(search_blob) LIKE '% {escaped_term}%' "
+                    f"OR lower(search_blob) LIKE '%\"{escaped_term}%')"
+                )
+            else:
+                primary_conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
+        
+        primary_where = ' OR '.join(primary_conditions)
+        
+        # If aliases exist, add alias validation conditions
+        if aliases and len(aliases) > 0:
+            alias_conditions = []
+            for alias in aliases:
+                escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+                alias_conditions.append(f"lower(search_blob) LIKE '%{escaped_alias}%'")
+            
+            alias_where = ' OR '.join(alias_conditions)
+            full_where = f"({primary_where}) AND ({alias_where})"
+        else:
+            full_where = primary_where
     
     try:
         # First check how many will be updated

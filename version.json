@@ -1,6 +1,14 @@
 {
-  "version": "3.39.7",
+  "version": "3.39.8",
   "changelog": [
+    {
+      "version": "3.39.8",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC Tagging: Username/Hostname/SID IOCs now use dedicated column matching only",
+        "IOC Tagging: Prevents false positives from substring matching (e.g., SYSTEM in URLs)"
+      ]
+    },
     {
       "version": "3.39.7",
       "date": "2026-01-12",
