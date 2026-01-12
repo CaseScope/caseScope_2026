@@ -129,9 +129,16 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         # Update case_file status in PostgreSQL
         if case_file_id:
             if result.success:
-                ingestion_status = 'full' if result.events_count > 0 else 'full'
-                if result.warnings:
-                    ingestion_status = 'partial'
+                # Check if parser rejected file (artifact_type is None)
+                if result.artifact_type is None:
+                    ingestion_status = 'no_parser'
+                elif result.events_count > 0:
+                    ingestion_status = 'full'
+                    if result.warnings:
+                        ingestion_status = 'partial'
+                else:
+                    ingestion_status = 'full'  # Parser ran, just no events
+                    
                 _update_case_file_status(
                     case_file_id=case_file_id,
                     status='done',

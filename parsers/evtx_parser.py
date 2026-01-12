@@ -526,8 +526,8 @@ class EvtxECmdParser(BaseParser):
                 file_hash_md5=hash_md5 or '',
                 file_hash_sha1=hash_sha1 or '',
                 file_hash_sha256=hash_sha256 or '',
-                src_ip=src_ip or '',
-                dst_ip=dst_ip or '',
+                src_ip=src_ip,  # None for Nullable(IPv4)
+                dst_ip=dst_ip,  # None for Nullable(IPv4)
                 src_port=src_port,
                 dst_port=dst_port,
                 # Detection enrichment from Hayabusa

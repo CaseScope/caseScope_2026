@@ -1,6 +1,14 @@
 {
-  "version": "3.56.01",
+  "version": "3.56.02",
   "changelog": [
+    {
+      "version": "3.56.02",
+      "date": "2026-01-12",
+      "changes": [
+        "Bugfix: Non-browser .db files (iconcache, thumbcache) now marked no_parser instead of parse_error",
+        "Bugfix: EVTX parser now properly handles NULL IP values for ClickHouse Nullable(IPv4) columns"
+      ]
+    },
     {
       "version": "3.56.01",
       "date": "2026-01-12",

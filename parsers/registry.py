@@ -580,12 +580,15 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         )
     
     # Verify parser can actually handle this file
+    # If can_parse returns False, treat as no_parser (not an error)
     if not parser.can_parse(file_path):
         return ParseResult(
-            success=False,
+            success=True,  # Not an error - just no parser for this specific file
             file_path=file_path,
-            artifact_type=artifact_type,
-            errors=[f'Parser {artifact_type} cannot parse this file'],
+            artifact_type=None,  # Indicates no parser handled it
+            events_count=0,
+            errors=[],
+            warnings=[f'No parser available for this file (detected as {artifact_type} but rejected)'],
             duration_seconds=time.time() - start_time
         )
     
