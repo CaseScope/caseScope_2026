@@ -454,3 +454,226 @@ def api_filter_types():
         'filter_types': NoiseFilterType.choices(),
         'match_modes': NoiseMatchMode.choices()
     })
+
+
+@noise_bp.route('/api/test-matching')
+@login_required
+def api_test_matching():
+    """Test noise rules against ClickHouse events and show match counts
+    
+    This helps analysts see how many events would be filtered by active rules.
+    """
+    try:
+        from utils.clickhouse import get_client
+        
+        client = get_client()
+        
+        # Get case_id filter if provided
+        case_id = request.args.get('case_id', type=int)
+        
+        # Get active rules
+        active_rules = NoiseRule.get_active_rules()
+        
+        if not active_rules:
+            return jsonify({
+                'success': True,
+                'message': 'No active noise rules',
+                'total_events': 0,
+                'rules': []
+            })
+        
+        # Map filter types to ClickHouse columns
+        filter_type_columns = {
+            'process_name': 'process_name',
+            'file_path': 'process_path',
+            'command_line': 'command_line',
+            'hash': 'file_hash_sha256',
+            'service_name': 'process_name',  # Services often appear as process names
+            'network': 'search_blob',  # IP/domain in search blob
+            'registry': 'reg_key'
+        }
+        
+        # Get total events
+        case_filter = f"WHERE case_id = {case_id}" if case_id else ""
+        total_result = client.query(f"SELECT count() FROM events {case_filter}")
+        total_events = total_result.result_rows[0][0] if total_result.result_rows else 0
+        
+        # Test each active rule
+        rule_results = []
+        total_matches = 0
+        
+        for rule in active_rules:
+            column = filter_type_columns.get(rule.filter_type, 'search_blob')
+            or_patterns, and_conditions = rule.parse_pattern()
+            
+            # Build LIKE conditions for OR patterns
+            or_clauses = []
+            for pattern in or_patterns:
+                # Escape pattern for SQL
+                escaped = pattern.replace("'", "''").replace('%', '%%')
+                if rule.is_case_sensitive:
+                    or_clauses.append(f"{column} LIKE '%{escaped}%'")
+                else:
+                    or_clauses.append(f"lower({column}) LIKE '%{escaped.lower()}%'")
+            
+            if not or_clauses:
+                continue
+            
+            # Build AND conditions (check against search_blob for full event)
+            and_clauses = []
+            for condition in and_conditions:
+                escaped = condition.replace("'", "''").replace('%', '%%')
+                if rule.is_case_sensitive:
+                    and_clauses.append(f"search_blob LIKE '%{escaped}%'")
+                else:
+                    and_clauses.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
+            
+            # Combine: (OR patterns) AND (all AND conditions)
+            where_parts = []
+            if case_id:
+                where_parts.append(f"case_id = {case_id}")
+            
+            or_combined = f"({' OR '.join(or_clauses)})"
+            where_parts.append(or_combined)
+            
+            if and_clauses:
+                where_parts.extend(and_clauses)
+            
+            where_clause = " AND ".join(where_parts)
+            
+            query = f"SELECT count() FROM events WHERE {where_clause}"
+            
+            try:
+                result = client.query(query)
+                match_count = result.result_rows[0][0] if result.result_rows else 0
+            except Exception as e:
+                logger.error(f"Error testing rule {rule.name}: {e}")
+                match_count = -1  # Error indicator
+            
+            rule_results.append({
+                'id': rule.id,
+                'name': rule.name,
+                'category': rule.category.name if rule.category else None,
+                'category_icon': rule.category.icon if rule.category else None,
+                'filter_type': rule.filter_type,
+                'pattern': rule.pattern,
+                'match_count': match_count,
+                'percentage': round((match_count / total_events * 100), 2) if total_events > 0 and match_count > 0 else 0
+            })
+            
+            if match_count > 0:
+                total_matches += match_count
+        
+        # Sort by match count descending
+        rule_results.sort(key=lambda x: x['match_count'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'case_id': case_id,
+            'total_events': total_events,
+            'total_potential_matches': total_matches,
+            'noise_percentage': round((total_matches / total_events * 100), 2) if total_events > 0 else 0,
+            'active_rules_count': len(active_rules),
+            'rules': rule_results
+        })
+        
+    except Exception as e:
+        logger.error(f"Error testing noise matching: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@noise_bp.route('/api/test-rule/<int:rule_id>')
+@login_required  
+def api_test_single_rule(rule_id):
+    """Test a single rule and show sample matching events"""
+    try:
+        from utils.clickhouse import get_client
+        
+        rule = NoiseRule.query.get_or_404(rule_id)
+        client = get_client()
+        
+        case_id = request.args.get('case_id', type=int)
+        limit = min(request.args.get('limit', 10, type=int), 50)
+        
+        # Map filter types to columns
+        filter_type_columns = {
+            'process_name': 'process_name',
+            'file_path': 'process_path',
+            'command_line': 'command_line',
+            'hash': 'file_hash_sha256',
+            'service_name': 'process_name',
+            'network': 'search_blob',
+            'registry': 'reg_key'
+        }
+        
+        column = filter_type_columns.get(rule.filter_type, 'search_blob')
+        or_patterns, and_conditions = rule.parse_pattern()
+        
+        # Build query
+        or_clauses = []
+        for pattern in or_patterns:
+            escaped = pattern.replace("'", "''").replace('%', '%%')
+            if rule.is_case_sensitive:
+                or_clauses.append(f"{column} LIKE '%{escaped}%'")
+            else:
+                or_clauses.append(f"lower({column}) LIKE '%{escaped.lower()}%'")
+        
+        and_clauses = []
+        for condition in and_conditions:
+            escaped = condition.replace("'", "''").replace('%', '%%')
+            if rule.is_case_sensitive:
+                and_clauses.append(f"search_blob LIKE '%{escaped}%'")
+            else:
+                and_clauses.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
+        
+        where_parts = []
+        if case_id:
+            where_parts.append(f"case_id = {case_id}")
+        
+        if or_clauses:
+            where_parts.append(f"({' OR '.join(or_clauses)})")
+        
+        if and_clauses:
+            where_parts.extend(and_clauses)
+        
+        where_clause = " AND ".join(where_parts) if where_parts else "1=1"
+        
+        # Get count
+        count_query = f"SELECT count() FROM events WHERE {where_clause}"
+        count_result = client.query(count_query)
+        match_count = count_result.result_rows[0][0] if count_result.result_rows else 0
+        
+        # Get sample events
+        sample_query = f"""
+            SELECT timestamp, source_host, process_name, process_path, command_line, search_blob
+            FROM events 
+            WHERE {where_clause}
+            ORDER BY timestamp DESC
+            LIMIT {limit}
+        """
+        
+        sample_result = client.query(sample_query)
+        
+        samples = []
+        for row in sample_result.result_rows:
+            samples.append({
+                'timestamp': str(row[0]) if row[0] else None,
+                'source_host': row[1],
+                'process_name': row[2],
+                'process_path': row[3],
+                'command_line': row[4][:500] if row[4] else None  # Truncate long command lines
+            })
+        
+        return jsonify({
+            'success': True,
+            'rule': rule.to_dict(),
+            'match_count': match_count,
+            'sample_count': len(samples),
+            'samples': samples
+        })
+        
+    except Exception as e:
+        logger.error(f"Error testing single rule: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

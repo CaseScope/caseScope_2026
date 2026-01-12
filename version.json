@@ -1,6 +1,16 @@
 {
-  "version": "3.42.0",
+  "version": "3.43.0",
   "changelog": [
+    {
+      "version": "3.43.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Noise Filters: Added API to test matching against ClickHouse events",
+        "Noise Filters: /api/test-matching shows match counts for all active rules",
+        "Noise Filters: /api/test-rule/{id} shows sample matching events for a rule",
+        "Noise Filters: Added parse_pattern() and matches() methods to NoiseRule model"
+      ]
+    },
     {
       "version": "3.42.0",
       "date": "2026-01-12",
