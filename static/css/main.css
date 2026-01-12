@@ -5139,15 +5139,15 @@ input:checked + .slider:before {
 }
 
 .noise-summary-stat {
-  background: var(--bg-primary);
+  background: transparent;
   padding: 16px 24px;
   border-radius: var(--border-radius);
   text-align: center;
   min-width: 140px;
+  border: 1px solid var(--border-color);
 }
 
 .noise-summary-stat.highlight {
-  background: linear-gradient(135deg, rgba(54, 179, 126, 0.2), rgba(54, 179, 126, 0.1));
   border: 1px solid var(--accent-success);
 }
 
