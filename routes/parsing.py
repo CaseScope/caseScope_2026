@@ -401,19 +401,33 @@ def get_sigma_rules_stats():
         from pathlib import Path
         
         rules_dir = Path(Config.RULES_FOLDER)
-        hayabusa_rules = rules_dir / 'hayabusa'
-        sigma_rules = rules_dir / 'sigma'
         
-        # Count rules
-        hayabusa_count = len(list(hayabusa_rules.rglob('*.yml'))) if hayabusa_rules.exists() else 0
-        sigma_count = len(list(sigma_rules.rglob('*.yml'))) if sigma_rules.exists() else 0
+        # Check all possible rule directories
+        # hayabusa-rules is the primary (updated via hayabusa update-rules)
+        # hayabusa and sigma are legacy/bundled rules
+        hayabusa_rules_dir = rules_dir / 'hayabusa-rules'
+        hayabusa_legacy = rules_dir / 'hayabusa'
+        sigma_legacy = rules_dir / 'sigma'
+        
+        # Count rules - prefer hayabusa-rules if it exists
+        if hayabusa_rules_dir.exists():
+            # New structure from hayabusa update-rules
+            hayabusa_count = len(list((hayabusa_rules_dir / 'hayabusa').rglob('*.yml'))) if (hayabusa_rules_dir / 'hayabusa').exists() else 0
+            sigma_count = len(list((hayabusa_rules_dir / 'sigma').rglob('*.yml'))) if (hayabusa_rules_dir / 'sigma').exists() else 0
+            rules_paths = [hayabusa_rules_dir]
+        else:
+            # Fallback to legacy structure
+            hayabusa_count = len(list(hayabusa_legacy.rglob('*.yml'))) if hayabusa_legacy.exists() else 0
+            sigma_count = len(list(sigma_legacy.rglob('*.yml'))) if sigma_legacy.exists() else 0
+            rules_paths = [hayabusa_legacy, sigma_legacy]
+        
         total_count = hayabusa_count + sigma_count
         
         # Get last modification time (newest file in rules directories)
         last_updated = None
         newest_time = 0
         
-        for rules_path in [hayabusa_rules, sigma_rules]:
+        for rules_path in rules_paths:
             if rules_path.exists():
                 for yml_file in rules_path.rglob('*.yml'):
                     mtime = yml_file.stat().st_mtime

@@ -1,6 +1,13 @@
 {
-  "version": "3.58.0",
+  "version": "3.58.01",
   "changelog": [
+    {
+      "version": "3.58.01",
+      "date": "2026-01-12",
+      "changes": [
+        "Bugfix: Sigma stats now reads from hayabusa-rules directory (created by update-rules)"
+      ]
+    },
     {
       "version": "3.58.0",
       "date": "2026-01-12",
