@@ -1,6 +1,13 @@
 {
-  "version": "3.48.0",
+  "version": "3.48.1",
   "changelog": [
+    {
+      "version": "3.48.1",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Find Failed Logins button searches for Event ID 4625 with noise exclusions"
+      ]
+    },
     {
       "version": "3.48.0",
       "date": "2026-01-12",
