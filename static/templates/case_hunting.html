@@ -155,6 +155,105 @@ const EDR_TYPES = ['huntress'];
 // Track current tab
 let currentTab = 'events';
 
+// ============================================
+// EVTX Event Description Enhancement
+// ============================================
+const EVTX_DESC_CACHE_KEY = 'casescope_evtx_descriptions';
+const EVTX_DESC_CACHE_VERSION = 1;
+
+function getEvtxDescriptionCache() {
+    try {
+        const cached = localStorage.getItem(EVTX_DESC_CACHE_KEY);
+        if (cached) {
+            const data = JSON.parse(cached);
+            if (data.version === EVTX_DESC_CACHE_VERSION) {
+                return data.descriptions || {};
+            }
+        }
+    } catch (e) {
+        console.debug('EVTX cache read error:', e);
+    }
+    return {};
+}
+
+function saveEvtxDescriptionCache(descriptions) {
+    try {
+        localStorage.setItem(EVTX_DESC_CACHE_KEY, JSON.stringify({
+            version: EVTX_DESC_CACHE_VERSION,
+            descriptions: descriptions
+        }));
+    } catch (e) {
+        console.debug('EVTX cache save error:', e);
+    }
+}
+
+async function enhanceEvtxDescriptions(events) {
+    // Collect unique event_id + channel combos for EVTX events
+    const toFetch = [];
+    const cache = getEvtxDescriptionCache();
+    
+    events.forEach(e => {
+        if (e.artifact_type === 'evtx' && e.event_id) {
+            const key = `${e.event_id}:${e.channel || ''}`;
+            if (!cache[key] && !toFetch.find(f => f.key === key)) {
+                toFetch.push({
+                    key: key,
+                    event_id: e.event_id,
+                    channel: e.channel || ''
+                });
+            }
+        }
+    });
+    
+    // If nothing to fetch, apply from cache
+    if (toFetch.length === 0) {
+        applyEvtxDescriptions(events, cache);
+        return;
+    }
+    
+    // Fetch missing descriptions
+    try {
+        const response = await fetch('/api/parsing/evtx-descriptions/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                events: toFetch.map(f => ({ event_id: f.event_id, channel: f.channel }))
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.descriptions) {
+            // Merge into cache
+            Object.assign(cache, data.descriptions);
+            saveEvtxDescriptionCache(cache);
+        }
+    } catch (err) {
+        console.debug('EVTX description fetch error:', err);
+    }
+    
+    // Apply descriptions to DOM
+    applyEvtxDescriptions(events, cache);
+}
+
+function applyEvtxDescriptions(events, cache) {
+    events.forEach((e, index) => {
+        if (e.artifact_type === 'evtx' && e.event_id) {
+            const key = `${e.event_id}:${e.channel || ''}`;
+            const desc = cache[key];
+            
+            if (desc && desc.title) {
+                // Find the row and add enhanced description
+                const row = document.querySelector(`#events-tbody tr:nth-child(${index + 1}) .col-description`);
+                if (row && !row.querySelector('.evtx-enhanced-desc')) {
+                    const enhancedHtml = `<div class="evtx-enhanced-desc">${escapeHtml(desc.title)}</div>`;
+                    row.insertAdjacentHTML('beforeend', enhancedHtml);
+                }
+            }
+        }
+    });
+}
+
 // Tab switching
 document.addEventListener('DOMContentLoaded', function() {
     // Load IOC values for highlighting in modal
@@ -350,6 +449,8 @@ function loadEvents() {
             if (data.success) {
                 renderEventsTable(data.events);
                 updateEventsPagination(data);
+                // Enhance EVTX events with cached descriptions
+                enhanceEvtxDescriptions(data.events);
             } else {
                 showEventsError('Error loading events: ' + data.error);
             }

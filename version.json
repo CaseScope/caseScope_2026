@@ -1,6 +1,16 @@
 {
-  "version": "3.60.0",
+  "version": "3.61.0",
   "changelog": [
+    {
+      "version": "3.61.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: EVTX events now show enhanced descriptions from scraped database",
+        "Enhanced descriptions appear below event description in italicized accent color",
+        "Descriptions cached in localStorage for fast display (no re-fetch on page navigation)",
+        "Batch API endpoint: /api/parsing/evtx-descriptions/batch for efficient lookups"
+      ]
+    },
     {
       "version": "3.60.0",
       "date": "2026-01-12",

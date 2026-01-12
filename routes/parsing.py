@@ -633,3 +633,61 @@ def lookup_evtx_description():
     except Exception as e:
         logger.exception("Error looking up EVTX description")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/batch', methods=['POST'])
+@login_required
+def batch_lookup_evtx_descriptions():
+    """Batch lookup event descriptions
+    
+    Request body:
+        events: List of {event_id, channel} objects
+    
+    Returns:
+        JSON with descriptions keyed by "event_id:channel"
+    """
+    try:
+        from utils.evtx_descriptions import get_event_description
+        
+        data = request.get_json() or {}
+        events = data.get('events', [])
+        
+        if not events:
+            return jsonify({'success': True, 'descriptions': {}})
+        
+        # Limit batch size
+        if len(events) > 200:
+            events = events[:200]
+        
+        descriptions = {}
+        
+        for event in events:
+            event_id = str(event.get('event_id', ''))
+            channel = event.get('channel', '')
+            
+            if not event_id:
+                continue
+            
+            # Create cache key
+            cache_key = f"{event_id}:{channel}"
+            
+            # Skip if we already looked this up
+            if cache_key in descriptions:
+                continue
+            
+            title, description = get_event_description(event_id, channel)
+            
+            if title:
+                descriptions[cache_key] = {
+                    'title': title,
+                    'description': description
+                }
+        
+        return jsonify({
+            'success': True,
+            'descriptions': descriptions
+        })
+        
+    except Exception as e:
+        logger.exception("Error in batch EVTX description lookup")
+        return jsonify({'success': False, 'error': str(e)}), 500
