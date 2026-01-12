@@ -2744,6 +2744,8 @@ def restart_worker_service():
 def _update_worker_service_concurrency(concurrency: int) -> dict:
     """Update the systemd service file with new concurrency value
     
+    Uses a privileged helper script to update the service file.
+    
     Args:
         concurrency: New worker concurrency value
         
@@ -2751,67 +2753,24 @@ def _update_worker_service_concurrency(concurrency: int) -> dict:
         dict with success status and any error message
     """
     import subprocess
-    import re
-    
-    service_file = '/etc/systemd/system/casescope-workers.service'
     
     try:
-        # Read current service file
-        with open(service_file, 'r') as f:
-            content = f.read()
-        
-        # Update concurrency in ExecStart line
-        new_content = re.sub(
-            r'(--concurrency=)\d+',
-            f'\\g<1>{concurrency}',
-            content
-        )
-        
-        if new_content == content:
-            # Pattern not found, try to add it
-            new_content = re.sub(
-                r'(ExecStart=.*worker.*--loglevel=\w+)',
-                f'\\g<1> --concurrency={concurrency}',
-                content
-            )
-        
-        # Write to temp file and use sudo to move it
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.service', delete=False) as tf:
-            tf.write(new_content)
-            temp_path = tf.name
-        
-        # Copy temp file to systemd location with sudo
+        # Use the helper script which has sudo permissions
         result = subprocess.run(
-            ['sudo', 'cp', temp_path, service_file],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        # Clean up temp file
-        import os
-        os.unlink(temp_path)
-        
-        if result.returncode != 0:
-            return {'success': False, 'error': f'Failed to update service file: {result.stderr}'}
-        
-        # Reload systemd daemon
-        result = subprocess.run(
-            ['sudo', 'systemctl', 'daemon-reload'],
+            ['sudo', '/opt/casescope/bin/update_worker_concurrency.sh', str(concurrency)],
             capture_output=True,
             text=True,
             timeout=10
         )
         
         if result.returncode != 0:
-            return {'success': False, 'error': f'Failed to reload systemd: {result.stderr}'}
+            return {'success': False, 'error': f'Failed to update service: {result.stderr or result.stdout}'}
         
         logger.info(f"Updated worker concurrency to {concurrency}")
         return {'success': True}
         
     except FileNotFoundError:
-        return {'success': False, 'error': 'Service file not found'}
+        return {'success': False, 'error': 'Helper script not found'}
     except Exception as e:
         logger.exception("Error updating worker service")
         return {'success': False, 'error': str(e)}
