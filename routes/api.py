@@ -1085,15 +1085,18 @@ def get_hunting_events(case_id):
                 'offset': offset
             }
             
-            # Main search term (if any)
+            # Main search term (if any) - split by spaces for multiple terms
             if main_search:
-                # If it's a pure number, search event_id field specifically
-                if main_search.isdigit():
-                    params['event_id_search'] = main_search
-                    search_conditions.append("event_id = {event_id_search:String}")
-                else:
-                    params['pattern'] = f'%{main_search}%'
-                    search_conditions.append("search_blob LIKE {pattern:String}")
+                terms = main_search.split()
+                for i, term in enumerate(terms):
+                    if term.isdigit():
+                        # Numeric terms match event_id exactly
+                        params[f'event_id_{i}'] = term
+                        search_conditions.append(f"event_id = {{event_id_{i}:String}}")
+                    else:
+                        # Text terms match search_blob
+                        params[f'pattern_{i}'] = f'%{term}%'
+                        search_conditions.append(f"search_blob LIKE {{pattern_{i}:String}}")
             
             # Add exclusion conditions
             for i, excl in enumerate(excludes):

@@ -1,6 +1,14 @@
 {
-  "version": "3.48.3",
+  "version": "3.49.0",
   "changelog": [
+    {
+      "version": "3.49.0",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting Events: Search now supports multiple terms (numbers=event_id, text=content)",
+        "Hunting Events: Find Logins/Failed Logins now limited to Security logs only"
+      ]
+    },
     {
       "version": "3.48.3",
       "date": "2026-01-12",
