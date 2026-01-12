@@ -120,12 +120,13 @@
                         <th class="col-artifacts">Artifacts</th>
                         <th class="col-systems">Systems</th>
                         <th class="col-status">Status</th>
+                        <th class="col-enriched">Enriched</th>
                         <th class="col-actions">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="iocBody">
                     <tr class="loading-row">
-                        <td colspan="10" class="text-center text-muted">Loading IOCs...</td>
+                        <td colspan="11" class="text-center text-muted">Loading IOCs...</td>
                     </tr>
                 </tbody>
             </table>
@@ -686,7 +687,7 @@ function renderIOCs(iocs) {
     if (iocs.length === 0) {
         tbody.innerHTML = `
             <tr class="empty-row">
-                <td colspan="10" class="text-center text-muted">
+                <td colspan="11" class="text-center text-muted">
                     No IOCs found. Click "Add IOC" to create one.
                 </td>
             </tr>
@@ -715,6 +716,9 @@ function renderIOCs(iocs) {
                 ${ioc.malicious ? '<span class="badge badge-danger">Malicious</span>' : ''}
                 ${ioc.false_positive ? '<span class="badge badge-muted">FP</span>' : ''}
                 ${ioc.active && !ioc.malicious && !ioc.false_positive ? '<span class="badge badge-info">Unknown</span>' : ''}
+            </td>
+            <td class="enriched-cell">
+                ${getEnrichmentBadges(ioc)}
             </td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openDetailModal(${ioc.id})">View</button>
@@ -1122,6 +1126,32 @@ function getCategoryIcon(category) {
         'Mobile': '📱'
     };
     return icons[category] || '📌';
+}
+
+function getEnrichmentBadges(ioc) {
+    let badges = [];
+    
+    // Check OpenCTI enrichment
+    if (ioc.opencti_enrichment) {
+        const enrichment = ioc.opencti_enrichment;
+        if (enrichment.found) {
+            // Found in OpenCTI - show with score if available
+            const score = enrichment.score || 0;
+            let badgeClass = 'badge-opencti-found';
+            if (score >= 70) badgeClass = 'badge-opencti-high';
+            else if (score >= 40) badgeClass = 'badge-opencti-medium';
+            
+            badges.push(`<span class="badge ${badgeClass}" title="OpenCTI Score: ${score}/100">🧠 OpenCTI</span>`);
+        } else {
+            // Checked but not found
+            badges.push(`<span class="badge badge-opencti-clean" title="Not found in OpenCTI">🧠 Clean</span>`);
+        }
+    }
+    
+    // Add more enrichment sources here in the future
+    // e.g., VirusTotal, AbuseIPDB, etc.
+    
+    return badges.length > 0 ? badges.join(' ') : '<span class="text-muted">-</span>';
 }
 
 function escapeHtml(str) {

@@ -1,6 +1,15 @@
 {
-  "version": "3.59.01",
+  "version": "3.59.02",
   "changelog": [
+    {
+      "version": "3.59.02",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC Management: Added Enriched column showing OpenCTI enrichment status",
+        "Badge shows: OpenCTI (found with score color), Clean (not found), or dash (not checked)",
+        "Color-coded by risk: red (high 70+), orange (medium 40-69), teal (low)"
+      ]
+    },
     {
       "version": "3.59.01",
       "date": "2026-01-12",

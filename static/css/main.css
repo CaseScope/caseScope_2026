@@ -723,6 +723,27 @@ tbody td {
   color: var(--text-muted);
 }
 
+/* OpenCTI Enrichment Badges */
+.badge-opencti-found {
+  background-color: rgba(0, 184, 217, 0.2);
+  color: #00b8d9;
+}
+
+.badge-opencti-high {
+  background-color: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+.badge-opencti-medium {
+  background-color: rgba(245, 158, 11, 0.25);
+  color: #f59e0b;
+}
+
+.badge-opencti-clean {
+  background-color: rgba(54, 179, 126, 0.15);
+  color: var(--accent-success);
+}
+
 /* Parser Badge */
 .parser-badge {
   display: inline-block;
