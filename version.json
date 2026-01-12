@@ -1,6 +1,13 @@
 {
-  "version": "3.39.6",
+  "version": "3.39.7",
   "changelog": [
+    {
+      "version": "3.39.7",
+      "date": "2026-01-12",
+      "changes": [
+        "Hunting: IOC highlighting now skips metadata fields (timestamp, artifact type, source file/path)"
+      ]
+    },
     {
       "version": "3.39.6",
       "date": "2026-01-12",

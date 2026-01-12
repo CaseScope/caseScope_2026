@@ -542,15 +542,15 @@ function escapeRegex(string) {
 function buildEventDetailHTML(event) {
     let html = '';
     
-    // Source Information
+    // Source Information (skip IOC highlighting for metadata/paths)
     html += `
         <div class="event-detail-section">
             <h4>📍 Source</h4>
-            ${detailRow('Timestamp', event.timestamp)}
+            ${detailRow('Timestamp', event.timestamp, true)}
             ${detailRow('Host', event.source_host)}
-            ${detailRow('Artifact Type', event.artifact_type)}
-            ${detailRow('Source File', event.source_file)}
-            ${detailRow('Source Path', event.source_path)}
+            ${detailRow('Artifact Type', event.artifact_type, true)}
+            ${detailRow('Source File', event.source_file, true)}
+            ${detailRow('Source Path', event.source_path, true)}
         </div>
     `;
     
@@ -751,7 +751,7 @@ function formatLogonType(logonType) {
 // Track current event for IOC highlighting
 let currentEventHasIOC = false;
 
-function detailRow(label, value) {
+function detailRow(label, value, skipHighlight = false) {
     if (value === null || value === undefined || value === '') {
         return `
             <div class="event-detail-row">
@@ -761,8 +761,8 @@ function detailRow(label, value) {
         `;
     }
     
-    // Use IOC highlighting if current event has IOC matches
-    const displayValue = currentEventHasIOC 
+    // Use IOC highlighting if current event has IOC matches (unless skipped)
+    const displayValue = (currentEventHasIOC && !skipHighlight)
         ? highlightIOCsInText(String(value))
         : escapeHtml(String(value));
     
