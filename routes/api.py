@@ -1957,7 +1957,7 @@ def update_ioc(ioc_id):
             return jsonify({'success': False, 'error': 'Field name required'}), 400
         
         # Allowed fields to update
-        allowed_fields = ['notes', 'malicious', 'false_positive']
+        allowed_fields = ['notes', 'malicious', 'false_positive', 'aliases']
         if field_name not in allowed_fields:
             return jsonify({'success': False, 'error': f'Cannot update field: {field_name}'}), 400
         
@@ -1966,6 +1966,13 @@ def update_ioc(ioc_id):
         # Handle boolean fields
         if field_name in ['malicious', 'false_positive']:
             new_value = bool(new_value)
+        
+        # Handle aliases field (list of strings)
+        if field_name == 'aliases':
+            if not isinstance(new_value, list):
+                return jsonify({'success': False, 'error': 'Aliases must be a list'}), 400
+            # Normalize aliases (lowercase, deduplicate)
+            new_value = list(set([str(a).lower().strip() for a in new_value if a]))
         
         setattr(ioc, field_name, new_value)
         

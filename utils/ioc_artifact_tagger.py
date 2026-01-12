@@ -172,11 +172,16 @@ def search_artifacts_for_ioc(
     case_id: int,
     ioc_value: str,
     ioc_type: str,
+    aliases: List[str] = None,
     limit: int = 1000
 ) -> Dict[str, Any]:
     """Search ClickHouse artifacts for an IOC.
     
     Uses case-insensitive partial matching on search_blob.
+    
+    If aliases are provided, uses two-tier matching:
+    1. Find events matching the primary IOC value
+    2. Count only events where an alias also matches
     
     Returns:
         {
@@ -189,7 +194,7 @@ def search_artifacts_for_ioc(
     """
     client = get_fresh_client()
     
-    # Get searchable terms
+    # Get searchable terms from primary value
     search_terms = extract_searchable_terms(ioc_value, ioc_type)
     
     if not search_terms:
@@ -202,6 +207,19 @@ def search_artifacts_for_ioc(
         }
     
     where_clause, params = build_search_conditions(search_terms)
+    
+    # If aliases exist, add alias validation
+    if aliases and len(aliases) > 0:
+        alias_conditions = []
+        for i, alias in enumerate(aliases):
+            escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            param_name = f'alias_{i}'
+            params[param_name] = f'%{escaped_alias}%'
+            alias_conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
+        
+        alias_clause = ' OR '.join(alias_conditions)
+        where_clause = f"({where_clause}) AND ({alias_clause})"
+    
     params['case_id'] = case_id
     
     # Get aggregate stats
@@ -277,11 +295,17 @@ def reset_ioc_types_for_case(case_id: int) -> bool:
         return False
 
 
-def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str) -> int:
+def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, aliases: List[str] = None) -> int:
     """Mark matching events with an IOC type.
     
     Adds the IOC type to the ioc_types array for matching events.
     Uses arrayPushBack to append without duplicates.
+    
+    If aliases are provided, uses two-tier matching:
+    1. Find events matching the primary IOC value
+    2. Only mark events where an alias also matches (contextual validation)
+    
+    If no aliases, marks all events matching the primary value.
     
     Returns number of events updated.
     """
@@ -291,46 +315,55 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str) -> in
     if not search_terms:
         return 0
     
-    where_clause, params = build_search_conditions(search_terms)
-    params['case_id'] = case_id
-    
     # Get short type name for badge
     short_type = get_short_ioc_type(ioc_type)
+    
+    # Build the primary search conditions
+    primary_conditions = []
+    for term in search_terms:
+        escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+        primary_conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
+    
+    primary_where = ' OR '.join(primary_conditions)
+    
+    # If aliases exist, add alias validation conditions
+    # Events must match BOTH the primary IOC AND at least one alias
+    if aliases and len(aliases) > 0:
+        alias_conditions = []
+        for alias in aliases:
+            # Aliases should be matched as substrings
+            escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+            alias_conditions.append(f"lower(search_blob) LIKE '%{escaped_alias}%'")
+        
+        alias_where = ' OR '.join(alias_conditions)
+        full_where = f"({primary_where}) AND ({alias_where})"
+    else:
+        # No aliases - any match on primary value counts
+        full_where = primary_where
     
     try:
         # First check how many will be updated
         count_query = f"""
             SELECT count() FROM events 
-            WHERE case_id = {{case_id:UInt32}} 
-              AND ({where_clause})
+            WHERE case_id = {case_id}
+              AND ({full_where})
               AND NOT has(ioc_types, '{short_type}')
         """
-        count_result = client.query(count_query, parameters=params)
+        count_result = client.query(count_query)
         update_count = count_result.result_rows[0][0] if count_result.result_rows else 0
         
         if update_count > 0:
-            # Update events to add IOC type (only if not already present)
-            update_query = f"""
+            # Update events to add IOC type
+            inline_query = f"""
                 ALTER TABLE events UPDATE 
                     ioc_types = arrayPushBack(ioc_types, '{short_type}')
                 WHERE case_id = {case_id}
-                  AND ({where_clause.replace('{', '').replace('}', '').replace(':String', '')})
+                  AND ({full_where})
                   AND NOT has(ioc_types, '{short_type}')
             """
-            # For ALTER TABLE UPDATE, we need to inline the parameters
-            # Build the query with inlined values
-            inline_query = f"ALTER TABLE events UPDATE ioc_types = arrayPushBack(ioc_types, '{short_type}') WHERE case_id = {case_id} AND ("
-            
-            conditions = []
-            for i, term in enumerate(search_terms):
-                escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-                conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
-            
-            inline_query += ' OR '.join(conditions)
-            inline_query += f") AND NOT has(ioc_types, '{short_type}')"
             
             client.command(inline_query)
-            logger.debug(f"Marked {update_count} events with IOC type '{short_type}'")
+            logger.debug(f"Marked {update_count} events with IOC type '{short_type}' (aliases: {len(aliases) if aliases else 0})")
         
         return update_count
         
@@ -388,18 +421,20 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
             search_result = search_artifacts_for_ioc(
                 case_id=case_id,
                 ioc_value=ioc.value,
-                ioc_type=ioc.ioc_type
+                ioc_type=ioc.ioc_type,
+                aliases=ioc.aliases
             )
             
             if search_result['match_count'] > 0:
                 results['iocs_with_matches'] += 1
                 results['total_artifact_matches'] += search_result['match_count']
                 
-                # Mark matching events with IOC type
+                # Mark matching events with IOC type (with alias validation if available)
                 events_marked = mark_events_with_ioc_type(
                     case_id=case_id,
                     ioc_value=ioc.value,
-                    ioc_type=ioc.ioc_type
+                    ioc_type=ioc.ioc_type,
+                    aliases=ioc.aliases
                 )
                 results['events_tagged'] += events_marked
                 

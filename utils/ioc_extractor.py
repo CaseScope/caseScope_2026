@@ -372,6 +372,105 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
 
 
 # ============================================
+# Alias Generation for Contextual Matching
+# ============================================
+
+def generate_ioc_with_aliases(value: str, ioc_type: str) -> Dict[str, Any]:
+    """
+    Generate primary IOC value and aliases for contextual matching.
+    
+    For command lines: Primary = root executable, Aliases = full command + path-stripped
+    For file paths: Primary = filename, Aliases = full path
+    
+    Returns:
+        {
+            'primary_value': str,       # The searchable IOC (e.g., 'cmd.exe')
+            'primary_type': str,        # IOC type for primary (e.g., 'File Name')
+            'aliases': List[str],       # Contextual aliases
+            'original_value': str       # Original value
+        }
+    """
+    import os
+    import re
+    
+    result = {
+        'primary_value': value,
+        'primary_type': ioc_type,
+        'aliases': [],
+        'original_value': value
+    }
+    
+    if not value:
+        return result
+    
+    value_clean = value.strip()
+    
+    if ioc_type == 'Command Line':
+        # Extract the root executable from the command line
+        # E.g., "C:\Windows\cmd.exe /c powershell.exe -enc ABC" -> "cmd.exe"
+        
+        aliases = []
+        
+        # Add full command as alias (lowercase for matching)
+        aliases.append(value_clean.lower())
+        
+        # Create path-stripped version
+        # Replace full paths with just filenames
+        path_stripped = value_clean
+        # Match Windows paths like C:\path\to\file.exe
+        exe_path_pattern = r'[A-Za-z]:\\(?:[^\\/:*?"<>|\s]+\\)*([^\\/:*?"<>|\s]+\.(?:exe|bat|cmd|ps1|vbs|dll|msi))'
+        
+        def strip_path(match):
+            return match.group(1)
+        
+        path_stripped = re.sub(exe_path_pattern, strip_path, path_stripped, flags=re.IGNORECASE)
+        
+        if path_stripped.lower() != value_clean.lower():
+            aliases.append(path_stripped.lower())
+        
+        # Extract the first executable as the primary IOC
+        # Look for first .exe, .bat, .cmd, .ps1 etc in the command
+        first_exe_match = re.search(
+            r'(?:^|[\\\/\s"])([a-zA-Z0-9_\-\.]+\.(?:exe|bat|cmd|ps1|vbs|dll|msi))',
+            value_clean,
+            re.IGNORECASE
+        )
+        
+        if first_exe_match:
+            primary_exe = first_exe_match.group(1).lower()
+            result['primary_value'] = primary_exe
+            result['primary_type'] = 'File Name'  # Commands become File Name IOCs
+        else:
+            # Fallback: use first token
+            first_token = value_clean.split()[0].strip('"\'') if value_clean.split() else value_clean
+            first_token_name = os.path.basename(first_token.replace('\\', '/'))
+            if first_token_name:
+                result['primary_value'] = first_token_name.lower()
+                result['primary_type'] = 'File Name'
+        
+        result['aliases'] = list(set(aliases))
+        
+    elif ioc_type in ('File Path', 'Process Path'):
+        # Primary = filename, Alias = full path
+        filename = os.path.basename(value_clean.replace('\\', '/'))
+        
+        if filename:
+            result['primary_value'] = filename.lower()
+            result['primary_type'] = 'File Name'
+            result['aliases'] = [value_clean.lower()]
+        
+    elif ioc_type == 'File Name':
+        # Already a filename, no aliases needed
+        result['primary_value'] = value_clean.lower()
+        
+    else:
+        # For other types (IP, hash, domain, etc.), use as-is
+        result['primary_value'] = value_clean
+    
+    return result
+
+
+# ============================================
 # IOC Processing and Deduplication
 # ============================================
 
@@ -504,7 +603,7 @@ def process_extraction_for_import(
         if ioc_entry:
             iocs_to_import.append(ioc_entry)
     
-    # Process file paths
+    # Process file paths - generate primary IOC (filename) with path as alias
     for fp_item in iocs_data.get('file_paths', []):
         if isinstance(fp_item, dict):
             value = fp_item.get('value', '').strip()
@@ -519,18 +618,36 @@ def process_extraction_for_import(
             continue
         seen_values.add(value.lower())
         
+        # Generate primary IOC (filename) with full path as alias
+        alias_result = generate_ioc_with_aliases(value, 'File Path')
+        primary_value = alias_result['primary_value']
+        aliases = alias_result['aliases']
+        
+        # Check if we've already seen this primary value
+        if primary_value.lower() in seen_values:
+            # Add the new path alias to the existing IOC entry
+            for entry in iocs_to_import:
+                if entry.get('value', '').lower() == primary_value.lower():
+                    existing_aliases = entry.get('aliases', [])
+                    entry['aliases'] = list(set(existing_aliases + aliases))
+                    break
+            continue
+        seen_values.add(primary_value.lower())
+        
         context_with_action = f"Action: {action}" if action else ""
         if context:
             context_with_action += f" | {context}" if context_with_action else context
+        context_with_action += f" | Path: {value}"
         
         ioc_entry = _create_ioc_entry(
-            value=value,
-            ioc_type='File Path',
+            value=primary_value,
+            ioc_type=alias_result['primary_type'],
             category='File',
             context=context_with_action,
             case_id=case_id
         )
         if ioc_entry:
+            ioc_entry['aliases'] = aliases
             iocs_to_import.append(ioc_entry)
     
     # Process file names
@@ -579,7 +696,7 @@ def process_extraction_for_import(
         if ioc_entry:
             iocs_to_import.append(ioc_entry)
     
-    # Process commands
+    # Process commands - generate primary IOC (executable) with command aliases
     for cmd_item in iocs_data.get('commands', []):
         if isinstance(cmd_item, dict):
             value = cmd_item.get('value', '').strip()
@@ -594,18 +711,36 @@ def process_extraction_for_import(
             continue
         seen_values.add(value.lower())
         
+        # Generate primary IOC (executable) with full command as alias
+        alias_result = generate_ioc_with_aliases(value, 'Command Line')
+        primary_value = alias_result['primary_value']
+        aliases = alias_result['aliases']
+        
+        # Skip if we've already seen this primary value
+        if primary_value.lower() in seen_values:
+            # But still add the aliases to the existing IOC entry if possible
+            for entry in iocs_to_import:
+                if entry.get('value', '').lower() == primary_value.lower():
+                    existing_aliases = entry.get('aliases', [])
+                    entry['aliases'] = list(set(existing_aliases + aliases))
+                    break
+            continue
+        seen_values.add(primary_value.lower())
+        
         context_with_exe = f"Executable: {executable}" if executable else ""
         if context:
             context_with_exe += f" | {context}" if context_with_exe else context
+        context_with_exe += f" | Original command: {value[:200]}..." if len(value) > 200 else f" | Original command: {value}"
         
         ioc_entry = _create_ioc_entry(
-            value=value,
-            ioc_type='Command Line',
-            category='Process',
+            value=primary_value,
+            ioc_type=alias_result['primary_type'],
+            category='File',  # Executables are File category
             context=context_with_exe,
             case_id=case_id
         )
         if ioc_entry:
+            ioc_entry['aliases'] = aliases
             iocs_to_import.append(ioc_entry)
     
     # Process credentials (passwords, SSH keys, API keys)
@@ -899,6 +1034,11 @@ def save_extracted_iocs(
                             existing_ioc.notes = f"Extracted context: {ioc_entry['context']}"
                         updated_count += 1
                     
+                    # Merge any new aliases
+                    if ioc_entry.get('aliases'):
+                        for alias in ioc_entry['aliases']:
+                            existing_ioc.add_alias(alias)
+                    
                     # Link to case if not already
                     if not ioc_entry.get('already_linked'):
                         if existing_ioc.link_to_case(case_id):
@@ -908,13 +1048,15 @@ def save_extracted_iocs(
                 value = ioc_entry['value']
                 ioc_type = ioc_entry['ioc_type']
                 category = ioc_entry['category']
+                aliases = ioc_entry.get('aliases', [])
                 
                 try:
                     ioc, created = IOC.get_or_create(
                         value=value,
                         ioc_type=ioc_type,
                         category=category,
-                        created_by=username
+                        created_by=username,
+                        aliases=aliases
                     )
                     
                     if created:
@@ -929,6 +1071,15 @@ def save_extracted_iocs(
                             action='create',
                             new_value=f'{ioc_type}: {value}'
                         )
+                        
+                        if aliases:
+                            IOCAudit.log_change(
+                                ioc_id=ioc.id,
+                                changed_by=username,
+                                field_name='aliases',
+                                action='create',
+                                new_value=f'{len(aliases)} aliases added'
+                            )
                     
                     # Link to case
                     if ioc.link_to_case(case_id):

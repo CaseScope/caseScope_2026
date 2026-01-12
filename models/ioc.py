@@ -304,6 +304,10 @@ class IOC(db.Model):
     # Counts
     artifact_count = db.Column(db.Integer, nullable=False, default=0)
     
+    # Aliases for contextual matching (e.g., full command line for a cmd.exe IOC)
+    # Stored as JSON array of strings
+    aliases = db.Column(db.JSON, nullable=True, default=list)
+    
     # Analyst notes
     notes = db.Column(db.Text, nullable=True)
     
@@ -385,6 +389,7 @@ class IOC(db.Model):
             'category': self.category,
             'ioc_type': self.ioc_type,
             'value': self.value,
+            'aliases': self.aliases or [],
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'first_seen_in_artifacts': self.first_seen_in_artifacts.isoformat() if self.first_seen_in_artifacts else None,
@@ -409,8 +414,15 @@ class IOC(db.Model):
         ).first()
     
     @staticmethod
-    def get_or_create(value, ioc_type, category, created_by):
+    def get_or_create(value, ioc_type, category, created_by, aliases=None):
         """Get existing IOC or create new one
+        
+        Args:
+            value: Primary IOC value (e.g., 'cmd.exe')
+            ioc_type: Type of IOC (e.g., 'File Name', 'Command Line')
+            category: Category (e.g., 'File', 'Process')
+            created_by: Username who created this
+            aliases: List of contextual aliases (e.g., full command lines)
         
         Returns: (ioc, created_bool)
         """
@@ -422,6 +434,13 @@ class IOC(db.Model):
         ).first()
         
         if existing:
+            # Merge any new aliases with existing ones
+            if aliases:
+                existing_aliases = existing.aliases or []
+                new_aliases = [a.lower() for a in aliases if a]
+                merged = list(set(existing_aliases + new_aliases))
+                if merged != existing_aliases:
+                    existing.aliases = merged
             return existing, False
         
         # Validate if type has regex
@@ -429,12 +448,18 @@ class IOC(db.Model):
         if not is_valid:
             raise ValueError(error)
         
+        # Normalize aliases
+        normalized_aliases = []
+        if aliases:
+            normalized_aliases = list(set([a.lower() for a in aliases if a]))
+        
         new_ioc = IOC(
             category=category,
             ioc_type=ioc_type,
             value=value,
             value_normalized=normalized,
-            created_by=created_by
+            created_by=created_by,
+            aliases=normalized_aliases if normalized_aliases else None
         )
         
         db.session.add(new_ioc)
@@ -452,6 +477,30 @@ class IOC(db.Model):
             self.last_seen_in_artifacts = now
         
         self.artifact_count += 1
+    
+    def add_alias(self, alias):
+        """Add an alias to this IOC if not already present"""
+        if not alias:
+            return False
+        
+        alias_lower = alias.lower()
+        current_aliases = self.aliases or []
+        
+        if alias_lower not in current_aliases:
+            self.aliases = current_aliases + [alias_lower]
+            return True
+        return False
+    
+    def remove_alias(self, alias):
+        """Remove an alias from this IOC"""
+        if not alias or not self.aliases:
+            return False
+        
+        alias_lower = alias.lower()
+        if alias_lower in self.aliases:
+            self.aliases = [a for a in self.aliases if a != alias_lower]
+            return True
+        return False
     
     def link_to_case(self, case_id):
         """Link this IOC to a case if not already linked"""

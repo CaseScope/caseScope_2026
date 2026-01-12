@@ -248,6 +248,21 @@
                     </div>
                 </div>
                 
+                <!-- Aliases (for contextual matching) -->
+                <div class="ioc-detail-section full-width" id="aliasesSection" style="display: none;">
+                    <h4>Contextual Aliases</h4>
+                    <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.5rem;">
+                        Aliases are used for precise matching. Events must contain the IOC value AND at least one alias.
+                    </p>
+                    <div class="aliases-list" id="detailAliases">
+                        <span class="text-muted">No aliases defined</span>
+                    </div>
+                    <div class="alias-add-form" style="margin-top: 0.5rem;">
+                        <input type="text" class="form-input" id="newAliasInput" placeholder="Add new alias..." style="flex: 1;">
+                        <button class="btn btn-sm btn-secondary" onclick="addAlias()">Add</button>
+                    </div>
+                </div>
+                
                 <!-- Systems Found On -->
                 <div class="ioc-detail-section full-width">
                     <h4>Systems Found On</h4>
@@ -535,6 +550,7 @@ const caseId = {{ case.id }};
 let iocsData = [];
 let typesByCategory = {};
 let currentIOCId = null;
+let currentIOCAliases = [];
 let currentPage = 1;
 let totalPages = 1;
 let perPage = 50;
@@ -836,6 +852,31 @@ function populateDetailModal(ioc) {
     document.getElementById('detailFalsePositive').checked = ioc.false_positive;
     document.getElementById('detailNotes').value = ioc.notes || '';
     
+    // Aliases list
+    const aliasSection = document.getElementById('aliasesSection');
+    const aliasesEl = document.getElementById('detailAliases');
+    
+    if (ioc.aliases && ioc.aliases.length > 0) {
+        aliasSection.style.display = 'block';
+        aliasesEl.innerHTML = ioc.aliases.map((alias, idx) => `
+            <div class="alias-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0.5rem; background: var(--surface-2); border-radius: 4px; margin-bottom: 0.25rem; font-family: monospace; font-size: 0.85rem;">
+                <span class="alias-value" title="${escapeHtml(alias)}">${truncateValue(alias, 80)}</span>
+                <button class="btn btn-xs btn-danger" onclick="removeAlias(${idx})" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;">×</button>
+            </div>
+        `).join('');
+    } else {
+        // Show alias section for File Name / Command Line types
+        if (['File Name', 'Command Line', 'File Path', 'Process Path', 'Process Name'].includes(ioc.ioc_type)) {
+            aliasSection.style.display = 'block';
+            aliasesEl.innerHTML = '<span class="text-muted">No aliases defined (IOC matches any occurrence)</span>';
+        } else {
+            aliasSection.style.display = 'none';
+        }
+    }
+    
+    // Store current IOC aliases for add/remove operations
+    currentIOCAliases = ioc.aliases || [];
+    
     // Systems list
     const systemsEl = document.getElementById('detailSystems');
     if (ioc.systems && ioc.systems.length > 0) {
@@ -870,6 +911,62 @@ function updateIOCField(field, value) {
     .then(data => {
         if (!data.success) {
             alert('Update failed: ' + data.error);
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function addAlias() {
+    if (!currentIOCId) return;
+    
+    const input = document.getElementById('newAliasInput');
+    const newAlias = input.value.trim().toLowerCase();
+    
+    if (!newAlias) {
+        alert('Please enter an alias');
+        return;
+    }
+    
+    if (currentIOCAliases.includes(newAlias)) {
+        alert('Alias already exists');
+        return;
+    }
+    
+    const updatedAliases = [...currentIOCAliases, newAlias];
+    
+    fetch(`/api/iocs/${currentIOCId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: 'aliases', value: updatedAliases })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            input.value = '';
+            openDetailModal(currentIOCId); // Refresh modal
+        } else {
+            alert('Failed to add alias: ' + data.error);
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function removeAlias(index) {
+    if (!currentIOCId) return;
+    
+    const updatedAliases = currentIOCAliases.filter((_, i) => i !== index);
+    
+    fetch(`/api/iocs/${currentIOCId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: 'aliases', value: updatedAliases })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            openDetailModal(currentIOCId); // Refresh modal
+        } else {
+            alert('Failed to remove alias: ' + data.error);
         }
     })
     .catch(err => alert('Error: ' + err.message));

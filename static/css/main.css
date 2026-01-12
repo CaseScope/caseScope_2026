@@ -4125,6 +4125,18 @@ input:checked + .slider:before {
   border-bottom: 1px solid var(--border-color);
 }
 
+.alias-add-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.alias-add-form .form-input {
+  flex: 1;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+}
+
 .ioc-detail-row {
   display: flex;
   padding: 6px 0;
