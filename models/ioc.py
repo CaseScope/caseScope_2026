@@ -204,6 +204,10 @@ IOC_TYPE_DEFINITIONS = {
         'category': IOCCategory.AUTHENTICATION,
         'regex': None
     },
+    'SID': {
+        'category': IOCCategory.AUTHENTICATION,
+        'regex': r'^S-1-\d+-\d+(-\d+)*$'  # Windows Security Identifier
+    },
     'Password Hash': {
         'category': IOCCategory.AUTHENTICATION,
         'regex': None

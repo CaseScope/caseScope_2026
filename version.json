@@ -1,6 +1,15 @@
 {
-  "version": "3.39.2",
+  "version": "3.39.3",
   "changelog": [
+    {
+      "version": "3.39.3",
+      "date": "2026-01-12",
+      "changes": [
+        "IOC: Added SID as new IOC type",
+        "IOC: Compromised Systems/Users now auto-create Hostname/Username/SID IOCs",
+        "IOC: Retroactively created IOCs for existing compromised entities"
+      ]
+    },
     {
       "version": "3.39.2",
       "date": "2026-01-12",

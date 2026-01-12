@@ -36,6 +36,7 @@ IOC_TYPE_SHORT_NAMES = {
     'Registry Key': 'Registry',
     'Registry Value': 'Registry',
     'Username': 'User',
+    'SID': 'User',
     'Email Address': 'Email',
     'Password Hash': 'Credential',
     'SSH Key Fingerprint': 'Credential',
@@ -128,7 +129,7 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[Tuple[str, bool]
     
     # Deduplicate while preserving order
     types_allowing_short = {
-        'Username', 'Hostname', 'IP Address (IPv4)', 'IP Address (IPv6)',
+        'Username', 'Hostname', 'SID', 'IP Address (IPv4)', 'IP Address (IPv6)',
         'Email Address', 'Password Hash', 'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash',
         'API Key', 'SSH Key Fingerprint'
     }
