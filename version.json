@@ -1,6 +1,15 @@
 {
-  "version": "3.67.01",
+  "version": "3.67.02",
   "changelog": [
+    {
+      "version": "3.67.02",
+      "date": "2026-01-13",
+      "changes": [
+        "AI Hunting: Pattern discovery now excludes noise-flagged events",
+        "AI Hunting: Campaign detection now excludes noise-flagged events",
+        "Noise filter injected into all pattern/campaign queries automatically"
+      ]
+    },
     {
       "version": "3.67.01",
       "date": "2026-01-13",

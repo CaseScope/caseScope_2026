@@ -234,18 +234,37 @@ def rag_discover_patterns(
         matches_found = []
         errors = []
         
+        # Noise filter to exclude events marked as noise
+        noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        
         for idx, pattern in enumerate(executable_patterns):
             try:
+                # Inject noise filter into query - add after WHERE clause conditions
+                query_with_noise = pattern.clickhouse_query
+                # Insert noise filter before GROUP BY, HAVING, ORDER BY, or LIMIT
+                for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
+                    if keyword in query_with_noise.upper():
+                        # Find position (case insensitive)
+                        import re
+                        match = re.search(keyword, query_with_noise, re.IGNORECASE)
+                        if match:
+                            pos = match.start()
+                            query_with_noise = query_with_noise[:pos] + noise_filter + ' ' + query_with_noise[pos:]
+                            break
+                else:
+                    # No GROUP BY/HAVING/ORDER BY/LIMIT found, append to end
+                    query_with_noise = query_with_noise.rstrip() + noise_filter
+                
                 # Execute pattern query - check for parameterized syntax first
-                if '{case_id:UInt32}' in pattern.clickhouse_query:
+                if '{case_id:UInt32}' in query_with_noise:
                     # Use ClickHouse parameterized query
                     result = client.query(
-                        pattern.clickhouse_query,
+                        query_with_noise,
                         parameters={'case_id': case_id}
                     )
                 else:
                     # Use Python string formatting for legacy queries
-                    query = pattern.clickhouse_query.format(case_id=case_id)
+                    query = query_with_noise.format(case_id=case_id)
                     result = client.query(query)
                 
                 if result.result_rows:
@@ -374,6 +393,9 @@ def rag_detect_campaigns(
         
         total_templates = len(CAMPAIGN_TEMPLATES)
         
+        # Noise filter to exclude events marked as noise
+        noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        
         for idx, template in enumerate(CAMPAIGN_TEMPLATES):
             try:
                 progress = int(((idx + 1) / total_templates) * 90) + 5
@@ -383,10 +405,22 @@ def rag_detect_campaigns(
                     'campaigns_found': len(campaigns_detected)
                 })
                 
-                # Run detection query
+                # Run detection query with noise filtering
                 if template.get('detection_query'):
+                    # Inject noise filter into query
+                    import re
+                    query_with_noise = template['detection_query']
+                    for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
+                        match = re.search(keyword, query_with_noise, re.IGNORECASE)
+                        if match:
+                            pos = match.start()
+                            query_with_noise = query_with_noise[:pos] + noise_filter + ' ' + query_with_noise[pos:]
+                            break
+                    else:
+                        query_with_noise = query_with_noise.rstrip() + noise_filter
+                    
                     result = client.query(
-                        template['detection_query'],
+                        query_with_noise,
                         parameters={'case_id': case_id}
                     )
                     
