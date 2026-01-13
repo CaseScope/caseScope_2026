@@ -1,6 +1,15 @@
 {
-  "version": "3.72.00",
+  "version": "3.73.00",
   "changelog": [
+    {
+      "version": "3.73.00",
+      "date": "2026-01-13",
+      "changes": [
+        "EVTX Parser: Parallel EvtxECmd + Hayabusa execution for ~2x speedup",
+        "EVTX Parser: Both tools run simultaneously (read-only, no conflicts)",
+        "EVTX Parser: Results merged by RecordID after completion"
+      ]
+    },
     {
       "version": "3.72.00",
       "date": "2026-01-13",

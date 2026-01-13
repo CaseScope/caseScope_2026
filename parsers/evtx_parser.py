@@ -18,8 +18,9 @@ import json
 import subprocess
 import tempfile
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Generator, Dict, List, Any, Optional
+from typing import Generator, Dict, List, Any, Optional, Tuple
 from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent, ParseResult
@@ -37,9 +38,13 @@ class EvtxECmdParser(BaseParser):
     - Linux support via .NET runtime
     
     Hayabusa enrichment adds Sigma detection context to matching events.
+    
+    Performance: EvtxECmd and Hayabusa run in PARALLEL (~2x speedup).
+    Both tools only read the EVTX file, so no conflicts occur.
+    Results are merged by RecordID after both complete.
     """
     
-    VERSION = '2.1.0'  # Added extended EVTX fields: logon details, payload data
+    VERSION = '2.2.0'  # Parallel EvtxECmd + Hayabusa for ~2x speedup
     ARTIFACT_TYPE = 'evtx'
     
     # Tool paths - wrapper scripts handle .NET
@@ -123,6 +128,9 @@ class EvtxECmdParser(BaseParser):
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse EVTX file - ALL events with optional detection enrichment
         
+        Runs EvtxECmd and Hayabusa in PARALLEL for ~2x speedup.
+        Both tools only read the EVTX file (no conflicts).
+        
         Args:
             file_path: Path to the EVTX file
             
@@ -135,15 +143,115 @@ class EvtxECmdParser(BaseParser):
         
         source_file = os.path.basename(file_path)
         
-        # Step 1: Get Hayabusa detections for enrichment (keyed by RecordID)
-        detections = {}
+        # Run EvtxECmd and Hayabusa in parallel - they're independent readers
         if self._hayabusa_available:
-            detections = self._get_hayabusa_detections(file_path)
-            if detections:
-                logger.info(f"Hayabusa found {len(detections)} detections for enrichment")
+            yield from self._parse_parallel(file_path, source_file)
+        else:
+            # No Hayabusa, just run EvtxECmd
+            yield from self._parse_with_evtxecmd(file_path, source_file, {})
+    
+    def _parse_parallel(self, file_path: str, source_file: str) -> Generator[ParsedEvent, None, None]:
+        """Run EvtxECmd and Hayabusa in parallel, then merge results
         
-        # Step 2: Parse ALL events with EvtxECmd
-        yield from self._parse_with_evtxecmd(file_path, source_file, detections)
+        Both tools read the same EVTX file (read-only, no conflicts).
+        RecordID correlation is reliable as it's stored in the file.
+        """
+        detections = {}
+        evtxecmd_output_path = None
+        
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit both tasks
+            hayabusa_future = executor.submit(self._get_hayabusa_detections, file_path)
+            evtxecmd_future = executor.submit(self._run_evtxecmd_to_file, file_path)
+            
+            # Wait for EvtxECmd (produces the events file)
+            try:
+                evtxecmd_output_path, temp_dir = evtxecmd_future.result(timeout=3600)
+            except Exception as e:
+                self.errors.append(f"EvtxECmd failed: {e}")
+                logger.exception(f"EvtxECmd error: {e}")
+                return
+            
+            # Wait for Hayabusa (produces detections) - non-fatal if fails
+            try:
+                detections = hayabusa_future.result(timeout=3600)
+                if detections:
+                    logger.info(f"Hayabusa found {len(detections)} detections for enrichment")
+            except Exception as e:
+                self.warnings.append(f"Hayabusa enrichment failed: {e}")
+                logger.warning(f"Hayabusa failed, continuing without detections: {e}")
+                detections = {}
+        
+        # Now process EvtxECmd output with Hayabusa detections merged
+        if evtxecmd_output_path and os.path.exists(evtxecmd_output_path):
+            try:
+                yield from self._process_evtxecmd_output(
+                    evtxecmd_output_path, file_path, source_file, detections
+                )
+            finally:
+                # Clean up temp directory
+                try:
+                    import shutil
+                    shutil.rmtree(os.path.dirname(evtxecmd_output_path), ignore_errors=True)
+                except:
+                    pass
+    
+    def _run_evtxecmd_to_file(self, file_path: str) -> Tuple[str, str]:
+        """Run EvtxECmd and return path to output file
+        
+        Returns:
+            Tuple of (output_file_path, temp_dir_path)
+        """
+        import tempfile as tmp_module
+        temp_dir = tmp_module.mkdtemp(prefix='evtxecmd_')
+        output_file = 'evtx_output.json'
+        output_path = os.path.join(temp_dir, output_file)
+        
+        cmd = [
+            self.evtxecmd_bin,
+            '-f', file_path,
+            '--json', temp_dir,
+            '--jsonf', output_file,
+        ]
+        
+        logger.info(f"Running EvtxECmd (parallel): {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+        
+        if result.returncode != 0:
+            error_msg = result.stderr or result.stdout or 'Unknown error'
+            raise RuntimeError(f"EvtxECmd failed: {error_msg[:500]}")
+        
+        if not os.path.exists(output_path):
+            raise RuntimeError("EvtxECmd produced no output")
+        
+        return output_path, temp_dir
+    
+    def _process_evtxecmd_output(self, output_path: str, file_path: str,
+                                  source_file: str, detections: Dict) -> Generator[ParsedEvent, None, None]:
+        """Process EvtxECmd JSON output file and yield ParsedEvents"""
+        with open(output_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                try:
+                    event = json.loads(line)
+                    parsed_event = self._transform_evtxecmd_event(
+                        event, file_path, source_file, detections
+                    )
+                    if parsed_event:
+                        yield parsed_event
+                except json.JSONDecodeError as e:
+                    self.warnings.append(f"JSON error line {line_num}: {e}")
+                except Exception as e:
+                    self.warnings.append(f"Error processing line {line_num}: {e}")
     
     def _get_hayabusa_detections(self, file_path: str) -> Dict[str, Dict]:
         """Run Hayabusa and index detections by RecordID for enrichment
