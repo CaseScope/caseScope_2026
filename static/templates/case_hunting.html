@@ -726,12 +726,18 @@ function loadRawEventData() {
     if (!currentModalEvent) return;
     
     // Use timestamp, source_host, and record_id to identify the event
+    // Handle record_id carefully - it might be 0, null, or a valid number
+    const recordId = currentModalEvent.record_id != null ? String(currentModalEvent.record_id) : '';
+    
     const params = new URLSearchParams({
         timestamp: currentModalEvent.timestamp,
         source_host: currentModalEvent.source_host || '',
-        record_id: currentModalEvent.record_id || '',
-        artifact_type: currentModalEvent.artifact_type || ''
+        record_id: recordId,
+        artifact_type: currentModalEvent.artifact_type || '',
+        event_id: currentModalEvent.event_id || ''
     });
+    
+    console.log('Loading raw event data with params:', Object.fromEntries(params));
     
     fetch(`/api/hunting/event/raw/${caseId}?${params.toString()}`)
         .then(response => response.json())

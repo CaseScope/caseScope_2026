@@ -1664,6 +1664,7 @@ def get_raw_event_data(case_id):
     try:
         from utils.clickhouse import get_client
         import json
+        from datetime import datetime, timedelta, timezone
         
         # Verify case exists
         case = Case.query.get(case_id)
@@ -1675,6 +1676,7 @@ def get_raw_event_data(case_id):
         source_host = request.args.get('source_host', '', type=str).strip()
         record_id = request.args.get('record_id', '', type=str).strip()
         artifact_type = request.args.get('artifact_type', '', type=str).strip()
+        event_id = request.args.get('event_id', '', type=str).strip()
         
         if not timestamp:
             return jsonify({'success': False, 'error': 'Timestamp is required'}), 400
@@ -1685,12 +1687,16 @@ def get_raw_event_data(case_id):
         conditions = ["case_id = {case_id:UInt32}"]
         params = {'case_id': case_id}
         
-        # Parse timestamp - handle the formatted timestamp
+        # Parse timestamp - use a 2-second window to handle sub-second precision
+        # ClickHouse stores DateTime64 with microseconds, we only have seconds
         try:
-            from datetime import datetime
             ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
-            params['timestamp'] = ts
-            conditions.append("timestamp = {timestamp:DateTime}")
+            # Make timezone-aware (UTC)
+            ts = ts.replace(tzinfo=timezone.utc)
+            ts_end = ts + timedelta(seconds=2)
+            params['ts_start'] = ts
+            params['ts_end'] = ts_end
+            conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
         except ValueError:
             return jsonify({'success': False, 'error': 'Invalid timestamp format'}), 400
         
@@ -1698,10 +1704,13 @@ def get_raw_event_data(case_id):
             params['source_host'] = source_host
             conditions.append("source_host = {source_host:String}")
         
-        if record_id:
+        # record_id is the most reliable identifier if present and not 0
+        if record_id and record_id != '0':
             try:
-                params['record_id'] = int(record_id)
-                conditions.append("record_id = {record_id:UInt64}")
+                rid = int(record_id)
+                if rid > 0:
+                    params['record_id'] = rid
+                    conditions.append("record_id = {record_id:UInt64}")
             except (ValueError, TypeError):
                 pass
         
@@ -1709,11 +1718,24 @@ def get_raw_event_data(case_id):
             params['artifact_type'] = artifact_type
             conditions.append("artifact_type = {artifact_type:String}")
         
+        # event_id can help narrow down the search
+        if event_id and event_id != '-':
+            params['event_id'] = event_id
+            conditions.append("event_id = {event_id:String}")
+        
         where_clause = " AND ".join(conditions)
         
         # Fetch all columns
         query = f"SELECT * FROM events WHERE {where_clause} LIMIT 1"
+        
+        # Debug logging
+        import logging
+        logging.info(f"Raw event query: {query}")
+        logging.info(f"Raw event params: {params}")
+        
         result = client.query(query, parameters=params)
+        
+        logging.info(f"Raw event result rows: {len(result.result_rows)}")
         
         if not result.result_rows:
             return jsonify({'success': False, 'error': 'Event not found'}), 404
