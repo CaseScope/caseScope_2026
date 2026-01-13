@@ -1,6 +1,14 @@
 {
-  "version": "3.65.01",
+  "version": "3.65.02",
   "changelog": [
+    {
+      "version": "3.65.02",
+      "date": "2026-01-13",
+      "changes": [
+        "AI Hunting: Fixed card backgrounds to use borders instead of light blue",
+        "AI Hunting: Normalized button sizes across all action buttons"
+      ]
+    },
     {
       "version": "3.65.01",
       "date": "2026-01-13",

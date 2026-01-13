@@ -6165,7 +6165,8 @@ input:checked + .slider:before {
 
 /* AI Action Card */
 .ai-action-card {
-  background: var(--bg-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   padding: 16px;
   display: flex;
@@ -6278,7 +6279,8 @@ input:checked + .slider:before {
 .ai-progress {
   margin-top: 16px;
   padding: 16px;
-  background: var(--bg-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
 }
 
@@ -6346,7 +6348,8 @@ input:checked + .slider:before {
 
 .ai-results-summary {
   padding: 16px;
-  background: var(--bg-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
 }
 
