@@ -1440,14 +1440,14 @@ def get_hunting_events(case_id):
                                     or_conds.append(f"event_id = {{{or_param}:String}}")
                                 else:
                                     params[or_param] = f'%{part}%'
-                                    or_conds.append(f"search_blob LIKE {{{or_param}:String}}")
+                                    or_conds.append(f"search_blob ilike {{{or_param}:String}}")
                             group_conditions.append(f"({' OR '.join(or_conds)})")
                     elif term.isdigit():
                         params[param_name] = term
                         group_conditions.append(f"event_id = {{{param_name}:String}}")
                     else:
                         params[param_name] = f'%{term}%'
-                        group_conditions.append(f"search_blob LIKE {{{param_name}:String}}")
+                        group_conditions.append(f"search_blob ilike {{{param_name}:String}}")
                 return group_conditions
             
             # Check for parentheses groups: (group1) | (group2) | ...
@@ -1482,7 +1482,7 @@ def get_hunting_events(case_id):
                                     or_conditions.append(f"event_id = {{{param_name}:String}}")
                                 else:
                                     params[param_name] = f'%{part}%'
-                                    or_conditions.append(f"search_blob LIKE {{{param_name}:String}}")
+                                    or_conditions.append(f"search_blob ilike {{{param_name}:String}}")
                             search_conditions.append(f"({' OR '.join(or_conditions)})")
                     elif term.isdigit():
                         # Numeric terms match event_id exactly
@@ -1491,13 +1491,13 @@ def get_hunting_events(case_id):
                     else:
                         # Text terms match search_blob
                         params[f'pattern_{i}'] = f'%{term}%'
-                        search_conditions.append(f"search_blob LIKE {{pattern_{i}:String}}")
+                        search_conditions.append(f"search_blob ilike {{pattern_{i}:String}}")
             
             # Add exclusion conditions
             for i, excl in enumerate(excludes):
                 param_name = f'excl_{i}'
                 params[param_name] = f'%{excl}%'
-                search_conditions.append(f"search_blob NOT LIKE {{{param_name}:String}}")
+                search_conditions.append(f"NOT search_blob ilike {{{param_name}:String}}")
             
             # Combine conditions
             if search_conditions:

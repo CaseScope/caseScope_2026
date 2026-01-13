@@ -1,6 +1,13 @@
 {
-  "version": "3.69.00",
+  "version": "3.69.01",
   "changelog": [
+    {
+      "version": "3.69.01",
+      "date": "2026-01-13",
+      "changes": [
+        "Fix: Hunting search is now case-insensitive (LIKE changed to ilike)"
+      ]
+    },
     {
       "version": "3.69.00",
       "date": "2026-01-13",
