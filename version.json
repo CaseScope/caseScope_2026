@@ -1,6 +1,15 @@
 {
-  "version": "3.65.0",
+  "version": "3.65.01",
   "changelog": [
+    {
+      "version": "3.65.01",
+      "date": "2026-01-13",
+      "changes": [
+        "AI Hunting: Tab only visible when AI is enabled in settings",
+        "OpenCTI: Added 'Sync attack patterns to AI Hunting' toggle",
+        "OpenCTI: RAG sync section hidden unless both OpenCTI and RAG sync enabled"
+      ]
+    },
     {
       "version": "3.65.0",
       "date": "2026-01-13",

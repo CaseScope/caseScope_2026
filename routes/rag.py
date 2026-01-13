@@ -376,6 +376,17 @@ def get_case_rag_stats(case_id):
 def sync_opencti():
     """Start OpenCTI pattern sync"""
     from tasks.rag_tasks import rag_sync_opencti_patterns
+    from models.system_settings import SystemSettings, SettingKeys
+    
+    # Check if enabled
+    opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+    rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
+    
+    if not opencti_enabled or not rag_sync_enabled:
+        return jsonify({
+            'success': False,
+            'error': 'OpenCTI RAG sync is disabled in settings'
+        }), 400
     
     task = rag_sync_opencti_patterns.delay(triggered_by=current_user.username)
     
@@ -426,6 +437,20 @@ def rag_health():
         'embeddings': embed_health(),
         'vectorstore': qdrant_health(),
         'llm': llm_health()
+    })
+
+
+@rag_bp.route('/settings')
+@login_required
+def get_rag_settings():
+    """Get RAG-related settings for UI state"""
+    from models.system_settings import SystemSettings, SettingKeys
+    
+    return jsonify({
+        'success': True,
+        'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
+        'opencti_enabled': SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False),
+        'opencti_rag_sync': SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
     })
 
 

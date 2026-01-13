@@ -431,7 +431,12 @@
                                     <input type="checkbox" id="opencti-auto-enrich">
                                     <span>Auto-enrich IOCs on creation</span>
                                 </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="opencti-rag-sync">
+                                    <span>Sync attack patterns to AI Hunting</span>
+                                </label>
                             </div>
+                            <span class="form-help" style="margin-top: 8px;">RAG sync pulls MITRE ATT&CK patterns and SIGMA indicators for AI-powered threat hunting</span>
                         </div>
                     </div>
                     
@@ -485,6 +490,7 @@
                         document.getElementById('opencti-api-key').value = openctiSettings.api_key || '';
                         document.getElementById('opencti-ssl-verify').checked = openctiSettings.ssl_verify;
                         document.getElementById('opencti-auto-enrich').checked = openctiSettings.auto_enrich;
+                        document.getElementById('opencti-rag-sync').checked = openctiSettings.rag_sync;
                         
                         // Update config visibility
                         updateOpenCTIConfigVisibility(openctiSettings.enabled);
@@ -561,7 +567,8 @@
                 url: document.getElementById('opencti-url').value.trim(),
                 api_key: document.getElementById('opencti-api-key').value.trim(),
                 ssl_verify: document.getElementById('opencti-ssl-verify').checked,
-                auto_enrich: document.getElementById('opencti-auto-enrich').checked
+                auto_enrich: document.getElementById('opencti-auto-enrich').checked,
+                rag_sync: document.getElementById('opencti-rag-sync').checked
             };
             
             btn.disabled = true;

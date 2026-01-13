@@ -3409,7 +3409,8 @@ def get_opencti_settings():
                 'url': SystemSettings.get(SettingKeys.OPENCTI_URL, ''),
                 'api_key': SystemSettings.get(SettingKeys.OPENCTI_API_KEY, ''),
                 'ssl_verify': SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False),
-                'auto_enrich': SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False)
+                'auto_enrich': SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False),
+                'rag_sync': SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
             }
         })
     except Exception as e:
@@ -3449,6 +3450,10 @@ def set_opencti_settings():
         
         if 'auto_enrich' in data:
             SystemSettings.set(SettingKeys.OPENCTI_AUTO_ENRICH, data['auto_enrich'], 
+                             value_type='bool', updated_by=current_user.username)
+        
+        if 'rag_sync' in data:
+            SystemSettings.set(SettingKeys.OPENCTI_RAG_SYNC, data['rag_sync'], 
                              value_type='bool', updated_by=current_user.username)
         
         logger.info(f"[OpenCTI] Settings updated by {current_user.username}")

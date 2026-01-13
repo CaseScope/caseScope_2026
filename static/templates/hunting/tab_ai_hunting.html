@@ -216,7 +216,8 @@
     </div>
 </div>
 
-<!-- OpenCTI Sync Section (collapsed) -->
+<!-- OpenCTI Sync Section (collapsed) - only shown if OpenCTI RAG sync is enabled -->
+{% if opencti_rag_enabled %}
 <div class="ai-section ai-section-collapsed">
     <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
         <h3 class="ai-section-title">🔄 OpenCTI Pattern Sync</h3>
@@ -248,6 +249,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- RAG Health Section (collapsed) -->
 <div class="ai-section ai-section-collapsed">

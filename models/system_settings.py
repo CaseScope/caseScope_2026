@@ -104,6 +104,7 @@ class SettingKeys:
     OPENCTI_API_KEY = 'opencti_api_key'
     OPENCTI_SSL_VERIFY = 'opencti_ssl_verify'
     OPENCTI_AUTO_ENRICH = 'opencti_auto_enrich'  # Auto-enrich IOCs on creation
+    OPENCTI_RAG_SYNC = 'opencti_rag_sync'  # Sync attack patterns to RAG system
 
 
 # AI Model Configuration based on GPU VRAM

@@ -177,8 +177,22 @@ def case_files():
 @case_required
 def case_hunting():
     """Hunting - threat hunting for the active case"""
+    from models.system_settings import SystemSettings, SettingKeys
+    
     case = get_active_case()
-    return render_template('case_hunting.html', page_title='Hunting', case=case)
+    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    opencti_rag_enabled = (
+        SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False) and
+        SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
+    )
+    
+    return render_template(
+        'case_hunting.html',
+        page_title='Hunting',
+        case=case,
+        ai_enabled=ai_enabled,
+        opencti_rag_enabled=opencti_rag_enabled
+    )
 
 
 @main_bp.route('/case/ioc-management')

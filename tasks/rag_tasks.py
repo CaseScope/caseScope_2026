@@ -22,6 +22,7 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
     Sync attack patterns from OpenCTI to local pattern store
     
     Run periodically (daily) to keep patterns current.
+    Requires both OPENCTI_ENABLED and OPENCTI_RAG_SYNC to be true.
     
     Args:
         triggered_by: Username who triggered the sync
@@ -31,11 +32,22 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
     """
     from utils.opencti import get_opencti_client
     from models.database import db
+    from models.system_settings import SystemSettings, SettingKeys
     
     app = get_flask_app()
     
     with app.app_context():
         from models.rag import AttackPattern, RAGSyncLog
+        
+        # Check if OpenCTI RAG sync is enabled
+        opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+        rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
+        
+        if not opencti_enabled or not rag_sync_enabled:
+            return {
+                'success': False,
+                'error': 'OpenCTI RAG sync is disabled in settings'
+            }
         
         # Create sync log
         sync_log = RAGSyncLog(

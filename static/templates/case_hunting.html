@@ -47,19 +47,23 @@
                     <span class="tab-icon">🔧</span>
                     <span class="tab-text">Other</span>
                 </button>
+                {% if ai_enabled %}
                 <button class="hunting-tab" data-tab="ai" data-types="">
                     <span class="tab-icon">🤖</span>
                     <span class="tab-text">AI Hunting</span>
                 </button>
+                {% endif %}
             </div>
         </div>
         <div class="tile-body hunting-content">
             <div id="tab-content-events">
                 {% include 'hunting/tab_events.html' %}
             </div>
+            {% if ai_enabled %}
             <div id="tab-content-ai" style="display: none;">
                 {% include 'hunting/tab_ai_hunting.html' %}
             </div>
+            {% endif %}
             <div id="tab-content-other" style="display: none;">
                 <div class="other-tab-content">
                     <div class="other-section">
@@ -1189,8 +1193,10 @@ function loadAIStats() {
     // Load pattern matches
     refreshPatternMatches();
     
-    // Load OpenCTI stats
-    loadOpenCTIStats();
+    // Load OpenCTI stats (only if enabled)
+    if (document.getElementById('btnSyncOpenCTI')) {
+        loadOpenCTIStats();
+    }
 }
 
 function loadOpenCTIStats() {
