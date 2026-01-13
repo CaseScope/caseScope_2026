@@ -393,8 +393,11 @@
             <div id="tagProgressState" class="tag-section" style="display: none;">
                 <div class="tag-progress-container">
                     <div class="spinner"></div>
-                    <p>Searching artifacts for IOC matches...</p>
-                    <p class="progress-hint">This may take a minute for large cases</p>
+                    <p id="tagProgressText">Searching artifacts for IOC matches...</p>
+                    <div class="tag-progress-bar-container">
+                        <div class="tag-progress-bar" id="tagProgressBar" style="width: 0%"></div>
+                    </div>
+                    <p class="progress-hint" id="tagProgressDetail">Initializing...</p>
                 </div>
             </div>
             
@@ -1769,10 +1772,17 @@ function openTagArtifactsModal() {
 }
 
 function closeTagArtifactsModal() {
+    // Stop progress polling if running
+    if (tagProgressInterval) {
+        clearInterval(tagProgressInterval);
+        tagProgressInterval = null;
+    }
     document.getElementById('tagArtifactsModal').style.display = 'none';
     // Refresh IOC list to show updated counts
     loadIOCs();
 }
+
+let tagProgressInterval = null;
 
 function startTagging() {
     // Show progress
@@ -1782,12 +1792,25 @@ function startTagging() {
     document.getElementById('btnStartTag').style.display = 'none';
     document.getElementById('tagModalTitle').textContent = '🏷️ Searching Artifacts...';
     
+    // Reset progress bar
+    document.getElementById('tagProgressBar').style.width = '0%';
+    document.getElementById('tagProgressDetail').textContent = 'Initializing...';
+    
+    // Start polling for progress
+    tagProgressInterval = setInterval(pollTagProgress, 500);
+    
     fetch(`/api/iocs/tag-artifacts/${caseUuid}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     })
     .then(response => response.json())
     .then(data => {
+        // Stop progress polling
+        if (tagProgressInterval) {
+            clearInterval(tagProgressInterval);
+            tagProgressInterval = null;
+        }
+        
         if (data.success) {
             renderTagResults(data);
         } else {
@@ -1800,11 +1823,36 @@ function startTagging() {
         }
     })
     .catch(err => {
+        // Stop progress polling
+        if (tagProgressInterval) {
+            clearInterval(tagProgressInterval);
+            tagProgressInterval = null;
+        }
+        
         showError('Tagging error: ' + err.message);
         document.getElementById('tagInitialState').style.display = 'block';
         document.getElementById('tagProgressState').style.display = 'none';
         document.getElementById('btnStartTag').style.display = 'inline-block';
         document.getElementById('tagModalTitle').textContent = '🏷️ Tag Artifacts with IOCs';
+    });
+}
+
+function pollTagProgress() {
+    fetch(`/api/iocs/tag-artifacts/${caseUuid}/progress`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.progress) {
+            const p = data.progress;
+            const percent = p.total > 0 ? Math.round((p.current / p.total) * 100) : 0;
+            
+            document.getElementById('tagProgressBar').style.width = percent + '%';
+            document.getElementById('tagProgressDetail').textContent = 
+                `IOC ${p.current} of ${p.total} • ${p.matches} matches found` + 
+                (p.current_ioc ? ` • Checking: ${p.current_ioc}` : '');
+        }
+    })
+    .catch(() => {
+        // Silently ignore polling errors
     });
 }
 

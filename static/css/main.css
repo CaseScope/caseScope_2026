@@ -5109,6 +5109,28 @@ input:checked + .slider:before {
   color: var(--text-secondary);
 }
 
+.tag-progress-bar-container {
+  width: 100%;
+  max-width: 400px;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  margin: 20px auto;
+  overflow: hidden;
+}
+
+.tag-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-warning), var(--accent-success));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+#tagProgressDetail {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .tag-results-summary {
   display: flex;
   gap: 20px;

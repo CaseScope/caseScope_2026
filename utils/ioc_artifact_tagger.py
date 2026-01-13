@@ -8,13 +8,72 @@ Also marks matching events with IOC types for visual highlighting.
 """
 import os
 import re
+import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
+import redis
+from config import Config
 from utils.clickhouse import get_fresh_client
 
 logger = logging.getLogger(__name__)
+
+# Redis client for progress tracking
+_redis_client = None
+
+def _get_redis() -> redis.Redis:
+    """Get Redis client for progress tracking"""
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.Redis(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+            decode_responses=True
+        )
+    return _redis_client
+
+
+def _update_tag_progress(case_id: int, current: int, total: int, 
+                         current_ioc: str = '', matches_so_far: int = 0) -> None:
+    """Update tagging progress in Redis"""
+    try:
+        client = _get_redis()
+        key = f"ioc_tag_progress:{case_id}"
+        progress = {
+            'current': current,
+            'total': total,
+            'current_ioc': current_ioc[:50] if current_ioc else '',
+            'matches': matches_so_far,
+            'status': 'processing' if current < total else 'complete'
+        }
+        client.setex(key, 300, json.dumps(progress))  # 5 min expiry
+    except Exception as e:
+        logger.debug(f"Failed to update tag progress: {e}")
+
+
+def get_tag_progress(case_id: int) -> Optional[Dict[str, Any]]:
+    """Get current tagging progress from Redis"""
+    try:
+        client = _get_redis()
+        key = f"ioc_tag_progress:{case_id}"
+        data = client.get(key)
+        if data:
+            return json.loads(data)
+        return None
+    except Exception:
+        return None
+
+
+def clear_tag_progress(case_id: int) -> None:
+    """Clear tagging progress from Redis"""
+    try:
+        client = _get_redis()
+        key = f"ioc_tag_progress:{case_id}"
+        client.delete(key)
+    except Exception:
+        pass
 
 
 # Simplified IOC type names for badges
@@ -502,7 +561,10 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         IOC.active == True
     ).all()
     
+    total_iocs = len(iocs)
+    
     if not iocs:
+        clear_tag_progress(case_id)
         return {
             'success': True,
             'total_iocs': 0,
@@ -515,7 +577,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     
     results = {
         'success': True,
-        'total_iocs': len(iocs),
+        'total_iocs': total_iocs,
         'iocs_with_matches': 0,
         'new_links_created': 0,
         'total_artifact_matches': 0,
@@ -523,12 +585,20 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         'details': []
     }
     
+    # Initialize progress
+    _update_tag_progress(case_id, 0, total_iocs, 'Initializing...', 0)
+    
     # Step 1: Reset all ioc_types for this case (clean slate)
     logger.info(f"Resetting ioc_types for case {case_id}")
     reset_ioc_types_for_case(case_id)
     
     # Step 2: Search and mark each IOC
-    for ioc in iocs:
+    for idx, ioc in enumerate(iocs):
+        # Update progress
+        _update_tag_progress(
+            case_id, idx, total_iocs, 
+            ioc.value, results['total_artifact_matches']
+        )
         try:
             search_result = search_artifacts_for_ioc(
                 case_id=case_id,
@@ -599,6 +669,9 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"Error tagging IOC {ioc.id}: {e}")
     
+    # Mark progress complete
+    _update_tag_progress(case_id, total_iocs, total_iocs, 'Complete', results['total_artifact_matches'])
+    
     try:
         db.session.commit()
     except Exception as e:
@@ -606,5 +679,8 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         logger.error(f"Failed to commit IOC updates: {e}")
         results['success'] = False
         results['error'] = str(e)
+    
+    # Clear progress after a short delay (let frontend fetch final state)
+    # Progress will auto-expire after 5 minutes anyway
     
     return results

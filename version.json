@@ -1,6 +1,14 @@
 {
-  "version": "3.66.02",
+  "version": "3.66.03",
   "changelog": [
+    {
+      "version": "3.66.03",
+      "date": "2026-01-13",
+      "changes": [
+        "IOC: Tag Artifacts modal now shows real-time progress bar",
+        "IOC: Progress displays current IOC being checked and matches found"
+      ]
+    },
     {
       "version": "3.66.02",
       "date": "2026-01-13",

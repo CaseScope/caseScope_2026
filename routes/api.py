@@ -3281,6 +3281,33 @@ def tag_artifacts_for_case(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/iocs/tag-artifacts/<case_uuid>/progress', methods=['GET'])
+@login_required
+def get_tag_artifacts_progress(case_uuid):
+    """Get progress of IOC artifact tagging for a case"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        from utils.ioc_artifact_tagger import get_tag_progress
+        
+        progress = get_tag_progress(case.id)
+        if progress:
+            return jsonify({
+                'success': True,
+                'progress': progress
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'progress': None
+            })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================================================
 # Noise Tagging API
 # ============================================================================
