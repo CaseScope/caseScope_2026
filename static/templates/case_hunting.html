@@ -653,9 +653,17 @@ function truncateText(text, maxLen) {
 // Event Detail Modal Functions
 // ============================================
 
+// Store current event for tab switching
+let currentModalEvent = null;
+let rawDataLoaded = false;
+
 function showEventDetail(index) {
     const event = currentEventsData[index];
     if (!event) return;
+    
+    // Store event for tabs
+    currentModalEvent = event;
+    rawDataLoaded = false;
     
     // Set flag for IOC highlighting in detailRow
     currentEventHasIOC = event.ioc_types && event.ioc_types.length > 0;
@@ -669,6 +677,16 @@ function showEventDetail(index) {
     const content = document.getElementById('event-detail-content');
     content.innerHTML = buildEventDetailHTML(event);
     
+    // Reset to Info tab
+    switchEventModalTab('info');
+    
+    // Reset raw data content
+    document.getElementById('raw-data-content').innerHTML = `
+        <div class="raw-data-loading">
+            <span class="spinner-border spinner-border-sm"></span> Loading raw data...
+        </div>
+    `;
+    
     // Show modal
     document.getElementById('event-detail-modal').style.display = 'flex';
     document.body.style.overflow = 'hidden';
@@ -680,6 +698,249 @@ function closeEventModal(e) {
     
     document.getElementById('event-detail-modal').style.display = 'none';
     document.body.style.overflow = '';
+    currentModalEvent = null;
+    rawDataLoaded = false;
+}
+
+// Switch between modal tabs
+function switchEventModalTab(tabId) {
+    // Update tab buttons
+    document.querySelectorAll('.event-modal-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabId);
+    });
+    
+    // Update tab contents
+    document.querySelectorAll('.event-modal-tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(`event-tab-${tabId}`).classList.add('active');
+    
+    // Load raw data on first switch to raw tab
+    if (tabId === 'raw' && !rawDataLoaded && currentModalEvent) {
+        loadRawEventData();
+    }
+}
+
+// Load full raw data from ClickHouse
+function loadRawEventData() {
+    if (!currentModalEvent) return;
+    
+    // Use timestamp, source_host, and record_id to identify the event
+    const params = new URLSearchParams({
+        timestamp: currentModalEvent.timestamp,
+        source_host: currentModalEvent.source_host || '',
+        record_id: currentModalEvent.record_id || '',
+        artifact_type: currentModalEvent.artifact_type || ''
+    });
+    
+    fetch(`/api/hunting/event/raw/${caseId}?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            rawDataLoaded = true;
+            if (data.success) {
+                renderRawDataTree(data.raw_data);
+            } else {
+                document.getElementById('raw-data-content').innerHTML = `
+                    <div class="raw-data-error">
+                        <span class="error-icon">❌</span>
+                        <p>Error loading raw data: ${escapeHtml(data.error || 'Unknown error')}</p>
+                    </div>
+                `;
+            }
+        })
+        .catch(err => {
+            rawDataLoaded = true;
+            document.getElementById('raw-data-content').innerHTML = `
+                <div class="raw-data-error">
+                    <span class="error-icon">❌</span>
+                    <p>Error loading raw data: ${escapeHtml(err.message)}</p>
+                </div>
+            `;
+        });
+}
+
+// Render raw data as expandable tree
+function renderRawDataTree(data) {
+    const container = document.getElementById('raw-data-content');
+    
+    if (!data || Object.keys(data).length === 0) {
+        container.innerHTML = `
+            <div class="raw-data-empty">
+                <span class="empty-icon">📭</span>
+                <p>No raw data available for this event.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = `
+        <div class="raw-data-toolbar">
+            <button class="btn btn-sm btn-secondary" onclick="expandAllNodes()">
+                <span class="btn-icon">➕</span> Expand All
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="collapseAllNodes()">
+                <span class="btn-icon">➖</span> Collapse All
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="copyRawData()">
+                <span class="btn-icon">📋</span> Copy JSON
+            </button>
+        </div>
+        <div class="raw-data-tree" id="raw-data-tree">
+            ${buildTreeNode(data, 'root', true)}
+        </div>
+    `;
+}
+
+// Build tree node HTML recursively
+function buildTreeNode(data, key, isRoot = false) {
+    if (data === null || data === undefined) {
+        return `<span class="tree-value tree-null">null</span>`;
+    }
+    
+    const dataType = typeof data;
+    
+    if (Array.isArray(data)) {
+        if (data.length === 0) {
+            return `<span class="tree-value tree-empty">[]</span>`;
+        }
+        
+        const nodeId = `tree-${key}-${Math.random().toString(36).substr(2, 9)}`;
+        let html = `
+            <div class="tree-node tree-array ${isRoot ? 'expanded' : ''}" id="${nodeId}">
+                <div class="tree-node-header" onclick="toggleTreeNode('${nodeId}')">
+                    <span class="tree-toggle">▶</span>
+                    <span class="tree-key">${isRoot ? '' : escapeHtml(key)}</span>
+                    <span class="tree-type">[${data.length} items]</span>
+                </div>
+                <div class="tree-node-children">
+        `;
+        
+        data.forEach((item, index) => {
+            html += `
+                <div class="tree-child">
+                    <span class="tree-index">[${index}]</span>
+                    ${buildTreeNode(item, `${key}_${index}`)}
+                </div>
+            `;
+        });
+        
+        html += `</div></div>`;
+        return html;
+    }
+    
+    if (dataType === 'object') {
+        const keys = Object.keys(data);
+        if (keys.length === 0) {
+            return `<span class="tree-value tree-empty">{}</span>`;
+        }
+        
+        const nodeId = `tree-${key}-${Math.random().toString(36).substr(2, 9)}`;
+        let html = `
+            <div class="tree-node tree-object ${isRoot ? 'expanded' : ''}" id="${nodeId}">
+                ${isRoot ? '' : `
+                <div class="tree-node-header" onclick="toggleTreeNode('${nodeId}')">
+                    <span class="tree-toggle">▶</span>
+                    <span class="tree-key">${escapeHtml(key)}</span>
+                    <span class="tree-type">{${keys.length} fields}</span>
+                </div>
+                `}
+                <div class="tree-node-children" ${isRoot ? 'style="display: block;"' : ''}>
+        `;
+        
+        keys.forEach(k => {
+            const value = data[k];
+            const isComplex = typeof value === 'object' && value !== null;
+            
+            if (isComplex) {
+                html += `
+                    <div class="tree-child">
+                        ${buildTreeNode(value, k)}
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="tree-child tree-leaf">
+                        <span class="tree-key">${escapeHtml(k)}:</span>
+                        ${buildTreeNode(value, k)}
+                    </div>
+                `;
+            }
+        });
+        
+        html += `</div></div>`;
+        return html;
+    }
+    
+    // Primitive values
+    if (dataType === 'string') {
+        const displayValue = data.length > 200 ? data.substring(0, 200) + '...' : data;
+        const highlighted = currentEventHasIOC ? highlightIOCsInText(displayValue) : escapeHtml(displayValue);
+        return `<span class="tree-value tree-string" title="${escapeHtml(data)}">"${highlighted}"</span>`;
+    }
+    
+    if (dataType === 'number') {
+        return `<span class="tree-value tree-number">${data}</span>`;
+    }
+    
+    if (dataType === 'boolean') {
+        return `<span class="tree-value tree-boolean">${data}</span>`;
+    }
+    
+    return `<span class="tree-value">${escapeHtml(String(data))}</span>`;
+}
+
+// Toggle tree node expansion
+function toggleTreeNode(nodeId) {
+    const node = document.getElementById(nodeId);
+    if (node) {
+        node.classList.toggle('expanded');
+    }
+}
+
+// Expand all tree nodes
+function expandAllNodes() {
+    document.querySelectorAll('.tree-node').forEach(node => {
+        node.classList.add('expanded');
+    });
+}
+
+// Collapse all tree nodes
+function collapseAllNodes() {
+    document.querySelectorAll('.tree-node').forEach(node => {
+        if (!node.classList.contains('tree-object') || node.querySelector('.tree-node-header')) {
+            node.classList.remove('expanded');
+        }
+    });
+}
+
+// Copy raw data as JSON
+function copyRawData() {
+    if (!currentModalEvent) return;
+    
+    // Get the stored raw data from the API response
+    const params = new URLSearchParams({
+        timestamp: currentModalEvent.timestamp,
+        source_host: currentModalEvent.source_host || '',
+        record_id: currentModalEvent.record_id || '',
+        artifact_type: currentModalEvent.artifact_type || ''
+    });
+    
+    fetch(`/api/hunting/event/raw/${caseId}?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const jsonStr = JSON.stringify(data.raw_data, null, 2);
+                navigator.clipboard.writeText(jsonStr).then(() => {
+                    // Show brief success message
+                    const btn = event.target.closest('button');
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<span class="btn-icon">✓</span> Copied!';
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                    }, 2000);
+                });
+            }
+        });
 }
 
 // Close modal on Escape key

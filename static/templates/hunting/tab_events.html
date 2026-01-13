@@ -7,9 +7,40 @@
             <h3 class="modal-title" id="event-modal-title">Event Details</h3>
             <button class="modal-close" onclick="closeEventModal()">&times;</button>
         </div>
+        <div class="event-modal-tabs">
+            <button class="event-modal-tab active" data-tab="info" onclick="switchEventModalTab('info')">
+                <span class="tab-icon">📋</span> Info
+            </button>
+            <button class="event-modal-tab" data-tab="raw" onclick="switchEventModalTab('raw')">
+                <span class="tab-icon">📄</span> Raw Data
+            </button>
+            <button class="event-modal-tab" data-tab="process" onclick="switchEventModalTab('process')">
+                <span class="tab-icon">⚙️</span> Process Analysis
+            </button>
+        </div>
         <div class="modal-body">
-            <div class="event-detail-grid" id="event-detail-content">
-                <!-- Populated by JavaScript -->
+            <!-- Info Tab -->
+            <div class="event-modal-tab-content active" id="event-tab-info">
+                <div class="event-detail-grid" id="event-detail-content">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+            <!-- Raw Data Tab -->
+            <div class="event-modal-tab-content" id="event-tab-raw">
+                <div class="raw-data-container" id="raw-data-content">
+                    <div class="raw-data-loading">
+                        <span class="spinner-border spinner-border-sm"></span> Loading raw data...
+                    </div>
+                </div>
+            </div>
+            <!-- Process Analysis Tab -->
+            <div class="event-modal-tab-content" id="event-tab-process">
+                <div class="process-analysis-container" id="process-analysis-content">
+                    <div class="process-analysis-placeholder">
+                        <span class="placeholder-icon">🔬</span>
+                        <p>Process analysis coming soon...</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

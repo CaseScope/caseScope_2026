@@ -1,6 +1,16 @@
 {
-  "version": "3.67.02",
+  "version": "3.68.00",
   "changelog": [
+    {
+      "version": "3.68.00",
+      "date": "2026-01-13",
+      "changes": [
+        "Hunting: Event detail modal now has 3 tabs - Info, Raw Data, and Process Analysis",
+        "Hunting: Raw Data tab shows expandable tree view of all ClickHouse fields",
+        "Hunting: Tree view supports expand/collapse all and copy JSON functionality",
+        "Hunting: IOC highlighting works in tree view string values"
+      ]
+    },
     {
       "version": "3.67.02",
       "date": "2026-01-13",

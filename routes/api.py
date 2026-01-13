@@ -1657,6 +1657,103 @@ def build_event_description(artifact_type, channel, provider, username, process_
     return ' | '.join(parts) if parts else '-'
 
 
+@api_bp.route('/hunting/event/raw/<int:case_id>')
+@login_required
+def get_raw_event_data(case_id):
+    """Get full raw data for a specific event from ClickHouse"""
+    try:
+        from utils.clickhouse import get_client
+        import json
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get event identifiers from query params
+        timestamp = request.args.get('timestamp', '', type=str).strip()
+        source_host = request.args.get('source_host', '', type=str).strip()
+        record_id = request.args.get('record_id', '', type=str).strip()
+        artifact_type = request.args.get('artifact_type', '', type=str).strip()
+        
+        if not timestamp:
+            return jsonify({'success': False, 'error': 'Timestamp is required'}), 400
+        
+        client = get_client()
+        
+        # Build query to fetch all columns for this specific event
+        conditions = ["case_id = {case_id:UInt32}"]
+        params = {'case_id': case_id}
+        
+        # Parse timestamp - handle the formatted timestamp
+        try:
+            from datetime import datetime
+            ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+            params['timestamp'] = ts
+            conditions.append("timestamp = {timestamp:DateTime}")
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid timestamp format'}), 400
+        
+        if source_host and source_host != '-':
+            params['source_host'] = source_host
+            conditions.append("source_host = {source_host:String}")
+        
+        if record_id:
+            try:
+                params['record_id'] = int(record_id)
+                conditions.append("record_id = {record_id:UInt64}")
+            except (ValueError, TypeError):
+                pass
+        
+        if artifact_type and artifact_type != '-':
+            params['artifact_type'] = artifact_type
+            conditions.append("artifact_type = {artifact_type:String}")
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Fetch all columns
+        query = f"SELECT * FROM events WHERE {where_clause} LIMIT 1"
+        result = client.query(query, parameters=params)
+        
+        if not result.result_rows:
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
+        
+        # Get column names and build a dict
+        column_names = result.column_names
+        row = result.result_rows[0]
+        
+        raw_data = {}
+        for i, col_name in enumerate(column_names):
+            value = row[i]
+            
+            # Convert special types to JSON-serializable format
+            if value is None:
+                raw_data[col_name] = None
+            elif hasattr(value, 'isoformat'):
+                # datetime objects
+                raw_data[col_name] = value.isoformat()
+            elif isinstance(value, (list, tuple)):
+                raw_data[col_name] = list(value)
+            elif isinstance(value, bytes):
+                raw_data[col_name] = value.decode('utf-8', errors='replace')
+            elif col_name == 'extra_fields' and value:
+                # Parse extra_fields JSON if present
+                try:
+                    raw_data[col_name] = json.loads(value) if isinstance(value, str) else value
+                except json.JSONDecodeError:
+                    raw_data[col_name] = value
+            else:
+                raw_data[col_name] = value
+        
+        return jsonify({
+            'success': True,
+            'raw_data': raw_data
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Known Systems API Endpoints
 # ============================================
