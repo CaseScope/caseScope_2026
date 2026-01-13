@@ -39,7 +39,7 @@ class EvtxECmdParser(BaseParser):
     Hayabusa enrichment adds Sigma detection context to matching events.
     """
     
-    VERSION = '2.0.0'
+    VERSION = '2.1.0'  # Added extended EVTX fields: logon details, payload data
     ARTIFACT_TYPE = 'evtx'
     
     # Tool paths - wrapper scripts handle .NET
@@ -454,6 +454,41 @@ class EvtxECmdParser(BaseParser):
             # Logon type for logon events
             logon_type = self.safe_int(event_data.get('LogonType'))
             
+            # Logon ID for session correlation
+            logon_id = self.safe_str(
+                event_data.get('TargetLogonId') or
+                event_data.get('SubjectLogonId')
+            )
+            
+            # Remote host (EvtxECmd normalized field)
+            remote_host = self.safe_str(event.get('RemoteHost'))
+            
+            # Workstation name
+            workstation_name = self.safe_str(event_data.get('WorkstationName'))
+            
+            # Authentication package (NTLM, Kerberos, Negotiate)
+            auth_package = self.safe_str(event_data.get('AuthenticationPackageName'))
+            
+            # Logon process (Advapi, User32, etc.)
+            logon_process = self.safe_str(event_data.get('LogonProcessName'))
+            
+            # Elevated token indicator
+            elevated_token = self.safe_str(event_data.get('ElevatedToken'))
+            
+            # Thread ID from System
+            thread_id = self.safe_int(event.get('ThreadId'))
+            
+            # ExecutableInfo (Maps-normalized process path)
+            executable_info = self.safe_str(event.get('ExecutableInfo'))
+            
+            # PayloadData fields (Maps-extracted summaries)
+            payload_data1 = self.safe_str(event.get('PayloadData1'))
+            payload_data2 = self.safe_str(event.get('PayloadData2'))
+            payload_data3 = self.safe_str(event.get('PayloadData3'))
+            payload_data4 = self.safe_str(event.get('PayloadData4'))
+            payload_data5 = self.safe_str(event.get('PayloadData5'))
+            payload_data6 = self.safe_str(event.get('PayloadData6'))
+            
             # Hash extraction
             hashes = event_data.get('Hashes', '')
             hash_md5, hash_sha1, hash_sha256 = None, None, None
@@ -477,12 +512,11 @@ class EvtxECmdParser(BaseParser):
                 process_name or '', command_line or '',
                 target_path or '', src_ip or '', dst_ip or '',
                 event.get('MapDescription', ''),
-                event.get('PayloadData1', ''),
-                event.get('PayloadData2', ''),
-                event.get('PayloadData3', ''),
-                event.get('PayloadData4', ''),
+                payload_data1, payload_data2, payload_data3, payload_data4,
                 event.get('Keywords', ''),
                 detection.get('rule_title', ''),
+                remote_host, workstation_name, auth_package,
+                executable_info, logon_id,
             ]
             search_blob = ' '.join(str(p) for p in search_parts if p)
             
@@ -516,12 +550,26 @@ class EvtxECmdParser(BaseParser):
                 domain=self.safe_str(domain),
                 sid=self.safe_str(sid),
                 logon_type=logon_type,
+                logon_id=logon_id,
+                remote_host=remote_host,
+                workstation_name=workstation_name,
+                auth_package=auth_package,
+                logon_process=logon_process,
+                elevated_token=elevated_token,
                 process_name=self.safe_str(process_name),
                 process_path=self.safe_str(process_path),
                 process_id=process_id,
                 parent_process=self.safe_str(parent_process),
                 parent_pid=parent_pid,
                 command_line=self.safe_str(command_line),
+                thread_id=thread_id,
+                executable_info=executable_info,
+                payload_data1=payload_data1,
+                payload_data2=payload_data2,
+                payload_data3=payload_data3,
+                payload_data4=payload_data4,
+                payload_data5=payload_data5,
+                payload_data6=payload_data6,
                 target_path=self.safe_str(target_path),
                 file_hash_md5=hash_md5 or '',
                 file_hash_sha1=hash_sha1 or '',

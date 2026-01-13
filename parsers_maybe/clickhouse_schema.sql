@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS events (
     domain            LowCardinality(Nullable(String)),
     sid               Nullable(String),
     logon_type        Nullable(UInt8),
+    logon_id          Nullable(String),                            -- Target logon ID for session correlation
+    
+    -- Logon Details (from EVTX EventData)
+    remote_host       Nullable(String),                            -- EvtxECmd RemoteHost (IP/hostname of source)
+    workstation_name  Nullable(String),                            -- Source workstation name
+    auth_package      LowCardinality(Nullable(String)),            -- NTLM, Kerberos, Negotiate, etc.
+    logon_process     LowCardinality(Nullable(String)),            -- Logon process name (Advapi, User32, etc.)
+    elevated_token    LowCardinality(Nullable(String)),            -- Elevated token indicator
     
     -- Process
     process_name      Nullable(String),
@@ -54,6 +62,16 @@ CREATE TABLE IF NOT EXISTS events (
     parent_process    Nullable(String),
     parent_pid        Nullable(UInt32),
     command_line      Nullable(String),
+    thread_id         Nullable(UInt32),                            -- Thread ID from System
+    executable_info   Nullable(String),                            -- EvtxECmd ExecutableInfo (Maps-normalized)
+    
+    -- EvtxECmd Maps Payload Summary
+    payload_data1     Nullable(String),                            -- Maps-extracted field 1
+    payload_data2     Nullable(String),                            -- Maps-extracted field 2
+    payload_data3     Nullable(String),                            -- Maps-extracted field 3
+    payload_data4     Nullable(String),                            -- Maps-extracted field 4
+    payload_data5     Nullable(String),                            -- Maps-extracted field 5
+    payload_data6     Nullable(String),                            -- Maps-extracted field 6
     
     -- File
     target_path       Nullable(String),
@@ -132,6 +150,14 @@ CREATE TABLE IF NOT EXISTS events (
     
     -- MITRE tags array index
     INDEX idx_mitre mitre_tags 
+        TYPE bloom_filter(0.01) GRANULARITY 4,
+    
+    -- New field indexes for session/logon analysis
+    INDEX idx_logon_id logon_id 
+        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_remote_host remote_host 
+        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_auth_package auth_package 
         TYPE bloom_filter(0.01) GRANULARITY 4
 )
 ENGINE = MergeTree()

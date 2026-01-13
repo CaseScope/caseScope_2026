@@ -48,6 +48,14 @@ class ParsedEvent:
     domain: str = ''
     sid: str = ''
     logon_type: Optional[int] = None
+    logon_id: str = ''  # Target logon ID for session correlation
+    
+    # Logon Details (from EVTX EventData)
+    remote_host: str = ''  # EvtxECmd RemoteHost (IP/hostname of source)
+    workstation_name: str = ''  # Source workstation name
+    auth_package: str = ''  # NTLM, Kerberos, Negotiate, etc.
+    logon_process: str = ''  # Logon process name (Advapi, User32, etc.)
+    elevated_token: str = ''  # Elevated token indicator
     
     # Process
     process_name: str = ''
@@ -56,6 +64,16 @@ class ParsedEvent:
     parent_process: str = ''
     parent_pid: Optional[int] = None
     command_line: str = ''
+    thread_id: Optional[int] = None  # Thread ID from System
+    executable_info: str = ''  # EvtxECmd ExecutableInfo (Maps-normalized)
+    
+    # EvtxECmd Maps Payload Summary
+    payload_data1: str = ''  # Maps-extracted field 1
+    payload_data2: str = ''  # Maps-extracted field 2
+    payload_data3: str = ''  # Maps-extracted field 3
+    payload_data4: str = ''  # Maps-extracted field 4
+    payload_data5: str = ''  # Maps-extracted field 5
+    payload_data6: str = ''  # Maps-extracted field 6
     
     # File
     target_path: str = ''
@@ -109,12 +127,26 @@ class ParsedEvent:
             self.domain,
             self.sid,
             self.logon_type,
+            self.logon_id,
+            self.remote_host,
+            self.workstation_name,
+            self.auth_package,
+            self.logon_process,
+            self.elevated_token,
             self.process_name,
             self.process_path,
             self.process_id,
             self.parent_process,
             self.parent_pid,
             self.command_line,
+            self.thread_id,
+            self.executable_info,
+            self.payload_data1,
+            self.payload_data2,
+            self.payload_data3,
+            self.payload_data4,
+            self.payload_data5,
+            self.payload_data6,
             self.target_path,
             self.file_hash_md5,
             self.file_hash_sha1,
@@ -145,10 +177,15 @@ class ParsedEvent:
             'case_id', 'artifact_type', 'timestamp', 'source_file', 'source_path',
             'source_host', 'case_file_id', 'event_id', 'channel', 'provider',
             'record_id', 'level', 'username', 'domain', 'sid', 'logon_type',
+            'logon_id', 'remote_host', 'workstation_name', 'auth_package',
+            'logon_process', 'elevated_token',
             'process_name', 'process_path', 'process_id', 'parent_process',
-            'parent_pid', 'command_line', 'target_path', 'file_hash_md5',
-            'file_hash_sha1', 'file_hash_sha256', 'file_size', 'src_ip', 'dst_ip',
-            'src_port', 'dst_port', 'reg_key', 'reg_value', 'reg_data',
+            'parent_pid', 'command_line', 'thread_id', 'executable_info',
+            'payload_data1', 'payload_data2', 'payload_data3', 'payload_data4',
+            'payload_data5', 'payload_data6',
+            'target_path', 'file_hash_md5', 'file_hash_sha1', 'file_hash_sha256',
+            'file_size', 'src_ip', 'dst_ip', 'src_port', 'dst_port',
+            'reg_key', 'reg_value', 'reg_data',
             'rule_title', 'rule_level', 'rule_file', 'mitre_tactics', 'mitre_tags',
             'raw_json', 'search_blob', 'extra_fields', 'parser_version',
         ]

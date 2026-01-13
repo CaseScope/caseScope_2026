@@ -1,6 +1,19 @@
 {
-  "version": "3.71.00",
+  "version": "3.72.00",
   "changelog": [
+    {
+      "version": "3.72.00",
+      "date": "2026-01-13",
+      "changes": [
+        "EVTX Parser: Added 17 new indexed columns for extended forensic data",
+        "EVTX Parser: logon_id for session correlation across events",
+        "EVTX Parser: remote_host, workstation_name for logon source tracking",
+        "EVTX Parser: auth_package (NTLM/Kerberos), logon_process, elevated_token",
+        "EVTX Parser: thread_id, executable_info from EvtxECmd Maps",
+        "EVTX Parser: payload_data1-6 for Maps-extracted summary fields",
+        "ClickHouse: New indexes on logon_id, remote_host, auth_package for fast queries"
+      ]
+    },
     {
       "version": "3.71.00",
       "date": "2026-01-13",
