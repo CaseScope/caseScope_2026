@@ -13,11 +13,55 @@ from models.database import db
 from models.user import User
 from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
+from models.file_audit_log import FileAuditLog
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
+
+
+def _move_to_storage(file_path: str, case_uuid: str) -> str:
+    """Move a file from staging to storage, preserving path structure.
+    
+    Args:
+        file_path: Current file path in staging
+        case_uuid: Case UUID for context
+        
+    Returns:
+        New file path in storage, or original path if move failed
+    """
+    if not file_path or not os.path.exists(file_path):
+        return file_path
+    
+    staging_prefix = Config.STAGING_FOLDER
+    if not file_path.startswith(staging_prefix):
+        return file_path  # Already not in staging
+    
+    # Build storage path by replacing staging prefix with storage prefix
+    relative_path = file_path[len(staging_prefix):].lstrip(os.sep)
+    storage_path = os.path.join(Config.STORAGE_FOLDER, relative_path)
+    
+    try:
+        # Create destination directory if needed
+        storage_dir = os.path.dirname(storage_path)
+        os.makedirs(storage_dir, exist_ok=True)
+        
+        # Set permissions
+        try:
+            shutil.chown(storage_dir, user='casescope', group='casescope')
+        except (PermissionError, LookupError):
+            pass
+        
+        # Move the file
+        shutil.move(file_path, storage_path)
+        logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
+        
+        return storage_path
+        
+    except Exception as e:
+        logger.error(f"Failed to move file to storage: {file_path}: {e}")
+        return file_path  # Return original path on failure
 
 
 def get_folder_size_gb(path):
@@ -644,7 +688,9 @@ def ingest_files():
                     sha256_hash = CaseFile.calculate_sha256(file_path)
                 
                 # Check for duplicate (within this case only)
-                existing = CaseFile.find_by_hash(sha256_hash, case_uuid=case_uuid)
+                # Use original filename (without zip prefix) for comparison
+                original_name = pf['original_filename']
+                dup_type, existing = CaseFile.check_duplicate_type(original_name, sha256_hash, case_uuid)
                 
                 # Get parent ZIP record if this is an extracted file
                 parent_id = None
@@ -657,15 +703,39 @@ def ingest_files():
                 if parent_zip:
                     display_filename = f"{parent_zip}/{pf['filename']}"
                 
-                if existing:
-                    # Duplicate found - mark as duplicate instead of deleting
+                if dup_type == 'true':
+                    # TRUE DUPLICATE: same filename + same hash
+                    # Delete the file and log the deletion
+                    try:
+                        FileAuditLog.log_deleted_duplicate(
+                            case_uuid=case_uuid,
+                            filename=display_filename,
+                            sha256_hash=sha256_hash,
+                            file_path=file_path,
+                            file_size=file_size,
+                            performed_by=uploaded_by,
+                            original_file_id=existing.id
+                        )
+                        os.remove(file_path)
+                        duplicates_deleted += 1
+                    except Exception as e:
+                        errors.append(f'Error deleting duplicate {display_filename}: {str(e)}')
+                    continue
+                
+                elif dup_type == 'hash_only':
+                    # PARTIAL DUPLICATE: same hash, different filename
+                    # Keep file (don't parse - already indexed), move to storage, create record
+                    
+                    # Move to storage immediately (won't go through parsing queue)
+                    storage_path = _move_to_storage(file_path, case_uuid)
+                    
                     case_file = CaseFile(
                         case_uuid=case_uuid,
                         parent_id=parent_id,
                         duplicate_of_id=existing.id,
                         filename=display_filename,
-                        original_filename=pf['original_filename'],
-                        file_path=file_path,
+                        original_filename=original_name,
+                        file_path=storage_path or file_path,  # Use storage path if move succeeded
                         file_size=file_size,
                         sha256_hash=sha256_hash,
                         hostname=pf['file_info'].get('host', ''),
@@ -674,14 +744,16 @@ def ingest_files():
                         is_archive=pf['is_archive'],
                         is_extracted=pf['is_extracted'],
                         extraction_status=ExtractionStatus.NA,
-                        status='duplicate',
+                        status='duplicate',  # Not parsed since content already indexed
                         ingestion_status='not_done',
                         uploaded_by=uploaded_by
                     )
                     db.session.add(case_file)
                     db.session.flush()
-                    duplicates_deleted += 1  # Keep counter name for compatibility
                     continue
+                
+                # dup_type == 'name_only' or None: treat as new file
+                # (name_only means same filename but different hash - different file version)
                 
                 case_file = CaseFile(
                     case_uuid=case_uuid,

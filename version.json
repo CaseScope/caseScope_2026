@@ -1,6 +1,18 @@
 {
-  "version": "3.69.01",
+  "version": "3.70.00",
   "changelog": [
+    {
+      "version": "3.70.00",
+      "date": "2026-01-13",
+      "changes": [
+        "File Ingestion: True duplicates (same filename + hash) now deleted with audit log entry",
+        "File Ingestion: Partial duplicates (same hash, different name) kept in storage without re-parsing",
+        "File Ingestion: Files move to storage immediately after parsing, DB path updated",
+        "File Ingestion: Staging folder verified empty at completion, orphans reported",
+        "New FileAuditLog table tracks deleted duplicate files for audit trail",
+        "Fix: Duplicate files no longer stuck in staging folder"
+      ]
+    },
     {
       "version": "3.69.01",
       "date": "2026-01-13",

@@ -169,6 +169,7 @@ def create_app():
             AttackPattern, PatternPiece, PatternMatch, 
             AttackCampaign, RAGSyncLog
         )
+        from models.file_audit_log import FileAuditLog
         db.create_all()
         
         # Seed noise filter defaults if not exists

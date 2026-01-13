@@ -277,3 +277,42 @@ class CaseFile(db.Model):
         for cf in query.all():
             results[cf.sha256_hash] = cf
         return results
+    
+    @staticmethod
+    def find_by_filename(filename, case_uuid=None):
+        """Find existing file by filename, optionally within a specific case
+        
+        Note: Uses original_filename for comparison (without zip prefix)
+        """
+        query = CaseFile.query.filter_by(original_filename=filename)
+        if case_uuid:
+            query = query.filter_by(case_uuid=case_uuid)
+        return query.first()
+    
+    @staticmethod
+    def check_duplicate_type(filename, sha256_hash, case_uuid):
+        """Check if a file is a duplicate and what type
+        
+        Returns:
+            tuple: (duplicate_type, existing_file)
+            - ('true', CaseFile) - exact duplicate: same filename AND hash
+            - ('hash_only', CaseFile) - same hash, different filename
+            - ('name_only', CaseFile) - same filename, different hash (NOT a duplicate for storage)
+            - (None, None) - not a duplicate
+        """
+        # Check for hash match first (more specific)
+        hash_match = CaseFile.find_by_hash(sha256_hash, case_uuid=case_uuid)
+        
+        if hash_match:
+            # Hash matches - check if filename also matches
+            if hash_match.original_filename == filename:
+                return ('true', hash_match)  # True duplicate
+            else:
+                return ('hash_only', hash_match)  # Same content, different name
+        
+        # No hash match - check filename only
+        name_match = CaseFile.find_by_filename(filename, case_uuid=case_uuid)
+        if name_match:
+            return ('name_only', name_match)  # Different content, same name
+        
+        return (None, None)  # New file

@@ -23,6 +23,7 @@ from models.noise import (
 )
 from models.event_description import EventDescription
 from models.evidence_file import EvidenceFile
+from models.file_audit_log import FileAuditLog, FileAction
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -37,5 +38,6 @@ __all__ = [
     'NoiseCategory', 'NoiseRule', 'NoiseRuleAudit',
     'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults',
     'EventDescription',
-    'EvidenceFile'
+    'EvidenceFile',
+    'FileAuditLog', 'FileAction'
 ]

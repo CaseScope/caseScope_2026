@@ -503,9 +503,10 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 if status in ('done', 'error'):
                     cf.processed_at = datetime.utcnow()
                 
-                # Move file from staging to storage when processing completes (success or error)
+                # Move file from staging to storage when processing completes
+                # This includes: done, error, and duplicate (hash_only - not parsed but kept)
                 # We keep all files in storage for reference, status indicates parse result
-                if status in ('done', 'error') and cf.file_path:
+                if status in ('done', 'error', 'duplicate') and cf.file_path:
                     new_path = _move_file_to_storage(cf.file_path)
                     if new_path:
                         cf.file_path = new_path
@@ -623,6 +624,36 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
     except Exception as e:
         logger.warning(f"Users discovery failed: {e}")
         results['errors'].append(f"Users discovery: {str(e)}")
+    
+    # Step 4: Verify staging folder is empty
+    set_completion_phase(case_uuid, 'verifying_staging')
+    self.update_state(state='PROCESSING', meta={'stage': 'verifying_staging'})
+    try:
+        staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
+        if os.path.exists(staging_path):
+            # Count remaining files in staging
+            remaining_files = []
+            for root, dirs, files in os.walk(staging_path):
+                for f in files:
+                    remaining_files.append(os.path.relpath(os.path.join(root, f), staging_path))
+            
+            if remaining_files:
+                results['staging_orphans'] = len(remaining_files)
+                results['staging_orphan_samples'] = remaining_files[:10]  # First 10 for reference
+                logger.warning(f"Staging not empty for case {case_uuid}: {len(remaining_files)} files remain")
+            else:
+                results['staging_orphans'] = 0
+                # Clean up empty directories
+                try:
+                    shutil.rmtree(staging_path)
+                    logger.info(f"Cleaned up empty staging folder for case {case_uuid}")
+                except Exception as e:
+                    logger.warning(f"Could not remove staging folder: {e}")
+        else:
+            results['staging_orphans'] = 0
+    except Exception as e:
+        logger.warning(f"Staging verification failed: {e}")
+        results['errors'].append(f"Staging verification: {str(e)}")
     
     # Clear progress tracking
     clear_progress(case_uuid)
