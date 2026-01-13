@@ -605,6 +605,33 @@ def user_delete(user_id):
     return redirect(url_for('main.users'))
 
 
+@main_bp.route('/logs')
+@login_required
+@analyst_or_admin_required
+def logs():
+    """Logs page with System Logs and Audit Logs tabs
+    
+    Tab permissions:
+    - System Logs: analyst or administrator
+    - Audit Logs: administrator only
+    """
+    tab = request.args.get('tab', 'system')
+    
+    # Determine accessible tabs based on user role
+    is_admin = current_user.is_administrator
+    
+    # Check tab permission - audit logs are admin only
+    tab_denied = False
+    if tab == 'audit' and not is_admin:
+        tab_denied = True
+    
+    return render_template('logs.html',
+                           page_title='Logs',
+                           active_tab=tab,
+                           tab_denied=tab_denied,
+                           is_admin=is_admin)
+
+
 @main_bp.route('/settings')
 @login_required
 @analyst_or_admin_required

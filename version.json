@@ -1,6 +1,18 @@
 {
-  "version": "3.70.00",
+  "version": "3.71.00",
   "changelog": [
+    {
+      "version": "3.71.00",
+      "date": "2026-01-13",
+      "changes": [
+        "Logs: New Logs page in left menu under System section",
+        "Logs: Two tabs - System Logs (placeholder) and Audit Logs",
+        "Logs: Visible to Analyst and Administrator roles",
+        "Logs: Audit Logs tab restricted to Administrators only",
+        "Logs: Audit Logs shows FileAuditLog entries with search and pagination",
+        "Logs: Dropdown to select audit log category (FileAuditLog currently available)"
+      ]
+    },
     {
       "version": "3.70.00",
       "date": "2026-01-13",

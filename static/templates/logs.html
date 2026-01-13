@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📜</span>
+            Logs
+        </h1>
+        <p class="page-subtitle">View system and audit logs</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <div class="card-header">
+        <div class="settings-tabs">
+            <a href="{{ url_for('main.logs', tab='system') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'system' else '' }}">
+                <span class="tab-icon">🖥️</span>
+                <span class="tab-text">System Logs</span>
+            </a>
+            <a href="{{ url_for('main.logs', tab='audit') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'audit' else '' }} {{ 'tab-locked' if not is_admin else '' }}">
+                <span class="tab-icon">{% if not is_admin %}🔒{% else %}📋{% endif %}</span>
+                <span class="tab-text">Audit Logs</span>
+            </a>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 24px;">
+        <!-- Permission Denied Message -->
+        {% if tab_denied %}
+        <div class="settings-content">
+            <div class="permission-denied-notice">
+                <span class="notice-icon">🔒</span>
+                <div class="notice-content">
+                    <h3 class="notice-title">Permission Denied</h3>
+                    <p class="notice-text">Audit Logs are restricted to Administrators only.</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- System Logs Tab -->
+        {% if active_tab == 'system' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">System Logs</h3>
+            <p class="text-muted">View application and system logs.</p>
+            
+            <div class="placeholder-notice">
+                <span class="notice-icon">🚧</span>
+                <div class="notice-content">
+                    <h4 class="notice-title">Coming Soon</h4>
+                    <p class="notice-text">System logs functionality is under development.</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Audit Logs Tab -->
+        {% if active_tab == 'audit' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Audit Logs</h3>
+            <p class="text-muted">Track file operations and system changes for compliance and auditing.</p>
+            
+            <!-- Log Category Selection -->
+            <div class="audit-controls">
+                <div class="form-group">
+                    <label class="form-label">Log Category</label>
+                    <select id="auditLogCategory" class="form-input" onchange="loadAuditLogs()">
+                        <option value="file_audit_log" selected>File Audit Log</option>
+                    </select>
+                </div>
+                <div class="form-group search-group">
+                    <label class="form-label">Search</label>
+                    <input type="text" id="auditLogSearch" class="form-input" placeholder="Search by filename, hash, user..." onkeyup="debounceSearch()">
+                </div>
+            </div>
+            
+            <!-- Audit Logs Table -->
+            <div class="audit-table-container">
+                <table class="data-table audit-table" id="auditLogTable">
+                    <thead>
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Action</th>
+                            <th>Filename</th>
+                            <th>SHA256</th>
+                            <th>Case</th>
+                            <th>Performed By</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditLogBody">
+                        <tr class="loading-row">
+                            <td colspan="7" class="text-center">Loading audit logs...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            <div class="table-pagination" id="auditPagination">
+                <div class="pagination-info">
+                    <span id="auditPaginationInfo">Showing 0-0 of 0</span>
+                </div>
+                <div class="pagination-controls">
+                    <button class="btn btn-secondary btn-sm" id="auditPrevBtn" onclick="prevPage()" disabled>
+                        ← Previous
+                    </button>
+                    <span class="pagination-pages" id="auditPageNumbers"></span>
+                    <button class="btn btn-secondary btn-sm" id="auditNextBtn" onclick="nextPage()" disabled>
+                        Next →
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        // Audit log state
+        let auditCurrentPage = 1;
+        let auditPerPage = 25;
+        let auditTotalPages = 1;
+        let auditTotalRecords = 0;
+        let searchTimeout = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAuditLogs();
+        });
+        
+        function debounceSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                auditCurrentPage = 1;
+                loadAuditLogs();
+            }, 300);
+        }
+        
+        function loadAuditLogs() {
+            const category = document.getElementById('auditLogCategory').value;
+            const search = document.getElementById('auditLogSearch').value;
+            
+            const params = new URLSearchParams({
+                page: auditCurrentPage,
+                per_page: auditPerPage
+            });
+            
+            if (search) {
+                params.append('search', search);
+            }
+            
+            document.getElementById('auditLogBody').innerHTML = 
+                '<tr class="loading-row"><td colspan="7" class="text-center">Loading audit logs...</td></tr>';
+            
+            fetch(`/api/logs/audit/${category}?${params}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        renderAuditLogs(data);
+                    } else {
+                        showAuditError(data.error || 'Failed to load audit logs');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading audit logs:', err);
+                    showAuditError('Failed to load audit logs');
+                });
+        }
+        
+        function renderAuditLogs(data) {
+            const tbody = document.getElementById('auditLogBody');
+            auditTotalRecords = data.total;
+            auditTotalPages = data.pages;
+            
+            if (data.logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No audit logs found</td></tr>';
+                updatePagination();
+                return;
+            }
+            
+            let html = '';
+            data.logs.forEach(log => {
+                const timestamp = new Date(log.performed_at).toLocaleString();
+                const actionBadge = getActionBadge(log.action);
+                const shortHash = log.sha256_hash ? log.sha256_hash.substring(0, 12) + '...' : '-';
+                
+                html += `
+                    <tr>
+                        <td class="timestamp-cell">${timestamp}</td>
+                        <td>${actionBadge}</td>
+                        <td class="filename-cell" title="${escapeHtml(log.filename)}">${escapeHtml(truncate(log.filename, 40))}</td>
+                        <td class="hash-cell" title="${log.sha256_hash || ''}">${shortHash}</td>
+                        <td class="case-cell" title="${log.case_uuid}">${log.case_uuid.substring(0, 8)}...</td>
+                        <td>${escapeHtml(log.performed_by)}</td>
+                        <td class="notes-cell" title="${escapeHtml(log.notes || '')}">${escapeHtml(truncate(log.notes || '-', 30))}</td>
+                    </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+            updatePagination();
+        }
+        
+        function getActionBadge(action) {
+            const actionMap = {
+                'deleted_duplicate': { text: 'Deleted (Duplicate)', class: 'badge-warning' }
+            };
+            const info = actionMap[action] || { text: action, class: 'badge-secondary' };
+            return `<span class="badge ${info.class}">${info.text}</span>`;
+        }
+        
+        function updatePagination() {
+            const start = auditTotalRecords === 0 ? 0 : (auditCurrentPage - 1) * auditPerPage + 1;
+            const end = Math.min(auditCurrentPage * auditPerPage, auditTotalRecords);
+            
+            document.getElementById('auditPaginationInfo').textContent = 
+                `Showing ${start}-${end} of ${auditTotalRecords}`;
+            
+            document.getElementById('auditPrevBtn').disabled = auditCurrentPage <= 1;
+            document.getElementById('auditNextBtn').disabled = auditCurrentPage >= auditTotalPages;
+            
+            // Page numbers
+            let pageHtml = '';
+            const maxPages = 5;
+            let startPage = Math.max(1, auditCurrentPage - 2);
+            let endPage = Math.min(auditTotalPages, startPage + maxPages - 1);
+            
+            if (endPage - startPage < maxPages - 1) {
+                startPage = Math.max(1, endPage - maxPages + 1);
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                pageHtml += `<button class="btn btn-sm ${i === auditCurrentPage ? 'btn-primary' : 'btn-secondary'}" 
+                              onclick="goToPage(${i})">${i}</button>`;
+            }
+            
+            document.getElementById('auditPageNumbers').innerHTML = pageHtml;
+        }
+        
+        function prevPage() {
+            if (auditCurrentPage > 1) {
+                auditCurrentPage--;
+                loadAuditLogs();
+            }
+        }
+        
+        function nextPage() {
+            if (auditCurrentPage < auditTotalPages) {
+                auditCurrentPage++;
+                loadAuditLogs();
+            }
+        }
+        
+        function goToPage(page) {
+            auditCurrentPage = page;
+            loadAuditLogs();
+        }
+        
+        function showAuditError(message) {
+            document.getElementById('auditLogBody').innerHTML = 
+                `<tr><td colspan="7" class="text-center text-danger">${escapeHtml(message)}</td></tr>`;
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function truncate(str, len) {
+            if (!str) return '';
+            return str.length > len ? str.substring(0, len) + '...' : str;
+        }
+        </script>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

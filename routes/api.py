@@ -4077,3 +4077,74 @@ def bulk_enrich_iocs():
     except Exception as e:
         logger.error(f"[OpenCTI] Error in bulk enrichment: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Audit Logs API
+# ============================================
+
+@api_bp.route('/logs/audit/<category>')
+@login_required
+def get_audit_logs(category):
+    """Get paginated audit logs by category
+    
+    Categories:
+    - file_audit_log: FileAuditLog entries
+    
+    Query params:
+    - page: page number (default 1)
+    - per_page: items per page (default 25, max 100)
+    - search: search term for filename, hash, or user
+    """
+    try:
+        # Only administrators can view audit logs
+        if not current_user.is_administrator:
+            return jsonify({
+                'success': False,
+                'error': 'Administrator access required'
+            }), 403
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 25, type=int), 100)
+        search = request.args.get('search', '').strip()
+        
+        if category == 'file_audit_log':
+            query = FileAuditLog.query
+            
+            if search:
+                search_pattern = f'%{search}%'
+                query = query.filter(
+                    db.or_(
+                        FileAuditLog.filename.ilike(search_pattern),
+                        FileAuditLog.sha256_hash.ilike(search_pattern),
+                        FileAuditLog.performed_by.ilike(search_pattern),
+                        FileAuditLog.notes.ilike(search_pattern),
+                        FileAuditLog.case_uuid.ilike(search_pattern)
+                    )
+                )
+            
+            # Order by most recent first
+            query = query.order_by(FileAuditLog.performed_at.desc())
+            
+            # Paginate
+            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            logs = [log.to_dict() for log in pagination.items]
+            
+            return jsonify({
+                'success': True,
+                'logs': logs,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'page': page,
+                'per_page': per_page
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Unknown audit log category: {category}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error fetching audit logs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

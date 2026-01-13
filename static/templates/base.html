@@ -86,10 +86,12 @@
                     <span class="nav-item-icon">👥</span>
                     <span class="nav-item-text">Users</span>
                 </a>
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Logs' else '' }}">
+                {% if current_user.is_administrator or current_user.is_analyst %}
+                <a href="{{ url_for('main.logs') }}" class="nav-item {{ 'active' if page_title == 'Logs' else '' }}">
                     <span class="nav-item-icon">📜</span>
                     <span class="nav-item-text">Logs</span>
                 </a>
+                {% endif %}
             </nav>
         </aside>
 
