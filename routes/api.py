@@ -1777,6 +1777,234 @@ def get_raw_event_data(case_id):
 
 
 # ============================================
+# Process Tree API Endpoints
+# ============================================
+
+@api_bp.route('/hunting/process/children/<int:case_id>')
+@login_required
+def get_process_children(case_id):
+    """Get child processes of a given process
+    
+    Searches for events where parent_pid and parent_process match the given process.
+    """
+    try:
+        from utils.clickhouse import get_client
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        hostname = request.args.get('host', '', type=str).strip()
+        parent_pid = request.args.get('parent_pid', 0, type=int)
+        parent_process = request.args.get('parent_process', '', type=str).strip()
+        
+        if not hostname or not parent_pid:
+            return jsonify({'success': False, 'error': 'host and parent_pid are required'}), 400
+        
+        client = get_client()
+        
+        # Query for child processes - events where parent_pid matches
+        query = """
+            SELECT 
+                timestamp,
+                process_name,
+                process_path,
+                process_id,
+                parent_process,
+                parent_pid,
+                command_line,
+                username
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+            AND source_host = {hostname:String}
+            AND parent_pid = {parent_pid:UInt64}
+            AND process_name != ''
+        """
+        
+        params = {
+            'case_id': case_id,
+            'hostname': hostname,
+            'parent_pid': parent_pid
+        }
+        
+        # Optionally filter by parent process name for more accuracy
+        if parent_process:
+            query += " AND parent_process = {parent_process:String}"
+            params['parent_process'] = parent_process
+        
+        query += " ORDER BY timestamp ASC LIMIT 100"
+        
+        result = client.query(query, parameters=params)
+        
+        children = []
+        for row in result.result_rows:
+            timestamp, proc_name, proc_path, pid, par_proc, par_pid, cmdline, username = row
+            
+            # Check if this process has children (for tree expansion indicator)
+            child_count_result = client.query(
+                """SELECT count() FROM events 
+                   WHERE case_id = {case_id:UInt32} 
+                   AND source_host = {hostname:String}
+                   AND parent_pid = {pid:UInt64}
+                   AND process_name != ''
+                   LIMIT 1""",
+                parameters={'case_id': case_id, 'hostname': hostname, 'pid': pid or 0}
+            )
+            child_count = child_count_result.result_rows[0][0] if child_count_result.result_rows else 0
+            
+            children.append({
+                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
+                'process_name': proc_name or '',
+                'process_path': proc_path or '',
+                'pid': pid,
+                'parent_process': par_proc or '',
+                'parent_pid': par_pid,
+                'command_line': cmdline or '',
+                'username': username or '',
+                'child_count': child_count
+            })
+        
+        return jsonify({
+            'success': True,
+            'children': children,
+            'parent_pid': parent_pid,
+            'parent_process': parent_process,
+            'hostname': hostname
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/hunting/process/parent/<int:case_id>')
+@login_required
+def get_process_parent(case_id):
+    """Get parent process and siblings
+    
+    Finds the parent process and all its children (siblings of the original process).
+    """
+    try:
+        from utils.clickhouse import get_client
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        hostname = request.args.get('host', '', type=str).strip()
+        pid = request.args.get('pid', 0, type=int)
+        process_name = request.args.get('process_name', '', type=str).strip()
+        
+        if not hostname:
+            return jsonify({'success': False, 'error': 'host is required'}), 400
+        
+        client = get_client()
+        
+        # First, find the parent process
+        parent = None
+        if pid:
+            parent_query = """
+                SELECT 
+                    timestamp,
+                    process_name,
+                    process_path,
+                    process_id,
+                    parent_process,
+                    parent_pid,
+                    command_line,
+                    username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                AND source_host = {hostname:String}
+                AND process_id = {pid:UInt64}
+                AND process_name != ''
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """
+            
+            result = client.query(parent_query, parameters={
+                'case_id': case_id,
+                'hostname': hostname,
+                'pid': pid
+            })
+            
+            if result.result_rows:
+                row = result.result_rows[0]
+                parent = {
+                    'timestamp': row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '',
+                    'process_name': row[1] or '',
+                    'process_path': row[2] or '',
+                    'pid': row[3],
+                    'parent_process': row[4] or '',
+                    'parent_pid': row[5],
+                    'command_line': row[6] or '',
+                    'username': row[7] or ''
+                }
+        
+        # Now find all children of this parent (siblings)
+        siblings = []
+        if parent and parent['pid']:
+            siblings_query = """
+                SELECT 
+                    timestamp,
+                    process_name,
+                    process_path,
+                    process_id,
+                    parent_process,
+                    parent_pid,
+                    command_line,
+                    username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                AND source_host = {hostname:String}
+                AND parent_pid = {parent_pid:UInt64}
+                AND process_name != ''
+                ORDER BY timestamp ASC
+                LIMIT 50
+            """
+            
+            result = client.query(siblings_query, parameters={
+                'case_id': case_id,
+                'hostname': hostname,
+                'parent_pid': parent['pid']
+            })
+            
+            for row in result.result_rows:
+                # Check if this sibling has children
+                child_count_result = client.query(
+                    """SELECT count() FROM events 
+                       WHERE case_id = {case_id:UInt32} 
+                       AND source_host = {hostname:String}
+                       AND parent_pid = {pid:UInt64}
+                       AND process_name != ''
+                       LIMIT 1""",
+                    parameters={'case_id': case_id, 'hostname': hostname, 'pid': row[3] or 0}
+                )
+                child_count = child_count_result.result_rows[0][0] if child_count_result.result_rows else 0
+                
+                siblings.append({
+                    'timestamp': row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '',
+                    'process_name': row[1] or '',
+                    'process_path': row[2] or '',
+                    'pid': row[3],
+                    'parent_process': row[4] or '',
+                    'parent_pid': row[5],
+                    'command_line': row[6] or '',
+                    'username': row[7] or '',
+                    'child_count': child_count
+                })
+        
+        return jsonify({
+            'success': True,
+            'parent': parent,
+            'siblings': siblings,
+            'hostname': hostname
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
 # Known Systems API Endpoints
 # ============================================
 

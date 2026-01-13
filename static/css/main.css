@@ -2514,7 +2514,15 @@ tbody td {
 }
 
 /* Process Analysis Placeholder */
-.process-analysis-placeholder {
+/* ========================================
+   Process Analysis Tab
+   ======================================== */
+
+.process-analysis-container {
+  padding: 0;
+}
+
+.process-no-data {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2524,14 +2532,413 @@ tbody td {
   text-align: center;
 }
 
-.process-analysis-placeholder .placeholder-icon {
+.process-no-data .no-data-icon {
   font-size: 48px;
   margin-bottom: 16px;
   opacity: 0.5;
 }
 
-.process-analysis-placeholder p {
+/* Process Chain Section */
+.process-chain-section {
+  margin-bottom: 24px;
+}
+
+.process-chain-section h4,
+.process-details-section h4,
+.process-explorer-section h4 {
   font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.process-chain {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.process-connector {
+  font-size: 20px;
+  color: var(--text-muted);
+  line-height: 1;
+  padding: 4px 0;
+}
+
+/* Process Node */
+.process-node {
+  width: 100%;
+  max-width: 700px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+  transition: all var(--transition-fast);
+}
+
+.process-node:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.process-node-current {
+  border-color: var(--accent-primary);
+  border-width: 2px;
+  background-color: rgba(76, 154, 255, 0.1);
+}
+
+.process-node-parent {
+  background-color: var(--bg-tertiary);
+}
+
+.process-node-grandparent {
+  background-color: var(--bg-primary);
+  opacity: 0.9;
+}
+
+.process-node-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.process-level-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sig-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.sig-badge.sig-valid {
+  background-color: rgba(54, 179, 126, 0.2);
+  color: var(--accent-success);
+}
+
+.sig-badge.sig-invalid {
+  background-color: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+}
+
+.process-node-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.process-node-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.process-node-pid {
+  font-size: 12px;
+  color: var(--accent-primary);
+  font-family: var(--font-mono);
+}
+
+.process-node-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.process-node-cmdline {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  background-color: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.process-node-hash {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.process-node-sig {
+  font-size: 10px;
+  color: var(--accent-success);
+}
+
+.process-node-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.btn-xs {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-xs:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.btn-xs.btn-link {
+  border: none;
+  padding: 2px 4px;
+}
+
+/* Process Details Section */
+.process-details-section {
+  margin-bottom: 24px;
+}
+
+.process-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.process-detail-card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+}
+
+.process-detail-card h5 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.detail-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.detail-item.full-width {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-item .label {
+  color: var(--text-muted);
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.detail-item .value {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.detail-item .value.cmd-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background-color: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.detail-item .value.hash-value {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* Process Explorer Section */
+.process-explorer-section {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 16px;
+}
+
+.explorer-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 16px 0;
+}
+
+.explorer-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Process Tree Container */
+.process-tree-container {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.tree-loading,
+.tree-loading-inline {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+}
+
+.tree-loading-inline {
+  padding: 8px;
+}
+
+.tree-no-results,
+.tree-no-children {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.tree-error {
+  color: var(--accent-danger);
+  padding: 12px;
+  background-color: rgba(255, 86, 48, 0.1);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.tree-results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tree-results-count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tree-results-context {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Interactive Tree */
+.interactive-tree {
+  font-size: 13px;
+}
+
+.tree-node-interactive {
+  padding: 6px 0;
+}
+
+.tree-node-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color var(--transition-fast);
+}
+
+.tree-node-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.tree-expand-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-expand-btn:hover {
+  color: var(--accent-primary);
+}
+
+.tree-expand-placeholder {
+  width: 20px;
+}
+
+.tree-node-icon {
+  font-size: 14px;
+}
+
+.tree-node-interactive .tree-node-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tree-node-interactive .tree-node-pid {
+  font-size: 11px;
+  color: var(--accent-primary);
+  font-family: var(--font-mono);
+}
+
+.tree-node-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.tree-node-actions-inline {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.tree-node-row:hover .tree-node-actions-inline {
+  opacity: 1;
+}
+
+.tree-node-interactive .tree-node-cmdline {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-left: 28px;
+  padding: 4px 8px;
+  background-color: var(--bg-tertiary);
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+.tree-children {
+  margin-left: 20px;
+  border-left: 1px dashed var(--border-color);
+  padding-left: 8px;
 }
 
 /* Event Alert Banners */

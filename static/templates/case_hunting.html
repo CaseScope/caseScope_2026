@@ -719,6 +719,11 @@ function switchEventModalTab(tabId) {
     if (tabId === 'raw' && !rawDataLoaded && currentModalEvent) {
         loadRawEventData();
     }
+    
+    // Load process analysis on first switch to process tab
+    if (tabId === 'process' && currentModalEvent) {
+        loadProcessAnalysis();
+    }
 }
 
 // Load full raw data from ClickHouse
@@ -1033,6 +1038,435 @@ function copyRawData() {
     });
 }
 
+// ============================================
+// Process Analysis Tab Functions
+// ============================================
+
+// Load and display process analysis
+function loadProcessAnalysis() {
+    const container = document.getElementById('process-analysis-content');
+    const event = currentModalEvent;
+    
+    if (!event) {
+        container.innerHTML = '<div class="process-no-data"><p>No event data available.</p></div>';
+        return;
+    }
+    
+    // Check if we have process information
+    const hasProcess = event.process_name || event.process_path || event.command_line;
+    const hasParent = event.parent_process || event.parent_pid;
+    
+    if (!hasProcess && !hasParent) {
+        container.innerHTML = `
+            <div class="process-no-data">
+                <span class="no-data-icon">📋</span>
+                <p>No process information available for this event type.</p>
+                <p class="text-muted">Process data is typically available for EVTX (Sysmon), Huntress, and other EDR events.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Build the process analysis view
+    let html = '';
+    
+    // Process Chain Section - Visual tree from event data
+    html += '<div class="process-chain-section">';
+    html += '<h4>📊 Process Chain</h4>';
+    html += '<div class="process-chain">';
+    
+    // Try to get grandparent/parent from raw_json if available (Huntress has this)
+    let grandparent = null;
+    let parent = null;
+    let currentProc = null;
+    
+    // Parse raw_json for rich process data (Huntress/EDR)
+    if (event.extra_fields) {
+        try {
+            const extra = typeof event.extra_fields === 'string' ? JSON.parse(event.extra_fields) : event.extra_fields;
+            if (extra.grandparent_name) {
+                grandparent = {
+                    name: extra.grandparent_name,
+                    cmdline: extra.grandparent_cmdline || ''
+                };
+            }
+            if (extra.parent_cmdline || extra.parent_md5) {
+                parent = {
+                    name: event.parent_process,
+                    pid: event.parent_pid,
+                    cmdline: extra.parent_cmdline || '',
+                    md5: extra.parent_md5 || '',
+                    sha256: extra.parent_sha256 || '',
+                    sig_valid: extra.parent_sig_valid,
+                    sig_subject: extra.parent_sig_subject || ''
+                };
+            }
+        } catch (e) {}
+    }
+    
+    // Build parent from basic fields if not from extra
+    if (!parent && hasParent) {
+        parent = {
+            name: event.parent_process || 'Unknown',
+            pid: event.parent_pid
+        };
+    }
+    
+    // Current process
+    currentProc = {
+        name: event.process_name || 'Unknown',
+        path: event.process_path || '',
+        pid: event.process_id,
+        cmdline: event.command_line || '',
+        md5: event.file_hash_md5 || '',
+        sha256: event.file_hash_sha256 || '',
+        user: event.username || '',
+        domain: event.domain || '',
+        sid: event.sid || ''
+    };
+    
+    // Render grandparent if available
+    if (grandparent && grandparent.name) {
+        html += buildProcessNode(grandparent, 'grandparent', event.source_host);
+        html += '<div class="process-connector">│</div>';
+    }
+    
+    // Render parent if available
+    if (parent && (parent.name || parent.pid)) {
+        html += buildProcessNode(parent, 'parent', event.source_host);
+        html += '<div class="process-connector">│</div>';
+    }
+    
+    // Render current process
+    html += buildProcessNode(currentProc, 'current', event.source_host);
+    
+    html += '</div></div>'; // End process-chain
+    
+    // Process Details Section
+    html += '<div class="process-details-section">';
+    html += '<h4>🔍 Current Process Details</h4>';
+    html += '<div class="process-details-grid">';
+    
+    // Basic info
+    html += `
+        <div class="process-detail-card">
+            <h5>Execution</h5>
+            <div class="detail-item"><span class="label">Name:</span><span class="value">${escapeHtml(currentProc.name)}</span></div>
+            <div class="detail-item"><span class="label">Path:</span><span class="value">${escapeHtml(currentProc.path)}</span></div>
+            <div class="detail-item"><span class="label">PID:</span><span class="value">${currentProc.pid || '-'}</span></div>
+            ${currentProc.cmdline ? `<div class="detail-item full-width"><span class="label">Command:</span><span class="value cmd-value">${escapeHtml(currentProc.cmdline)}</span></div>` : ''}
+        </div>
+    `;
+    
+    // User context
+    if (currentProc.user || currentProc.sid) {
+        html += `
+            <div class="process-detail-card">
+                <h5>User Context</h5>
+                <div class="detail-item"><span class="label">User:</span><span class="value">${escapeHtml(currentProc.user || '-')}</span></div>
+                <div class="detail-item"><span class="label">Domain:</span><span class="value">${escapeHtml(currentProc.domain || '-')}</span></div>
+                <div class="detail-item"><span class="label">SID:</span><span class="value">${escapeHtml(currentProc.sid || '-')}</span></div>
+            </div>
+        `;
+    }
+    
+    // Hashes
+    if (currentProc.md5 || currentProc.sha256) {
+        html += `
+            <div class="process-detail-card">
+                <h5>Hashes</h5>
+                ${currentProc.md5 ? `<div class="detail-item"><span class="label">MD5:</span><span class="value hash-value">${escapeHtml(currentProc.md5)}</span></div>` : ''}
+                ${currentProc.sha256 ? `<div class="detail-item"><span class="label">SHA256:</span><span class="value hash-value">${escapeHtml(currentProc.sha256)}</span></div>` : ''}
+            </div>
+        `;
+    }
+    
+    html += '</div></div>'; // End process-details
+    
+    // Interactive Tree Explorer Section
+    html += `
+        <div class="process-explorer-section">
+            <h4>🌳 Process Tree Explorer</h4>
+            <p class="explorer-help">Explore parent and child process relationships from this event.</p>
+            <div class="explorer-actions">
+                <button class="btn btn-primary" onclick="exploreProcessChildren()">
+                    <span class="btn-icon">🔽</span> Find Child Processes
+                </button>
+                <button class="btn btn-secondary" onclick="exploreProcessParents()">
+                    <span class="btn-icon">🔼</span> Build Parent Tree
+                </button>
+            </div>
+            <div class="process-tree-container" id="process-tree-results" style="display:none;">
+                <div class="tree-loading" style="display:none;">
+                    <span class="spinner-border spinner-border-sm"></span> Searching...
+                </div>
+                <div class="tree-content"></div>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+// Build a single process node for the chain display
+function buildProcessNode(proc, level, hostname) {
+    const levelLabels = {
+        'grandparent': '🔼 Grandparent',
+        'parent': '🔷 Parent',
+        'current': '🎯 Current Process'
+    };
+    
+    const levelClass = `process-node-${level}`;
+    const label = levelLabels[level] || level;
+    
+    // Build actions for interactive exploration
+    const pid = proc.pid || '';
+    const pname = proc.name || '';
+    const actionsHtml = (pid && pname) ? `
+        <div class="process-node-actions">
+            <button class="btn-xs btn-link" onclick="findChildrenOf('${escapeHtml(hostname)}', ${pid}, '${escapeHtml(pname)}')" title="Find child processes">
+                🔽 Children
+            </button>
+            <button class="btn-xs btn-link" onclick="findParentOf('${escapeHtml(hostname)}', ${pid}, '${escapeHtml(pname)}')" title="Find parent chain">
+                🔼 Parents
+            </button>
+            <button class="btn-xs btn-link" onclick="searchProcessEvents('${escapeHtml(hostname)}', ${pid}, '${escapeHtml(pname)}')" title="Search all events for this process">
+                🔍 Events
+            </button>
+        </div>
+    ` : '';
+    
+    return `
+        <div class="process-node ${levelClass}">
+            <div class="process-node-header">
+                <span class="process-level-label">${label}</span>
+                ${proc.sig_valid === true ? '<span class="sig-badge sig-valid">✓ Signed</span>' : ''}
+                ${proc.sig_valid === false ? '<span class="sig-badge sig-invalid">✗ Invalid Sig</span>' : ''}
+            </div>
+            <div class="process-node-body">
+                <div class="process-node-name">${escapeHtml(proc.name || 'Unknown')}</div>
+                ${proc.pid ? `<div class="process-node-pid">PID: ${proc.pid}</div>` : ''}
+                ${proc.path ? `<div class="process-node-path">${escapeHtml(proc.path)}</div>` : ''}
+                ${proc.cmdline ? `<div class="process-node-cmdline">${escapeHtml(proc.cmdline.length > 150 ? proc.cmdline.substring(0, 150) + '...' : proc.cmdline)}</div>` : ''}
+                ${proc.md5 ? `<div class="process-node-hash">MD5: ${escapeHtml(proc.md5)}</div>` : ''}
+                ${proc.sig_subject ? `<div class="process-node-sig">Signer: ${escapeHtml(proc.sig_subject)}</div>` : ''}
+            </div>
+            ${actionsHtml}
+        </div>
+    `;
+}
+
+// Find child processes of a given process
+function findChildrenOf(hostname, pid, processName) {
+    const container = document.getElementById('process-tree-results');
+    const content = container.querySelector('.tree-content');
+    const loading = container.querySelector('.tree-loading');
+    
+    container.style.display = 'block';
+    loading.style.display = 'block';
+    content.innerHTML = '';
+    
+    const params = new URLSearchParams({
+        host: hostname,
+        parent_pid: pid,
+        parent_process: processName
+    });
+    
+    fetch(`/api/hunting/process/children/${caseId}?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (data.success) {
+                if (data.children.length === 0) {
+                    content.innerHTML = `
+                        <div class="tree-no-results">
+                            <p>No child processes found for <strong>${escapeHtml(processName)}</strong> (PID: ${pid})</p>
+                        </div>
+                    `;
+                } else {
+                    content.innerHTML = `
+                        <div class="tree-results-header">
+                            <span class="tree-results-count">${data.children.length} child process(es) found</span>
+                            <span class="tree-results-context">Parent: ${escapeHtml(processName)} (PID: ${pid})</span>
+                        </div>
+                        <div class="interactive-tree">
+                            ${buildInteractiveTree(data.children, hostname, 0)}
+                        </div>
+                    `;
+                }
+            } else {
+                content.innerHTML = `<div class="tree-error">Error: ${escapeHtml(data.error)}</div>`;
+            }
+        })
+        .catch(err => {
+            loading.style.display = 'none';
+            content.innerHTML = `<div class="tree-error">Error: ${escapeHtml(err.message)}</div>`;
+        });
+}
+
+// Find parent chain of a given process
+function findParentOf(hostname, parentPid, parentProcess) {
+    const container = document.getElementById('process-tree-results');
+    const content = container.querySelector('.tree-content');
+    const loading = container.querySelector('.tree-loading');
+    
+    container.style.display = 'block';
+    loading.style.display = 'block';
+    content.innerHTML = '';
+    
+    const params = new URLSearchParams({
+        host: hostname,
+        pid: parentPid,
+        process_name: parentProcess
+    });
+    
+    fetch(`/api/hunting/process/parent/${caseId}?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (data.success) {
+                if (!data.parent && data.siblings.length === 0) {
+                    content.innerHTML = `
+                        <div class="tree-no-results">
+                            <p>No parent process found for <strong>${escapeHtml(parentProcess)}</strong> (PID: ${parentPid})</p>
+                        </div>
+                    `;
+                } else {
+                    let html = '<div class="tree-results-header"><span class="tree-results-count">Parent tree built</span></div>';
+                    html += '<div class="interactive-tree parent-tree">';
+                    
+                    // Show parent if found
+                    if (data.parent) {
+                        html += buildInteractiveTreeNode(data.parent, hostname, 0);
+                        html += '<div class="tree-children">';
+                    }
+                    
+                    // Show the original process and its siblings
+                    if (data.siblings.length > 0) {
+                        data.siblings.forEach(sibling => {
+                            html += buildInteractiveTreeNode(sibling, hostname, 1);
+                        });
+                    }
+                    
+                    if (data.parent) {
+                        html += '</div>';
+                    }
+                    
+                    html += '</div>';
+                    content.innerHTML = html;
+                }
+            } else {
+                content.innerHTML = `<div class="tree-error">Error: ${escapeHtml(data.error)}</div>`;
+            }
+        })
+        .catch(err => {
+            loading.style.display = 'none';
+            content.innerHTML = `<div class="tree-error">Error: ${escapeHtml(err.message)}</div>`;
+        });
+}
+
+// Explore children from current event
+function exploreProcessChildren() {
+    const event = currentModalEvent;
+    if (!event || !event.process_id || !event.process_name) {
+        alert('Current event does not have process ID or name');
+        return;
+    }
+    findChildrenOf(event.source_host, event.process_id, event.process_name);
+}
+
+// Explore parents from current event
+function exploreProcessParents() {
+    const event = currentModalEvent;
+    if (!event || !event.parent_pid) {
+        alert('Current event does not have parent process information');
+        return;
+    }
+    findParentOf(event.source_host, event.parent_pid, event.parent_process || '');
+}
+
+// Search for all events of a specific process
+function searchProcessEvents(hostname, pid, processName) {
+    // Build search query and navigate to events tab
+    const searchQuery = `${hostname} ${processName} ${pid}`;
+    document.getElementById('events-search').value = searchQuery;
+    closeEventModal();
+    searchEvents();
+}
+
+// Build interactive tree HTML from array of processes
+function buildInteractiveTree(processes, hostname, depth) {
+    if (!processes || processes.length === 0) return '';
+    
+    let html = '';
+    processes.forEach(proc => {
+        html += buildInteractiveTreeNode(proc, hostname, depth);
+    });
+    return html;
+}
+
+// Build a single interactive tree node
+function buildInteractiveTreeNode(proc, hostname, depth) {
+    const indent = depth * 24;
+    const nodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
+    const hasChildren = proc.child_count && proc.child_count > 0;
+    
+    return `
+        <div class="tree-node-interactive" id="${nodeId}" style="margin-left: ${indent}px;">
+            <div class="tree-node-row">
+                ${hasChildren ? `<button class="tree-expand-btn" onclick="toggleTreeChildren('${nodeId}', '${escapeHtml(hostname)}', ${proc.pid}, '${escapeHtml(proc.process_name)}')">▶</button>` : '<span class="tree-expand-placeholder"></span>'}
+                <span class="tree-node-icon">📦</span>
+                <span class="tree-node-name">${escapeHtml(proc.process_name || 'Unknown')}</span>
+                <span class="tree-node-pid">PID: ${proc.pid || '-'}</span>
+                <span class="tree-node-time">${proc.timestamp || ''}</span>
+                <div class="tree-node-actions-inline">
+                    <button class="btn-xs" onclick="findChildrenOf('${escapeHtml(hostname)}', ${proc.pid}, '${escapeHtml(proc.process_name)}')" title="Find children">🔽</button>
+                    <button class="btn-xs" onclick="findParentOf('${escapeHtml(hostname)}', ${proc.parent_pid || 0}, '${escapeHtml(proc.parent_process || '')}')" title="Find parent">🔼</button>
+                </div>
+            </div>
+            ${proc.command_line ? `<div class="tree-node-cmdline">${escapeHtml(proc.command_line.length > 200 ? proc.command_line.substring(0, 200) + '...' : proc.command_line)}</div>` : ''}
+            <div class="tree-children" style="display: none;"></div>
+        </div>
+    `;
+}
+
+// Toggle children expansion in tree
+function toggleTreeChildren(nodeId, hostname, pid, processName) {
+    const node = document.getElementById(nodeId);
+    const btn = node.querySelector('.tree-expand-btn');
+    const childrenContainer = node.querySelector('.tree-children');
+    
+    if (childrenContainer.style.display === 'none') {
+        // Expand - load children
+        btn.textContent = '▼';
+        childrenContainer.style.display = 'block';
+        childrenContainer.innerHTML = '<div class="tree-loading-inline"><span class="spinner-border spinner-border-sm"></span></div>';
+        
+        const params = new URLSearchParams({
+            host: hostname,
+            parent_pid: pid,
+            parent_process: processName
+        });
+        
+        fetch(`/api/hunting/process/children/${caseId}?${params.toString()}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.children.length > 0) {
+                    childrenContainer.innerHTML = buildInteractiveTree(data.children, hostname, 0);
+                } else {
+                    childrenContainer.innerHTML = '<div class="tree-no-children">No children found</div>';
+                }
+            })
+            .catch(err => {
+                childrenContainer.innerHTML = `<div class="tree-error">Error loading children</div>`;
+            });
+    } else {
+        // Collapse
+        btn.textContent = '▶';
+        childrenContainer.style.display = 'none';
+    }
+}
+
 // Close modal on Escape key
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
@@ -1279,37 +1713,7 @@ function buildEventDetailHTML(event) {
         html += `</div>`;
     }
     
-    // Raw Data (search blob)
-    if (event.search_blob) {
-        let rawContent = event.search_blob;
-        let formattedRaw;
-        
-        // Try to parse and pretty-print JSON
-        try {
-            // Check if blob contains JSON (look for { or [)
-            const jsonMatch = rawContent.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[1]);
-                formattedRaw = JSON.stringify(parsed, null, 2);
-            } else {
-                formattedRaw = rawContent;
-            }
-        } catch (e) {
-            formattedRaw = rawContent;
-        }
-        
-        // Apply IOC highlighting if event has IOC matches
-        const rawDisplay = currentEventHasIOC 
-            ? highlightIOCsInText(formattedRaw)
-            : escapeHtml(formattedRaw);
-        
-        html += `
-            <div class="event-detail-section full-width">
-                <h4>📝 Raw Data</h4>
-                <div class="event-detail-blob">${rawDisplay}</div>
-            </div>
-        `;
-    }
+    // Raw Data section removed - now shown in Raw Data tab
     
     return html;
 }

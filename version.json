@@ -1,6 +1,18 @@
 {
-  "version": "3.68.02",
+  "version": "3.69.00",
   "changelog": [
+    {
+      "version": "3.69.00",
+      "date": "2026-01-13",
+      "changes": [
+        "Process Analysis: Visual process chain showing current + parent + grandparent",
+        "Process Analysis: Process details cards with execution, user context, and hashes",
+        "Process Analysis: Interactive tree explorer - find child or parent processes",
+        "Process Analysis: Click any process to explore its children or parent chain",
+        "Process Analysis: Search for all events of a specific process",
+        "Info tab: Removed redundant Raw Data section (now in Raw Data tab)"
+      ]
+    },
     {
       "version": "3.68.02",
       "date": "2026-01-13",
