@@ -32,6 +32,21 @@
     </div>
     <p class="ai-section-desc">Scan all events for known attack patterns mapped to MITRE ATT&CK framework.</p>
     
+    <!-- Help Panel -->
+    <div class="ai-help-panel">
+        <div class="ai-help-toggle" onclick="toggleHelp(this)">
+            <span class="ai-help-icon">❓</span> What does this do?
+        </div>
+        <div class="ai-help-content" style="display: none;">
+            <p><strong>Pattern Discovery</strong> scans your case events against thousands of detection rules to identify attack behaviors.</p>
+            <ul>
+                <li><strong>Find Attack Patterns:</strong> Executes SQL queries from Sigma/Hayabusa rules against your ClickHouse events. Detects behaviors like brute force attacks, lateral movement, persistence mechanisms, and credential access.</li>
+                <li><strong>Init Patterns:</strong> Seeds the database with built-in detection patterns. Run once on first use.</li>
+            </ul>
+            <p class="ai-help-note">💡 Patterns are sourced from Hayabusa, SigmaHQ, and OpenCTI. Each pattern has a ClickHouse query that identifies specific attack behaviors in your event data.</p>
+        </div>
+    </div>
+    
     <div class="ai-action-card">
         <div class="ai-action-stats" id="patternStats">
             <div class="ai-stat">
@@ -48,10 +63,10 @@
             </div>
         </div>
         <div class="ai-action-buttons">
-            <button class="btn btn-primary" id="btnFindPatterns" onclick="startPatternDiscovery()">
+            <button class="btn btn-primary" id="btnFindPatterns" onclick="startPatternDiscovery()" title="Scan all case events against detection patterns to find attack behaviors">
                 <span class="btn-icon">🔍</span> Find Attack Patterns
             </button>
-            <button class="btn btn-secondary" onclick="initRAG()">
+            <button class="btn btn-secondary" onclick="initRAG()" title="Initialize built-in detection patterns (run once on first use)">
                 <span class="btn-icon">⚙️</span> Init Patterns
             </button>
         </div>
@@ -107,6 +122,22 @@
     </div>
     <p class="ai-section-desc">Find events contextually related to SIGMA hits, IOC matches, or analyst-tagged events.</p>
     
+    <!-- Help Panel -->
+    <div class="ai-help-panel">
+        <div class="ai-help-toggle" onclick="toggleHelp(this)">
+            <span class="ai-help-icon">❓</span> What does this do?
+        </div>
+        <div class="ai-help-content" style="display: none;">
+            <p><strong>Related Event Hunting</strong> uses "anchor" events (high-severity SIGMA hits) to find surrounding context.</p>
+            <ul>
+                <li><strong>Anchor Events:</strong> High/Critical SIGMA detections serve as starting points</li>
+                <li><strong>Time Window:</strong> Searches for related events within the specified time range around each anchor</li>
+                <li><strong>Related Events:</strong> Finds logins, process executions, service installs, and other interesting events near the anchors</li>
+            </ul>
+            <p class="ai-help-note">💡 This helps analysts understand what happened before and after a detection - crucial for building attack timelines.</p>
+        </div>
+    </div>
+    
     <div class="ai-action-card">
         <div class="ai-options">
             <label class="ai-checkbox">
@@ -139,7 +170,7 @@
             </div>
         </div>
         <div class="ai-action-buttons">
-            <button class="btn btn-primary" id="btnHuntRelated" onclick="startRelatedHunt()">
+            <button class="btn btn-primary" id="btnHuntRelated" onclick="startRelatedHunt()" title="Find events occurring near high-severity SIGMA detections">
                 <span class="btn-icon">🔍</span> Hunt Related
             </button>
         </div>
@@ -170,6 +201,23 @@
     </div>
     <p class="ai-section-desc">Generate MITRE ATT&CK mapped incident timeline using AI analysis.</p>
     
+    <!-- Help Panel -->
+    <div class="ai-help-panel">
+        <div class="ai-help-toggle" onclick="toggleHelp(this)">
+            <span class="ai-help-icon">❓</span> What does this do?
+        </div>
+        <div class="ai-help-content" style="display: none;">
+            <p><strong>Timeline Generation</strong> creates an AI-powered incident narrative from your case events.</p>
+            <ul>
+                <li><strong>Phase Clustering:</strong> Groups events into attack phases based on time gaps (2+ hours between phases)</li>
+                <li><strong>MITRE Mapping:</strong> Maps each phase to ATT&CK tactics and techniques</li>
+                <li><strong>AI Narratives:</strong> Uses Ollama LLM to generate human-readable descriptions of attacker objectives</li>
+                <li><strong>Executive Summary:</strong> Produces a high-level overview suitable for management reporting</li>
+            </ul>
+            <p class="ai-help-note">💡 Best results when run after Pattern Discovery - pattern matches are included in the timeline.</p>
+        </div>
+    </div>
+    
     <div class="ai-action-card">
         <div class="ai-options">
             <label class="ai-checkbox">
@@ -189,7 +237,7 @@
             </label>
         </div>
         <div class="ai-action-buttons">
-            <button class="btn btn-primary" id="btnGenerateTimeline" onclick="generateTimeline()">
+            <button class="btn btn-primary" id="btnGenerateTimeline" onclick="generateTimeline()" title="Generate AI-powered incident timeline with MITRE ATT&CK mapping">
                 <span class="btn-icon">📅</span> Generate Timeline
             </button>
         </div>
@@ -225,6 +273,21 @@
     </div>
     <div class="ai-section-content" style="display: none;">
         <p class="ai-section-desc">Sync attack patterns and threat intelligence from your OpenCTI instance.</p>
+        
+        <!-- Help Panel -->
+        <div class="ai-help-panel">
+            <div class="ai-help-toggle" onclick="toggleHelp(this)">
+                <span class="ai-help-icon">❓</span> What does this do?
+            </div>
+            <div class="ai-help-content" style="display: none;">
+                <p><strong>OpenCTI Pattern Sync</strong> pulls threat intelligence from your OpenCTI instance.</p>
+                <ul>
+                    <li><strong>Attack Patterns:</strong> MITRE ATT&CK techniques with detection guidance</li>
+                    <li><strong>Sigma Indicators:</strong> Detection rules stored in OpenCTI that can be executed against your events</li>
+                </ul>
+                <p class="ai-help-note">💡 Synced patterns enrich the RAG context. Sigma indicators become executable detection queries.</p>
+            </div>
+        </div>
         
         <div class="ai-action-card">
             <div class="ai-action-stats" id="openctiStats">

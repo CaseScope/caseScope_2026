@@ -1727,5 +1727,17 @@ function toggleAISection(header) {
     const content = section.querySelector('.ai-section-content');
     content.style.display = content.style.display === 'none' ? 'block' : 'none';
 }
+
+function toggleHelp(toggle) {
+    const panel = toggle.closest('.ai-help-panel');
+    const content = panel.querySelector('.ai-help-content');
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggle.innerHTML = '<span class="ai-help-icon">✖</span> Hide help';
+    } else {
+        content.style.display = 'none';
+        toggle.innerHTML = '<span class="ai-help-icon">❓</span> What does this do?';
+    }
+}
 </script>
 {% endblock %}
