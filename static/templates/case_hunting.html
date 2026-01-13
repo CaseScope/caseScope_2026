@@ -47,11 +47,18 @@
                     <span class="tab-icon">🔧</span>
                     <span class="tab-text">Other</span>
                 </button>
+                <button class="hunting-tab" data-tab="ai" data-types="">
+                    <span class="tab-icon">🤖</span>
+                    <span class="tab-text">AI Hunting</span>
+                </button>
             </div>
         </div>
         <div class="tile-body hunting-content">
             <div id="tab-content-events">
                 {% include 'hunting/tab_events.html' %}
+            </div>
+            <div id="tab-content-ai" style="display: none;">
+                {% include 'hunting/tab_ai_hunting.html' %}
             </div>
             <div id="tab-content-other" style="display: none;">
                 <div class="other-tab-content">
@@ -263,6 +270,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const filterTile = document.getElementById('events-filter-tile');
     const eventsContent = document.getElementById('tab-content-events');
     const otherContent = document.getElementById('tab-content-other');
+    const aiContent = document.getElementById('tab-content-ai');
     
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
@@ -276,17 +284,24 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get artifact types for this tab
             currentArtifactTypes = this.dataset.types || '';
             
+            // Hide all tab contents first
+            eventsContent.style.display = 'none';
+            otherContent.style.display = 'none';
+            if (aiContent) aiContent.style.display = 'none';
+            if (filterTile) filterTile.style.display = 'none';
+            
             // Show/hide content based on tab
             if (currentTab === 'other') {
-                eventsContent.style.display = 'none';
                 otherContent.style.display = 'block';
-                if (filterTile) filterTile.style.display = 'none';
                 // Load noise stats when switching to Other tab
                 loadNoiseStats();
+            } else if (currentTab === 'ai') {
+                if (aiContent) aiContent.style.display = 'block';
+                // Load AI stats when switching to AI tab
+                loadAIStats();
             } else {
                 eventsContent.style.display = 'block';
-                otherContent.style.display = 'none';
-                // Show/hide filter tile (Events tab only)
+                // Show filter tile (Events tab only)
                 if (filterTile) {
                     filterTile.style.display = (currentTab === 'events') ? '' : 'none';
                 }
@@ -1141,6 +1156,569 @@ function resetNoiseButton() {
     const btn = document.getElementById('btnFindNoise');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔍</span> Find Noise';
+}
+
+// ========================================
+// AI HUNTING TAB FUNCTIONS
+// ========================================
+
+let currentPatternTaskId = null;
+let currentRelatedTaskId = null;
+let currentTimelineTaskId = null;
+let currentMatchId = null;
+let patternMatches = [];
+
+// Load AI stats when tab opens
+function loadAIStats() {
+    fetch(`/api/rag/stats/${CASE_ID}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('patternCount').textContent = data.pattern_count || 0;
+                document.getElementById('patternMatchCount').textContent = data.match_count || 0;
+                document.getElementById('sigmaHighCount').textContent = `(${data.sigma_high_events || 0})`;
+                
+                if (data.last_scan) {
+                    const date = new Date(data.last_scan);
+                    document.getElementById('patternLastScan').textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                }
+            }
+        })
+        .catch(err => console.error('Error loading AI stats:', err));
+    
+    // Load pattern matches
+    refreshPatternMatches();
+    
+    // Load OpenCTI stats
+    loadOpenCTIStats();
+}
+
+function loadOpenCTIStats() {
+    fetch('/api/rag/opencti/stats')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('openctiPatterns').textContent = data.opencti_patterns || 0;
+                document.getElementById('openctiIndicators').textContent = data.opencti_indicators || 0;
+                
+                if (data.last_sync && data.last_sync.completed_at) {
+                    const date = new Date(data.last_sync.completed_at);
+                    document.getElementById('openctiLastSync').textContent = date.toLocaleDateString();
+                }
+            }
+        })
+        .catch(err => console.error('Error loading OpenCTI stats:', err));
+}
+
+function refreshPatternMatches() {
+    fetch(`/api/rag/matches/${CASE_ID}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                patternMatches = data.matches || [];
+                renderPatternMatches();
+                
+                if (patternMatches.length > 0) {
+                    document.getElementById('patternResults').style.display = 'block';
+                }
+            }
+        })
+        .catch(err => console.error('Error loading pattern matches:', err));
+}
+
+function renderPatternMatches() {
+    const tbody = document.getElementById('patternResultsBody');
+    
+    if (patternMatches.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No pattern matches found yet</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    for (const match of patternMatches) {
+        const confidenceClass = match.confidence_score >= 0.8 ? 'high' : 
+                               (match.confidence_score >= 0.5 ? 'medium' : 'low');
+        const statusClass = match.analyst_reviewed ? 
+                           (match.analyst_verdict === 'confirmed' ? 'confirmed' : 
+                            match.analyst_verdict === 'false_positive' ? 'false_positive' : 'pending') 
+                           : 'pending';
+        const statusText = match.analyst_reviewed ? 
+                          (match.analyst_verdict || 'Reviewed') : 'Pending';
+        
+        html += `
+            <tr class="pattern-match-row" onclick="showPatternMatch(${match.id})">
+                <td>${escapeHtml(match.pattern_name || '-')}</td>
+                <td><span class="mitre-badge">${escapeHtml(match.mitre_technique || '-')}</span></td>
+                <td>${escapeHtml(match.source_host || '-')}</td>
+                <td><span class="pattern-confidence ${confidenceClass}">${(match.confidence_score * 100).toFixed(0)}%</span></td>
+                <td>${match.matched_event_count || '-'}</td>
+                <td><span class="match-status ${statusClass}">${escapeHtml(statusText)}</span></td>
+                <td>
+                    <button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); toggleMatchTimeline(${match.id})">
+                        ${match.include_in_timeline ? '📌' : '📍'}
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+    
+    tbody.innerHTML = html;
+}
+
+function startPatternDiscovery() {
+    const btn = document.getElementById('btnFindPatterns');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    
+    document.getElementById('patternProgress').style.display = 'block';
+    document.getElementById('patternResults').style.display = 'none';
+    
+    fetch('/api/rag/patterns/discover', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({case_id: CASE_ID})
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            currentPatternTaskId = data.task_id;
+            pollPatternStatus();
+        } else {
+            showPatternError(data.error || 'Failed to start pattern discovery');
+        }
+    })
+    .catch(err => {
+        showPatternError('Error: ' + err.message);
+    });
+}
+
+function pollPatternStatus() {
+    if (!currentPatternTaskId) return;
+    
+    fetch(`/api/rag/status/${currentPatternTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                updatePatternProgress(data.progress || 0, data.status || 'Processing...');
+                setTimeout(pollPatternStatus, 1000);
+            } else if (data.state === 'completed') {
+                showPatternComplete(data.result);
+            } else if (data.state === 'failed') {
+                showPatternError(data.error || 'Task failed');
+            } else if (data.state === 'pending') {
+                updatePatternProgress(0, 'Queued...');
+                setTimeout(pollPatternStatus, 1000);
+            } else {
+                setTimeout(pollPatternStatus, 1000);
+            }
+        })
+        .catch(err => {
+            console.error('Error polling pattern status:', err);
+            setTimeout(pollPatternStatus, 2000);
+        });
+}
+
+function updatePatternProgress(percent, status) {
+    document.getElementById('patternProgressPercent').textContent = `${percent}%`;
+    document.getElementById('patternProgressFill').style.width = `${percent}%`;
+    document.getElementById('patternProgressStatus').textContent = status;
+}
+
+function showPatternComplete(result) {
+    document.getElementById('patternProgress').style.display = 'none';
+    resetPatternButton();
+    
+    // Refresh matches
+    refreshPatternMatches();
+    
+    // Update stats
+    document.getElementById('patternLastScan').textContent = 'Just now';
+    document.getElementById('patternMatchCount').textContent = result.matches_found || 0;
+    
+    currentPatternTaskId = null;
+}
+
+function showPatternError(message) {
+    document.getElementById('patternProgress').style.display = 'none';
+    resetPatternButton();
+    alert('Pattern Discovery Error: ' + message);
+    currentPatternTaskId = null;
+}
+
+function resetPatternButton() {
+    const btn = document.getElementById('btnFindPatterns');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Find Attack Patterns';
+}
+
+function showPatternMatch(matchId) {
+    const match = patternMatches.find(m => m.id === matchId);
+    if (!match) return;
+    
+    currentMatchId = matchId;
+    
+    document.getElementById('pattern-modal-title').textContent = match.pattern_name || 'Pattern Match';
+    
+    const content = document.getElementById('pattern-match-content');
+    content.innerHTML = `
+        <div class="detail-row">
+            <span class="detail-label">MITRE Technique:</span>
+            <span class="detail-value"><span class="mitre-badge">${escapeHtml(match.mitre_technique || '-')}</span></span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Confidence:</span>
+            <span class="detail-value">${(match.confidence_score * 100).toFixed(0)}%</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Source Host:</span>
+            <span class="detail-value">${escapeHtml(match.source_host || '-')}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Users Affected:</span>
+            <span class="detail-value">${match.affected_users ? match.affected_users.join(', ') : '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Events Matched:</span>
+            <span class="detail-value">${match.matched_event_count || '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Time Range:</span>
+            <span class="detail-value">${match.first_event_time || '-'} to ${match.last_event_time || '-'}</span>
+        </div>
+        ${match.ai_summary ? `
+        <div class="detail-row">
+            <span class="detail-label">AI Summary:</span>
+            <span class="detail-value">${escapeHtml(match.ai_summary)}</span>
+        </div>
+        ` : ''}
+        ${match.analyst_notes ? `
+        <div class="detail-row">
+            <span class="detail-label">Analyst Notes:</span>
+            <span class="detail-value">${escapeHtml(match.analyst_notes)}</span>
+        </div>
+        ` : ''}
+    `;
+    
+    document.getElementById('pattern-match-modal').style.display = 'flex';
+}
+
+function closePatternModal(e) {
+    if (e && e.target !== e.currentTarget) return;
+    document.getElementById('pattern-match-modal').style.display = 'none';
+    currentMatchId = null;
+}
+
+function reviewMatch(verdict) {
+    if (!currentMatchId) return;
+    
+    fetch(`/api/rag/matches/${currentMatchId}/review`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({verdict: verdict, notes: ''})
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closePatternModal();
+            refreshPatternMatches();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to save review'));
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function toggleMatchTimeline(matchId) {
+    fetch(`/api/rag/matches/${matchId}/timeline`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            refreshPatternMatches();
+        }
+    });
+}
+
+// Related Event Hunting
+function startRelatedHunt() {
+    const btn = document.getElementById('btnHuntRelated');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Hunting...';
+    
+    document.getElementById('relatedProgress').style.display = 'block';
+    document.getElementById('relatedResults').style.display = 'none';
+    
+    const timeWindow = parseInt(document.getElementById('huntTimeWindow').value) || 24;
+    
+    fetch('/api/rag/hunt/related', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            case_id: CASE_ID,
+            include_sigma_high: document.getElementById('huntFromSigma').checked,
+            time_window_hours: timeWindow
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            currentRelatedTaskId = data.task_id;
+            pollRelatedStatus();
+        } else {
+            showRelatedError(data.error || 'Failed to start');
+        }
+    })
+    .catch(err => showRelatedError(err.message));
+}
+
+function pollRelatedStatus() {
+    if (!currentRelatedTaskId) return;
+    
+    fetch(`/api/rag/status/${currentRelatedTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                document.getElementById('relatedProgressPercent').textContent = `${data.progress || 0}%`;
+                document.getElementById('relatedProgressFill').style.width = `${data.progress || 0}%`;
+                document.getElementById('relatedProgressStatus').textContent = data.status || 'Processing...';
+                setTimeout(pollRelatedStatus, 1000);
+            } else if (data.state === 'completed') {
+                showRelatedComplete(data.result);
+            } else if (data.state === 'failed') {
+                showRelatedError(data.error || 'Task failed');
+            } else {
+                setTimeout(pollRelatedStatus, 1000);
+            }
+        })
+        .catch(err => {
+            setTimeout(pollRelatedStatus, 2000);
+        });
+}
+
+function showRelatedComplete(result) {
+    document.getElementById('relatedProgress').style.display = 'none';
+    document.getElementById('relatedResults').style.display = 'block';
+    
+    const summary = document.getElementById('relatedResultsSummary');
+    summary.innerHTML = `
+        <h4>Related Events Found</h4>
+        <p><strong>${result.anchor_count || 0}</strong> anchor events used, 
+           <strong>${result.related_count || 0}</strong> related events discovered</p>
+        <p class="text-muted">Hosts: ${(result.hosts || []).slice(0, 5).join(', ')}</p>
+    `;
+    
+    resetRelatedButton();
+    currentRelatedTaskId = null;
+}
+
+function showRelatedError(message) {
+    document.getElementById('relatedProgress').style.display = 'none';
+    alert('Related Hunt Error: ' + message);
+    resetRelatedButton();
+    currentRelatedTaskId = null;
+}
+
+function resetRelatedButton() {
+    const btn = document.getElementById('btnHuntRelated');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Hunt Related';
+}
+
+// Timeline Generation
+function generateTimeline() {
+    const btn = document.getElementById('btnGenerateTimeline');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Generating...';
+    
+    document.getElementById('timelineProgress').style.display = 'block';
+    document.getElementById('timelineResults').style.display = 'none';
+    
+    fetch('/api/rag/timeline/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            case_id: CASE_ID,
+            include_sigma: document.getElementById('timelineSigma').checked,
+            include_patterns: document.getElementById('timelinePattern').checked
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            currentTimelineTaskId = data.task_id;
+            pollTimelineStatus();
+        } else {
+            showTimelineError(data.error || 'Failed to start');
+        }
+    })
+    .catch(err => showTimelineError(err.message));
+}
+
+function pollTimelineStatus() {
+    if (!currentTimelineTaskId) return;
+    
+    fetch(`/api/rag/status/${currentTimelineTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                document.getElementById('timelineProgressPercent').textContent = `${data.progress || 0}%`;
+                document.getElementById('timelineProgressFill').style.width = `${data.progress || 0}%`;
+                document.getElementById('timelineProgressStatus').textContent = data.status || 'Processing...';
+                setTimeout(pollTimelineStatus, 1500);
+            } else if (data.state === 'completed') {
+                showTimelineComplete(data.result);
+            } else if (data.state === 'failed') {
+                showTimelineError(data.error || 'Task failed');
+            } else {
+                setTimeout(pollTimelineStatus, 1500);
+            }
+        })
+        .catch(err => {
+            setTimeout(pollTimelineStatus, 2000);
+        });
+}
+
+function showTimelineComplete(result) {
+    document.getElementById('timelineProgress').style.display = 'none';
+    document.getElementById('timelineResults').style.display = 'block';
+    
+    // Executive Summary
+    const execSummary = document.getElementById('timelineExecutiveSummary');
+    execSummary.innerHTML = `
+        <h4>Executive Summary</h4>
+        <p>${escapeHtml(result.executive_summary || 'Timeline generated.')}</p>
+    `;
+    
+    // Render timeline phases
+    const container = document.getElementById('timelineContainer');
+    const timeline = result.timeline || [];
+    
+    if (timeline.length === 0) {
+        container.innerHTML = '<p class="text-muted">No timeline phases generated.</p>';
+    } else {
+        let html = '';
+        for (const phase of timeline) {
+            html += `
+                <div class="timeline-phase">
+                    <div class="timeline-phase-header">
+                        <span class="timeline-phase-title">Phase ${phase.phase_number}: ${escapeHtml(phase.summary || 'Activity detected')}</span>
+                        <span class="timeline-phase-time">${phase.start_time ? new Date(phase.start_time).toLocaleString() : '-'}</span>
+                    </div>
+                    <div class="timeline-phase-mitre">
+                        ${(phase.mitre_techniques || []).map(t => `<span class="mitre-badge">${escapeHtml(t)}</span>`).join('')}
+                    </div>
+                    <div class="timeline-phase-summary">
+                        <strong>Objective:</strong> ${escapeHtml(phase.attacker_objective || 'Unknown')}
+                    </div>
+                    <div class="timeline-phase-events">
+                        ${(phase.source_events || []).slice(0, 5).map(e => `
+                            <div class="timeline-event-item">
+                                <span class="timeline-event-time">${e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '-'}</span>
+                                <span class="timeline-event-desc">${escapeHtml(e.rule_title || e.event_id || '-')}</span>
+                                <span class="timeline-event-source sigma">${escapeHtml(e.source_host || '')}</span>
+                            </div>
+                        `).join('')}
+                        ${(phase.source_events || []).length > 5 ? `<div class="timeline-event-more">+ ${phase.source_events.length - 5} more events</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    }
+    
+    resetTimelineButton();
+    currentTimelineTaskId = null;
+}
+
+function showTimelineError(message) {
+    document.getElementById('timelineProgress').style.display = 'none';
+    alert('Timeline Error: ' + message);
+    resetTimelineButton();
+    currentTimelineTaskId = null;
+}
+
+function resetTimelineButton() {
+    const btn = document.getElementById('btnGenerateTimeline');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">📅</span> Generate Timeline';
+}
+
+// OpenCTI Sync
+function syncOpenCTI() {
+    const btn = document.getElementById('btnSyncOpenCTI');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Syncing...';
+    
+    fetch('/api/rag/opencti/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert('Sync started. Check back in a moment.');
+            setTimeout(loadOpenCTIStats, 5000);
+        } else {
+            alert('Sync error: ' + (data.error || 'Unknown'));
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔄</span> Sync Now';
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔄</span> Sync Now';
+    });
+}
+
+// Initialize RAG
+function initRAG() {
+    fetch('/api/rag/init', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert('RAG initialization started. Built-in patterns are being seeded.');
+            setTimeout(loadAIStats, 3000);
+        } else {
+            alert('Init error: ' + (data.error || 'Unknown'));
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+// Check RAG Health
+function checkRAGHealth() {
+    fetch('/api/rag/health')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                const emb = data.embeddings || {};
+                const qdrant = data.vectorstore || {};
+                const llm = data.llm || {};
+                
+                document.getElementById('healthEmbeddings').textContent = emb.status === 'healthy' ? '✅' : '❌';
+                document.getElementById('healthQdrant').textContent = qdrant.status === 'healthy' ? '✅' : '❌';
+                document.getElementById('healthLLM').textContent = llm.status === 'healthy' ? '✅' : (llm.status === 'model_missing' ? '⚠️' : '❌');
+            }
+        })
+        .catch(err => {
+            document.getElementById('healthEmbeddings').textContent = '❓';
+            document.getElementById('healthQdrant').textContent = '❓';
+            document.getElementById('healthLLM').textContent = '❓';
+        });
+}
+
+// Toggle collapsible AI section
+function toggleAISection(header) {
+    const section = header.closest('.ai-section');
+    section.classList.toggle('expanded');
+    const content = section.querySelector('.ai-section-content');
+    content.style.display = content.style.display === 'none' ? 'block' : 'none';
 }
 </script>
 {% endblock %}

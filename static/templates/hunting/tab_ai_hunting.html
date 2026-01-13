@@ -1,0 +1,283 @@
+<!-- AI Hunting Tab Content -->
+
+<!-- Pattern Match Details Modal -->
+<div class="modal-overlay" id="pattern-match-modal" style="display: none;" onclick="closePatternModal(event)">
+    <div class="modal-container modal-pattern-match" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="pattern-modal-title">Pattern Match Details</h3>
+            <button class="modal-close" onclick="closePatternModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="pattern-match-content" id="pattern-match-content">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closePatternModal()">Close</button>
+            <button class="btn btn-success" onclick="reviewMatch('confirmed')">
+                <span class="btn-icon">✓</span> Confirm
+            </button>
+            <button class="btn btn-danger" onclick="reviewMatch('false_positive')">
+                <span class="btn-icon">✗</span> False Positive
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Pattern Discovery Section -->
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">🧩 Pattern Discovery</h3>
+        <span class="ai-section-badge" id="patternSyncStatus">Ready</span>
+    </div>
+    <p class="ai-section-desc">Scan all events for known attack patterns mapped to MITRE ATT&CK framework.</p>
+    
+    <div class="ai-action-card">
+        <div class="ai-action-stats" id="patternStats">
+            <div class="ai-stat">
+                <span class="ai-stat-label">Active Patterns:</span>
+                <span class="ai-stat-value" id="patternCount">-</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Last Scan:</span>
+                <span class="ai-stat-value" id="patternLastScan">Never</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Matches Found:</span>
+                <span class="ai-stat-value" id="patternMatchCount">-</span>
+            </div>
+        </div>
+        <div class="ai-action-buttons">
+            <button class="btn btn-primary btn-lg" id="btnFindPatterns" onclick="startPatternDiscovery()">
+                <span class="btn-icon">🔍</span> Find Attack Patterns
+            </button>
+            <button class="btn btn-secondary" onclick="initRAG()">
+                <span class="btn-icon">⚙️</span> Init Patterns
+            </button>
+        </div>
+    </div>
+    
+    <!-- Progress -->
+    <div class="ai-progress" id="patternProgress" style="display: none;">
+        <div class="ai-progress-header">
+            <span class="ai-progress-title">Scanning for patterns...</span>
+            <span class="ai-progress-percent" id="patternProgressPercent">0%</span>
+        </div>
+        <div class="ai-progress-bar">
+            <div class="ai-progress-fill" id="patternProgressFill" style="width: 0%"></div>
+        </div>
+        <div class="ai-progress-status" id="patternProgressStatus">Initializing...</div>
+    </div>
+    
+    <!-- Results -->
+    <div class="ai-results" id="patternResults" style="display: none;">
+        <div class="ai-results-header">
+            <h4>Pattern Matches</h4>
+            <div class="ai-results-actions">
+                <button class="btn btn-sm btn-secondary" onclick="refreshPatternMatches()">
+                    <span class="btn-icon">🔄</span> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="ai-results-table">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Pattern</th>
+                        <th>MITRE</th>
+                        <th>Host</th>
+                        <th>Confidence</th>
+                        <th>Events</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="patternResultsBody">
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Related Event Hunting Section -->
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">🔗 Related Event Hunting</h3>
+    </div>
+    <p class="ai-section-desc">Find events contextually related to SIGMA hits, IOC matches, or analyst-tagged events.</p>
+    
+    <div class="ai-action-card">
+        <div class="ai-options">
+            <label class="ai-checkbox">
+                <input type="checkbox" id="huntFromSigma" checked>
+                <span class="checkmark"></span>
+                <span class="ai-checkbox-label">High/Critical SIGMA hits</span>
+                <span class="ai-checkbox-count" id="sigmaHighCount">(0)</span>
+            </label>
+            <label class="ai-checkbox">
+                <input type="checkbox" id="huntFromIOC" checked disabled>
+                <span class="checkmark"></span>
+                <span class="ai-checkbox-label">IOC-tagged events</span>
+                <span class="ai-checkbox-count">(coming soon)</span>
+            </label>
+            <label class="ai-checkbox">
+                <input type="checkbox" id="huntFromAnalyst" checked disabled>
+                <span class="checkmark"></span>
+                <span class="ai-checkbox-label">Analyst-tagged events</span>
+                <span class="ai-checkbox-count">(coming soon)</span>
+            </label>
+            <div class="ai-select-row">
+                <label>Time window:</label>
+                <select id="huntTimeWindow" class="form-select">
+                    <option value="6">±6 hours</option>
+                    <option value="12">±12 hours</option>
+                    <option value="24" selected>±24 hours</option>
+                    <option value="48">±48 hours</option>
+                    <option value="168">±7 days</option>
+                </select>
+            </div>
+        </div>
+        <div class="ai-action-buttons">
+            <button class="btn btn-primary" id="btnHuntRelated" onclick="startRelatedHunt()">
+                <span class="btn-icon">🔍</span> Hunt Related
+            </button>
+        </div>
+    </div>
+    
+    <!-- Progress -->
+    <div class="ai-progress" id="relatedProgress" style="display: none;">
+        <div class="ai-progress-header">
+            <span class="ai-progress-title">Hunting related events...</span>
+            <span class="ai-progress-percent" id="relatedProgressPercent">0%</span>
+        </div>
+        <div class="ai-progress-bar">
+            <div class="ai-progress-fill" id="relatedProgressFill" style="width: 0%"></div>
+        </div>
+        <div class="ai-progress-status" id="relatedProgressStatus">Initializing...</div>
+    </div>
+    
+    <!-- Results -->
+    <div class="ai-results" id="relatedResults" style="display: none;">
+        <div class="ai-results-summary" id="relatedResultsSummary"></div>
+    </div>
+</div>
+
+<!-- Timeline Generation Section -->
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">📅 Timeline Generation</h3>
+    </div>
+    <p class="ai-section-desc">Generate MITRE ATT&CK mapped incident timeline using AI analysis.</p>
+    
+    <div class="ai-action-card">
+        <div class="ai-options">
+            <label class="ai-checkbox">
+                <input type="checkbox" id="timelineSigma" checked>
+                <span class="checkmark"></span>
+                <span class="ai-checkbox-label">SIGMA hits (high/critical)</span>
+            </label>
+            <label class="ai-checkbox">
+                <input type="checkbox" id="timelinePattern" checked>
+                <span class="checkmark"></span>
+                <span class="ai-checkbox-label">AI pattern matches</span>
+            </label>
+            <label class="ai-checkbox">
+                <input type="checkbox" id="timelineIOC" checked disabled>
+                <span class="checkmark"></span>
+                <span class="ai-checkbox-label">IOC matches (coming soon)</span>
+            </label>
+        </div>
+        <div class="ai-action-buttons">
+            <button class="btn btn-primary" id="btnGenerateTimeline" onclick="generateTimeline()">
+                <span class="btn-icon">📅</span> Generate Timeline
+            </button>
+        </div>
+    </div>
+    
+    <!-- Progress -->
+    <div class="ai-progress" id="timelineProgress" style="display: none;">
+        <div class="ai-progress-header">
+            <span class="ai-progress-title">Generating timeline...</span>
+            <span class="ai-progress-percent" id="timelineProgressPercent">0%</span>
+        </div>
+        <div class="ai-progress-bar">
+            <div class="ai-progress-fill" id="timelineProgressFill" style="width: 0%"></div>
+        </div>
+        <div class="ai-progress-status" id="timelineProgressStatus">Collecting events...</div>
+    </div>
+    
+    <!-- Timeline Results -->
+    <div class="ai-results" id="timelineResults" style="display: none;">
+        <div class="timeline-executive-summary" id="timelineExecutiveSummary"></div>
+        <div class="timeline-container" id="timelineContainer">
+            <!-- Timeline phases rendered here -->
+        </div>
+    </div>
+</div>
+
+<!-- OpenCTI Sync Section (collapsed) -->
+<div class="ai-section ai-section-collapsed">
+    <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
+        <h3 class="ai-section-title">🔄 OpenCTI Pattern Sync</h3>
+        <span class="ai-section-chevron">▼</span>
+    </div>
+    <div class="ai-section-content" style="display: none;">
+        <p class="ai-section-desc">Sync attack patterns and threat intelligence from your OpenCTI instance.</p>
+        
+        <div class="ai-action-card">
+            <div class="ai-action-stats" id="openctiStats">
+                <div class="ai-stat">
+                    <span class="ai-stat-label">Last Sync:</span>
+                    <span class="ai-stat-value" id="openctiLastSync">Never</span>
+                </div>
+                <div class="ai-stat">
+                    <span class="ai-stat-label">OpenCTI Patterns:</span>
+                    <span class="ai-stat-value" id="openctiPatterns">-</span>
+                </div>
+                <div class="ai-stat">
+                    <span class="ai-stat-label">Sigma Indicators:</span>
+                    <span class="ai-stat-value" id="openctiIndicators">-</span>
+                </div>
+            </div>
+            <div class="ai-action-buttons">
+                <button class="btn btn-primary" id="btnSyncOpenCTI" onclick="syncOpenCTI()">
+                    <span class="btn-icon">🔄</span> Sync Now
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- RAG Health Section (collapsed) -->
+<div class="ai-section ai-section-collapsed">
+    <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
+        <h3 class="ai-section-title">🔧 System Health</h3>
+        <span class="ai-section-chevron">▼</span>
+    </div>
+    <div class="ai-section-content" style="display: none;">
+        <p class="ai-section-desc">Check RAG system component status.</p>
+        
+        <div class="ai-action-card">
+            <div class="ai-health-grid" id="ragHealthGrid">
+                <div class="ai-health-item">
+                    <span class="ai-health-icon" id="healthEmbeddings">⏳</span>
+                    <span class="ai-health-label">Embeddings</span>
+                </div>
+                <div class="ai-health-item">
+                    <span class="ai-health-icon" id="healthQdrant">⏳</span>
+                    <span class="ai-health-label">Vector Store</span>
+                </div>
+                <div class="ai-health-item">
+                    <span class="ai-health-icon" id="healthLLM">⏳</span>
+                    <span class="ai-health-label">LLM (Ollama)</span>
+                </div>
+            </div>
+            <div class="ai-action-buttons">
+                <button class="btn btn-secondary" onclick="checkRAGHealth()">
+                    <span class="btn-icon">🔍</span> Check Health
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

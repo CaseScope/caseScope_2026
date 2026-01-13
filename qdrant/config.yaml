@@ -1,0 +1,14 @@
+# Qdrant Configuration for CaseScope
+
+service:
+  http_port: 6333
+  grpc_port: 6334
+  max_request_size_mb: 32
+
+storage:
+  storage_path: /opt/casescope/qdrant/storage
+  wal:
+    wal_capacity_mb: 256
+    wal_segments_ahead: 0
+
+log_level: INFO

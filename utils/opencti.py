@@ -414,6 +414,229 @@ class OpenCTIClient:
                 'connected': False,
                 'error': str(e)
             }
+    
+    # ============================================================================
+    # RAG PATTERN METHODS
+    # ============================================================================
+    
+    def get_attack_patterns(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Pull Attack Patterns (MITRE ATT&CK techniques) from OpenCTI
+        
+        Args:
+            limit: Maximum patterns to retrieve
+            
+        Returns:
+            List of attack pattern dictionaries
+        """
+        if self.init_error or not self.client:
+            logger.warning("[OpenCTI] Cannot get attack patterns: client not initialized")
+            return []
+        
+        try:
+            patterns = self.client.attack_pattern.list(first=limit)
+            
+            results = []
+            for pattern in patterns:
+                kill_chain_phases = []
+                if pattern.get('killChainPhases'):
+                    for kcp in pattern['killChainPhases']:
+                        if isinstance(kcp, dict):
+                            kill_chain_phases.append(kcp.get('phase_name', ''))
+                
+                results.append({
+                    'name': pattern.get('name'),
+                    'description': pattern.get('description'),
+                    'mitre_id': pattern.get('x_mitre_id'),
+                    'kill_chain_phases': kill_chain_phases,
+                    'platforms': pattern.get('x_mitre_platforms', []),
+                    'detection': pattern.get('x_mitre_detection', ''),
+                    'opencti_id': pattern.get('id'),
+                })
+            
+            logger.info(f"[OpenCTI] Retrieved {len(results)} attack patterns")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[OpenCTI] Error getting attack patterns: {e}")
+            return []
+    
+    def get_intrusion_sets_with_ttps(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """
+        Get threat actor groups and their associated TTPs
+        
+        Args:
+            limit: Maximum intrusion sets to retrieve
+            
+        Returns:
+            List of intrusion set dictionaries with attack patterns
+        """
+        if self.init_error or not self.client:
+            return []
+        
+        try:
+            intrusion_sets = self.client.intrusion_set.list(first=limit)
+            
+            results = []
+            for actor in intrusion_sets:
+                # Get attack patterns used by this actor
+                attack_patterns = []
+                try:
+                    relationships = self.client.stix_core_relationship.list(
+                        fromId=actor['id'],
+                        relationship_type='uses',
+                        toTypes=['Attack-Pattern'],
+                        first=100
+                    )
+                    
+                    for rel in relationships:
+                        if rel.get('to'):
+                            attack_patterns.append({
+                                'name': rel['to'].get('name'),
+                                'mitre_id': rel['to'].get('x_mitre_id')
+                            })
+                except Exception:
+                    pass  # Continue without relationships
+                
+                results.append({
+                    'name': actor.get('name'),
+                    'aliases': actor.get('aliases', []),
+                    'description': actor.get('description'),
+                    'attack_patterns': attack_patterns,
+                    'opencti_id': actor.get('id'),
+                })
+            
+            logger.info(f"[OpenCTI] Retrieved {len(results)} intrusion sets")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[OpenCTI] Error getting intrusion sets: {e}")
+            return []
+    
+    def get_indicators_with_patterns(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Get indicators that have STIX/Sigma/YARA detection patterns
+        
+        Args:
+            limit: Maximum indicators to retrieve
+            
+        Returns:
+            List of indicator dictionaries with patterns
+        """
+        if self.init_error or not self.client:
+            return []
+        
+        try:
+            # Query for indicators with detection patterns
+            indicators = self.client.indicator.list(
+                first=limit,
+                filters={
+                    "mode": "or",
+                    "filters": [
+                        {"key": "pattern_type", "values": ["stix"], "operator": "eq"},
+                        {"key": "pattern_type", "values": ["sigma"], "operator": "eq"},
+                        {"key": "pattern_type", "values": ["yara"], "operator": "eq"}
+                    ],
+                    "filterGroups": []
+                }
+            )
+            
+            results = []
+            for ind in indicators:
+                kill_chain_phases = []
+                if ind.get('killChainPhases'):
+                    for kcp in ind['killChainPhases']:
+                        if isinstance(kcp, dict):
+                            kill_chain_phases.append(kcp.get('phase_name', ''))
+                
+                results.append({
+                    'name': ind.get('name'),
+                    'pattern': ind.get('pattern'),
+                    'pattern_type': ind.get('pattern_type'),
+                    'valid_from': ind.get('valid_from'),
+                    'valid_until': ind.get('valid_until'),
+                    'score': ind.get('x_opencti_score'),
+                    'labels': self._extract_labels(ind),
+                    'kill_chain_phases': kill_chain_phases,
+                    'opencti_id': ind.get('id'),
+                })
+            
+            logger.info(f"[OpenCTI] Retrieved {len(results)} indicators with patterns")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[OpenCTI] Error getting indicators: {e}")
+            return []
+    
+    def get_reports_with_attack_context(self, days: int = 90, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get recent threat reports with attack pattern mappings
+        
+        Args:
+            days: Number of days to look back
+            limit: Maximum reports to retrieve
+            
+        Returns:
+            List of report dictionaries with attack context
+        """
+        if self.init_error or not self.client:
+            return []
+        
+        try:
+            from datetime import datetime, timedelta
+            
+            cutoff = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            
+            reports = self.client.report.list(
+                first=limit,
+                filters={
+                    "mode": "and",
+                    "filters": [
+                        {"key": "published", "values": [cutoff], "operator": "gt"}
+                    ],
+                    "filterGroups": []
+                }
+            )
+            
+            results = []
+            for report in reports:
+                # Get attack patterns referenced in report
+                attack_patterns = []
+                try:
+                    objects = self.client.stix_core_relationship.list(
+                        fromId=report['id'],
+                        toTypes=['Attack-Pattern'],
+                        first=50
+                    )
+                    for obj in objects:
+                        if obj.get('to'):
+                            attack_patterns.append({
+                                'name': obj['to'].get('name'),
+                                'mitre_id': obj['to'].get('x_mitre_id')
+                            })
+                except Exception:
+                    pass
+                
+                description = report.get('description', '')
+                if len(description) > 500:
+                    description = description[:500] + '...'
+                
+                results.append({
+                    'name': report.get('name'),
+                    'published': report.get('published'),
+                    'description': description,
+                    'attack_patterns': attack_patterns,
+                    'confidence': report.get('confidence'),
+                    'report_types': report.get('report_types', []),
+                    'opencti_id': report.get('id'),
+                })
+            
+            logger.info(f"[OpenCTI] Retrieved {len(results)} recent reports")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[OpenCTI] Error getting reports: {e}")
+            return []
 
 
 # ============================================================================

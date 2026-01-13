@@ -1,6 +1,20 @@
 {
-  "version": "3.64.01",
+  "version": "3.65.0",
   "changelog": [
+    {
+      "version": "3.65.0",
+      "date": "2026-01-13",
+      "changes": [
+        "AI Hunting: Complete RAG system for AI-powered threat hunting",
+        "AI Hunting: Pattern discovery with MITRE ATT&CK mapping",
+        "AI Hunting: Related event hunting based on SIGMA/IOC anchors",
+        "AI Hunting: LLM-powered timeline generation with phase narratives",
+        "AI Hunting: OpenCTI pattern sync for attack patterns and indicators",
+        "AI Hunting: Built-in attack patterns (brute force, lateral movement, etc.)",
+        "AI Hunting: Qdrant vector database for semantic pattern matching",
+        "AI Hunting: New AI Hunting tab in case hunting page"
+      ]
+    },
     {
       "version": "3.64.01",
       "date": "2026-01-12",

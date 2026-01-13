@@ -132,6 +132,7 @@ def create_app():
     from routes.parsing import parsing_bp
     from routes.noise import noise_bp
     from routes.evidence import evidence_bp
+    from routes.rag import rag_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
@@ -139,6 +140,7 @@ def create_app():
     app.register_blueprint(parsing_bp)
     app.register_blueprint(noise_bp)
     app.register_blueprint(evidence_bp)
+    app.register_blueprint(rag_bp)
     
     # Create database tables
     with app.app_context():

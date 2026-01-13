@@ -62,6 +62,27 @@ class Config:
     # Parser Configuration
     PARSER_BATCH_SIZE = int(os.environ.get('PARSER_BATCH_SIZE', 10000))
     PARSER_MAX_MFT_ENTRIES = int(os.environ.get('PARSER_MAX_MFT_ENTRIES', 100000))
+    
+    # RAG System Configuration
+    QDRANT_HOST = os.environ.get('QDRANT_HOST', 'localhost')
+    QDRANT_PORT = int(os.environ.get('QDRANT_PORT', 6333))
+    QDRANT_COLLECTION_PATTERNS = 'attack_patterns'
+    
+    # Ollama LLM
+    OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
+    OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen2.5:14b-instruct-q5_K_M')
+    
+    # Embedding model (sentence-transformers, runs on CPU)
+    EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+    
+    # RAG Processing
+    RAG_BATCH_SIZE = int(os.environ.get('RAG_BATCH_SIZE', 100))
+    RAG_CONFIDENCE_THRESHOLD = float(os.environ.get('RAG_CONFIDENCE_THRESHOLD', 0.7))
+    RAG_TIME_WINDOW_HOURS = int(os.environ.get('RAG_TIME_WINDOW_HOURS', 24))
+    RAG_MAX_CONTEXT_TOKENS = int(os.environ.get('RAG_MAX_CONTEXT_TOKENS', 6000))
+    
+    # Qdrant data path
+    QDRANT_STORAGE = os.path.join(BASE_DIR, 'qdrant')
 
 
 class UserSettings:
