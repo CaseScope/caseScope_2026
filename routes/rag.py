@@ -381,9 +381,15 @@ def get_pattern_matches(case_id):
 @rag_bp.route('/matches/<int:case_id>/details/<int:pattern_id>')
 @login_required
 def get_pattern_match_details(case_id, pattern_id):
-    """Get detailed matches for a specific pattern"""
-    from models.rag import PatternMatch
+    """Get detailed matches for a specific pattern with per-host breakdown"""
+    from models.rag import PatternMatch, AttackPattern
     
+    # Get the pattern definition
+    pattern = AttackPattern.query.get(pattern_id)
+    if not pattern:
+        return jsonify({'success': False, 'error': 'Pattern not found'}), 404
+    
+    # Get matches
     matches = PatternMatch.query.filter_by(
         case_id=case_id,
         pattern_id=pattern_id
@@ -391,10 +397,66 @@ def get_pattern_match_details(case_id, pattern_id):
         PatternMatch.confidence_score.desc()
     ).limit(100).all()
     
+    # Build per-host breakdown
+    host_breakdown = {}
+    for match in matches:
+        host = match.source_host or 'Unknown'
+        if host not in host_breakdown:
+            host_breakdown[host] = {
+                'count': 0,
+                'first_seen': None,
+                'last_seen': None,
+                'users': set()
+            }
+        host_breakdown[host]['count'] += 1
+        if match.affected_users:
+            host_breakdown[host]['users'].update(match.affected_users)
+        if match.first_event_time:
+            if not host_breakdown[host]['first_seen'] or match.first_event_time < host_breakdown[host]['first_seen']:
+                host_breakdown[host]['first_seen'] = match.first_event_time
+        if match.last_event_time:
+            if not host_breakdown[host]['last_seen'] or match.last_event_time > host_breakdown[host]['last_seen']:
+                host_breakdown[host]['last_seen'] = match.last_event_time
+    
+    # Convert to serializable format
+    host_list = []
+    for host, data in sorted(host_breakdown.items(), key=lambda x: x[1]['count'], reverse=True):
+        host_list.append({
+            'host': host,
+            'count': data['count'],
+            'users': list(data['users'])[:10],
+            'first_seen': data['first_seen'].isoformat() if data['first_seen'] else None,
+            'last_seen': data['last_seen'].isoformat() if data['last_seen'] else None
+        })
+    
+    # Build search terms for event lookup
+    search_terms = []
+    if pattern.required_event_ids:
+        search_terms.extend(pattern.required_event_ids)
+    if pattern.name:
+        # Add key terms from pattern name
+        for term in pattern.name.lower().split():
+            if len(term) > 3 and term not in ['with', 'from', 'into', 'the', 'and']:
+                search_terms.append(term)
+    
     return jsonify({
         'success': True,
-        'count': len(matches),
-        'matches': [m.to_dict() for m in matches]
+        'pattern': {
+            'id': pattern.id,
+            'name': pattern.name,
+            'description': pattern.description,
+            'mitre_tactic': pattern.mitre_tactic,
+            'mitre_technique': pattern.mitre_technique,
+            'severity': pattern.severity,
+            'source': pattern.source,
+            'required_event_ids': pattern.required_event_ids,
+            'required_channels': pattern.required_channels
+        },
+        'total_matches': len(matches),
+        'host_count': len(host_list),
+        'hosts': host_list,
+        'search_terms': search_terms[:5],
+        'matches': [m.to_dict() for m in matches[:20]]
     })
 
 

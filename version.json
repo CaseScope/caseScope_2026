@@ -1,6 +1,17 @@
 {
-  "version": "3.67.00",
+  "version": "3.67.01",
   "changelog": [
+    {
+      "version": "3.67.01",
+      "date": "2026-01-13",
+      "changes": [
+        "AI Hunting: Enhanced pattern detail modal with description, per-host breakdown, and search links",
+        "AI Hunting: Click any pattern to see affected systems with match counts",
+        "AI Hunting: Search button navigates to Events tab with pre-populated search query",
+        "AI Hunting: Per-host search buttons to drill down on specific systems",
+        "Hunting: URL parameters now support ?search= and ?tab= for deep linking"
+      ]
+    },
     {
       "version": "3.67.00",
       "date": "2026-01-13",

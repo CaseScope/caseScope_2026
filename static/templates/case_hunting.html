@@ -277,6 +277,25 @@ document.addEventListener('DOMContentLoaded', function() {
     const otherContent = document.getElementById('tab-content-other');
     const aiContent = document.getElementById('tab-content-ai');
     
+    // Check for URL parameters (from pattern search links)
+    const urlParams = new URLSearchParams(window.location.search);
+    const searchParam = urlParams.get('search');
+    const tabParam = urlParams.get('tab');
+    
+    // Pre-populate search if provided in URL
+    if (searchParam) {
+        document.getElementById('events-search').value = searchParam;
+        eventsSearch = searchParam;
+    }
+    
+    // Switch to specified tab if provided
+    if (tabParam) {
+        const targetTab = document.querySelector(`.hunting-tab[data-tab="${tabParam}"]`);
+        if (targetTab) {
+            targetTab.click();
+        }
+    }
+    
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
             // Update active tab
@@ -311,10 +330,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     filterTile.style.display = (currentTab === 'events') ? '' : 'none';
                 }
                 
-                // Reset pagination and search when switching tabs
+                // Reset pagination (but preserve search from URL param)
                 eventsPage = 1;
-                eventsSearch = '';
-                document.getElementById('events-search').value = '';
+                if (!searchParam) {
+                    eventsSearch = '';
+                    document.getElementById('events-search').value = '';
+                }
                 
                 // Reload events with new filter
                 loadEvents();
@@ -324,6 +345,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load events on page load
     loadEvents();
+    
+    // Clear URL params after loading (so refresh doesn't re-apply)
+    if (searchParam || tabParam) {
+        window.history.replaceState({}, '', window.location.pathname);
+    }
     
     // Search on Enter key
     document.getElementById('events-search').addEventListener('keyup', function(e) {
@@ -1561,13 +1587,138 @@ function showPatternDetails(patternId) {
     fetch(`/api/rag/matches/${CASE_ID}/details/${patternId}`)
         .then(res => res.json())
         .then(data => {
-            if (data.success && data.matches.length > 0) {
-                const match = data.matches[0];
-                currentMatchId = match.id;
-                showPatternMatch(match.id, data.matches);
+            if (data.success) {
+                showPatternDetailModal(data);
+            } else {
+                alert('Error loading pattern details: ' + (data.error || 'Unknown error'));
             }
         })
         .catch(err => console.error('Error loading pattern details:', err));
+}
+
+function showPatternDetailModal(data) {
+    const pattern = data.pattern;
+    const hosts = data.hosts || [];
+    
+    document.getElementById('pattern-modal-title').textContent = pattern.name || 'Pattern Details';
+    
+    const content = document.getElementById('pattern-match-content');
+    
+    // Build search query from pattern
+    let searchQuery = '';
+    if (pattern.required_event_ids && pattern.required_event_ids.length > 0) {
+        searchQuery = pattern.required_event_ids.join(' OR ');
+    } else if (data.search_terms && data.search_terms.length > 0) {
+        searchQuery = data.search_terms.join(' ');
+    }
+    
+    // Build hosts table
+    let hostsHtml = '';
+    if (hosts.length > 0) {
+        hostsHtml = `
+            <div class="pattern-hosts-section">
+                <h4>Affected Systems (${hosts.length})</h4>
+                <table class="pattern-hosts-table">
+                    <thead>
+                        <tr>
+                            <th>System</th>
+                            <th>Matches</th>
+                            <th>Users</th>
+                            <th>First Seen</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${hosts.map(h => `
+                            <tr>
+                                <td><strong>${escapeHtml(h.host)}</strong></td>
+                                <td>${h.count}</td>
+                                <td>${h.users.slice(0, 3).join(', ') || '-'}</td>
+                                <td>${h.first_seen ? new Date(h.first_seen).toLocaleString() : '-'}</td>
+                                <td>
+                                    <button class="btn btn-xs btn-primary" onclick="searchPatternOnHost('${escapeHtml(h.host)}', '${escapeHtml(searchQuery)}')" title="Search events on this host">
+                                        🔍
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+    
+    // Severity styling
+    const severityClass = pattern.severity === 'critical' ? 'critical' : 
+                         (pattern.severity === 'high' ? 'high' : 
+                          (pattern.severity === 'medium' ? 'medium' : 'low'));
+    
+    content.innerHTML = `
+        <div class="pattern-description-box">
+            <p>${escapeHtml(pattern.description || 'No description available')}</p>
+        </div>
+        
+        <div class="pattern-meta-grid">
+            <div class="pattern-meta-item">
+                <span class="meta-label">Severity</span>
+                <span class="meta-value severity-${severityClass}">${(pattern.severity || 'unknown').toUpperCase()}</span>
+            </div>
+            <div class="pattern-meta-item">
+                <span class="meta-label">MITRE Tactic</span>
+                <span class="meta-value">${escapeHtml(pattern.mitre_tactic || '-')}</span>
+            </div>
+            <div class="pattern-meta-item">
+                <span class="meta-label">MITRE Technique</span>
+                <span class="meta-value"><span class="mitre-badge">${escapeHtml(pattern.mitre_technique || '-')}</span></span>
+            </div>
+            <div class="pattern-meta-item">
+                <span class="meta-label">Source</span>
+                <span class="meta-value">${escapeHtml(pattern.source || '-')}</span>
+            </div>
+            <div class="pattern-meta-item">
+                <span class="meta-label">Total Matches</span>
+                <span class="meta-value"><strong>${data.total_matches}</strong></span>
+            </div>
+            <div class="pattern-meta-item">
+                <span class="meta-label">Affected Hosts</span>
+                <span class="meta-value"><strong>${data.host_count}</strong></span>
+            </div>
+        </div>
+        
+        ${pattern.required_event_ids && pattern.required_event_ids.length > 0 ? `
+        <div class="pattern-event-ids">
+            <span class="meta-label">Event IDs:</span>
+            ${pattern.required_event_ids.map(id => `<span class="event-id-badge">${id}</span>`).join(' ')}
+        </div>
+        ` : ''}
+        
+        ${hostsHtml}
+        
+        <div class="pattern-search-action">
+            <button class="btn btn-primary" onclick="searchPatternInEvents('${escapeHtml(searchQuery)}')">
+                <span class="btn-icon">🔍</span> Search All Events for this Pattern
+            </button>
+        </div>
+    `;
+    
+    document.getElementById('pattern-match-modal').style.display = 'flex';
+}
+
+function searchPatternInEvents(query) {
+    if (!query) {
+        alert('No search terms available for this pattern');
+        return;
+    }
+    // Navigate to hunting page Events tab with search pre-populated
+    const url = `/case/hunting?search=${encodeURIComponent(query)}&tab=events`;
+    window.location.href = url;
+}
+
+function searchPatternOnHost(host, query) {
+    // Navigate to hunting page with host + pattern search
+    const searchTerms = host + (query ? ' ' + query : '');
+    const url = `/case/hunting?search=${encodeURIComponent(searchTerms)}&tab=events`;
+    window.location.href = url;
 }
 
 function startPatternDiscovery() {
