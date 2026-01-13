@@ -779,6 +779,27 @@ function renderRawDataTree(data) {
         return;
     }
     
+    // Check if raw_json exists and contains the original nested data
+    // This preserves the original NDJSON/EVTX structure
+    let displayData = data;
+    let hasOriginalData = false;
+    
+    if (data.raw_json && typeof data.raw_json === 'string' && data.raw_json.trim().startsWith('{')) {
+        try {
+            const parsedRawJson = JSON.parse(data.raw_json);
+            if (parsedRawJson && typeof parsedRawJson === 'object') {
+                displayData = parsedRawJson;
+                hasOriginalData = true;
+            }
+        } catch (e) {
+            // Not valid JSON, use original data
+            console.log('raw_json is not valid JSON, showing all fields');
+        }
+    }
+    
+    // Store the full data for copy functionality
+    window._rawDataForCopy = displayData;
+    
     container.innerHTML = `
         <div class="raw-data-toolbar">
             <button class="btn btn-sm btn-secondary" onclick="expandAllNodes()">
@@ -790,11 +811,44 @@ function renderRawDataTree(data) {
             <button class="btn btn-sm btn-secondary" onclick="copyRawData()">
                 <span class="btn-icon">📋</span> Copy JSON
             </button>
+            ${hasOriginalData ? `
+            <button class="btn btn-sm btn-secondary" onclick="toggleRawDataView()" id="btn-toggle-view">
+                <span class="btn-icon">🔄</span> Show All Fields
+            </button>
+            ` : ''}
         </div>
         <div class="raw-data-tree" id="raw-data-tree">
-            ${buildTreeNode(data, 'root', true)}
+            ${buildTreeNode(displayData, 'root', true)}
         </div>
     `;
+    
+    // Store both views for toggle
+    if (hasOriginalData) {
+        window._rawDataOriginal = displayData;
+        window._rawDataAllFields = data;
+        window._showingOriginal = true;
+    }
+}
+
+// Toggle between original JSON and all ClickHouse fields
+function toggleRawDataView() {
+    if (!window._rawDataOriginal || !window._rawDataAllFields) return;
+    
+    const btn = document.getElementById('btn-toggle-view');
+    const tree = document.getElementById('raw-data-tree');
+    
+    if (window._showingOriginal) {
+        // Switch to all fields view
+        tree.innerHTML = buildTreeNode(window._rawDataAllFields, 'root', true);
+        btn.innerHTML = '<span class="btn-icon">🔄</span> Show Original Data';
+        window._rawDataForCopy = window._rawDataAllFields;
+    } else {
+        // Switch back to original data
+        tree.innerHTML = buildTreeNode(window._rawDataOriginal, 'root', true);
+        btn.innerHTML = '<span class="btn-icon">🔄</span> Show All Fields';
+        window._rawDataForCopy = window._rawDataOriginal;
+    }
+    window._showingOriginal = !window._showingOriginal;
 }
 
 // Build tree node HTML recursively
@@ -879,9 +933,22 @@ function buildTreeNode(data, key, isRoot = false) {
     
     // Primitive values
     if (dataType === 'string') {
-        const displayValue = data.length > 200 ? data.substring(0, 200) + '...' : data;
-        const highlighted = currentEventHasIOC ? highlightIOCsInText(displayValue) : escapeHtml(displayValue);
-        return `<span class="tree-value tree-string" title="${escapeHtml(data)}">"${highlighted}"</span>`;
+        // Show full string content - no truncation
+        // For very long strings (>1000 chars), make them expandable
+        if (data.length > 1000) {
+            const preview = data.substring(0, 500);
+            const previewHighlighted = currentEventHasIOC ? highlightIOCsInText(preview) : escapeHtml(preview);
+            const fullHighlighted = currentEventHasIOC ? highlightIOCsInText(data) : escapeHtml(data);
+            const nodeId = `str-${Math.random().toString(36).substr(2, 9)}`;
+            return `
+                <span class="tree-value tree-string tree-long-string" id="${nodeId}">
+                    <span class="tree-string-preview">"${previewHighlighted}..."</span>
+                    <span class="tree-string-full" style="display:none;">"${fullHighlighted}"</span>
+                    <button class="btn-expand-string" onclick="toggleLongString('${nodeId}')">[${data.length} chars - click to expand]</button>
+                </span>`;
+        }
+        const highlighted = currentEventHasIOC ? highlightIOCsInText(data) : escapeHtml(data);
+        return `<span class="tree-value tree-string">"${highlighted}"</span>`;
     }
     
     if (dataType === 'number') {
@@ -919,34 +986,51 @@ function collapseAllNodes() {
     });
 }
 
+// Toggle long string expansion
+function toggleLongString(nodeId) {
+    const container = document.getElementById(nodeId);
+    if (!container) return;
+    
+    const preview = container.querySelector('.tree-string-preview');
+    const full = container.querySelector('.tree-string-full');
+    const btn = container.querySelector('.btn-expand-string');
+    
+    if (full.style.display === 'none') {
+        preview.style.display = 'none';
+        full.style.display = 'inline';
+        btn.textContent = '[click to collapse]';
+    } else {
+        preview.style.display = 'inline';
+        full.style.display = 'none';
+        // Get original length from the full content
+        const fullText = full.textContent || '';
+        btn.textContent = `[${fullText.length} chars - click to expand]`;
+    }
+}
+
 // Copy raw data as JSON
 function copyRawData() {
-    if (!currentModalEvent) return;
+    // Use the stored data for copy (either original or all fields view)
+    const dataToCopy = window._rawDataForCopy || window._rawDataOriginal || null;
     
-    // Get the stored raw data from the API response
-    const params = new URLSearchParams({
-        timestamp: currentModalEvent.timestamp,
-        source_host: currentModalEvent.source_host || '',
-        record_id: currentModalEvent.record_id || '',
-        artifact_type: currentModalEvent.artifact_type || ''
+    if (!dataToCopy) {
+        alert('No data available to copy');
+        return;
+    }
+    
+    const jsonStr = JSON.stringify(dataToCopy, null, 2);
+    navigator.clipboard.writeText(jsonStr).then(() => {
+        // Show brief success message
+        const btn = event.target.closest('button');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="btn-icon">✓</span> Copied!';
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 2000);
+    }).catch(err => {
+        console.error('Copy failed:', err);
+        alert('Failed to copy to clipboard');
     });
-    
-    fetch(`/api/hunting/event/raw/${caseId}?${params.toString()}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const jsonStr = JSON.stringify(data.raw_data, null, 2);
-                navigator.clipboard.writeText(jsonStr).then(() => {
-                    // Show brief success message
-                    const btn = event.target.closest('button');
-                    const originalHtml = btn.innerHTML;
-                    btn.innerHTML = '<span class="btn-icon">✓</span> Copied!';
-                    setTimeout(() => {
-                        btn.innerHTML = originalHtml;
-                    }, 2000);
-                });
-            }
-        });
 }
 
 // Close modal on Escape key

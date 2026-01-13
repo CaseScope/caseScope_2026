@@ -1,6 +1,16 @@
 {
-  "version": "3.68.01",
+  "version": "3.68.02",
   "changelog": [
+    {
+      "version": "3.68.02",
+      "date": "2026-01-13",
+      "changes": [
+        "Raw Data: Now parses and displays original nested JSON structure from raw_json field",
+        "Raw Data: Full data visible - long strings expandable instead of truncated",
+        "Raw Data: Toggle button to switch between Original Data and All ClickHouse Fields",
+        "Raw Data: PowerShell scripts, NDJSON events now show complete nested structure"
+      ]
+    },
     {
       "version": "3.68.01",
       "date": "2026-01-13",
