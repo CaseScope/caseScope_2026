@@ -30,6 +30,14 @@ from tasks.celery_tasks import (
 
 from tasks.noise_tagger import tag_noise_events
 from tasks.task_scrape_events import scrape_event_descriptions_task
+from tasks.rag_tasks import (
+    rag_sync_opencti_patterns,
+    rag_discover_patterns,
+    rag_hunt_related,
+    rag_generate_timeline,
+    rag_seed_builtin_patterns,
+    rag_sync_external_patterns,
+)
 
 __all__ = [
     'celery_app',
@@ -41,4 +49,10 @@ __all__ = [
     'get_case_stats_task',
     'tag_noise_events',
     'scrape_event_descriptions_task',
+    'rag_sync_opencti_patterns',
+    'rag_discover_patterns',
+    'rag_hunt_related',
+    'rag_generate_timeline',
+    'rag_seed_builtin_patterns',
+    'rag_sync_external_patterns',
 ]

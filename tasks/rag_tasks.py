@@ -236,15 +236,16 @@ def rag_discover_patterns(
         
         for idx, pattern in enumerate(executable_patterns):
             try:
-                # Execute pattern query
-                query = pattern.clickhouse_query.format(case_id=case_id)
-                # Handle parameterized query
+                # Execute pattern query - check for parameterized syntax first
                 if '{case_id:UInt32}' in pattern.clickhouse_query:
+                    # Use ClickHouse parameterized query
                     result = client.query(
                         pattern.clickhouse_query,
                         parameters={'case_id': case_id}
                     )
                 else:
+                    # Use Python string formatting for legacy queries
+                    query = pattern.clickhouse_query.format(case_id=case_id)
                     result = client.query(query)
                 
                 if result.result_rows:
@@ -773,3 +774,377 @@ def rag_seed_builtin_patterns() -> Dict[str, Any]:
             'success': True,
             'patterns_added': added
         }
+
+
+@celery_app.task(bind=True, name='tasks.rag_sync_external_patterns')
+def rag_sync_external_patterns(
+    self,
+    sources: List[str] = None,
+    triggered_by: str = 'system'
+) -> Dict[str, Any]:
+    """
+    Sync attack patterns from multiple external sources.
+    
+    Converts Sigma rules to executable ClickHouse queries.
+    
+    Args:
+        sources: List of sources to sync. Options:
+            - 'hayabusa': Local Hayabusa rules (already cloned for parsing)
+            - 'sigma_github': SigmaHQ GitHub repository
+            - 'mdecrevoisier': mdecrevoisier's curated Sigma rules
+            - 'opencti_sigma': Sigma indicators from OpenCTI
+            - 'car': MITRE CAR analytics
+        triggered_by: Username who triggered the sync
+        
+    Returns:
+        Dict with sync results
+    """
+    import os
+    import subprocess
+    from utils.sigma_converter import SigmaToPatternConverter, convert_sigma_directory
+    from utils.opencti import get_opencti_client
+    from models.database import db
+    from models.system_settings import SystemSettings, SettingKeys
+    
+    app = get_flask_app()
+    
+    # Default sources - prioritize local Hayabusa (fast) and OpenCTI
+    if sources is None:
+        sources = ['hayabusa', 'opencti_sigma']
+    
+    with app.app_context():
+        from models.rag import AttackPattern, RAGSyncLog
+        
+        # Create sync log
+        sync_log = RAGSyncLog(
+            source='external_patterns',
+            sync_type='multi_source',
+            triggered_by=triggered_by
+        )
+        db.session.add(sync_log)
+        db.session.commit()
+        
+        converter = SigmaToPatternConverter()
+        stats = {
+            'hayabusa': 0,
+            'sigma_github': 0,
+            'mdecrevoisier': 0,
+            'opencti_sigma': 0,
+            'car': 0,
+            'total_added': 0,
+            'total_updated': 0,
+            'errors': []
+        }
+        
+        total_sources = len(sources)
+        
+        # ============================================================
+        # 1. HAYABUSA RULES (Local - fastest)
+        # ============================================================
+        if 'hayabusa' in sources:
+            self.update_state(state='PROGRESS', meta={
+                'stage': 'hayabusa',
+                'progress': 10,
+                'status': 'Processing Hayabusa rules...'
+            })
+            
+            hayabusa_paths = [
+                '/opt/casescope/rules/hayabusa-rules/hayabusa/builtin',
+                '/opt/casescope/rules/hayabusa-rules/sigma',
+            ]
+            
+            for rule_path in hayabusa_paths:
+                if os.path.exists(rule_path):
+                    try:
+                        patterns = convert_sigma_directory(rule_path, source='hayabusa')
+                        for pattern in patterns:
+                            added = _save_pattern(pattern)
+                            if added:
+                                stats['hayabusa'] += 1
+                                stats['total_added'] += 1
+                            else:
+                                stats['total_updated'] += 1
+                    except Exception as e:
+                        stats['errors'].append(f"Hayabusa: {str(e)[:100]}")
+                        logger.error(f"[RAG] Hayabusa sync error: {e}")
+            
+            logger.info(f"[RAG] Hayabusa: Added {stats['hayabusa']} patterns")
+        
+        # ============================================================
+        # 2. SIGMAHQ GITHUB (Clone if needed)
+        # ============================================================
+        if 'sigma_github' in sources:
+            self.update_state(state='PROGRESS', meta={
+                'stage': 'sigma_github',
+                'progress': 30,
+                'status': 'Syncing SigmaHQ rules from GitHub...'
+            })
+            
+            sigma_dir = '/tmp/sigma_rules'
+            
+            try:
+                # Clone or update
+                if os.path.exists(sigma_dir):
+                    subprocess.run(
+                        ['git', '-C', sigma_dir, 'pull', '--ff-only'],
+                        check=True, capture_output=True, timeout=120
+                    )
+                else:
+                    subprocess.run([
+                        'git', 'clone', '--depth', '1',
+                        'https://github.com/SigmaHQ/sigma.git',
+                        sigma_dir
+                    ], check=True, capture_output=True, timeout=300)
+                
+                # Process Windows Security rules (most relevant)
+                rules_paths = [
+                    f"{sigma_dir}/rules/windows/builtin/security",
+                    f"{sigma_dir}/rules/windows/builtin/system",
+                    f"{sigma_dir}/rules/windows/process_creation",
+                    f"{sigma_dir}/rules/windows/powershell",
+                ]
+                
+                for rules_path in rules_paths:
+                    if os.path.exists(rules_path):
+                        patterns = convert_sigma_directory(rules_path, source='sigma_github')
+                        for pattern in patterns:
+                            added = _save_pattern(pattern)
+                            if added:
+                                stats['sigma_github'] += 1
+                                stats['total_added'] += 1
+                            else:
+                                stats['total_updated'] += 1
+                
+                logger.info(f"[RAG] SigmaHQ: Added {stats['sigma_github']} patterns")
+                
+            except subprocess.TimeoutExpired:
+                stats['errors'].append("SigmaHQ: Git clone timed out")
+            except Exception as e:
+                stats['errors'].append(f"SigmaHQ: {str(e)[:100]}")
+                logger.error(f"[RAG] SigmaHQ sync error: {e}")
+        
+        # ============================================================
+        # 3. MDECREVOISIER RULES
+        # ============================================================
+        if 'mdecrevoisier' in sources:
+            self.update_state(state='PROGRESS', meta={
+                'stage': 'mdecrevoisier',
+                'progress': 50,
+                'status': 'Syncing mdecrevoisier rules...'
+            })
+            
+            mdec_dir = '/tmp/mdecrevoisier_sigma'
+            
+            try:
+                if os.path.exists(mdec_dir):
+                    subprocess.run(
+                        ['git', '-C', mdec_dir, 'pull', '--ff-only'],
+                        check=True, capture_output=True, timeout=120
+                    )
+                else:
+                    subprocess.run([
+                        'git', 'clone', '--depth', '1',
+                        'https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
+                        mdec_dir
+                    ], check=True, capture_output=True, timeout=300)
+                
+                # Process all rules
+                if os.path.exists(mdec_dir):
+                    patterns = convert_sigma_directory(mdec_dir, source='mdecrevoisier')
+                    for pattern in patterns:
+                        added = _save_pattern(pattern)
+                        if added:
+                            stats['mdecrevoisier'] += 1
+                            stats['total_added'] += 1
+                        else:
+                            stats['total_updated'] += 1
+                
+                logger.info(f"[RAG] mdecrevoisier: Added {stats['mdecrevoisier']} patterns")
+                
+            except Exception as e:
+                stats['errors'].append(f"mdecrevoisier: {str(e)[:100]}")
+                logger.error(f"[RAG] mdecrevoisier sync error: {e}")
+        
+        # ============================================================
+        # 4. OPENCTI SIGMA INDICATORS
+        # ============================================================
+        if 'opencti_sigma' in sources:
+            self.update_state(state='PROGRESS', meta={
+                'stage': 'opencti_sigma',
+                'progress': 70,
+                'status': 'Syncing Sigma indicators from OpenCTI...'
+            })
+            
+            opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+            rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
+            
+            if opencti_enabled and rag_sync_enabled:
+                try:
+                    client = get_opencti_client()
+                    if client and not client.init_error:
+                        sigma_indicators = client.get_sigma_indicators(limit=500)
+                        
+                        for ind in sigma_indicators:
+                            try:
+                                pattern = converter.convert_sigma_rule(
+                                    ind['sigma_rule'],
+                                    source='opencti_sigma'
+                                )
+                                if pattern and pattern.get('required_event_ids'):
+                                    pattern['source_id'] = ind['opencti_id']
+                                    added = _save_pattern(pattern)
+                                    if added:
+                                        stats['opencti_sigma'] += 1
+                                        stats['total_added'] += 1
+                                    else:
+                                        stats['total_updated'] += 1
+                            except Exception as e:
+                                logger.debug(f"[RAG] OpenCTI indicator conversion failed: {e}")
+                        
+                        logger.info(f"[RAG] OpenCTI Sigma: Added {stats['opencti_sigma']} patterns")
+                    else:
+                        stats['errors'].append("OpenCTI: Client not available")
+                except Exception as e:
+                    stats['errors'].append(f"OpenCTI: {str(e)[:100]}")
+                    logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
+            else:
+                logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
+        
+        # ============================================================
+        # 5. MITRE CAR
+        # ============================================================
+        if 'car' in sources:
+            self.update_state(state='PROGRESS', meta={
+                'stage': 'car',
+                'progress': 85,
+                'status': 'Syncing MITRE CAR analytics...'
+            })
+            
+            car_dir = '/tmp/mitre_car'
+            
+            try:
+                if os.path.exists(car_dir):
+                    subprocess.run(
+                        ['git', '-C', car_dir, 'pull', '--ff-only'],
+                        check=True, capture_output=True, timeout=120
+                    )
+                else:
+                    subprocess.run([
+                        'git', 'clone', '--depth', '1',
+                        'https://github.com/mitre-attack/car.git',
+                        car_dir
+                    ], check=True, capture_output=True, timeout=300)
+                
+                # CAR analytics are in analytics/ directory as YAML
+                analytics_path = f"{car_dir}/analytics"
+                if os.path.exists(analytics_path):
+                    patterns = convert_sigma_directory(analytics_path, source='mitre_car')
+                    for pattern in patterns:
+                        added = _save_pattern(pattern)
+                        if added:
+                            stats['car'] += 1
+                            stats['total_added'] += 1
+                        else:
+                            stats['total_updated'] += 1
+                
+                logger.info(f"[RAG] MITRE CAR: Added {stats['car']} patterns")
+                
+            except Exception as e:
+                stats['errors'].append(f"MITRE CAR: {str(e)[:100]}")
+                logger.error(f"[RAG] MITRE CAR sync error: {e}")
+        
+        # ============================================================
+        # UPDATE VECTORS
+        # ============================================================
+        self.update_state(state='PROGRESS', meta={
+            'stage': 'vectorizing',
+            'progress': 95,
+            'status': 'Updating vector embeddings...'
+        })
+        
+        try:
+            _update_pattern_vectors()
+        except Exception as e:
+            stats['errors'].append(f"Vector update: {str(e)[:100]}")
+            logger.warning(f"[RAG] Vector update failed: {e}")
+        
+        # ============================================================
+        # FINALIZE
+        # ============================================================
+        sync_log.patterns_added = stats['total_added']
+        sync_log.patterns_updated = stats['total_updated']
+        sync_log.success = True
+        sync_log.completed_at = datetime.utcnow()
+        if stats['errors']:
+            sync_log.error_message = '; '.join(stats['errors'][:5])
+        db.session.commit()
+        
+        # Get final counts
+        total_patterns = AttackPattern.query.count()
+        executable_patterns = AttackPattern.query.filter(
+            AttackPattern.clickhouse_query.isnot(None)
+        ).count()
+        
+        return {
+            'success': True,
+            'sources_synced': sources,
+            'stats': stats,
+            'total_patterns': total_patterns,
+            'executable_patterns': executable_patterns,
+            'message': f"Synced {stats['total_added']} new patterns from {len(sources)} sources"
+        }
+
+
+def _save_pattern(pattern: Dict[str, Any]) -> bool:
+    """
+    Save or update a pattern in the database.
+    
+    Args:
+        pattern: Pattern dictionary from converter
+        
+    Returns:
+        True if new pattern was added, False if updated existing
+    """
+    from models.rag import AttackPattern
+    from models.database import db
+    
+    # Check for existing pattern by name and source
+    existing = AttackPattern.query.filter_by(
+        name=pattern['name'],
+        source=pattern.get('source', 'unknown')
+    ).first()
+    
+    if existing:
+        # Update existing pattern
+        for key in ['description', 'clickhouse_query', 'pattern_definition', 
+                    'mitre_tactic', 'mitre_technique', 'severity', 'confidence_weight']:
+            if key in pattern and pattern[key]:
+                setattr(existing, key, pattern[key])
+        existing.last_synced_at = datetime.utcnow()
+        db.session.commit()
+        return False
+    else:
+        # Create new pattern
+        new_pattern = AttackPattern(
+            name=pattern['name'],
+            description=pattern.get('description'),
+            mitre_tactic=pattern.get('mitre_tactic'),
+            mitre_technique=pattern.get('mitre_technique'),
+            source=pattern.get('source', 'unknown'),
+            source_id=pattern.get('source_id'),
+            source_url=pattern.get('source_url'),
+            pattern_type=pattern.get('pattern_type', 'single'),
+            pattern_definition=pattern.get('pattern_definition', {}),
+            clickhouse_query=pattern.get('clickhouse_query'),
+            required_event_ids=pattern.get('required_event_ids'),
+            required_channels=pattern.get('required_channels'),
+            time_window_minutes=pattern.get('time_window_minutes', 60),
+            severity=pattern.get('severity', 'medium'),
+            confidence_weight=pattern.get('confidence_weight', 0.7),
+            enabled=pattern.get('enabled', True),
+            last_synced_at=datetime.utcnow(),
+            created_by=pattern.get('created_by', 'sync_import')
+        )
+        db.session.add(new_pattern)
+        db.session.commit()
+        return True

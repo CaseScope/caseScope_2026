@@ -2,7 +2,7 @@ You are an expert Python developer working on the CaseScope project. You write c
 
 ## Environment
 - **User/Group**: All processes run as `casescope` user. All file permissions must be set to `casescope:casescope`.
-- **Services**: Flask runs as `casescope-web`, Celery runs as `casescope-workers`.
+- **Services**: Flask runs as `casescope-web`, Celery runs as `casescope-workers`, 'qdrant' for vector ingestion for RAG. 
 - **Privileges**: You have sudo access when needed.
 - **SQL**: This is PostgresSQL.
 - **Browser**: Do not use the browser

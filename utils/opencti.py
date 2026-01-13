@@ -568,6 +568,110 @@ class OpenCTIClient:
             logger.error(f"[OpenCTI] Error getting indicators: {e}")
             return []
     
+    def get_sigma_indicators(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Get Sigma detection rules stored as Indicators in OpenCTI.
+        These contain actual detection logic that can be converted to executable patterns.
+        
+        Args:
+            limit: Maximum indicators to retrieve
+            
+        Returns:
+            List of indicator dictionaries with Sigma rules
+        """
+        if self.init_error or not self.client:
+            logger.warning("[OpenCTI] Cannot get Sigma indicators: client not initialized")
+            return []
+        
+        try:
+            indicators = self.client.indicator.list(
+                first=limit,
+                filters={
+                    "mode": "and",
+                    "filters": [
+                        {"key": "pattern_type", "values": ["sigma"], "operator": "eq"}
+                    ],
+                    "filterGroups": []
+                }
+            )
+            
+            results = []
+            for ind in indicators:
+                if not ind.get('pattern'):
+                    continue
+                
+                kill_chain_phases = []
+                if ind.get('killChainPhases'):
+                    for kcp in ind['killChainPhases']:
+                        if isinstance(kcp, dict):
+                            kill_chain_phases.append(kcp.get('phase_name', ''))
+                
+                results.append({
+                    'name': ind.get('name'),
+                    'sigma_rule': ind.get('pattern'),  # The actual Sigma YAML
+                    'valid_from': ind.get('valid_from'),
+                    'valid_until': ind.get('valid_until'),
+                    'score': ind.get('x_opencti_score', 50),
+                    'labels': self._extract_labels(ind),
+                    'kill_chain_phases': kill_chain_phases,
+                    'opencti_id': ind.get('id'),
+                })
+            
+            logger.info(f"[OpenCTI] Found {len(results)} Sigma indicators")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[OpenCTI] Error fetching Sigma indicators: {e}")
+            return []
+    
+    def get_stix_indicators(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Get STIX pattern indicators that can be converted to search queries.
+        STIX patterns like: [process:name = 'mimikatz.exe']
+        
+        Args:
+            limit: Maximum indicators to retrieve
+            
+        Returns:
+            List of indicator dictionaries with STIX patterns
+        """
+        if self.init_error or not self.client:
+            logger.warning("[OpenCTI] Cannot get STIX indicators: client not initialized")
+            return []
+        
+        try:
+            indicators = self.client.indicator.list(
+                first=limit,
+                filters={
+                    "mode": "and",
+                    "filters": [
+                        {"key": "pattern_type", "values": ["stix"], "operator": "eq"}
+                    ],
+                    "filterGroups": []
+                }
+            )
+            
+            results = []
+            for ind in indicators:
+                if not ind.get('pattern'):
+                    continue
+                
+                results.append({
+                    'name': ind.get('name'),
+                    'stix_pattern': ind.get('pattern'),
+                    'indicator_types': ind.get('indicator_types', []),
+                    'score': ind.get('x_opencti_score', 50),
+                    'labels': self._extract_labels(ind),
+                    'opencti_id': ind.get('id'),
+                })
+            
+            logger.info(f"[OpenCTI] Found {len(results)} STIX indicators")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[OpenCTI] Error fetching STIX indicators: {e}")
+            return []
+    
     def get_reports_with_attack_context(self, days: int = 90, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Get recent threat reports with attack pattern mappings

@@ -1,6 +1,18 @@
 {
-  "version": "3.65.02",
+  "version": "3.66.00",
   "changelog": [
+    {
+      "version": "3.66.00",
+      "date": "2026-01-13",
+      "changes": [
+        "Added multi-source pattern sync (Hayabusa, SigmaHQ, mdecrevoisier, MITRE CAR, OpenCTI Sigma)",
+        "Created Sigma-to-ClickHouse query converter for executable detection patterns",
+        "Added get_sigma_indicators() and get_stix_indicators() to OpenCTI client",
+        "Fixed CASE_ID JavaScript variable bug in AI Hunting tab",
+        "Fixed ClickHouse parameterized query format error in pattern discovery",
+        "Synced 2,943 executable detection patterns from Hayabusa rules"
+      ]
+    },
     {
       "version": "3.65.02",
       "date": "2026-01-13",
