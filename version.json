@@ -1,6 +1,15 @@
 {
-  "version": "3.68.00",
+  "version": "3.68.01",
   "changelog": [
+    {
+      "version": "3.68.01",
+      "date": "2026-01-13",
+      "changes": [
+        "Fix: Raw Data API now handles DateTime64(3) timestamp precision correctly",
+        "Fix: Event lookup uses 2-second window and additional identifiers (event_id)",
+        "Improved event matching reliability for Raw Data tab"
+      ]
+    },
     {
       "version": "3.68.00",
       "date": "2026-01-13",
