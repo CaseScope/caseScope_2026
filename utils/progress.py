@@ -55,6 +55,11 @@ def init_progress(case_uuid: str, total_files: int) -> None:
         
         # Set with 24-hour expiry (auto-cleanup for stale progress)
         client.setex(key, 86400, json.dumps(progress_data))
+        
+        # Clear any existing completion trigger so new batch can trigger when done
+        trigger_key = f"completion_triggered:{case_uuid}"
+        client.delete(trigger_key)
+        
         logger.info(f"Initialized progress for case {case_uuid}: {total_files} files")
         
     except Exception as e:
@@ -202,3 +207,54 @@ def set_completion_phase(case_uuid: str, phase: str) -> None:
         
     except Exception as e:
         logger.warning(f"Failed to set completion phase: {e}")
+
+
+def mark_completion_triggered(case_uuid: str) -> bool:
+    """Atomically mark completion as triggered. Returns True only for first caller.
+    
+    Uses Redis SETNX to ensure only one worker triggers the completion task,
+    even if multiple files complete simultaneously.
+    
+    Args:
+        case_uuid: Case UUID
+        
+    Returns:
+        True if this caller is the first to trigger (should proceed with completion)
+        False if completion was already triggered by another worker
+    """
+    try:
+        client = get_redis_client()
+        key = f"completion_triggered:{case_uuid}"
+        
+        # SETNX returns True only if key didn't exist (first caller wins)
+        was_first = client.setnx(key, "1")
+        if was_first:
+            # Set 24h expiry for cleanup
+            client.expire(key, 86400)
+            logger.info(f"Completion trigger acquired for case {case_uuid}")
+        else:
+            logger.debug(f"Completion already triggered for case {case_uuid}, skipping")
+        
+        return was_first
+        
+    except Exception as e:
+        logger.warning(f"Failed to mark completion triggered: {e}")
+        return False
+
+
+def clear_completion_trigger(case_uuid: str) -> None:
+    """Clear the completion trigger flag for a case.
+    
+    Called when starting new processing so completion can trigger again.
+    
+    Args:
+        case_uuid: Case UUID
+    """
+    try:
+        client = get_redis_client()
+        key = f"completion_triggered:{case_uuid}"
+        client.delete(key)
+        logger.debug(f"Cleared completion trigger for case {case_uuid}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to clear completion trigger: {e}")

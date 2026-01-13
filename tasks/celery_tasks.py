@@ -518,19 +518,21 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 
                 # Increment progress counter when file processing completes
                 if status in ('done', 'error'):
-                    from utils.progress import increment_progress, get_progress
+                    from utils.progress import increment_progress, mark_completion_triggered
                     progress = increment_progress(case_uuid)
                     
                     # Check if this was the last file - trigger completion tasks
+                    # Use atomic lock to ensure only ONE worker triggers completion
                     if progress and progress.get('status') == 'complete':
-                        from models.case import Case
-                        case = Case.get_by_uuid(case_uuid)
-                        if case:
-                            logger.info(f"All files complete for case {case_uuid}, triggering completion tasks")
-                            case_indexing_complete_task.delay(
-                                case_id=case.id,
-                                case_uuid=case_uuid
-                            )
+                        if mark_completion_triggered(case_uuid):
+                            from models.case import Case
+                            case = Case.get_by_uuid(case_uuid)
+                            if case:
+                                logger.info(f"All files complete for case {case_uuid}, triggering completion tasks")
+                                case_indexing_complete_task.delay(
+                                    case_id=case.id,
+                                    case_uuid=case_uuid
+                                )
                     
     except Exception as e:
         logger.warning(f"Could not update CaseFile status: {e}")

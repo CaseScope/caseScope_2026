@@ -1,6 +1,15 @@
 {
-  "version": "3.66.01",
+  "version": "3.66.02",
   "changelog": [
+    {
+      "version": "3.66.02",
+      "date": "2026-01-13",
+      "changes": [
+        "Fixed race condition causing case_indexing_complete to trigger multiple times",
+        "Added atomic Redis lock (SETNX) to ensure completion task runs only once",
+        "Increased Celery worker file descriptor limit from 1024 to 65536"
+      ]
+    },
     {
       "version": "3.66.01",
       "date": "2026-01-13",
