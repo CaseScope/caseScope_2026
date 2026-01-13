@@ -239,18 +239,157 @@ def get_task_status(task_id):
 
 
 # ============================================================================
-# PATTERN MATCHES
+# CAMPAIGN DETECTION
+# ============================================================================
+
+@rag_bp.route('/campaigns/detect', methods=['POST'])
+@login_required
+def detect_campaigns():
+    """Start campaign detection task for a case"""
+    from tasks.rag_tasks import rag_detect_campaigns
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    
+    if not case_id:
+        return jsonify({'success': False, 'error': 'case_id required'}), 400
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    task = rag_detect_campaigns.delay(
+        case_id=case_id,
+        case_uuid=case.uuid
+    )
+    
+    return jsonify({
+        'success': True,
+        'task_id': task.id,
+        'case_id': case_id
+    })
+
+
+@rag_bp.route('/campaigns/<int:case_id>')
+@login_required
+def get_campaigns(case_id):
+    """Get detected campaigns for a case"""
+    from models.rag import AttackCampaign
+    
+    campaigns = AttackCampaign.query.filter_by(case_id=case_id).order_by(
+        AttackCampaign.severity.desc(),
+        AttackCampaign.confidence_score.desc()
+    ).all()
+    
+    return jsonify({
+        'success': True,
+        'count': len(campaigns),
+        'campaigns': [c.to_dict() for c in campaigns]
+    })
+
+
+@rag_bp.route('/campaigns/<int:campaign_id>/review', methods=['POST'])
+@login_required
+def review_campaign(campaign_id):
+    """Review a campaign (analyst verdict)"""
+    from models.rag import AttackCampaign
+    
+    campaign = AttackCampaign.query.get(campaign_id)
+    if not campaign:
+        return jsonify({'success': False, 'error': 'Campaign not found'}), 404
+    
+    data = request.json or {}
+    verdict = data.get('verdict')
+    notes = data.get('notes', '')
+    
+    if verdict not in ['confirmed', 'false_positive', 'needs_review']:
+        return jsonify({'success': False, 'error': 'Invalid verdict'}), 400
+    
+    campaign.set_analyst_review(
+        username=current_user.username,
+        verdict=verdict,
+        notes=notes
+    )
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'campaign_id': campaign_id,
+        'verdict': verdict
+    })
+
+
+# ============================================================================
+# PATTERN MATCHES (aggregated view)
 # ============================================================================
 
 @rag_bp.route('/matches/<int:case_id>')
 @login_required
 def get_pattern_matches(case_id):
-    """Get pattern matches for a case"""
+    """Get pattern matches for a case - aggregated by pattern"""
+    from models.rag import PatternMatch, AttackPattern
+    
+    # Get aggregated view first
+    aggregated = db.session.query(
+        PatternMatch.pattern_id,
+        AttackPattern.name,
+        AttackPattern.mitre_technique,
+        AttackPattern.severity,
+        db.func.count(PatternMatch.id).label('match_count'),
+        db.func.count(db.distinct(PatternMatch.source_host)).label('host_count'),
+        db.func.avg(PatternMatch.confidence_score).label('avg_confidence'),
+        db.func.min(PatternMatch.first_event_time).label('first_seen'),
+        db.func.max(PatternMatch.last_event_time).label('last_seen')
+    ).join(
+        AttackPattern, PatternMatch.pattern_id == AttackPattern.id
+    ).filter(
+        PatternMatch.case_id == case_id
+    ).group_by(
+        PatternMatch.pattern_id,
+        AttackPattern.name,
+        AttackPattern.mitre_technique,
+        AttackPattern.severity
+    ).order_by(
+        db.desc('match_count')
+    ).all()
+    
+    aggregated_list = []
+    for row in aggregated:
+        aggregated_list.append({
+            'pattern_id': row.pattern_id,
+            'pattern_name': row.name,
+            'mitre_technique': row.mitre_technique,
+            'severity': row.severity,
+            'match_count': row.match_count,
+            'host_count': row.host_count,
+            'avg_confidence': round(row.avg_confidence, 2) if row.avg_confidence else 0,
+            'first_seen': row.first_seen.isoformat() if row.first_seen else None,
+            'last_seen': row.last_seen.isoformat() if row.last_seen else None
+        })
+    
+    # Also get total raw count
+    total_matches = PatternMatch.query.filter_by(case_id=case_id).count()
+    
+    return jsonify({
+        'success': True,
+        'total_matches': total_matches,
+        'aggregated_count': len(aggregated_list),
+        'aggregated': aggregated_list
+    })
+
+
+@rag_bp.route('/matches/<int:case_id>/details/<int:pattern_id>')
+@login_required
+def get_pattern_match_details(case_id, pattern_id):
+    """Get detailed matches for a specific pattern"""
     from models.rag import PatternMatch
     
-    matches = PatternMatch.query.filter_by(case_id=case_id).order_by(
+    matches = PatternMatch.query.filter_by(
+        case_id=case_id,
+        pattern_id=pattern_id
+    ).order_by(
         PatternMatch.confidence_score.desc()
-    ).all()
+    ).limit(100).all()
     
     return jsonify({
         'success': True,
@@ -318,7 +457,7 @@ def toggle_match_timeline(match_id):
 @login_required
 def get_case_rag_stats(case_id):
     """Get RAG statistics for a case"""
-    from models.rag import AttackPattern, PatternMatch
+    from models.rag import AttackPattern, PatternMatch, AttackCampaign
     from utils.clickhouse import get_client
     
     try:
@@ -328,11 +467,26 @@ def get_case_rag_stats(case_id):
         # Match stats for this case
         match_count = PatternMatch.query.filter_by(case_id=case_id).count()
         
-        # Last scan (most recent match discovery)
+        # Campaign stats for this case
+        campaign_count = AttackCampaign.query.filter_by(case_id=case_id).count()
+        critical_campaigns = AttackCampaign.query.filter_by(
+            case_id=case_id, 
+            severity='critical'
+        ).count()
+        
+        # Last scan (most recent match or campaign discovery)
         last_match = PatternMatch.query.filter_by(case_id=case_id).order_by(
             PatternMatch.discovered_at.desc()
         ).first()
-        last_scan = last_match.discovered_at.isoformat() if last_match else None
+        last_campaign = AttackCampaign.query.filter_by(case_id=case_id).order_by(
+            AttackCampaign.detected_at.desc()
+        ).first()
+        
+        last_scan = None
+        if last_match:
+            last_scan = last_match.discovered_at.isoformat()
+        if last_campaign and (not last_scan or last_campaign.detected_at > last_match.discovered_at):
+            last_scan = last_campaign.detected_at.isoformat()
         
         # Event stats from ClickHouse
         sigma_high_events = 0
@@ -356,6 +510,8 @@ def get_case_rag_stats(case_id):
             'success': True,
             'pattern_count': pattern_count,
             'match_count': match_count,
+            'campaign_count': campaign_count,
+            'critical_campaigns': critical_campaigns,
             'last_scan': last_scan,
             'sigma_high_events': sigma_high_events,
             'ioc_events': ioc_events,

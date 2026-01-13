@@ -6685,27 +6685,248 @@ input:checked + .slider:before {
 }
 
 /* Modal for pattern match */
-.modal-pattern-match {
+.modal-pattern-match,
+.modal-campaign {
   max-width: 700px;
 }
 
-.pattern-match-content {
+.pattern-match-content,
+.campaign-modal-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.pattern-match-content .detail-row {
+.pattern-match-content .detail-row,
+.campaign-modal-content .detail-row {
   display: flex;
   gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.pattern-match-content .detail-label {
+.pattern-match-content .detail-row:last-child,
+.campaign-modal-content .detail-row:last-child {
+  border-bottom: none;
+}
+
+.pattern-match-content .detail-label,
+.campaign-modal-content .detail-label {
   font-weight: 500;
   color: var(--text-muted);
-  min-width: 120px;
+  min-width: 140px;
+  flex-shrink: 0;
 }
 
-.pattern-match-content .detail-value {
+.pattern-match-content .detail-value,
+.campaign-modal-content .detail-value {
   color: var(--text-primary);
+}
+
+/* Severity badge in modals */
+.campaign-modal-content .severity-critical {
+  color: var(--accent-danger);
+  font-weight: 600;
+}
+
+.campaign-modal-content .severity-high {
+  color: #ff8c00;
+  font-weight: 600;
+}
+
+.campaign-modal-content .severity-medium {
+  color: var(--accent-warning);
+}
+
+.campaign-modal-content .severity-low {
+  color: var(--text-muted);
+}
+
+/* ========================================
+   CAMPAIGN CARDS
+   ======================================== */
+
+.campaign-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.campaign-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.campaign-card:hover {
+  background: var(--bg-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Campaign severity borders */
+.campaign-card.campaign-critical {
+  border-left: 4px solid var(--accent-danger);
+}
+
+.campaign-card.campaign-high {
+  border-left: 4px solid #ff8c00;
+}
+
+.campaign-card.campaign-medium {
+  border-left: 4px solid var(--accent-warning);
+}
+
+.campaign-card.campaign-low {
+  border-left: 4px solid var(--text-muted);
+}
+
+/* Reviewed state overlay */
+.campaign-card.confirmed {
+  background: rgba(54, 179, 126, 0.05);
+}
+
+.campaign-card.false_positive {
+  opacity: 0.6;
+}
+
+.campaign-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.campaign-severity-icon {
+  font-size: 1.2rem;
+}
+
+.campaign-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.campaign-confidence {
+  font-size: 0.85rem;
+  padding: 2px 8px;
+  background: rgba(76, 154, 255, 0.15);
+  color: var(--accent-primary);
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.campaign-card-body {
+  color: var(--text-secondary);
+}
+
+.campaign-desc {
+  margin: 0 0 12px 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.campaign-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+}
+
+.campaign-metric {
+  color: var(--text-muted);
+}
+
+.campaign-metric strong {
+  color: var(--text-primary);
+}
+
+.campaign-mitre {
+  margin-top: 8px;
+}
+
+.campaign-verdict {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.campaign-verdict-confirmed {
+  background: rgba(54, 179, 126, 0.2);
+  color: var(--accent-success);
+}
+
+.campaign-verdict-false_positive {
+  background: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+}
+
+.campaign-verdict-needs_review {
+  background: rgba(255, 171, 0, 0.2);
+  color: var(--accent-warning);
+}
+
+.campaign-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* AI stat variations */
+.ai-stat-critical .ai-stat-value {
+  color: var(--accent-danger);
+  font-weight: 600;
+}
+
+.ai-badge-primary {
+  background: rgba(76, 154, 255, 0.2);
+  color: var(--accent-primary);
+}
+
+/* Severity badge for aggregated patterns */
+.severity-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.severity-badge.severity-critical {
+  background: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+}
+
+.severity-badge.severity-high {
+  background: rgba(255, 140, 0, 0.2);
+  color: #ff8c00;
+}
+
+.severity-badge.severity-medium {
+  background: rgba(255, 171, 0, 0.2);
+  color: var(--accent-warning);
+}
+
+.severity-badge.severity-low {
+  background: rgba(139, 147, 164, 0.2);
+  color: var(--text-muted);
 }

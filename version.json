@@ -1,6 +1,20 @@
 {
-  "version": "3.66.03",
+  "version": "3.67.00",
   "changelog": [
+    {
+      "version": "3.67.00",
+      "date": "2026-01-13",
+      "changes": [
+        "AI Hunting: Added Attack Campaign Detection - detects high-level attack behaviors",
+        "AI Hunting: Campaign types include password spray, brute force, lateral movement, pass-the-hash, Cobalt Strike, credential dumping, ransomware precursors",
+        "AI Hunting: Campaigns correlate multiple indicators to reduce noise and surface real attacks",
+        "AI Hunting: Pattern matches now aggregated by pattern type (reduced 1000+ matches to grouped view)",
+        "AI Hunting: Raw pattern matches moved to collapsed section, campaigns are primary view",
+        "Added AttackCampaign model with 10 pre-built campaign detection templates",
+        "Added campaign detection Celery task with ClickHouse queries",
+        "Added campaign API routes for detection, listing, and review"
+      ]
+    },
     {
       "version": "3.66.03",
       "date": "2026-01-13",

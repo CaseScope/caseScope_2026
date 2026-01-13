@@ -165,6 +165,10 @@ def create_app():
         from models.system_settings import SystemSettings
         from models.event_description import EventDescription
         from models.evidence_file import EvidenceFile
+        from models.rag import (
+            AttackPattern, PatternPiece, PatternMatch, 
+            AttackCampaign, RAGSyncLog
+        )
         db.create_all()
         
         # Seed noise filter defaults if not exists

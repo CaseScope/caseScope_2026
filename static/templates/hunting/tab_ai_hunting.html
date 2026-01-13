@@ -1,5 +1,29 @@
 <!-- AI Hunting Tab Content -->
 
+<!-- Campaign Details Modal -->
+<div class="modal-overlay" id="campaign-modal" style="display: none;" onclick="closeCampaignModal(event)">
+    <div class="modal-container modal-campaign" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="campaign-modal-title">Campaign Details</h3>
+            <button class="modal-close" onclick="closeCampaignModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="campaign-modal-content" id="campaign-modal-content">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCampaignModal()">Close</button>
+            <button class="btn btn-success" onclick="reviewCampaign('confirmed')">
+                <span class="btn-icon">✓</span> Confirm
+            </button>
+            <button class="btn btn-danger" onclick="reviewCampaign('false_positive')">
+                <span class="btn-icon">✗</span> False Positive
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Pattern Match Details Modal -->
 <div class="modal-overlay" id="pattern-match-modal" style="display: none;" onclick="closePatternModal(event)">
     <div class="modal-container modal-pattern-match" onclick="event.stopPropagation()">
@@ -24,13 +48,13 @@
     </div>
 </div>
 
-<!-- Pattern Discovery Section -->
+<!-- Attack Campaign Detection Section (PRIMARY) -->
 <div class="ai-section">
     <div class="ai-section-header">
-        <h3 class="ai-section-title">🧩 Pattern Discovery</h3>
-        <span class="ai-section-badge" id="patternSyncStatus">Ready</span>
+        <h3 class="ai-section-title">🎯 Attack Campaign Detection</h3>
+        <span class="ai-section-badge ai-badge-primary" id="campaignStatus">Ready</span>
     </div>
-    <p class="ai-section-desc">Scan all events for known attack patterns mapped to MITRE ATT&CK framework.</p>
+    <p class="ai-section-desc">Detect high-level attack behaviors: password spray, lateral movement, Cobalt Strike, credential dumping, and more.</p>
     
     <!-- Help Panel -->
     <div class="ai-help-panel">
@@ -38,79 +62,134 @@
             <span class="ai-help-icon">❓</span> What does this do?
         </div>
         <div class="ai-help-content" style="display: none;">
-            <p><strong>Pattern Discovery</strong> scans your case events against thousands of detection rules to identify attack behaviors.</p>
+            <p><strong>Campaign Detection</strong> identifies complete attack behaviors, not just individual rule hits.</p>
             <ul>
-                <li><strong>Find Attack Patterns:</strong> Executes SQL queries from Sigma/Hayabusa rules against your ClickHouse events. Detects behaviors like brute force attacks, lateral movement, persistence mechanisms, and credential access.</li>
-                <li><strong>Init Patterns:</strong> Seeds the database with built-in detection patterns. Run once on first use.</li>
+                <li><strong>Password Spray:</strong> 10+ accounts targeted with failed logins</li>
+                <li><strong>Brute Force:</strong> Repeated failures against single account</li>
+                <li><strong>Lateral Movement:</strong> User accessing 3+ hosts via RDP/remote</li>
+                <li><strong>Pass-the-Hash:</strong> NTLM logon type 9 patterns</li>
+                <li><strong>Cobalt Strike:</strong> Beacon indicators, named pipes, mimikatz</li>
+                <li><strong>Credential Dumping:</strong> LSASS access, sekurlsa patterns</li>
+                <li><strong>Ransomware Precursor:</strong> Shadow copy deletion, backup disruption</li>
             </ul>
-            <p class="ai-help-note">💡 Patterns are sourced from Hayabusa, SigmaHQ, and OpenCTI. Each pattern has a ClickHouse query that identifies specific attack behaviors in your event data.</p>
+            <p class="ai-help-note">💡 Campaigns correlate multiple indicators to reduce noise and surface real attacks.</p>
         </div>
     </div>
     
     <div class="ai-action-card">
-        <div class="ai-action-stats" id="patternStats">
+        <div class="ai-action-stats" id="campaignStats">
             <div class="ai-stat">
-                <span class="ai-stat-label">Active Patterns:</span>
-                <span class="ai-stat-value" id="patternCount">-</span>
+                <span class="ai-stat-label">Campaigns Detected:</span>
+                <span class="ai-stat-value" id="campaignCount">-</span>
+            </div>
+            <div class="ai-stat ai-stat-critical">
+                <span class="ai-stat-label">Critical:</span>
+                <span class="ai-stat-value" id="criticalCampaignCount">-</span>
             </div>
             <div class="ai-stat">
-                <span class="ai-stat-label">Last Scan:</span>
-                <span class="ai-stat-value" id="patternLastScan">Never</span>
-            </div>
-            <div class="ai-stat">
-                <span class="ai-stat-label">Matches Found:</span>
+                <span class="ai-stat-label">Raw Pattern Matches:</span>
                 <span class="ai-stat-value" id="patternMatchCount">-</span>
             </div>
         </div>
         <div class="ai-action-buttons">
-            <button class="btn btn-primary" id="btnFindPatterns" onclick="startPatternDiscovery()" title="Scan all case events against detection patterns to find attack behaviors">
-                <span class="btn-icon">🔍</span> Find Attack Patterns
-            </button>
-            <button class="btn btn-secondary" onclick="initRAG()" title="Initialize built-in detection patterns (run once on first use)">
-                <span class="btn-icon">⚙️</span> Init Patterns
+            <button class="btn btn-primary btn-lg" id="btnDetectCampaigns" onclick="startCampaignDetection()" title="Detect attack campaigns across all case events">
+                <span class="btn-icon">🎯</span> Detect Attack Campaigns
             </button>
         </div>
     </div>
     
     <!-- Progress -->
-    <div class="ai-progress" id="patternProgress" style="display: none;">
+    <div class="ai-progress" id="campaignProgress" style="display: none;">
         <div class="ai-progress-header">
-            <span class="ai-progress-title">Scanning for patterns...</span>
-            <span class="ai-progress-percent" id="patternProgressPercent">0%</span>
+            <span class="ai-progress-title">Detecting campaigns...</span>
+            <span class="ai-progress-percent" id="campaignProgressPercent">0%</span>
         </div>
         <div class="ai-progress-bar">
-            <div class="ai-progress-fill" id="patternProgressFill" style="width: 0%"></div>
+            <div class="ai-progress-fill" id="campaignProgressFill" style="width: 0%"></div>
         </div>
-        <div class="ai-progress-status" id="patternProgressStatus">Initializing...</div>
+        <div class="ai-progress-status" id="campaignProgressStatus">Initializing...</div>
     </div>
     
-    <!-- Results -->
-    <div class="ai-results" id="patternResults" style="display: none;">
+    <!-- Campaign Results -->
+    <div class="ai-results" id="campaignResults" style="display: none;">
         <div class="ai-results-header">
-            <h4>Pattern Matches</h4>
+            <h4>Detected Campaigns</h4>
             <div class="ai-results-actions">
-                <button class="btn btn-sm btn-secondary" onclick="refreshPatternMatches()">
+                <button class="btn btn-sm btn-secondary" onclick="refreshCampaigns()">
                     <span class="btn-icon">🔄</span> Refresh
                 </button>
             </div>
         </div>
-        <div class="ai-results-table">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Pattern</th>
-                        <th>MITRE</th>
-                        <th>Host</th>
-                        <th>Confidence</th>
-                        <th>Events</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="patternResultsBody">
-                    <!-- Populated by JS -->
-                </tbody>
-            </table>
+        <div class="campaign-cards" id="campaignCardsContainer">
+            <!-- Campaign cards populated by JS -->
+        </div>
+    </div>
+</div>
+
+<!-- Pattern Discovery Section (collapsed by default) -->
+<div class="ai-section ai-section-collapsed">
+    <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
+        <h3 class="ai-section-title">🧩 Raw Pattern Matches</h3>
+        <span class="ai-section-chevron">▼</span>
+    </div>
+    <div class="ai-section-content" style="display: none;">
+        <p class="ai-section-desc">Individual pattern detections (aggregated by pattern type). Use campaigns above for actionable insights.</p>
+        
+        <div class="ai-action-card">
+            <div class="ai-action-stats" id="patternStats">
+                <div class="ai-stat">
+                    <span class="ai-stat-label">Active Patterns:</span>
+                    <span class="ai-stat-value" id="patternCount">-</span>
+                </div>
+                <div class="ai-stat">
+                    <span class="ai-stat-label">Last Scan:</span>
+                    <span class="ai-stat-value" id="patternLastScan">Never</span>
+                </div>
+            </div>
+            <div class="ai-action-buttons">
+                <button class="btn btn-secondary" id="btnFindPatterns" onclick="startPatternDiscovery()" title="Scan for individual pattern matches">
+                    <span class="btn-icon">🔍</span> Find Patterns
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="initRAG()" title="Initialize built-in detection patterns">
+                    <span class="btn-icon">⚙️</span> Init
+                </button>
+            </div>
+        </div>
+        
+        <!-- Progress -->
+        <div class="ai-progress" id="patternProgress" style="display: none;">
+            <div class="ai-progress-header">
+                <span class="ai-progress-title">Scanning for patterns...</span>
+                <span class="ai-progress-percent" id="patternProgressPercent">0%</span>
+            </div>
+            <div class="ai-progress-bar">
+                <div class="ai-progress-fill" id="patternProgressFill" style="width: 0%"></div>
+            </div>
+            <div class="ai-progress-status" id="patternProgressStatus">Initializing...</div>
+        </div>
+        
+        <!-- Aggregated Pattern Results -->
+        <div class="ai-results" id="patternResults" style="display: none;">
+            <div class="ai-results-header">
+                <h4>Pattern Matches (Aggregated)</h4>
+            </div>
+            <div class="ai-results-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Pattern</th>
+                            <th>MITRE</th>
+                            <th>Severity</th>
+                            <th>Matches</th>
+                            <th>Hosts</th>
+                            <th>Avg Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="patternResultsBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>

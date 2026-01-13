@@ -249,6 +249,391 @@ class PatternMatch(db.Model):
             self.include_in_timeline = True
 
 
+class AttackCampaign(db.Model):
+    """Attack campaigns detected by correlating pattern matches
+    
+    A campaign represents a higher-level attack behavior composed of
+    multiple pattern matches that together indicate a specific attack type.
+    """
+    __tablename__ = 'attack_campaigns'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    
+    # Campaign type (from CAMPAIGN_TEMPLATES)
+    campaign_type = db.Column(db.String(100), nullable=False, index=True)
+    campaign_name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    
+    # Scoring
+    confidence_score = db.Column(db.Float, nullable=False, default=0.0)
+    severity = db.Column(db.String(20), default='medium')  # low, medium, high, critical
+    
+    # Scope
+    affected_hosts = db.Column(db.ARRAY(db.String), nullable=True)
+    affected_users = db.Column(db.ARRAY(db.String), nullable=True)
+    host_count = db.Column(db.Integer, default=1)
+    user_count = db.Column(db.Integer, default=0)
+    
+    # Timeline
+    first_activity = db.Column(db.DateTime, nullable=True)
+    last_activity = db.Column(db.DateTime, nullable=True)
+    duration_seconds = db.Column(db.Integer, nullable=True)
+    
+    # Underlying evidence
+    pattern_match_ids = db.Column(db.ARRAY(db.Integer), nullable=True)
+    indicator_count = db.Column(db.Integer, default=0)  # Number of pattern matches
+    matched_indicators = db.Column(db.JSON, nullable=True)  # Summary of what matched
+    
+    # MITRE ATT&CK
+    mitre_tactics = db.Column(db.ARRAY(db.String), nullable=True)
+    mitre_techniques = db.Column(db.ARRAY(db.String), nullable=True)
+    
+    # AI Analysis
+    ai_summary = db.Column(db.Text, nullable=True)
+    
+    # Analyst review
+    analyst_reviewed = db.Column(db.Boolean, default=False)
+    analyst_verdict = db.Column(db.String(50), nullable=True)  # confirmed, false_positive, needs_review
+    analyst_notes = db.Column(db.Text, nullable=True)
+    reviewed_by = db.Column(db.String(80), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Timestamps
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    case = db.relationship('Case', backref=db.backref('attack_campaigns', lazy='dynamic'))
+    
+    def __repr__(self):
+        return f'<AttackCampaign {self.id}: {self.campaign_type} case={self.case_id}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'campaign_type': self.campaign_type,
+            'campaign_name': self.campaign_name,
+            'description': self.description,
+            'confidence_score': self.confidence_score,
+            'severity': self.severity,
+            'affected_hosts': self.affected_hosts or [],
+            'affected_users': self.affected_users or [],
+            'host_count': self.host_count,
+            'user_count': self.user_count,
+            'first_activity': self.first_activity.isoformat() if self.first_activity else None,
+            'last_activity': self.last_activity.isoformat() if self.last_activity else None,
+            'duration_seconds': self.duration_seconds,
+            'indicator_count': self.indicator_count,
+            'matched_indicators': self.matched_indicators,
+            'pattern_match_ids': self.pattern_match_ids or [],
+            'mitre_tactics': self.mitre_tactics or [],
+            'mitre_techniques': self.mitre_techniques or [],
+            'ai_summary': self.ai_summary,
+            'analyst_reviewed': self.analyst_reviewed,
+            'analyst_verdict': self.analyst_verdict,
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None
+        }
+    
+    def set_analyst_review(self, username: str, verdict: str, notes: str = None):
+        """Record analyst review"""
+        self.analyst_reviewed = True
+        self.analyst_verdict = verdict
+        self.analyst_notes = notes
+        self.reviewed_by = username
+        self.reviewed_at = datetime.utcnow()
+
+
+# Campaign detection templates
+CAMPAIGN_TEMPLATES = [
+    {
+        'type': 'password_spray',
+        'name': 'Password Spray Attack',
+        'description': 'Multiple failed login attempts across many accounts from similar sources',
+        'severity': 'high',
+        'mitre_tactics': ['Credential Access'],
+        'mitre_techniques': ['T1110.003'],
+        'detection_query': """
+            SELECT 
+                count(DISTINCT username) as unique_users,
+                count() as total_failures,
+                min(timestamp) as first_fail,
+                max(timestamp) as last_fail,
+                groupUniqArray(source_host) as source_hosts,
+                groupUniqArray(username) as usernames
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND event_id = '4625'
+                AND channel = 'Security'
+            HAVING unique_users >= 10 AND total_failures >= 20
+        """,
+        'thresholds': {'min_users': 10, 'min_failures': 20, 'max_minutes': 60}
+    },
+    {
+        'type': 'brute_force',
+        'name': 'Brute Force Attack',
+        'description': 'Repeated failed login attempts against same account',
+        'severity': 'high',
+        'mitre_tactics': ['Credential Access'],
+        'mitre_techniques': ['T1110.001'],
+        'detection_query': """
+            SELECT 
+                username,
+                source_host,
+                count() as fail_count,
+                min(timestamp) as first_fail,
+                max(timestamp) as last_fail,
+                dateDiff('second', min(timestamp), max(timestamp)) as duration_secs
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND event_id = '4625'
+                AND channel = 'Security'
+            GROUP BY username, source_host
+            HAVING fail_count >= 10 AND duration_secs <= 600
+        """,
+        'thresholds': {'min_failures': 10, 'max_seconds': 600}
+    },
+    {
+        'type': 'lateral_movement_chain',
+        'name': 'Lateral Movement Chain',
+        'description': 'RDP or remote service access across multiple hosts in sequence',
+        'severity': 'critical',
+        'mitre_tactics': ['Lateral Movement'],
+        'mitre_techniques': ['T1021.001', 'T1021.002'],
+        'detection_query': """
+            WITH remote_logins AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp,
+                    logon_type
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4624'
+                    AND channel = 'Security'
+                    AND logon_type IN (3, 10)
+            )
+            SELECT 
+                username,
+                count(DISTINCT source_host) as hosts_accessed,
+                groupUniqArray(source_host) as host_list,
+                min(timestamp) as first_access,
+                max(timestamp) as last_access
+            FROM remote_logins
+            GROUP BY username
+            HAVING hosts_accessed >= 3
+            ORDER BY hosts_accessed DESC
+        """,
+        'thresholds': {'min_hosts': 3}
+    },
+    {
+        'type': 'pass_the_hash',
+        'name': 'Pass-the-Hash Attack',
+        'description': 'NTLM authentication with suspicious logon patterns indicating credential reuse',
+        'severity': 'critical',
+        'mitre_tactics': ['Credential Access', 'Lateral Movement'],
+        'mitre_techniques': ['T1550.002'],
+        'detection_query': """
+            SELECT 
+                username,
+                source_host,
+                count() as logon_count,
+                groupUniqArray(logon_type) as logon_types,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND event_id = '4624'
+                AND channel = 'Security'
+                AND logon_type = 9
+                AND (search_blob LIKE '%NTLM%' OR search_blob LIKE '%NtLmSsp%')
+            GROUP BY username, source_host
+            HAVING logon_count >= 1
+        """,
+        'thresholds': {'min_logons': 1}
+    },
+    {
+        'type': 'cobalt_strike',
+        'name': 'Cobalt Strike Indicators',
+        'description': 'Process behaviors consistent with Cobalt Strike beacon activity',
+        'severity': 'critical',
+        'mitre_tactics': ['Command and Control', 'Execution'],
+        'mitre_techniques': ['T1059.001', 'T1055'],
+        'pattern_match_required': [
+            {'pattern_names': ['PowerShell Execution', 'powershell'], 'min_count': 1},
+            {'pattern_names': ['Service Installation', 'service'], 'min_count': 1}
+        ],
+        'search_terms': ['beacon', 'cobaltstrike', 'named pipe', '\\\\.\\pipe\\', 'postex', 'mimikatz'],
+        'detection_query': """
+            SELECT 
+                source_host,
+                count() as suspicious_events,
+                groupArray(event_id) as event_ids,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND (
+                    lower(search_blob) LIKE '%beacon%'
+                    OR lower(search_blob) LIKE '%cobaltstrike%'
+                    OR lower(search_blob) LIKE '%\\\\\\\\.\\\\pipe\\\\%'
+                    OR lower(search_blob) LIKE '%mimikatz%'
+                    OR lower(search_blob) LIKE '%invoke-mimikatz%'
+                    OR (process_name = 'rundll32.exe' AND command_line LIKE '%,a /p:%')
+                )
+            GROUP BY source_host
+            HAVING suspicious_events >= 2
+        """,
+        'thresholds': {'min_indicators': 2}
+    },
+    {
+        'type': 'persistence_cluster',
+        'name': 'Persistence Mechanism Cluster',
+        'description': 'Multiple persistence techniques deployed on same host',
+        'severity': 'high',
+        'mitre_tactics': ['Persistence'],
+        'mitre_techniques': ['T1543.003', 'T1053.005', 'T1547.001'],
+        'pattern_match_required': [
+            {'pattern_names': ['Service Installation', 'Scheduled Task'], 'min_count': 2}
+        ],
+        'detection_query': """
+            SELECT 
+                source_host,
+                countIf(event_id = '7045') as services_installed,
+                countIf(event_id = '4698') as tasks_created,
+                countIf(event_id = '13' AND channel LIKE '%Sysmon%') as registry_mods,
+                services_installed + tasks_created + registry_mods as total_persistence,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND (
+                    event_id = '7045'
+                    OR event_id = '4698'
+                    OR (event_id = '13' AND channel LIKE '%Sysmon%' AND search_blob LIKE '%Run%')
+                )
+            GROUP BY source_host
+            HAVING total_persistence >= 2
+        """,
+        'thresholds': {'min_mechanisms': 2}
+    },
+    {
+        'type': 'defense_evasion',
+        'name': 'Defense Evasion Activity',
+        'description': 'Log clearing, disabling security, or other anti-forensics',
+        'severity': 'critical',
+        'mitre_tactics': ['Defense Evasion'],
+        'mitre_techniques': ['T1070.001', 'T1562.001'],
+        'detection_query': """
+            SELECT 
+                source_host,
+                countIf(event_id IN ('1102', '104')) as logs_cleared,
+                countIf(lower(search_blob) LIKE '%disable%' AND lower(search_blob) LIKE '%defender%') as defender_disabled,
+                countIf(lower(search_blob) LIKE '%stop-service%' OR lower(search_blob) LIKE '%sc stop%') as services_stopped,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND (
+                    event_id IN ('1102', '104')
+                    OR (lower(search_blob) LIKE '%disable%' AND lower(search_blob) LIKE '%defender%')
+                    OR lower(search_blob) LIKE '%set-mppreference%'
+                    OR lower(search_blob) LIKE '%-disablerealtimemonitoring%'
+                )
+            GROUP BY source_host
+            HAVING logs_cleared + defender_disabled + services_stopped >= 1
+        """,
+        'thresholds': {'min_events': 1}
+    },
+    {
+        'type': 'credential_dumping',
+        'name': 'Credential Dumping',
+        'description': 'Access to LSASS or credential stores indicating credential theft',
+        'severity': 'critical',
+        'mitre_tactics': ['Credential Access'],
+        'mitre_techniques': ['T1003.001', 'T1003.002'],
+        'detection_query': """
+            SELECT 
+                source_host,
+                count() as dump_events,
+                groupArray(process_name) as processes,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND (
+                    lower(search_blob) LIKE '%lsass%'
+                    OR lower(search_blob) LIKE '%mimikatz%'
+                    OR lower(search_blob) LIKE '%sekurlsa%'
+                    OR lower(search_blob) LIKE '%procdump%lsass%'
+                    OR lower(command_line) LIKE '%comsvcs.dll%minidump%'
+                    OR (event_id = '10' AND lower(search_blob) LIKE '%lsass%')
+                )
+            GROUP BY source_host
+            HAVING dump_events >= 1
+        """,
+        'thresholds': {'min_events': 1}
+    },
+    {
+        'type': 'ransomware_precursor',
+        'name': 'Ransomware Precursor Activity',
+        'description': 'Shadow copy deletion, backup disruption, or encryption staging',
+        'severity': 'critical',
+        'mitre_tactics': ['Impact'],
+        'mitre_techniques': ['T1490', 'T1486'],
+        'detection_query': """
+            SELECT 
+                source_host,
+                countIf(lower(search_blob) LIKE '%vssadmin%delete%') as vss_deletes,
+                countIf(lower(search_blob) LIKE '%bcdedit%') as bcdedit_mods,
+                countIf(lower(search_blob) LIKE '%wmic%shadowcopy%') as wmic_shadow,
+                countIf(lower(search_blob) LIKE '%recoveryenabled%no%') as recovery_disabled,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND (
+                    lower(search_blob) LIKE '%vssadmin%delete%shadow%'
+                    OR lower(search_blob) LIKE '%wmic%shadowcopy%delete%'
+                    OR lower(search_blob) LIKE '%bcdedit%recoveryenabled%no%'
+                    OR lower(search_blob) LIKE '%wbadmin%delete%catalog%'
+                )
+            GROUP BY source_host
+            HAVING vss_deletes + bcdedit_mods + wmic_shadow + recovery_disabled >= 1
+        """,
+        'thresholds': {'min_events': 1}
+    },
+    {
+        'type': 'data_exfiltration',
+        'name': 'Data Exfiltration Indicators',
+        'description': 'Large file transfers, archive creation, or cloud upload activity',
+        'severity': 'high',
+        'mitre_tactics': ['Exfiltration'],
+        'mitre_techniques': ['T1041', 'T1567'],
+        'detection_query': """
+            SELECT 
+                source_host,
+                count() as exfil_indicators,
+                groupArray(process_name) as processes,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND (
+                    (process_name IN ('7z.exe', 'rar.exe', 'zip.exe') AND command_line LIKE '%a %')
+                    OR lower(search_blob) LIKE '%rclone%'
+                    OR lower(search_blob) LIKE '%mega%'
+                    OR lower(search_blob) LIKE '%curl%upload%'
+                    OR lower(search_blob) LIKE '%-outfile%'
+                )
+            GROUP BY source_host
+            HAVING exfil_indicators >= 2
+        """,
+        'thresholds': {'min_events': 2}
+    }
+]
+
+
 class RAGSyncLog(db.Model):
     """Tracks RAG pattern sync operations"""
     __tablename__ = 'rag_sync_logs'

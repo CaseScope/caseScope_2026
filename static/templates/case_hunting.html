@@ -1168,10 +1168,13 @@ function resetNoiseButton() {
 // ========================================
 
 let currentPatternTaskId = null;
+let currentCampaignTaskId = null;
 let currentRelatedTaskId = null;
 let currentTimelineTaskId = null;
 let currentMatchId = null;
+let currentCampaignId = null;
 let patternMatches = [];
+let campaigns = [];
 
 // Load AI stats when tab opens
 function loadAIStats() {
@@ -1183,6 +1186,14 @@ function loadAIStats() {
                 document.getElementById('patternMatchCount').textContent = data.match_count || 0;
                 document.getElementById('sigmaHighCount').textContent = `(${data.sigma_high_events || 0})`;
                 
+                // Campaign stats
+                if (document.getElementById('campaignCount')) {
+                    document.getElementById('campaignCount').textContent = data.campaign_count || 0;
+                }
+                if (document.getElementById('criticalCampaignCount')) {
+                    document.getElementById('criticalCampaignCount').textContent = data.critical_campaigns || 0;
+                }
+                
                 if (data.last_scan) {
                     const date = new Date(data.last_scan);
                     document.getElementById('patternLastScan').textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
@@ -1191,13 +1202,289 @@ function loadAIStats() {
         })
         .catch(err => console.error('Error loading AI stats:', err));
     
-    // Load pattern matches
+    // Load campaigns first (primary view)
+    refreshCampaigns();
+    
+    // Load pattern matches (secondary/aggregated)
     refreshPatternMatches();
     
     // Load OpenCTI stats (only if enabled)
     if (document.getElementById('btnSyncOpenCTI')) {
         loadOpenCTIStats();
     }
+}
+
+// ========================================
+// CAMPAIGN DETECTION FUNCTIONS
+// ========================================
+
+function startCampaignDetection() {
+    const btn = document.getElementById('btnDetectCampaigns');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
+    
+    document.getElementById('campaignProgress').style.display = 'block';
+    document.getElementById('campaignResults').style.display = 'none';
+    
+    fetch('/api/rag/campaigns/detect', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({case_id: CASE_ID})
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            currentCampaignTaskId = data.task_id;
+            pollCampaignStatus();
+        } else {
+            showCampaignError(data.error || 'Failed to start campaign detection');
+        }
+    })
+    .catch(err => {
+        showCampaignError('Error: ' + err.message);
+    });
+}
+
+function pollCampaignStatus() {
+    if (!currentCampaignTaskId) return;
+    
+    fetch(`/api/rag/status/${currentCampaignTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                updateCampaignProgress(data.progress || 0, data.status || 'Processing...');
+                setTimeout(pollCampaignStatus, 1000);
+            } else if (data.state === 'completed') {
+                showCampaignComplete(data.result);
+            } else if (data.state === 'failed') {
+                showCampaignError(data.error || 'Task failed');
+            } else if (data.state === 'pending') {
+                updateCampaignProgress(0, 'Queued...');
+                setTimeout(pollCampaignStatus, 1000);
+            } else {
+                setTimeout(pollCampaignStatus, 1000);
+            }
+        })
+        .catch(err => {
+            console.error('Error polling campaign status:', err);
+            setTimeout(pollCampaignStatus, 2000);
+        });
+}
+
+function updateCampaignProgress(percent, status) {
+    document.getElementById('campaignProgressPercent').textContent = `${percent}%`;
+    document.getElementById('campaignProgressFill').style.width = `${percent}%`;
+    document.getElementById('campaignProgressStatus').textContent = status;
+}
+
+function showCampaignComplete(result) {
+    document.getElementById('campaignProgress').style.display = 'none';
+    resetCampaignButton();
+    
+    // Refresh campaigns
+    refreshCampaigns();
+    
+    // Update stats
+    if (document.getElementById('campaignCount')) {
+        document.getElementById('campaignCount').textContent = result.campaigns_detected || 0;
+    }
+    
+    currentCampaignTaskId = null;
+}
+
+function showCampaignError(message) {
+    document.getElementById('campaignProgress').style.display = 'none';
+    resetCampaignButton();
+    alert('Campaign Detection Error: ' + message);
+    currentCampaignTaskId = null;
+}
+
+function resetCampaignButton() {
+    const btn = document.getElementById('btnDetectCampaigns');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🎯</span> Detect Attack Campaigns';
+}
+
+function refreshCampaigns() {
+    fetch(`/api/rag/campaigns/${CASE_ID}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                campaigns = data.campaigns || [];
+                renderCampaigns();
+                
+                if (campaigns.length > 0) {
+                    document.getElementById('campaignResults').style.display = 'block';
+                }
+                
+                // Update counts
+                if (document.getElementById('campaignCount')) {
+                    document.getElementById('campaignCount').textContent = campaigns.length;
+                }
+                const criticalCount = campaigns.filter(c => c.severity === 'critical').length;
+                if (document.getElementById('criticalCampaignCount')) {
+                    document.getElementById('criticalCampaignCount').textContent = criticalCount;
+                }
+            }
+        })
+        .catch(err => console.error('Error loading campaigns:', err));
+}
+
+function renderCampaigns() {
+    const container = document.getElementById('campaignCardsContainer');
+    
+    if (campaigns.length === 0) {
+        container.innerHTML = '<div class="campaign-empty">No attack campaigns detected. Click "Detect Attack Campaigns" to scan.</div>';
+        return;
+    }
+    
+    let html = '';
+    for (const campaign of campaigns) {
+        const severityClass = campaign.severity === 'critical' ? 'critical' : 
+                             (campaign.severity === 'high' ? 'high' : 
+                              (campaign.severity === 'medium' ? 'medium' : 'low'));
+        const severityIcon = campaign.severity === 'critical' ? '🔴' : 
+                            (campaign.severity === 'high' ? '🟠' : 
+                             (campaign.severity === 'medium' ? '🟡' : '🟢'));
+        
+        const statusClass = campaign.analyst_reviewed ? 
+                           (campaign.analyst_verdict === 'confirmed' ? 'confirmed' : 
+                            campaign.analyst_verdict === 'false_positive' ? 'false_positive' : 'reviewed') 
+                           : '';
+        
+        // Format duration
+        let duration = '-';
+        if (campaign.duration_seconds) {
+            if (campaign.duration_seconds < 60) duration = `${campaign.duration_seconds}s`;
+            else if (campaign.duration_seconds < 3600) duration = `${Math.round(campaign.duration_seconds / 60)}m`;
+            else duration = `${Math.round(campaign.duration_seconds / 3600)}h`;
+        }
+        
+        // MITRE techniques
+        const techniques = (campaign.mitre_techniques || []).slice(0, 3).join(', ');
+        
+        html += `
+            <div class="campaign-card campaign-${severityClass} ${statusClass}" onclick="showCampaignDetails(${campaign.id})">
+                <div class="campaign-card-header">
+                    <span class="campaign-severity-icon">${severityIcon}</span>
+                    <span class="campaign-name">${escapeHtml(campaign.campaign_name)}</span>
+                    <span class="campaign-confidence">${(campaign.confidence_score * 100).toFixed(0)}%</span>
+                </div>
+                <div class="campaign-card-body">
+                    <p class="campaign-desc">${escapeHtml(campaign.description || '')}</p>
+                    <div class="campaign-metrics">
+                        <span class="campaign-metric"><strong>${campaign.host_count}</strong> host${campaign.host_count !== 1 ? 's' : ''}</span>
+                        <span class="campaign-metric"><strong>${campaign.user_count}</strong> user${campaign.user_count !== 1 ? 's' : ''}</span>
+                        <span class="campaign-metric"><strong>${campaign.indicator_count}</strong> indicator${campaign.indicator_count !== 1 ? 's' : ''}</span>
+                        <span class="campaign-metric">⏱️ ${duration}</span>
+                    </div>
+                    ${techniques ? `<div class="campaign-mitre"><span class="mitre-badge">${escapeHtml(techniques)}</span></div>` : ''}
+                </div>
+                ${campaign.analyst_reviewed ? `<div class="campaign-verdict campaign-verdict-${campaign.analyst_verdict}">${campaign.analyst_verdict}</div>` : ''}
+            </div>
+        `;
+    }
+    
+    container.innerHTML = html;
+}
+
+function showCampaignDetails(campaignId) {
+    const campaign = campaigns.find(c => c.id === campaignId);
+    if (!campaign) return;
+    
+    currentCampaignId = campaignId;
+    document.getElementById('campaign-modal-title').textContent = campaign.campaign_name;
+    
+    const content = document.getElementById('campaign-modal-content');
+    
+    // Format duration
+    let duration = 'Unknown';
+    if (campaign.duration_seconds) {
+        if (campaign.duration_seconds < 60) duration = `${campaign.duration_seconds} seconds`;
+        else if (campaign.duration_seconds < 3600) duration = `${Math.round(campaign.duration_seconds / 60)} minutes`;
+        else duration = `${(campaign.duration_seconds / 3600).toFixed(1)} hours`;
+    }
+    
+    content.innerHTML = `
+        <div class="detail-row">
+            <span class="detail-label">Campaign Type:</span>
+            <span class="detail-value">${escapeHtml(campaign.campaign_type)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Severity:</span>
+            <span class="detail-value severity-${campaign.severity}">${campaign.severity.toUpperCase()}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Confidence:</span>
+            <span class="detail-value">${(campaign.confidence_score * 100).toFixed(0)}%</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Description:</span>
+            <span class="detail-value">${escapeHtml(campaign.description || 'No description')}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Duration:</span>
+            <span class="detail-value">${duration}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">First Activity:</span>
+            <span class="detail-value">${campaign.first_activity ? new Date(campaign.first_activity).toLocaleString() : '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Last Activity:</span>
+            <span class="detail-value">${campaign.last_activity ? new Date(campaign.last_activity).toLocaleString() : '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Affected Hosts:</span>
+            <span class="detail-value">${(campaign.affected_hosts || []).slice(0, 10).join(', ') || '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Affected Users:</span>
+            <span class="detail-value">${(campaign.affected_users || []).slice(0, 10).join(', ') || '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">MITRE Tactics:</span>
+            <span class="detail-value">${(campaign.mitre_tactics || []).join(', ') || '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">MITRE Techniques:</span>
+            <span class="detail-value">${(campaign.mitre_techniques || []).map(t => `<span class="mitre-badge">${t}</span>`).join(' ') || '-'}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Indicators:</span>
+            <span class="detail-value">${campaign.indicator_count} pattern matches</span>
+        </div>
+    `;
+    
+    document.getElementById('campaign-modal').style.display = 'flex';
+}
+
+function closeCampaignModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('campaign-modal').style.display = 'none';
+    currentCampaignId = null;
+}
+
+function reviewCampaign(verdict) {
+    if (!currentCampaignId) return;
+    
+    fetch(`/api/rag/campaigns/${currentCampaignId}/review`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({verdict: verdict})
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closeCampaignModal();
+            refreshCampaigns();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to save review'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+    });
 }
 
 function loadOpenCTIStats() {
@@ -1222,8 +1509,13 @@ function refreshPatternMatches() {
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                patternMatches = data.matches || [];
+                patternMatches = data.aggregated || [];
                 renderPatternMatches();
+                
+                // Update total match count
+                if (document.getElementById('patternMatchCount')) {
+                    document.getElementById('patternMatchCount').textContent = data.total_matches || 0;
+                }
                 
                 if (patternMatches.length > 0) {
                     document.getElementById('patternResults').style.display = 'block';
@@ -1237,39 +1529,45 @@ function renderPatternMatches() {
     const tbody = document.getElementById('patternResultsBody');
     
     if (patternMatches.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No pattern matches found yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No pattern matches found yet</td></tr>';
         return;
     }
     
     let html = '';
-    for (const match of patternMatches) {
-        const confidenceClass = match.confidence_score >= 0.8 ? 'high' : 
-                               (match.confidence_score >= 0.5 ? 'medium' : 'low');
-        const statusClass = match.analyst_reviewed ? 
-                           (match.analyst_verdict === 'confirmed' ? 'confirmed' : 
-                            match.analyst_verdict === 'false_positive' ? 'false_positive' : 'pending') 
-                           : 'pending';
-        const statusText = match.analyst_reviewed ? 
-                          (match.analyst_verdict || 'Reviewed') : 'Pending';
+    for (const pattern of patternMatches) {
+        const severityClass = pattern.severity === 'critical' ? 'critical' : 
+                             (pattern.severity === 'high' ? 'high' : 
+                              (pattern.severity === 'medium' ? 'medium' : 'low'));
+        const confidenceClass = pattern.avg_confidence >= 0.8 ? 'high' : 
+                               (pattern.avg_confidence >= 0.5 ? 'medium' : 'low');
         
         html += `
-            <tr class="pattern-match-row" onclick="showPatternMatch(${match.id})">
-                <td>${escapeHtml(match.pattern_name || '-')}</td>
-                <td><span class="mitre-badge">${escapeHtml(match.mitre_technique || '-')}</span></td>
-                <td>${escapeHtml(match.source_host || '-')}</td>
-                <td><span class="pattern-confidence ${confidenceClass}">${(match.confidence_score * 100).toFixed(0)}%</span></td>
-                <td>${match.matched_event_count || '-'}</td>
-                <td><span class="match-status ${statusClass}">${escapeHtml(statusText)}</span></td>
-                <td>
-                    <button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); toggleMatchTimeline(${match.id})">
-                        ${match.include_in_timeline ? '📌' : '📍'}
-                    </button>
-                </td>
+            <tr class="pattern-match-row" onclick="showPatternDetails(${pattern.pattern_id})">
+                <td>${escapeHtml(pattern.pattern_name || '-')}</td>
+                <td><span class="mitre-badge">${escapeHtml(pattern.mitre_technique || '-')}</span></td>
+                <td><span class="severity-badge severity-${severityClass}">${pattern.severity || '-'}</span></td>
+                <td><strong>${pattern.match_count}</strong></td>
+                <td>${pattern.host_count}</td>
+                <td><span class="pattern-confidence ${confidenceClass}">${(pattern.avg_confidence * 100).toFixed(0)}%</span></td>
             </tr>
         `;
     }
     
     tbody.innerHTML = html;
+}
+
+function showPatternDetails(patternId) {
+    // Fetch detailed matches for this pattern
+    fetch(`/api/rag/matches/${CASE_ID}/details/${patternId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.matches.length > 0) {
+                const match = data.matches[0];
+                currentMatchId = match.id;
+                showPatternMatch(match.id, data.matches);
+            }
+        })
+        .catch(err => console.error('Error loading pattern details:', err));
 }
 
 function startPatternDiscovery() {
@@ -1355,7 +1653,7 @@ function showPatternError(message) {
 function resetPatternButton() {
     const btn = document.getElementById('btnFindPatterns');
     btn.disabled = false;
-    btn.innerHTML = '<span class="btn-icon">🔍</span> Find Attack Patterns';
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Find Patterns';
 }
 
 function showPatternMatch(matchId) {

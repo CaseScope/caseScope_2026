@@ -331,6 +331,214 @@ def rag_discover_patterns(
         }
 
 
+@celery_app.task(bind=True, name='tasks.rag_detect_campaigns')
+def rag_detect_campaigns(
+    self,
+    case_id: int,
+    case_uuid: str
+) -> Dict[str, Any]:
+    """
+    Detect attack campaigns by analyzing pattern matches and running campaign queries.
+    
+    Campaigns are high-level attack behaviors composed of multiple indicators,
+    such as password spray, lateral movement chains, Cobalt Strike, etc.
+    
+    Args:
+        case_id: PostgreSQL case.id
+        case_uuid: Case UUID
+        
+    Returns:
+        Dict with detected campaigns
+    """
+    from utils.clickhouse import get_fresh_client
+    from models.database import db
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        from models.rag import AttackCampaign, PatternMatch, CAMPAIGN_TEMPLATES
+        
+        client = get_fresh_client()
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 5,
+            'status': 'Initializing campaign detection...'
+        })
+        
+        # Clear existing campaigns for this case (will regenerate)
+        AttackCampaign.query.filter_by(case_id=case_id).delete()
+        db.session.commit()
+        
+        campaigns_detected = []
+        errors = []
+        
+        total_templates = len(CAMPAIGN_TEMPLATES)
+        
+        for idx, template in enumerate(CAMPAIGN_TEMPLATES):
+            try:
+                progress = int(((idx + 1) / total_templates) * 90) + 5
+                self.update_state(state='PROGRESS', meta={
+                    'progress': progress,
+                    'status': f'Checking: {template["name"]}...',
+                    'campaigns_found': len(campaigns_detected)
+                })
+                
+                # Run detection query
+                if template.get('detection_query'):
+                    result = client.query(
+                        template['detection_query'],
+                        parameters={'case_id': case_id}
+                    )
+                    
+                    if result.result_rows:
+                        for row in result.result_rows:
+                            # Convert row to dict
+                            row_dict = {}
+                            if result.column_names:
+                                for i, col in enumerate(result.column_names):
+                                    if i < len(row):
+                                        row_dict[col] = row[i]
+                            
+                            # Extract data based on campaign type
+                            affected_hosts = []
+                            affected_users = []
+                            first_activity = None
+                            last_activity = None
+                            indicator_count = 1
+                            
+                            # Handle hosts
+                            if row_dict.get('source_host'):
+                                affected_hosts = [row_dict['source_host']]
+                            elif row_dict.get('source_hosts'):
+                                affected_hosts = list(row_dict['source_hosts']) if row_dict['source_hosts'] else []
+                            elif row_dict.get('host_list'):
+                                affected_hosts = list(row_dict['host_list']) if row_dict['host_list'] else []
+                            
+                            # Handle users
+                            if row_dict.get('username'):
+                                affected_users = [row_dict['username']]
+                            elif row_dict.get('usernames'):
+                                affected_users = list(row_dict['usernames']) if row_dict['usernames'] else []
+                            
+                            # Handle timestamps
+                            for ts_field in ['first_fail', 'first_seen', 'first_access', 'first_activity']:
+                                if row_dict.get(ts_field):
+                                    first_activity = row_dict[ts_field]
+                                    break
+                            for ts_field in ['last_fail', 'last_seen', 'last_access', 'last_activity']:
+                                if row_dict.get(ts_field):
+                                    last_activity = row_dict[ts_field]
+                                    break
+                            
+                            # Get indicator count
+                            for count_field in ['total_failures', 'fail_count', 'suspicious_events', 
+                                               'dump_events', 'exfil_indicators', 'total_persistence']:
+                                if row_dict.get(count_field):
+                                    indicator_count = row_dict[count_field]
+                                    break
+                            
+                            # Calculate duration
+                            duration_seconds = None
+                            if row_dict.get('duration_secs'):
+                                duration_seconds = int(row_dict['duration_secs'])
+                            elif first_activity and last_activity:
+                                try:
+                                    duration_seconds = int((last_activity - first_activity).total_seconds())
+                                except:
+                                    pass
+                            
+                            # Calculate confidence based on thresholds met
+                            confidence = 0.7  # Base confidence
+                            thresholds = template.get('thresholds', {})
+                            if row_dict.get('unique_users', 0) >= thresholds.get('min_users', 0):
+                                confidence += 0.1
+                            if row_dict.get('hosts_accessed', 0) >= thresholds.get('min_hosts', 0):
+                                confidence += 0.1
+                            if indicator_count >= 5:
+                                confidence += 0.1
+                            confidence = min(confidence, 0.99)
+                            
+                            # Build description
+                            description = template['description']
+                            if template['type'] == 'password_spray':
+                                description = f"Password spray detected: {row_dict.get('unique_users', 0)} accounts targeted, {row_dict.get('total_failures', 0)} total failures"
+                            elif template['type'] == 'brute_force':
+                                description = f"Brute force against '{row_dict.get('username', 'unknown')}': {row_dict.get('fail_count', 0)} failures in {row_dict.get('duration_secs', 0)}s"
+                            elif template['type'] == 'lateral_movement_chain':
+                                description = f"Lateral movement by '{row_dict.get('username', 'unknown')}' across {row_dict.get('hosts_accessed', 0)} hosts"
+                            elif template['type'] == 'credential_dumping':
+                                description = f"Credential dumping detected on {', '.join(affected_hosts[:3])}"
+                            elif template['type'] == 'ransomware_precursor':
+                                description = f"Ransomware preparation detected: shadow copy/backup disruption"
+                            
+                            # Check if campaign already exists (dedup by type + hosts)
+                            existing = AttackCampaign.query.filter_by(
+                                case_id=case_id,
+                                campaign_type=template['type']
+                            ).filter(
+                                AttackCampaign.affected_hosts.contains(affected_hosts[:1]) if affected_hosts else True
+                            ).first()
+                            
+                            if not existing:
+                                campaign = AttackCampaign(
+                                    case_id=case_id,
+                                    campaign_type=template['type'],
+                                    campaign_name=template['name'],
+                                    description=description,
+                                    confidence_score=confidence,
+                                    severity=template['severity'],
+                                    affected_hosts=affected_hosts[:50],  # Limit array size
+                                    affected_users=affected_users[:50],
+                                    host_count=len(affected_hosts),
+                                    user_count=len(affected_users),
+                                    first_activity=first_activity if isinstance(first_activity, datetime) else None,
+                                    last_activity=last_activity if isinstance(last_activity, datetime) else None,
+                                    duration_seconds=duration_seconds,
+                                    indicator_count=indicator_count,
+                                    matched_indicators={'raw': str(row_dict)[:2000]},
+                                    mitre_tactics=template.get('mitre_tactics'),
+                                    mitre_techniques=template.get('mitre_techniques')
+                                )
+                                db.session.add(campaign)
+                                
+                                campaigns_detected.append({
+                                    'type': template['type'],
+                                    'name': template['name'],
+                                    'severity': template['severity'],
+                                    'hosts': len(affected_hosts),
+                                    'users': len(affected_users),
+                                    'confidence': confidence
+                                })
+                                
+            except Exception as e:
+                logger.warning(f"[RAG] Campaign detection failed for {template['type']}: {e}")
+                errors.append(f"{template['type']}: {str(e)[:100]}")
+        
+        db.session.commit()
+        
+        # Also aggregate pattern matches into summary
+        pattern_summary = db.session.query(
+            PatternMatch.pattern_id,
+            db.func.count(PatternMatch.id).label('match_count'),
+            db.func.count(db.distinct(PatternMatch.source_host)).label('host_count')
+        ).filter(
+            PatternMatch.case_id == case_id
+        ).group_by(PatternMatch.pattern_id).all()
+        
+        return {
+            'success': True,
+            'case_id': case_id,
+            'case_uuid': case_uuid,
+            'campaigns_detected': len(campaigns_detected),
+            'campaigns': campaigns_detected,
+            'pattern_summary': [
+                {'pattern_id': p[0], 'matches': p[1], 'hosts': p[2]}
+                for p in pattern_summary
+            ],
+            'errors': errors[:10] if errors else None
+        }
+
+
 @celery_app.task(bind=True, name='tasks.rag_hunt_related')
 def rag_hunt_related(
     self,
