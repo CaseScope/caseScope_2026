@@ -399,16 +399,22 @@ def get_pattern_match_details(case_id, pattern_id):
     
     # Build per-host breakdown
     host_breakdown = {}
+    total_event_count = 0
     for match in matches:
         host = match.source_host or 'Unknown'
         if host not in host_breakdown:
             host_breakdown[host] = {
-                'count': 0,
+                'match_records': 0,  # Number of PatternMatch records
+                'event_count': 0,     # Actual matched events
                 'first_seen': None,
                 'last_seen': None,
                 'users': set()
             }
-        host_breakdown[host]['count'] += 1
+        host_breakdown[host]['match_records'] += 1
+        # Use matched_event_count if available, otherwise count as 1
+        event_count = match.matched_event_count or 1
+        host_breakdown[host]['event_count'] += event_count
+        total_event_count += event_count
         if match.affected_users:
             host_breakdown[host]['users'].update(match.affected_users)
         if match.first_event_time:
@@ -420,10 +426,11 @@ def get_pattern_match_details(case_id, pattern_id):
     
     # Convert to serializable format
     host_list = []
-    for host, data in sorted(host_breakdown.items(), key=lambda x: x[1]['count'], reverse=True):
+    for host, data in sorted(host_breakdown.items(), key=lambda x: x[1]['event_count'], reverse=True):
         host_list.append({
             'host': host,
-            'count': data['count'],
+            'count': data['event_count'],  # Show event count, not record count
+            'match_records': data['match_records'],
             'users': list(data['users'])[:10],
             'first_seen': data['first_seen'].isoformat() if data['first_seen'] else None,
             'last_seen': data['last_seen'].isoformat() if data['last_seen'] else None
@@ -453,6 +460,7 @@ def get_pattern_match_details(case_id, pattern_id):
             'required_channels': pattern.required_channels
         },
         'total_matches': len(matches),
+        'total_events': total_event_count,
         'host_count': len(host_list),
         'hosts': host_list,
         'search_terms': search_terms[:5],

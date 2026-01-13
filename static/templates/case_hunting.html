@@ -1622,7 +1622,7 @@ function showPatternDetailModal(data) {
                     <thead>
                         <tr>
                             <th>System</th>
-                            <th>Matches</th>
+                            <th>Events</th>
                             <th>Users</th>
                             <th>First Seen</th>
                             <th>Actions</th>
@@ -1632,7 +1632,7 @@ function showPatternDetailModal(data) {
                         ${hosts.map(h => `
                             <tr>
                                 <td><strong>${escapeHtml(h.host)}</strong></td>
-                                <td>${h.count}</td>
+                                <td><strong>${h.count}</strong></td>
                                 <td>${h.users.slice(0, 3).join(', ') || '-'}</td>
                                 <td>${h.first_seen ? new Date(h.first_seen).toLocaleString() : '-'}</td>
                                 <td>
@@ -1676,8 +1676,8 @@ function showPatternDetailModal(data) {
                 <span class="meta-value">${escapeHtml(pattern.source || '-')}</span>
             </div>
             <div class="pattern-meta-item">
-                <span class="meta-label">Total Matches</span>
-                <span class="meta-value"><strong>${data.total_matches}</strong></span>
+                <span class="meta-label">Total Events</span>
+                <span class="meta-value"><strong>${data.total_events || data.total_matches}</strong></span>
             </div>
             <div class="pattern-meta-item">
                 <span class="meta-label">Affected Hosts</span>
