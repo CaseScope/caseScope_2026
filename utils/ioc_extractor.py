@@ -1894,26 +1894,47 @@ def save_extracted_iocs(
                 hostname = sys_result.get('hostname')
                 
                 if action == 'create_new':
-                    # Create new system
+                    # Create new system - use get_or_create pattern to handle race conditions
                     netbios, fqdn = KnownSystem.extract_netbios_name(hostname)
-                    new_system = KnownSystem(
-                        hostname=netbios or hostname,
-                        compromised=True,
-                        notes=f"Created from EDR report extraction by {username}"
-                    )
-                    db.session.add(new_system)
-                    db.session.flush()
+                    target_hostname = netbios or hostname
                     
-                    # Add FQDN as alias if different
-                    if fqdn and fqdn != (netbios or hostname):
-                        new_system.add_alias(fqdn)
+                    # Re-check if system exists (might have been created by another report)
+                    existing_system, _ = KnownSystem.find_by_hostname_or_alias(target_hostname)
+                    if existing_system:
+                        # System was created between check and save, just link it
+                        existing_system.link_to_case(case_id)
+                        if not existing_system.compromised:
+                            existing_system.compromised = True
+                            systems_updated += 1
+                        continue
                     
-                    new_system.link_to_case(case_id)
+                    try:
+                        new_system = KnownSystem(
+                            hostname=target_hostname,
+                            compromised=True,
+                            notes=f"Created from EDR report extraction by {username}"
+                        )
+                        db.session.add(new_system)
+                        db.session.flush()
+                        
+                        # Add FQDN as alias if different
+                        if fqdn and fqdn != target_hostname:
+                            new_system.add_alias(fqdn)
+                        
+                        new_system.link_to_case(case_id)
+                    except Exception as e:
+                        # Handle race condition - system was created by another process
+                        db.session.rollback()
+                        logger.warning(f"Race condition creating system {target_hostname}: {e}")
+                        existing_system, _ = KnownSystem.find_by_hostname_or_alias(target_hostname)
+                        if existing_system:
+                            existing_system.link_to_case(case_id)
+                        continue
                     
                     # Create Hostname IOC for compromised system
                     try:
                         hostname_ioc, created = IOC.get_or_create(
-                            value=netbios or hostname,
+                            value=target_hostname,
                             ioc_type='Hostname',
                             category=get_category_for_type('Hostname'),
                             created_by=username,
@@ -1921,7 +1942,7 @@ def save_extracted_iocs(
                         )
                         hostname_ioc.link_to_case(case_id)
                         if created:
-                            logger.info(f"Created Hostname IOC for compromised system: {netbios or hostname}")
+                            logger.info(f"Created Hostname IOC for compromised system: {target_hostname}")
                     except ValueError as e:
                         logger.debug(f"Hostname IOC error: {e}")
                     
@@ -1930,7 +1951,7 @@ def save_extracted_iocs(
                         changed_by=username,
                         field_name='system',
                         action='create',
-                        new_value=f'{netbios or hostname} (from EDR extraction)'
+                        new_value=f'{target_hostname} (from EDR extraction)'
                     )
                     systems_created += 1
                     
@@ -1980,29 +2001,56 @@ def save_extracted_iocs(
                 sid = user_result.get('sid')
                 
                 if action == 'create_new':
-                    # Create new user
+                    # Create new user - use get_or_create pattern to handle race conditions
                     normalized, domain = KnownUser.normalize_username(username_val)
-                    new_user = KnownUser(
-                        username=normalized or username_val,
-                        sid=sid if sid else None,
-                        compromised=True,
-                        added_by=username,
-                        notes=f"Created from EDR report extraction"
+                    target_username = normalized or username_val
+                    
+                    # Re-check if user exists (might have been created by another report)
+                    existing_user, _ = KnownUser.find_by_username_sid_alias_or_email(
+                        username=target_username,
+                        sid=sid if sid else None
                     )
-                    db.session.add(new_user)
-                    db.session.flush()
+                    if existing_user:
+                        # User was created between check and save, just link it
+                        existing_user.link_to_case(case_id)
+                        if not existing_user.compromised:
+                            existing_user.compromised = True
+                            users_updated += 1
+                        continue
                     
-                    # Add original format as alias if different
-                    if username_val.upper() != (normalized or username_val).upper():
-                        new_user.add_alias(username_val)
-                    
-                    new_user.link_to_case(case_id)
+                    try:
+                        new_user = KnownUser(
+                            username=target_username,
+                            sid=sid if sid else None,
+                            compromised=True,
+                            added_by=username,
+                            notes=f"Created from EDR report extraction"
+                        )
+                        db.session.add(new_user)
+                        db.session.flush()
+                        
+                        # Add original format as alias if different
+                        if username_val.upper() != target_username.upper():
+                            new_user.add_alias(username_val)
+                        
+                        new_user.link_to_case(case_id)
+                    except Exception as e:
+                        # Handle race condition - user was created by another process
+                        db.session.rollback()
+                        logger.warning(f"Race condition creating user {target_username}: {e}")
+                        existing_user, _ = KnownUser.find_by_username_sid_alias_or_email(
+                            username=target_username,
+                            sid=sid if sid else None
+                        )
+                        if existing_user:
+                            existing_user.link_to_case(case_id)
+                        continue
                     
                     # Create Username IOC for compromised user
                     user_aliases = [sid] if sid else None
                     try:
                         user_ioc, created = IOC.get_or_create(
-                            value=normalized or username_val,
+                            value=target_username,
                             ioc_type='Username',
                             category=get_category_for_type('Username'),
                             created_by=username,
@@ -2011,7 +2059,7 @@ def save_extracted_iocs(
                         )
                         user_ioc.link_to_case(case_id)
                         if created:
-                            logger.info(f"Created Username IOC for compromised user: {normalized or username_val}")
+                            logger.info(f"Created Username IOC for compromised user: {target_username}")
                     except ValueError as e:
                         logger.debug(f"Username IOC error: {e}")
                     

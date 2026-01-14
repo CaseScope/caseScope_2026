@@ -1,6 +1,13 @@
 {
-  "version": "3.81.00",
+  "version": "3.81.01",
   "changelog": [
+    {
+      "version": "3.81.01",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Extraction: Fixed race condition when creating Known Systems/Users from multiple reports"
+      ]
+    },
     {
       "version": "3.81.00",
       "date": "2026-01-14",
