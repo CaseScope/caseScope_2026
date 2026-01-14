@@ -231,13 +231,61 @@ def build_substring_match_clause(value: str, column: str = 'raw_json') -> str:
     Substring matching finds any occurrence of the value.
     Uses raw_json for full event data coverage.
     
+    For paths (containing backslashes), uses wildcards between path segments
+    to handle JSON escaping variations in ClickHouse.
+    
+    For command lines and complex strings with spaces, uses wildcards between 
+    words to handle whitespace variations (single vs double spaces).
+    
     Args:
         value: The IOC value to match as substring
         column: Column to search (default: raw_json)
     
     Returns: SQL clause string
     """
-    escaped = value.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+    value_lower = value.lower()
+    
+    # Check if this looks like a path (contains backslashes or is a registry key)
+    if '\\' in value or value_lower.startswith(('hklm', 'hkcu', 'hkey_', 'hku')):
+        # Split on backslashes and use wildcards between parts
+        # This handles JSON escaping variations (\ vs \\ in stored data)
+        parts = value_lower.replace('/', '\\').split('\\')
+        parts = [p.strip() for p in parts if p.strip()]
+        
+        if parts:
+            # Escape special LIKE characters in each part
+            escaped_parts = []
+            for part in parts:
+                # Also handle spaces within path parts (command lines with paths)
+                if ' ' in part:
+                    # Split on spaces and join with wildcards
+                    subparts = part.split()
+                    subparts = [sp.replace("'", "''").replace('%', '\\%').replace('_', '\\_') 
+                                for sp in subparts if sp]
+                    escaped_parts.append('%'.join(subparts))
+                else:
+                    escaped = part.replace("'", "''").replace('%', '\\%').replace('_', '\\_')
+                    escaped_parts.append(escaped)
+            
+            # Join with wildcards
+            pattern = '%' + '%'.join(escaped_parts) + '%'
+            return f"lower({column}) LIKE '{pattern}'"
+    
+    # For values with spaces (command lines, etc.), use wildcards between words
+    # This handles whitespace variations (single vs double/multiple spaces)
+    if ' ' in value_lower:
+        parts = value_lower.split()
+        escaped_parts = []
+        for part in parts:
+            if part:
+                escaped = part.replace("'", "''").replace('%', '\\%').replace('_', '\\_')
+                escaped_parts.append(escaped)
+        if escaped_parts:
+            pattern = '%' + '%'.join(escaped_parts) + '%'
+            return f"lower({column}) LIKE '{pattern}'"
+    
+    # Standard substring match for simple values
+    escaped = value_lower.replace("'", "''").replace('%', '\\%').replace('_', '\\_')
     return f"lower({column}) LIKE '%{escaped}%'"
 
 
@@ -513,19 +561,63 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str,
         return 0
 
 
+def get_matching_systems_for_ioc(
+    case_id: int,
+    ioc_value: str,
+    ioc_type: str,
+    aliases: List[str] = None,
+    match_type: str = None
+) -> List[str]:
+    """Get list of source_host values that have matches for this IOC.
+    
+    Used to populate system sightings.
+    
+    Returns: List of distinct source_host values
+    """
+    from models.ioc import detect_match_type
+    
+    client = get_fresh_client()
+    
+    if not ioc_value:
+        return []
+    
+    # Determine match type
+    effective_match_type = match_type or detect_match_type(ioc_value, ioc_type)
+    
+    # Build the WHERE clause
+    where_clause = build_ioc_match_clause(ioc_value, ioc_type, effective_match_type, aliases)
+    
+    query = f"""
+        SELECT DISTINCT source_host
+        FROM events 
+        WHERE case_id = {case_id}
+          AND ({where_clause})
+          AND source_host != ''
+    """
+    
+    try:
+        result = client.query(query)
+        return [row[0] for row in result.result_rows if row[0]]
+    except Exception as e:
+        logger.error(f"Error getting matching systems for IOC: {e}")
+        return []
+
+
 def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     """Tag ALL IOCs in the database against a specific case's artifacts.
     
     This searches every IOC (not just case-linked ones) against
     the case's artifacts to find new matches.
     
-    Also marks matching events with IOC types for visual highlighting.
+    Also marks matching events with IOC types for visual highlighting
+    and populates system sightings.
     
     Skips IOCs marked as false positives.
     
     Returns summary of updates and new links created.
     """
     from models.ioc import IOC, IOCCase
+    from models.known_system import KnownSystem
     from models.database import db
     
     # Get all IOCs that are active and NOT marked as false positives
@@ -545,6 +637,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
             'new_links_created': 0,
             'total_artifact_matches': 0,
             'events_tagged': 0,
+            'system_sightings_created': 0,
             'details': []
         }
     
@@ -555,6 +648,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         'new_links_created': 0,
         'total_artifact_matches': 0,
         'events_tagged': 0,
+        'system_sightings_created': 0,
         'details': []
     }
     
@@ -597,6 +691,26 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                     match_type=effective_match_type
                 )
                 results['events_tagged'] += events_marked
+                
+                # Get matching systems and create sightings
+                matching_hosts = get_matching_systems_for_ioc(
+                    case_id=case_id,
+                    ioc_value=ioc.value,
+                    ioc_type=ioc.ioc_type,
+                    aliases=ioc.aliases,
+                    match_type=effective_match_type
+                )
+                
+                for hostname in matching_hosts:
+                    # Look up KnownSystem by hostname (case-insensitive)
+                    system = KnownSystem.query.filter(
+                        db.func.lower(KnownSystem.hostname) == hostname.lower()
+                    ).first()
+                    
+                    if system:
+                        # Add system sighting (returns True if new sighting created)
+                        if ioc.add_system_sighting(system.id, case_id):
+                            results['system_sightings_created'] += 1
                 
                 # Check if already linked to case
                 existing_link = IOCCase.query.filter_by(

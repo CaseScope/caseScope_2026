@@ -751,17 +751,49 @@ def get_category_for_type(ioc_type):
     return None
 
 
+def can_use_token_match(value: str) -> bool:
+    """Check if a value can be used with ClickHouse hasTokenCaseInsensitive().
+    
+    ClickHouse token functions treat certain characters as separators and will
+    reject values containing them. The separator characters include:
+    - Dot (.)
+    - Comma (,)
+    - Colon (:)
+    - Semicolon (;)
+    - Space and other whitespace
+    - Various punctuation
+    
+    Returns True if the value can be used with token matching.
+    """
+    if not value:
+        return False
+    
+    # Characters that ClickHouse treats as separators in hasTokenCaseInsensitive
+    # These will cause the query to fail if present in the needle
+    separator_chars = {'.', ',', ':', ';', ' ', '\t', '\n', '\r', '!', '?', 
+                       '@', '#', '$', '%', '^', '&', '*', '(', ')', '[', ']',
+                       '{', '}', '<', '>', '/', '\\', '|', '~', '`', '"', "'"}
+    
+    for char in value:
+        if char in separator_chars:
+            return False
+    
+    return True
+
+
 def detect_match_type(value: str, ioc_type: str) -> str:
     """Auto-detect the best match type for an IOC based on its value and type.
     
     Token matching (hasTokenCaseInsensitive):
         - Best for unique identifiers that should match as whole words
-        - Hashes, IPs, unique names, domains
+        - Hashes (hex-only), unique names without dots/separators
         - Example: 'ltsvc' matches 'c:\\ltsvc\\' but NOT 'altsvc'
+        - NOTE: Cannot contain dots, colons, or other separator characters!
     
     Substring matching (LIKE):
-        - Best for paths, registry, URLs where exact position matters
-        - Example: 'c:\\windows\\malware.exe' should match that exact path
+        - Best for paths, registry, URLs, file names with extensions
+        - Used as fallback when token matching isn't possible
+        - Example: 'c:\\windows\\malware.exe' or 'd.bat'
     
     Regex matching:
         - For complex patterns with wildcards, alternatives, etc.
@@ -773,36 +805,42 @@ def detect_match_type(value: str, ioc_type: str) -> str:
     
     value = value.strip()
     
-    # Token matching types - unique identifiers
-    token_types = {
-        'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash', 'Imphash', 'TLSH Hash',
-        'JA3 Hash', 'JA3S Hash', 'SSL Certificate Hash',
-        'IP Address (IPv4)', 'IP Address (IPv6)',
-        'Bitcoin Address', 'Ethereum Address', 'Monero Address',
-        'Email Address', 'Reply-To Address',
-        'SID', 'ASN',
-        'Malware Family', 'YARA Rule Name',
-        'Mutex Name',  # Usually unique identifiers
-    }
-    
-    if ioc_type in token_types:
-        return IOCMatchType.TOKEN
-    
-    # Substring matching types - paths and structured data
+    # Substring matching types - paths and structured data (always substring)
     substring_types = {
         'File Path', 'Process Path', 'PDB Path',
         'Registry Key', 'Registry Value',
         'URL', 'Command Line',
         'Scheduled Task', 'Cron Job', 'Persistence Mechanism',
+        'File Name', 'Process Name',  # File names have dots - use substring
+        'IP Address (IPv4)', 'IP Address (IPv6)',  # IPs have dots - use substring
+        'Domain', 'FQDN', 'Hostname',  # Domains have dots - use substring
+        'Email Address', 'Reply-To Address',  # Emails have @ and . - use substring
     }
     
     if ioc_type in substring_types:
         return IOCMatchType.SUBSTRING
     
+    # Token matching types - but ONLY if value has no separators
+    token_types = {
+        'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash', 'Imphash', 'TLSH Hash',
+        'JA3 Hash', 'JA3S Hash', 'SSL Certificate Hash',
+        'Bitcoin Address', 'Ethereum Address', 'Monero Address',
+        'SID', 'ASN',
+        'Malware Family', 'YARA Rule Name',
+        'Mutex Name', 'Username', 'Service Name',
+    }
+    
+    if ioc_type in token_types:
+        # Check if value can actually use token matching
+        if can_use_token_match(value):
+            return IOCMatchType.TOKEN
+        else:
+            # Fallback to substring if value contains separators
+            return IOCMatchType.SUBSTRING
+    
     # Value-based detection for ambiguous types
     # Check for path indicators
     if '\\' in value or '/' in value:
-        # Looks like a path - use substring
         return IOCMatchType.SUBSTRING
     
     # Check for registry hive prefixes
@@ -817,7 +855,7 @@ def detect_match_type(value: str, ioc_type: str) -> str:
     if ' ' in value and ('"' in value or value.startswith('-') or ' -' in value or ' /' in value):
         return IOCMatchType.SUBSTRING
     
-    # Check if it looks like a hash (hex string of specific lengths)
+    # Check if it looks like a pure hex hash (no separators)
     if re.match(r'^[a-fA-F0-9]{32}$', value):  # MD5
         return IOCMatchType.TOKEN
     if re.match(r'^[a-fA-F0-9]{40}$', value):  # SHA1
@@ -825,19 +863,9 @@ def detect_match_type(value: str, ioc_type: str) -> str:
     if re.match(r'^[a-fA-F0-9]{64}$', value):  # SHA256
         return IOCMatchType.TOKEN
     
-    # Check for IP address pattern
-    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', value):
-        return IOCMatchType.TOKEN
-    
-    # For domains/hostnames - token matching works well
-    if ioc_type in ('Domain', 'FQDN', 'Hostname'):
-        return IOCMatchType.TOKEN
-    
-    # For short filenames without path - token matching to avoid partials
-    if ioc_type in ('File Name', 'Process Name', 'Service Name'):
-        # If it's just a filename (no path), token matching is safer
-        # to avoid 'cmd' matching 'scmd' or 'ltsvc' matching 'altsvc'
-        return IOCMatchType.TOKEN
+    # For any value containing separators, use substring
+    if not can_use_token_match(value):
+        return IOCMatchType.SUBSTRING
     
     # Default to substring for safety (catches everything, may have more false positives)
     return IOCMatchType.SUBSTRING

@@ -1,6 +1,19 @@
 {
-  "version": "3.76.00",
+  "version": "3.76.01",
   "changelog": [
+    {
+      "version": "3.76.01",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Matching: Fixed path escaping - uses wildcards between path segments for reliable matching",
+        "IOC Matching: Fixed token matching for values with dots (file names, IPs) - now uses substring",
+        "IOC Matching: Added can_use_token_match() to detect ClickHouse separator characters",
+        "IOC Matching: Fixed whitespace handling in command lines (handles double/multiple spaces)",
+        "IOC Matching: System sightings now populated during IOC tagging (links IOCs to source_host)",
+        "IOC Matching: File Names (d.bat, cmd.exe) now correctly match using substring",
+        "IOC Matching: IP Addresses now correctly match using substring (dots are separators)"
+      ]
+    },
     {
       "version": "3.76.00",
       "date": "2026-01-14",
