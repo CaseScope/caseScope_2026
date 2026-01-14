@@ -1,6 +1,13 @@
 {
-  "version": "3.81.02",
+  "version": "3.81.03",
   "changelog": [
+    {
+      "version": "3.81.03",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Extraction: Now creates Hostname/Username IOCs for already-compromised Known Systems/Users"
+      ]
+    },
     {
       "version": "3.81.02",
       "date": "2026-01-14",

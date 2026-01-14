@@ -1873,6 +1873,22 @@ def save_extracted_iocs(
                 action = sys_result.get('action')
                 hostname = sys_result.get('hostname')
                 
+                # Helper to create Hostname IOC
+                def create_hostname_ioc(hostname_value):
+                    try:
+                        hostname_ioc, created = IOC.get_or_create(
+                            value=hostname_value,
+                            ioc_type='Hostname',
+                            category=get_category_for_type('Hostname'),
+                            created_by=username,
+                            source='ai_extraction'
+                        )
+                        hostname_ioc.link_to_case(case_id)
+                        if created:
+                            logger.info(f"Created Hostname IOC for compromised system: {hostname_value}")
+                    except ValueError as e:
+                        logger.debug(f"Hostname IOC error: {e}")
+                
                 if action == 'create_new':
                     # Create new system - use get_or_create pattern to handle race conditions
                     netbios, fqdn = KnownSystem.extract_netbios_name(hostname)
@@ -1886,6 +1902,8 @@ def save_extracted_iocs(
                         if not existing_system.compromised:
                             existing_system.compromised = True
                             systems_updated += 1
+                        # Still create the IOC even if system existed
+                        create_hostname_ioc(target_hostname)
                         continue
                     
                     try:
@@ -1909,22 +1927,12 @@ def save_extracted_iocs(
                         existing_system, _ = KnownSystem.find_by_hostname_or_alias(target_hostname)
                         if existing_system:
                             existing_system.link_to_case(case_id)
+                        # Still create the IOC even on race condition
+                        create_hostname_ioc(target_hostname)
                         continue
                     
                     # Create Hostname IOC for compromised system
-                    try:
-                        hostname_ioc, created = IOC.get_or_create(
-                            value=target_hostname,
-                            ioc_type='Hostname',
-                            category=get_category_for_type('Hostname'),
-                            created_by=username,
-                            source='ai_extraction'
-                        )
-                        hostname_ioc.link_to_case(case_id)
-                        if created:
-                            logger.info(f"Created Hostname IOC for compromised system: {target_hostname}")
-                    except ValueError as e:
-                        logger.debug(f"Hostname IOC error: {e}")
+                    create_hostname_ioc(target_hostname)
                     
                     KnownSystemAudit.log_change(
                         system_id=new_system.id,
@@ -1946,19 +1954,7 @@ def save_extracted_iocs(
                             system.notes = f"Marked compromised from EDR report extraction by {username}"
                         
                         # Create Hostname IOC for compromised system
-                        try:
-                            hostname_ioc, created = IOC.get_or_create(
-                                value=system.hostname,
-                                ioc_type='Hostname',
-                                category=get_category_for_type('Hostname'),
-                                created_by=username,
-                                source='ai_extraction'
-                            )
-                            hostname_ioc.link_to_case(case_id)
-                            if created:
-                                logger.info(f"Created Hostname IOC for compromised system: {system.hostname}")
-                        except ValueError as e:
-                            logger.debug(f"Hostname IOC error: {e}")
+                        create_hostname_ioc(system.hostname)
                         
                         KnownSystemAudit.log_change(
                             system_id=system.id,
@@ -1969,6 +1965,12 @@ def save_extracted_iocs(
                             new_value='True'
                         )
                         systems_updated += 1
+                
+                elif action == 'already_compromised':
+                    # System already compromised - still create/link IOC for this case
+                    system = KnownSystem.query.get(sys_result.get('system_id'))
+                    if system:
+                        create_hostname_ioc(system.hostname)
         
         # Process known users
         if known_users:
@@ -1979,6 +1981,24 @@ def save_extracted_iocs(
                 action = user_result.get('action')
                 username_val = user_result.get('username')
                 sid = user_result.get('sid')
+                
+                # Helper to create Username IOC
+                def create_username_ioc(username_value, user_sid=None):
+                    user_aliases = [user_sid] if user_sid else None
+                    try:
+                        user_ioc, created = IOC.get_or_create(
+                            value=username_value,
+                            ioc_type='Username',
+                            category=get_category_for_type('Username'),
+                            created_by=username,
+                            aliases=user_aliases,
+                            source='ai_extraction'
+                        )
+                        user_ioc.link_to_case(case_id)
+                        if created:
+                            logger.info(f"Created Username IOC for compromised user: {username_value}")
+                    except ValueError as e:
+                        logger.debug(f"Username IOC error: {e}")
                 
                 if action == 'create_new':
                     # Create new user - use get_or_create pattern to handle race conditions
@@ -1996,6 +2016,8 @@ def save_extracted_iocs(
                         if not existing_user.compromised:
                             existing_user.compromised = True
                             users_updated += 1
+                        # Still create the IOC even if user existed
+                        create_username_ioc(target_username, sid)
                         continue
                     
                     try:
@@ -2024,31 +2046,19 @@ def save_extracted_iocs(
                         )
                         if existing_user:
                             existing_user.link_to_case(case_id)
+                        # Still create the IOC even on race condition
+                        create_username_ioc(target_username, sid)
                         continue
                     
                     # Create Username IOC for compromised user
-                    user_aliases = [sid] if sid else None
-                    try:
-                        user_ioc, created = IOC.get_or_create(
-                            value=target_username,
-                            ioc_type='Username',
-                            category=get_category_for_type('Username'),
-                            created_by=username,
-                            aliases=user_aliases,
-                            source='ai_extraction'
-                        )
-                        user_ioc.link_to_case(case_id)
-                        if created:
-                            logger.info(f"Created Username IOC for compromised user: {target_username}")
-                    except ValueError as e:
-                        logger.debug(f"Username IOC error: {e}")
+                    create_username_ioc(target_username, sid)
                     
                     KnownUserAudit.log_change(
                         user_id=new_user.id,
                         changed_by=username,
                         field_name='user',
                         action='create',
-                        new_value=f'{normalized or username_val} (from EDR extraction)'
+                        new_value=f'{target_username} (from EDR extraction)'
                     )
                     users_created += 1
                     
@@ -2064,21 +2074,7 @@ def save_extracted_iocs(
                         
                         # Create Username IOC for compromised user
                         user_sid = sid or user.sid
-                        user_aliases = [user_sid] if user_sid else None
-                        try:
-                            user_ioc, created = IOC.get_or_create(
-                                value=user.username,
-                                ioc_type='Username',
-                                category=get_category_for_type('Username'),
-                                created_by=username,
-                                aliases=user_aliases,
-                                source='ai_extraction'
-                            )
-                            user_ioc.link_to_case(case_id)
-                            if created:
-                                logger.info(f"Created Username IOC for compromised user: {user.username}")
-                        except ValueError as e:
-                            logger.debug(f"Username IOC error: {e}")
+                        create_username_ioc(user.username, user_sid)
                         
                         KnownUserAudit.log_change(
                             user_id=user.id,
@@ -2100,6 +2096,13 @@ def save_extracted_iocs(
                                 action='update',
                                 new_value=sid
                             )
+                
+                elif action == 'already_compromised':
+                    # User already compromised - still create/link IOC for this case
+                    user = KnownUser.query.get(user_result.get('user_id'))
+                    if user:
+                        user_sid = sid or user.sid
+                        create_username_ioc(user.username, user_sid)
         
         db.session.commit()
         
