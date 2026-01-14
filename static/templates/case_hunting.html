@@ -799,6 +799,13 @@ function searchEvents() {
     loadEvents();
 }
 
+function resetSearch() {
+    document.getElementById('events-search').value = '';
+    eventsSearch = '';
+    eventsPage = 1;
+    loadEvents();
+}
+
 // Pagination functions
 function prevEventsPage() {
     if (eventsPage > 1) {

@@ -1,6 +1,13 @@
 {
-  "version": "3.83.00",
+  "version": "3.83.01",
   "changelog": [
+    {
+      "version": "3.83.01",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: Added Reset button next to Search to clear search field"
+      ]
+    },
     {
       "version": "3.83.00",
       "date": "2026-01-14",
