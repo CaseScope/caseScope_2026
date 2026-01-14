@@ -800,9 +800,44 @@ function searchEvents() {
 }
 
 function resetSearch() {
+    // Clear search
     document.getElementById('events-search').value = '';
     eventsSearch = '';
     eventsPage = 1;
+    
+    // Reset all filters to defaults
+    document.getElementById('filter-evtx').checked = true;
+    document.getElementById('filter-firewall').checked = true;
+    document.getElementById('filter-edr').checked = true;
+    document.getElementById('filter-other').checked = true;
+    
+    document.getElementById('alert-filter-mode').value = 'all';
+    document.getElementById('filter-sigma').checked = true;
+    document.getElementById('filter-ioc').checked = true;
+    document.getElementById('filter-analyst').checked = true;
+    
+    document.getElementById('filter-severity-info').checked = true;
+    document.getElementById('filter-severity-low').checked = true;
+    document.getElementById('filter-severity-medium').checked = true;
+    document.getElementById('filter-severity-high').checked = true;
+    
+    document.getElementById('filter-noise').checked = false;
+    
+    // Update filter state object
+    eventFilters.evtx = true;
+    eventFilters.firewall = true;
+    eventFilters.edr = true;
+    eventFilters.other = true;
+    eventFilters.alertMode = 'all';
+    eventFilters.sigma = true;
+    eventFilters.ioc = true;
+    eventFilters.analyst = true;
+    eventFilters.severityInfo = true;
+    eventFilters.severityLow = true;
+    eventFilters.severityMedium = true;
+    eventFilters.severityHigh = true;
+    eventFilters.noise = false;
+    
     loadEvents();
 }
 

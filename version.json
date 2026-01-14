@@ -1,6 +1,13 @@
 {
-  "version": "3.83.01",
+  "version": "3.83.02",
   "changelog": [
+    {
+      "version": "3.83.02",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: Reset button now also resets all filters to defaults"
+      ]
+    },
     {
       "version": "3.83.01",
       "date": "2026-01-14",
