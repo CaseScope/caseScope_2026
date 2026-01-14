@@ -6251,6 +6251,237 @@ input:checked + .slider:before {
 }
 
 /* ========================================
+   Analyst Tagging Styles
+   ======================================== */
+
+/* Tag column in events table */
+.col-tag {
+  width: 50px;
+  text-align: center;
+  padding: 4px 8px !important;
+}
+
+.col-tag th {
+  font-size: 14px;
+}
+
+/* Analyst tagged row highlight */
+.event-row.analyst-tagged {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.event-row.analyst-tagged td {
+  border-left-color: rgba(59, 130, 246, 0.5);
+}
+
+.event-row.analyst-tagged:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* Toggle switch in table row */
+.analyst-tag-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.analyst-tag-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.analyst-tag-toggle .tag-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  transition: all 0.2s ease;
+}
+
+.analyst-tag-toggle .tag-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-muted);
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.analyst-tag-toggle input:checked + .tag-slider {
+  background-color: rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+}
+
+.analyst-tag-toggle input:checked + .tag-slider:before {
+  transform: translateX(16px);
+  background-color: #3b82f6;
+}
+
+.analyst-tag-toggle:hover .tag-slider {
+  border-color: var(--accent-primary);
+}
+
+/* Analyst badge in severity column */
+.badge-analyst {
+  background-color: rgba(59, 130, 246, 0.25);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* Analyst tagging section in modal */
+.analyst-tagging-section {
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.analyst-tagging-section h4 {
+  color: #3b82f6;
+  margin-bottom: 16px;
+}
+
+.analyst-tag-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.analyst-tag-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.analyst-tag-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Modal toggle switch (larger) */
+.analyst-modal-toggle {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.analyst-modal-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.analyst-modal-toggle .toggle-slider-modal {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 26px;
+  transition: all 0.2s ease;
+}
+
+.analyst-modal-toggle .toggle-slider-modal:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-muted);
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.analyst-modal-toggle input:checked + .toggle-slider-modal {
+  background-color: rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+}
+
+.analyst-modal-toggle input:checked + .toggle-slider-modal:before {
+  transform: translateX(22px);
+  background-color: #3b82f6;
+}
+
+/* Tag and notes input fields */
+.analyst-tags-input-row,
+.analyst-notes-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analyst-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.analyst-tags-input {
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.analyst-tags-input:focus {
+  border-color: #3b82f6;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.analyst-notes-input {
+  padding: 10px 12px;
+  font-size: 14px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.analyst-notes-input:focus {
+  border-color: #3b82f6;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.analyst-notes-input::placeholder,
+.analyst-tags-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ========================================
    Hunting - Other Tab Styles
    ======================================== */
 .other-tab-content {

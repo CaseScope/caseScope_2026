@@ -1433,6 +1433,7 @@ def get_hunting_events(case_id):
         alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
+        analyst_filter_param = request.args.get('analyst_filter', '', type=str).strip()
         severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
         show_noise = request.args.get('show_noise', 'false', type=str).strip().lower() == 'true'
         
@@ -1479,6 +1480,18 @@ def get_hunting_events(case_id):
             # Only These mode with nothing checked - show no IOC events
             ioc_filter = " AND length(ioc_types) = 0"
         
+        # Build Analyst Tagged filter based on mode
+        analyst_filter = ""
+        if analyst_filter_param == 'exclude':
+            # Hide analyst-tagged events (All Events mode, Analyst unchecked)
+            analyst_filter = " AND analyst_tagged = false"
+        elif analyst_filter_param == 'only':
+            # Show only analyst-tagged events (Only These mode, Analyst checked)
+            analyst_filter = " AND analyst_tagged = true"
+        elif analyst_filter_param == 'exclude_all':
+            # Only These mode with nothing checked - show no analyst-tagged events
+            analyst_filter = " AND analyst_tagged = false"
+        
         # Build severity level filter
         # This filters which SIGMA severity levels to show/hide
         severity_filter = ""
@@ -1505,7 +1518,8 @@ def get_hunting_events(case_id):
             src_ip, dst_ip, src_port, dst_port,
             reg_key, reg_value, reg_data,
             rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-            search_blob, extra_fields, ioc_types, noise_matched
+            search_blob, extra_fields, ioc_types, noise_matched,
+            analyst_tagged, analyst_tags, analyst_notes
         """
         
         if search:
@@ -1617,21 +1631,21 @@ def get_hunting_events(case_id):
             
             count_query = f"""
                 SELECT count() FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}"
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -1658,7 +1672,8 @@ def get_hunting_events(case_id):
              src_ip, dst_ip, src_port, dst_port,
              reg_key, reg_value, reg_data,
              rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-             search_blob, extra_fields, ioc_types, noise_matched) = row
+             search_blob, extra_fields, ioc_types, noise_matched,
+             analyst_tagged, analyst_tags, analyst_notes) = row
             
             # Build description from available fields
             description = build_event_description(
@@ -1711,7 +1726,10 @@ def get_hunting_events(case_id):
                 'search_blob': search_blob or '',
                 'extra_fields': extra_fields or '{}',
                 'ioc_types': list(ioc_types) if ioc_types else [],
-                'noise_matched': bool(noise_matched) if noise_matched else False
+                'noise_matched': bool(noise_matched) if noise_matched else False,
+                'analyst_tagged': bool(analyst_tagged) if analyst_tagged else False,
+                'analyst_tags': list(analyst_tags) if analyst_tags else [],
+                'analyst_notes': analyst_notes or ''
             })
         
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1
@@ -1882,6 +1900,131 @@ def get_raw_event_data(case_id):
         })
         
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Analyst Tagging API Endpoints
+# ============================================
+
+@api_bp.route('/hunting/event/tag/<int:case_id>', methods=['POST'])
+@login_required
+def update_analyst_tag(case_id):
+    """Update analyst tagging for a specific event in ClickHouse
+    
+    Request JSON:
+        timestamp: Event timestamp (required)
+        source_host: Source hostname
+        record_id: Record ID for precise identification
+        artifact_type: Artifact type
+        analyst_tagged: Boolean - whether event is tagged
+        analyst_tags: Array of tag strings (optional)
+        analyst_notes: String notes (optional)
+    """
+    try:
+        from utils.clickhouse import get_client
+        from datetime import datetime, timedelta, timezone
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+        timestamp = data.get('timestamp', '').strip()
+        if not timestamp:
+            return jsonify({'success': False, 'error': 'Timestamp is required'}), 400
+        
+        source_host = data.get('source_host', '').strip()
+        record_id = data.get('record_id', '')
+        artifact_type = data.get('artifact_type', '').strip()
+        
+        # Tag values
+        analyst_tagged = data.get('analyst_tagged', False)
+        analyst_tags = data.get('analyst_tags', [])
+        analyst_notes = data.get('analyst_notes', '')
+        
+        # Build update conditions
+        conditions = ["case_id = {case_id:UInt32}"]
+        params = {'case_id': case_id}
+        
+        # Parse timestamp with 2-second window
+        try:
+            ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+            ts = ts.replace(tzinfo=timezone.utc)
+            ts_end = ts + timedelta(seconds=2)
+            params['ts_start'] = ts
+            params['ts_end'] = ts_end
+            conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid timestamp format'}), 400
+        
+        if source_host and source_host != '-':
+            params['source_host'] = source_host
+            conditions.append("source_host = {source_host:String}")
+        
+        # record_id is the most reliable identifier
+        if record_id and str(record_id) != '0':
+            try:
+                rid = int(record_id)
+                if rid > 0:
+                    params['record_id'] = rid
+                    conditions.append("record_id = {record_id:UInt64}")
+            except (ValueError, TypeError):
+                pass
+        
+        if artifact_type and artifact_type != '-':
+            params['artifact_type'] = artifact_type
+            conditions.append("artifact_type = {artifact_type:String}")
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Build update statement
+        client = get_client()
+        
+        # Prepare tag values for ClickHouse
+        tags_array = [str(t).strip() for t in analyst_tags if t and str(t).strip()]
+        notes_value = str(analyst_notes).strip() if analyst_notes else None
+        
+        # Build SET clause
+        set_parts = [f"analyst_tagged = {1 if analyst_tagged else 0}"]
+        
+        if tags_array:
+            # Escape single quotes in tags
+            escaped_tags = [t.replace("'", "\\'") for t in tags_array]
+            tags_str = ", ".join([f"'{t}'" for t in escaped_tags])
+            set_parts.append(f"analyst_tags = [{tags_str}]")
+        else:
+            set_parts.append("analyst_tags = []")
+        
+        if notes_value:
+            escaped_notes = notes_value.replace("'", "\\'").replace("\\", "\\\\")
+            set_parts.append(f"analyst_notes = '{escaped_notes}'")
+        else:
+            set_parts.append("analyst_notes = NULL")
+        
+        set_clause = ", ".join(set_parts)
+        
+        query = f"ALTER TABLE events UPDATE {set_clause} WHERE {where_clause}"
+        
+        logger.info(f"Analyst tag update query: {query}")
+        logger.info(f"Analyst tag update params: {params}")
+        
+        client.query(query, parameters=params)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Event tag updated successfully',
+            'analyst_tagged': analyst_tagged,
+            'analyst_tags': tags_array,
+            'analyst_notes': notes_value
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating analyst tag: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

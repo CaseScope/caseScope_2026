@@ -118,11 +118,10 @@
                     <span class="checkmark"></span>
                     <span class="filter-label">IOCs Found</span>
                 </label>
-                <label class="filter-checkbox filter-placeholder">
-                    <input type="checkbox" id="filter-analyst" checked onchange="applyFilters()" disabled>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-analyst" checked onchange="applyFilters()">
                     <span class="checkmark"></span>
                     <span class="filter-label">Analyst Tagged</span>
-                    <span class="filter-soon">Soon</span>
                 </label>
                 <label class="filter-checkbox filter-placeholder">
                     <input type="checkbox" id="filter-ai" checked onchange="applyFilters()" disabled>
@@ -188,6 +187,7 @@
         <table class="events-table" id="events-table">
             <thead>
                 <tr>
+                    <th class="col-tag" title="Analyst Tag">🏷️</th>
                     <th class="col-timestamp">Timestamp</th>
                     <th class="col-parser">Parser</th>
                     <th class="col-hostname">Hostname</th>
@@ -198,7 +198,7 @@
             </thead>
             <tbody id="events-tbody">
                 <tr>
-                    <td colspan="6" class="text-center text-muted loading-row">
+                    <td colspan="7" class="text-center text-muted loading-row">
                         <span class="spinner-border spinner-border-sm"></span> Loading events...
                     </td>
                 </tr>

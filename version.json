@@ -1,6 +1,15 @@
 {
-  "version": "3.81.05",
+  "version": "3.82.00",
   "changelog": [
+    {
+      "version": "3.82.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: Added analyst artifact tagging - toggle to tag events, add notes and custom tags",
+        "Hunting: Analyst Tagged filter now functional in Events tab",
+        "Database: Added analyst_tagged, analyst_tags, analyst_notes columns to ClickHouse events table"
+      ]
+    },
     {
       "version": "3.81.05",
       "date": "2026-01-14",

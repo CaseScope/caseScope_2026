@@ -371,8 +371,8 @@ function applyFilters() {
     eventFilters.alertMode = document.getElementById('alert-filter-mode').value;
     eventFilters.sigma = document.getElementById('filter-sigma').checked;
     eventFilters.ioc = document.getElementById('filter-ioc').checked;
-    // Placeholders - read but not used yet
-    // eventFilters.analyst = document.getElementById('filter-analyst').checked;
+    eventFilters.analyst = document.getElementById('filter-analyst').checked;
+    // AI filter placeholder - not yet implemented
     // eventFilters.ai = document.getElementById('filter-ai').checked;
     
     // SIGMA Filtering - severity levels
@@ -442,6 +442,7 @@ function loadEvents() {
     // Sigma/severity/IOC filters only apply to Events tab
     let sigmaFilter = '';
     let iocFilter = '';
+    let analystFilter = '';
     let severityLevels = '';
     let alertMode = 'all';
     
@@ -454,10 +455,12 @@ function loadEvents() {
             // All Events mode: unchecking hides those events
             sigmaFilter = eventFilters.sigma ? '' : 'exclude';
             iocFilter = eventFilters.ioc ? '' : 'exclude';
+            analystFilter = eventFilters.analyst ? '' : 'exclude';
         } else {
             // Only These mode: only show events matching checked types
             sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
             iocFilter = eventFilters.ioc ? 'only' : 'exclude_all';
+            analystFilter = eventFilters.analyst ? 'only' : 'exclude_all';
         }
         
         // Build severity levels filter
@@ -476,6 +479,7 @@ function loadEvents() {
         alert_mode: alertMode,
         sigma_filter: sigmaFilter,
         ioc_filter: iocFilter,
+        analyst_filter: analystFilter,
         severity_levels: severityLevels,
         show_noise: showNoise
     });
@@ -483,7 +487,7 @@ function loadEvents() {
     // Show loading state
     document.getElementById('events-tbody').innerHTML = `
         <tr>
-            <td colspan="6" class="text-center text-muted loading-row">
+            <td colspan="7" class="text-center text-muted loading-row">
                 <span class="spinner-border spinner-border-sm"></span> Loading...
             </td>
         </tr>
@@ -517,7 +521,7 @@ function renderEventsTable(events) {
     if (events.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="7" class="text-center text-muted" style="padding: 40px;">
                     ${eventsSearch ? 'No events match your search' : 'No events found for this category.'}
                 </td>
             </tr>
@@ -528,24 +532,33 @@ function renderEventsTable(events) {
     tbody.innerHTML = events.map((e, index) => {
         const hasHit = e.rule_level && e.rule_level !== '';
         const hasIOC = e.ioc_types && e.ioc_types.length > 0;
+        const isTagged = e.analyst_tagged === true;
         
         // Build row class - IOC match takes precedence for styling
         let rowClass = 'event-row clickable-row';
+        if (isTagged) rowClass += ' analyst-tagged';
         if (hasIOC) rowClass += ' ioc-match';
         if (hasHit) rowClass += ' hayabusa-hit';
         
         const severityBadge = getSeverityBadge(e.rule_level);
         const iocBadges = getIOCBadges(e.ioc_types);
         const eventId = e.event_id ? e.event_id : '-';
+        const tagBadge = isTagged ? '<span class="badge badge-analyst" title="Analyst Tagged">🏷️</span>' : '';
         
         return `
-            <tr class="${rowClass}" onclick="showEventDetail(${index})" style="cursor: pointer;">
-                <td class="col-timestamp">${e.timestamp}</td>
-                <td class="col-parser">${e.artifact_type}</td>
-                <td class="col-hostname">${e.source_host || '-'}</td>
-                <td class="col-event-id">${eventId}</td>
-                <td class="col-description" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
-                <td class="col-severity">${severityBadge}${iocBadges}</td>
+            <tr class="${rowClass}" data-index="${index}">
+                <td class="col-tag" onclick="event.stopPropagation();">
+                    <label class="analyst-tag-toggle" title="${isTagged ? 'Tagged by analyst' : 'Click to tag'}">
+                        <input type="checkbox" ${isTagged ? 'checked' : ''} onchange="toggleAnalystTag(${index}, this.checked)">
+                        <span class="tag-slider"></span>
+                    </label>
+                </td>
+                <td class="col-timestamp" onclick="showEventDetail(${index})" style="cursor: pointer;">${e.timestamp}</td>
+                <td class="col-parser" onclick="showEventDetail(${index})" style="cursor: pointer;">${e.artifact_type}</td>
+                <td class="col-hostname" onclick="showEventDetail(${index})" style="cursor: pointer;">${e.source_host || '-'}</td>
+                <td class="col-event-id" onclick="showEventDetail(${index})" style="cursor: pointer;">${eventId}</td>
+                <td class="col-description" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
+                <td class="col-severity" onclick="showEventDetail(${index})" style="cursor: pointer;">${tagBadge}${severityBadge}${iocBadges}</td>
             </tr>
         `;
     }).join('');
@@ -580,6 +593,158 @@ function getIOCBadges(iocTypes) {
     return `<span class="badge badge-ioc" title="IOC types: ${iocTypes.join(', ')}">${typesStr}</span>`;
 }
 
+// Toggle analyst tag for an event
+function toggleAnalystTag(index, isTagged) {
+    const event = currentEventsData[index];
+    if (!event) {
+        console.error('Event not found at index:', index);
+        return;
+    }
+    
+    // Update local data immediately for responsive UI
+    event.analyst_tagged = isTagged;
+    
+    // Update row styling
+    const row = document.querySelector(`tr[data-index="${index}"]`);
+    if (row) {
+        if (isTagged) {
+            row.classList.add('analyst-tagged');
+        } else {
+            row.classList.remove('analyst-tagged');
+        }
+        // Update the badge in severity column
+        const severityCell = row.querySelector('.col-severity');
+        if (severityCell) {
+            const existingBadge = severityCell.querySelector('.badge-analyst');
+            if (isTagged && !existingBadge) {
+                severityCell.insertAdjacentHTML('afterbegin', '<span class="badge badge-analyst" title="Analyst Tagged">🏷️</span>');
+            } else if (!isTagged && existingBadge) {
+                existingBadge.remove();
+            }
+        }
+    }
+    
+    // Send to API
+    fetch(`/api/hunting/event/tag/${caseId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            timestamp: event.timestamp,
+            source_host: event.source_host,
+            record_id: event.record_id,
+            artifact_type: event.artifact_type,
+            analyst_tagged: isTagged,
+            analyst_tags: event.analyst_tags || [],
+            analyst_notes: event.analyst_notes || ''
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            console.error('Failed to update tag:', data.error);
+            // Revert on failure
+            event.analyst_tagged = !isTagged;
+            const checkbox = row?.querySelector('.analyst-tag-toggle input');
+            if (checkbox) checkbox.checked = !isTagged;
+            if (row) row.classList.toggle('analyst-tagged', !isTagged);
+        }
+    })
+    .catch(err => {
+        console.error('Error updating tag:', err);
+        // Revert on error
+        event.analyst_tagged = !isTagged;
+        const checkbox = row?.querySelector('.analyst-tag-toggle input');
+        if (checkbox) checkbox.checked = !isTagged;
+        if (row) row.classList.toggle('analyst-tagged', !isTagged);
+    });
+}
+
+// Update analyst tag from modal (includes tags and notes)
+function updateModalAnalystTag() {
+    if (!currentModalEvent) return;
+    
+    const isTagged = document.getElementById('modal-analyst-tagged').checked;
+    const tagsInput = document.getElementById('modal-analyst-tags').value;
+    const notesInput = document.getElementById('modal-analyst-notes').value;
+    
+    // Parse tags from comma-separated input
+    const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    
+    // Update local event data
+    currentModalEvent.analyst_tagged = isTagged;
+    currentModalEvent.analyst_tags = tags;
+    currentModalEvent.analyst_notes = notesInput;
+    
+    // Update label in modal
+    const label = document.querySelector('.analyst-tag-label');
+    if (label) label.textContent = isTagged ? 'Tagged' : 'Not Tagged';
+    
+    // Find the event index and update table row
+    const eventIndex = currentEventsData.findIndex(e => 
+        e.timestamp === currentModalEvent.timestamp && 
+        e.record_id === currentModalEvent.record_id
+    );
+    
+    if (eventIndex >= 0) {
+        currentEventsData[eventIndex] = currentModalEvent;
+        const row = document.querySelector(`tr[data-index="${eventIndex}"]`);
+        if (row) {
+            // Update checkbox
+            const checkbox = row.querySelector('.analyst-tag-toggle input');
+            if (checkbox) checkbox.checked = isTagged;
+            
+            // Update row class
+            if (isTagged) {
+                row.classList.add('analyst-tagged');
+            } else {
+                row.classList.remove('analyst-tagged');
+            }
+            
+            // Update badge
+            const severityCell = row.querySelector('.col-severity');
+            if (severityCell) {
+                const existingBadge = severityCell.querySelector('.badge-analyst');
+                if (isTagged && !existingBadge) {
+                    severityCell.insertAdjacentHTML('afterbegin', '<span class="badge badge-analyst" title="Analyst Tagged">🏷️</span>');
+                } else if (!isTagged && existingBadge) {
+                    existingBadge.remove();
+                }
+            }
+        }
+    }
+    
+    // Debounce API call
+    clearTimeout(window._analystTagDebounce);
+    window._analystTagDebounce = setTimeout(() => {
+        fetch(`/api/hunting/event/tag/${caseId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                timestamp: currentModalEvent.timestamp,
+                source_host: currentModalEvent.source_host,
+                record_id: currentModalEvent.record_id,
+                artifact_type: currentModalEvent.artifact_type,
+                analyst_tagged: isTagged,
+                analyst_tags: tags,
+                analyst_notes: notesInput
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                console.error('Failed to update tag:', data.error);
+            }
+        })
+        .catch(err => {
+            console.error('Error updating tag:', err);
+        });
+    }, 500);  // 500ms debounce
+}
+
 // Update pagination controls
 function updateEventsPagination(data) {
     document.getElementById('events-current-page').textContent = data.page;
@@ -601,7 +766,7 @@ function showEventsError(message) {
     const tbody = document.getElementById('events-tbody');
     tbody.innerHTML = `
         <tr>
-            <td colspan="6" class="text-center text-danger" style="padding: 40px;">
+            <td colspan="7" class="text-center text-danger" style="padding: 40px;">
                 ${message}
             </td>
         </tr>
@@ -1713,7 +1878,38 @@ function buildEventDetailHTML(event) {
         html += `</div>`;
     }
     
-    // Raw Data section removed - now shown in Raw Data tab
+    // Analyst Tagging Section - always shown
+    const isTagged = event.analyst_tagged === true;
+    const existingTags = event.analyst_tags || [];
+    const existingNotes = event.analyst_notes || '';
+    
+    html += `
+        <div class="event-detail-section full-width analyst-tagging-section">
+            <h4>🏷️ Analyst Tagging</h4>
+            <div class="analyst-tag-controls">
+                <div class="analyst-tag-toggle-row">
+                    <label class="analyst-modal-toggle">
+                        <input type="checkbox" id="modal-analyst-tagged" ${isTagged ? 'checked' : ''} onchange="updateModalAnalystTag()">
+                        <span class="toggle-slider-modal"></span>
+                    </label>
+                    <span class="analyst-tag-label">${isTagged ? 'Tagged' : 'Not Tagged'}</span>
+                </div>
+                <div class="analyst-tags-input-row">
+                    <label class="analyst-field-label">Tags</label>
+                    <input type="text" id="modal-analyst-tags" class="form-input analyst-tags-input" 
+                           placeholder="Enter tags separated by commas" 
+                           value="${escapeHtml(existingTags.join(', '))}"
+                           onchange="updateModalAnalystTag()">
+                </div>
+                <div class="analyst-notes-row">
+                    <label class="analyst-field-label">Notes</label>
+                    <textarea id="modal-analyst-notes" class="form-input analyst-notes-input" 
+                              rows="3" placeholder="Add analyst notes..."
+                              onchange="updateModalAnalystTag()">${escapeHtml(existingNotes)}</textarea>
+                </div>
+            </div>
+        </div>
+    `;
     
     return html;
 }
