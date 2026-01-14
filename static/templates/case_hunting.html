@@ -562,13 +562,24 @@ function renderEventsTable(events) {
         const iocBadges = getIOCBadges(e.ioc_types);
         const eventId = e.event_id ? e.event_id : '-';
         
-        // Build description with optional secondary line for EDR command line
+        // Build description with optional secondary line for EDR command line or firewall Event
         let descHtml = truncateText(e.description, 120);
         
-        // For EDR events (huntress), show command line as italicized second line
+        // For EDR events, show command line as italicized second line
         if (['huntress', 'crowdstrike', 'sentinel', 'defender'].includes(e.artifact_type) && e.command_line) {
             const cmdPreview = truncateText(e.command_line, 100);
             descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(cmdPreview)}</div>`;
+        }
+        // For firewall events, show Event field as italicized second line
+        else if (['firewall', 'sonicwall'].includes(e.artifact_type) && e.extra_fields) {
+            try {
+                const extra = typeof e.extra_fields === 'string' ? JSON.parse(e.extra_fields) : e.extra_fields;
+                if (extra && extra.Event) {
+                    descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(extra.Event)}</div>`;
+                }
+            } catch (err) {
+                // Ignore parse errors
+            }
         }
         
         return `

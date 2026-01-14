@@ -1,6 +1,13 @@
 {
-  "version": "3.82.02",
+  "version": "3.82.03",
   "changelog": [
+    {
+      "version": "3.82.03",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: Firewall events now show Event field as italicized second line"
+      ]
+    },
     {
       "version": "3.82.02",
       "date": "2026-01-14",
