@@ -1,0 +1,46 @@
+Investigative Summary:
+----------------------
+At 2025-10-05 19:46:35 UTC, Huntress observed user "BButler / S-1-5-21-3129307847-4221876805-1187755365-1138" executing commands for enumeration purposes. These commands are the following:
+- nltest.exe /dclist:
+- net.exe group "domain computers" /dom
+
+Investigation into Windows event logs reveals that this user authenticated with Remote Desktop Services (RDS) from the remote address "91.236.230[.]136 / BlueVPS" starting at "2025-10-04 23:38:56 UTC".
+
+In addition to the following activity, "WinSCP.exe" was extracted to the suspicious directory "C:\Users\BButler\Pictures\WinSCP-6.5.3-Portable\" at "2025-10-05 19:58:50 UTC". Based on the user's activity, which indicates enumeration and potential data exfiltration behavior. Isolation has been deployed to this host. Please follow the remediation steps below.
+
+Threat Descriptions:
+--------------------
+Enumeration (Active directory, Network, Cloud, etc): Enumeration allows a threat actor to identity users, groups, privileges, and assets that can facilitate further ingress and compromise. 
+
+Lateral Movement: Lateral movement involves the threat actor pivoting across machines. 
+
+Exfiltration Tools: The adversary is using data exfiltration tools, which facilitate the malicious transfer of data out of the network. This is not evidence of successful exfiltration, and Huntress does not have insight on the affected files. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\BButler\Pictures\WinSCP-6.5.3-Portable\WinSCP.exe + pid: 11040
+- Kill Process - path: C:\Windows\system32\mstsc.exe + pid: 8760
+- Kill Process - path: C:\Windows\System32\rdpclip.exe + pid: 10316
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan + name:  + parameters: 
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Disable and/or rotate credentials for any affected user accounts.
+- Audit network perimeter device logs such as firewalls, remote desktop services, etc. for anomalous/unauthorized access.
+- Consider enacting incident response procedures to assist in fully scoping this security incident.
+- Audit network perimeter device logs such as firewalls, remote desktop services, etc. for anomalous/unauthorized access.
+- Deploy the Huntress agent to all endpoints in the organization to increase visibility across the network for the Huntress SOC.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/103401/infection_reports/1732118#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Dc Enumeration Using Nl Test   No Domain
+Detected At: 2025-10-05 19:46:07 UTC
+Start Time: 2025-10-05 19:38:53 UTC
+Command: "C:\Windows\system32\nltest.exe" /dclist:
+Executable: C:\Windows\system32\nltest.exe
+Process ID: 6a3d1eda-a21e-11f0-a3d0-00155d016402
+Parent Process: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+User: BButler

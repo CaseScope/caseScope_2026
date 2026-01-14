@@ -1,0 +1,47 @@
+Investigative Summary
+---------------------
+Evidence suggests that at 2025-08-06 12:29 UTC, the SimpleHelp instance on this endpoint was used to create a Defender exclusion for the 'C:\' drive. 
+
+Huntress also observed extensive enumeration of the endpoint carried out via the SimpleHelp instance. 
+
+This SimpleHelp instance is only present on this host within the organisation and is configured to communicate with the following domain: 
+- hxxp[://]help[.]hotlinesinc[.]com
+
+Due to the potential severity of this incident, this host has been isolated to prevent further ingress. 
+
+Huntress has the following recommendations: 
+- Consider implementing your Incident Response procedures to fully scope the incident as attackers will often move to other hosts on the network.
+- Review internal log sources to identify potential unauthorized access.
+- Review compromised hosts, and if applicable, Active Directory, for any unauthorized accounts.
+- Consider resetting passwords for all potentially impacted accounts.
+- Run a full system scan to identify anything real-time scanning may not have identified.
+- Ensure that all security products are running and correctly configured as expected on affected endpoints as well all possible hosts to increase visibility into potential threat actor activity.
+- Wipe any affected hosts and reinstall from a known good baseline.
+
+Threat Descriptions:
+-------------------
+Rogue Simplehelp: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious Simplehelp installers that give the threat actor remote access to the host.
+
+Disabling or Modifying Security Tools on Endpoint: The threat actor has disabled or modified security tooling in an attempt to bypass controls and further compromise the network.
+
+Remediations:
+-------------
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+- Disable and/or rotate credentials for any affected user accounts.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+- Ensure endpoint anti-virus solutions are deployed and are functioning properly. Audit these services for alerts or warnings on affected hosts.
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105293/infection_reports/1631471#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Haa S Suspicious Execution From Simple Help Remote Access Executable
+Detected At: 2025-06-27 17:56:42 UTC
+Start Time: 2025-06-27 17:51:43 UTC
+Command: nssm  status nxgreceiver
+Executable: C:\Program Files (x86)\Hotlines\nssm.exe
+Process ID: 09152214-537f-11f0-b9e0-2cea7f40ae65
+Parent Process: C:\Windows\SYSTEM32\cmd.exe
+User: SYSTEM

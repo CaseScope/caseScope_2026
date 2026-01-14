@@ -1,0 +1,33 @@
+Investigative Summary
+---------------------
+At 2025-05-30 19:48:22 UTC, Huntress observed user "firechief" executing a malicious process invite.exe. The user interacted with a malicious instance of a "Rogue ScreenConnect" via a Phishing attempt. We have isolated the host to prevent further network callbacks.We are reporting for your awareness.
+
+Threat Descriptions:
+-------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\firechief\Downloads\invite.exe + pid: 26276
+- Kill Process - path: C:\Users\firechief\Downloads\invite (1).exe + pid: 19876
+- Delete File - path: C:\Users\firechief\Downloads\invite.exe
+- Delete File - path: C:\Users\firechief\Downloads\invite (1).exe
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan + name:  + parameters: 
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105346/infection_reports/1541103#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Malicious Rogue Screenconnect Installation Via Browser
+Detected At: 2025-05-30 14:47:53 -0500
+Start Time: 2025-05-30 19:45:00 UTC
+Command: "C:\Users\firechief\Downloads\invite.exe"
+Executable: C:\Users\firechief\Downloads\invite.exe
+Process ID: df200565-3d8a-11f0-94f2-e4e7499c05e0
+Parent Process: C:\Users\firechief\AppData\Local\OneLaunch\5.36.0\chromium\chromium.exe
+User: firechief

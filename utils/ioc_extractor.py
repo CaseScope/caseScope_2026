@@ -3,10 +3,13 @@
 Extracts Indicators of Compromise from EDR reports using AI (Ollama)
 with regex fallback. Handles deduplication and integration with 
 Known Systems and Known Users.
+
+Enhanced based on analysis of 75 real Huntress EDR reports.
 """
 import re
 import json
 import logging
+import base64
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -38,9 +41,12 @@ IOC_TYPE_MAP = {
     'process_name': 'Process Name',
     'process_path': 'Process Path',
     'service_name': 'Service Name',
-    'password': 'Password Hash',
+    'scheduled_task': 'Scheduled Task',
+    'password': 'Password',
     'ssh_key': 'SSH Key Fingerprint',
     'api_key': 'API Key',
+    'cve': 'CVE',
+    'threat_name': 'Threat Name',
 }
 
 # Category mappings
@@ -65,73 +71,189 @@ IOC_CATEGORY_MAP = {
     'process_name': 'Process',
     'process_path': 'Process',
     'service_name': 'Process',
+    'scheduled_task': 'Process',
     'password': 'Authentication',
     'ssh_key': 'Authentication',
     'api_key': 'Authentication',
+    'cve': 'Vulnerability',
+    'threat_name': 'Threat Intel',
 }
 
 
 # ============================================
-# AI IOC Extraction Prompt
+# AI IOC Extraction Prompt (Example-Based)
 # ============================================
 
-SYSTEM_PROMPT = """You are a SOC analyst extracting Indicators of Compromise from security incident reports.
+SYSTEM_PROMPT = """You are an expert SOC analyst extracting ALL Indicators of Compromise from Huntress EDR security incident reports. Your goal is MAXIMUM extraction - capture EVERYTHING that could be useful for threat hunting.
 
-CRITICAL: Return ONLY valid JSON matching EXACTLY this structure. No markdown, no explanation.
+CRITICAL: Return ONLY valid JSON. No markdown, no explanation, no code blocks.
+
+## DEFANG CONVERSION (ALWAYS APPLY)
+Convert these patterns back to clean values:
+- hxxp:// or hxxps:// → http:// or https://
+- [.] or (.) or [dot] → .
+- [:] → :
+- [@] or [at] → @
+- [://] → ://
+
+Examples:
+- "hxxps[://]porhebusz[.]de/orders/" → "https://porhebusz.de/orders/"
+- "87[.]121[.]86[.]35" → "87.121.86.35"
+- "relay[.]prarpa[.]com" → "relay.prarpa.com"
+- "hxxp[://]87[.]121[.]86[.]35/ad.exe" → "http://87.121.86.35/ad.exe"
+
+## OUTPUT STRUCTURE
 
 {
   "extraction_summary": {
-    "report_date": "YYYY-MM-DD HH:MM:SS UTC",
-    "affected_host": "hostname if mentioned",
-    "severity_indicators": ["list of threat types mentioned"]
+    "report_date": "2025-08-15 16:12:16 UTC",
+    "affected_hosts": ["SL-DC-01", "CM-VMHOST"],
+    "affected_users": [{"username": "tabadmin", "sid": "S-1-5-21-2554046153-4285503646-2850861276-5162", "domain": "SL"}],
+    "attack_type": "Rogue RMM / Pre-Ransomware",
+    "severity": "critical",
+    "threat_families": ["ScreenConnect", "Cobalt Strike"],
+    "isolated": true
   },
-  "iocs": {
-    "hashes": [{"value": "", "type": "md5|sha1|sha256|sha512", "context": ""}],
-    "ip_addresses": [{"value": "", "port": null, "direction": "source|destination|unknown", "context": ""}],
-    "domains": [{"value": "", "context": ""}],
-    "urls": [{"value": "", "type": "report|c2|exfil|malicious", "context": ""}],
-    "file_paths": [{"value": "", "action": "created|deleted|executed|modified|accessed", "context": ""}],
-    "file_names": [],
-    "users": [{"value": "", "sid": null, "context": ""}],
-    "sids": [],
-    "registry_keys": [{"value": "", "action": "created|modified|deleted|queried", "context": ""}],
-    "commands": [{"value": "", "executable": "", "context": ""}],
-    "processes": [{"name": "", "path": "", "pid": "", "parent": "", "user": ""}],
-    "credentials": [{"type": "password|ssh_key|api_key|certificate", "username": "", "value": "", "context": ""}],
-    "hostnames": [],
-    "timestamps": [{"value": "ISO8601", "event": ""}],
-    "network_shares": [{"value": "", "context": ""}],
-    "email_addresses": [],
-    "mitre_indicators": [{"technique_id": "T####", "technique_name": "", "evidence": ""}]
+  "network_iocs": {
+    "ipv4": [{"value": "87.121.86.35", "port": 80, "context": "Malware download server", "direction": "outbound"}],
+    "ipv6": [{"value": "fe80::7bba:26ff:8c4e:d002", "context": "RDP source IP"}],
+    "domains": [{"value": "asfsa1236ygfdg.anondns.net", "type": "c2", "context": "ScreenConnect relay"}],
+    "urls": [{"value": "https://porhebusz.de/wp-includes/orders/", "type": "payload_download", "context": "Downloaded malicious installer"}],
+    "cloudflare_tunnels": ["suffering-arnold-satisfaction-prior.trycloudflare.com"]
   },
+  "file_iocs": {
+    "hashes": [{"value": "abc123...", "type": "sha256", "filename": "malware.exe", "context": "NetSupport RAT"}],
+    "file_paths": [{"value": "C:\\Users\\tabadmin\\AppData\\Roaming\\Dire\\client32.exe", "action": "executed", "context": "NetSupport client"}],
+    "file_names": ["client32.exe", "WinRAR-713.exe", "Invite.exe"]
+  },
+  "process_iocs": {
+    "commands": [{
+      "full_command": "winrar.exe a -m0 -v3g -tn1000d -n*.txt -n*.pdf -hpctlobby.com \"C:\\DATA\\done\\DATA.rar\" \"C:\\DATA\"",
+      "executable": "C:\\Program Files\\WinRAR\\WinRAR.exe",
+      "arguments": "a -m0 -v3g -tn1000d -n*.txt -n*.pdf -hpctlobby.com",
+      "parent_process": "C:\\Windows\\system32\\cmd.exe",
+      "user": "tabadmin",
+      "pid": "a4261693-6f71-11f0-848c-000c29b27c12",
+      "context": "Data archiving with password for exfil"
+    }],
+    "services": [{"name": "ScreenConnect Client (05d4e4afbe6a6822)", "display_name": "ScreenConnect Client", "path": "C:\\Program Files (x86)\\ScreenConnect Client...\\ScreenConnect.ClientService.exe", "action": "delete"}],
+    "scheduled_tasks": [{"name": "C__Users_tabadmin_AppData_Local_70_ExtractedInstaller.exe", "path": "C:\\WINDOWS\\System32\\Tasks\\...", "command": "...", "action": "delete"}],
+    "parent_child_chains": [{
+      "parent": "D:\\Program Files\\Microsoft SQL Server\\MSSQL13.FOUNDATION\\MSSQL\\Binn\\sqlservr.exe",
+      "children": ["cmd.exe", "powershell.exe", "bcp.exe"],
+      "context": "SQL Server xp_cmdshell exploitation"
+    }]
+  },
+  "persistence_iocs": {
+    "registry": [{
+      "key": "HKU\\S-1-12-1-4279131444-1291438121-4069116045-1585355293\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "value_name": "PP1",
+      "value_data": "C:\\Users\\JacobParks\\AppData\\Roaming\\Dire\\client32.exe",
+      "action": "delete",
+      "context": "NetSupport persistence"
+    }],
+    "credential_theft_indicators": [{
+      "type": "wdigest_modification",
+      "registry_key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\wdigest",
+      "value": "UseLogonCredential",
+      "data": "1",
+      "context": "Enables plaintext credential caching"
+    }]
+  },
+  "authentication_iocs": {
+    "compromised_users": [{"username": "tabadmin", "sid": "S-1-5-21-2554046153-4285503646-2850861276-5162", "domain": "SL", "context": "Used for lateral movement"}],
+    "created_users": [{"username": "admins124", "password": "@@@Music123..", "groups": ["Administrators", "Remote Desktop Users"], "context": "Attacker-created backdoor account"}],
+    "passwords_observed": [{"username": "admins124", "password": "@@@Music123..", "context": "Visible in net user command"}, {"username": "a", "password": "!DU?123aA.", "context": "SMB share credentials"}]
+  },
+  "vulnerability_iocs": {
+    "cves": ["CVE-2021-31207"],
+    "exchange_version": "v15.2.221.12",
+    "exposed_services": ["SonicWall SSLVPN on 96.78.213.49:60443", "RDP externally accessible"],
+    "webshells": [{"path": "C:\\inetpub\\wwwroot\\aspnet_client\\system_web\\4_0_30319\\zsjatlqrvvrkcyvh.aspx", "context": "Exchange exploitation"}]
+  },
+  "threat_intel": {
+    "malware_families": ["QakBot", "Dridex", "SocGholish", "Gootloader", "Lunar Spider"],
+    "threat_names": ["Trojan:HTML/Phish.PAKU!MTB", "Exploit:Win32/CVE-2021-31207.B"],
+    "rmm_tools": ["ScreenConnect", "NetSupport", "AnyDesk", "UltraVNC", "SimpleHelp", "Atera", "Datto CentraStage"],
+    "techniques": ["Rogue RMM", "Credential Dumping", "Data Exfiltration", "SQL Exploitation", "Web Shell"]
+  },
+  "timestamps": [{
+    "time": "2025-08-02 07:27:33 UTC",
+    "event": "WinRAR archive created",
+    "user": "tabadmin"
+  }],
   "raw_artifacts": {
-    "full_commands": [],
-    "filemasks": []
-  }
+    "encoded_powershell": ["cABvAHcAZQByAHMAaABlAGwAbAA..."],
+    "vnc_connection_ids": ["ID:214653792"],
+    "screenconnect_relay_params": ["?e=Access&y=Guest&h=pmpakf2.zapto.org&p=8041&s=4f4a06b7-f498-420d-9e3c-ddf2be9e947f..."]
+  },
+  "mitre_attack": [
+    {"technique_id": "T1021.001", "technique_name": "Remote Desktop Protocol", "evidence": "RDP session from fe80::7bba:26ff:8c4e:d002"},
+    {"technique_id": "T1059.001", "technique_name": "PowerShell", "evidence": "Encoded PowerShell execution"},
+    {"technique_id": "T1003.001", "technique_name": "LSASS Memory", "evidence": "comsvcs.dll MiniDump"},
+    {"technique_id": "T1219", "technique_name": "Remote Access Software", "evidence": "ScreenConnect, NetSupport, AnyDesk"}
+  ]
 }
 
-EXTRACTION RULES:
-1. De-obfuscate URLs: hxxp→http, hxxps→https, [.]→., [:]→:, [@]→@
-2. Extract credentials from URLs: sftp://USER:PASSWORD@IP:PORT/ → extract username AND password
-3. Extract SSH keys from -hostkey="..." parameters
-4. Network shares: \\\\server\\share format (UNC paths)
-5. Huntress/security vendor portal URLs → type="report"
-6. C2/exfil destination URLs → type="c2" or "exfil"
-7. Full command lines go in BOTH commands array AND raw_artifacts.full_commands
-8. File exclusion patterns (filemasks) → raw_artifacts.filemasks
-9. Empty arrays are fine - do NOT add null or placeholder values
-10. Preserve original casing for paths and commands
+## SECTION-SPECIFIC EXTRACTION RULES
 
-MITRE ATT&CK MAPPING:
-- RDP/remote desktop → T1021.001 Remote Desktop Protocol
-- WinSCP/rclone/SFTP exfil → T1048.002 Exfiltration Over Asymmetric Encrypted Non-C2 Protocol
-- Admin shares (c$, admin$) → T1021.002 SMB/Windows Admin Shares
-- Firewall rule changes → T1562.004 Disable or Modify System Firewall
-- Defender exclusions → T1562.001 Disable or Modify Tools
-- Credentials in command → T1552.001 Credentials In Files
-- Renamed executables → T1036.005 Match Legitimate Name or Location
-- Registry modification → T1112 Modify Registry
-- Network share data → T1039 Data from Network Shared Drive"""
+### "Remediations" Section - HIGH VALUE IOCs
+This section contains confirmed malicious artifacts. Extract ALL:
+- Kill Process entries: path and pid
+- Delete Service entries: service name
+- Delete Registry Key/Value entries: full key path, value name, value data
+- Delete File entries: full paths
+- "+" N more entries means there are more IOCs - note this in context
+
+### "Processes" or "Lead Signal Information" Section
+Extract complete process information:
+- Full command line (preserve exactly)
+- Executable path
+- Parent process
+- PID/Process ID
+- User context
+- Start time
+
+### "Footholds" Section
+Contains persistence mechanisms - registry keys, services, scheduled tasks
+
+### "Defender Threat Details" Section
+Extract:
+- Threat Name (malware family/signature)
+- CVE identifiers
+- OS Resources (file paths)
+- Category
+
+### "Investigative Summary" Section
+Extract:
+- Affected hostnames
+- Compromised usernames with SIDs
+- Attacker source IPs
+- Timeline of events
+- Attack narrative
+
+## SPECIAL PATTERNS TO RECOGNIZE
+
+1. SQL Server Exploitation: Parent process is sqlservr.exe
+2. IIS/Web Shell: Parent process is w3wp.exe
+3. ScreenConnect Instance IDs: 8-char hex like (05d4e4afbe6a6822)
+4. Dynamic DNS: .zapto.org, .anondns.net, .ikhelp.top, .trycloudflare.com
+5. Created passwords visible in commands: net user USERNAME PASSWORD /add
+6. SMB credentials: net use \\\\IP\\share /user:USER PASS
+7. Multi-language admin groups: administrators, Administratoren, Administrateurs, Administradores
+
+## EXTRACTION RULES
+
+1. Extract EVERYTHING - when in doubt, include it
+2. Preserve full command lines exactly as written
+3. Include parent-child process relationships
+4. Extract passwords visible in commands
+5. Note the source section for important IOCs
+6. Flag SQL/IIS exploitation chains
+7. Identify RMM tools by name and domain
+8. Empty arrays are fine - do NOT add placeholders
+9. Huntress portal URLs (tabinc.huntress.io) are report links, not IOCs - skip them
+10. macOS executables start with / (e.g., /usr/sbin/spctl)"""
 
 
 # ============================================
@@ -141,35 +263,77 @@ MITRE ATT&CK MAPPING:
 class RegexIOCExtractor:
     """Regex-based IOC extractor as fallback when AI is unavailable"""
     
-    # De-obfuscation patterns
+    # De-obfuscation patterns - comprehensive list based on 75 reports
     DEFANG_PATTERNS = [
-        (re.compile(r'hxxps?://', re.I), lambda m: m.group().lower().replace('xx', 'tt')),
+        # Protocol defanging
+        (re.compile(r'hxxps://', re.I), 'https://'),
+        (re.compile(r'hxxp://', re.I), 'http://'),
+        (re.compile(r'hxxps\[://\]', re.I), 'https://'),
+        (re.compile(r'hxxp\[://\]', re.I), 'http://'),
+        (re.compile(r'\[://\]'), '://'),
         (re.compile(r'\[:\]//'), '://'),
+        # Dot defanging
         (re.compile(r'\[\.+\]'), '.'),
         (re.compile(r'\(\.+\)'), '.'),
         (re.compile(r'\[dot\]', re.I), '.'),
         (re.compile(r'\(dot\)', re.I), '.'),
+        # At symbol defanging
         (re.compile(r'\[at\]', re.I), '@'),
         (re.compile(r'\(at\)', re.I), '@'),
         (re.compile(r'\[@\]'), '@'),
+        # Colon defanging
         (re.compile(r'\[:\]'), ':'),
+        (re.compile(r'\(:\)'), ':'),
     ]
     
-    # IOC Patterns
+    # IOC Patterns - expanded based on 75 reports
     PATTERNS = {
         'md5': re.compile(r'\b[a-fA-F0-9]{32}\b'),
         'sha1': re.compile(r'\b[a-fA-F0-9]{40}\b'),
         'sha256': re.compile(r'\b[a-fA-F0-9]{64}\b'),
-        'ip_v4': re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'),
-        'ip_v6': re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'),
+        # IPv4 - including defanged format
+        'ip_v4': re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.|[\[\(]\.[\]\)])){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'),
+        # IPv6 - full and link-local
+        'ip_v6': re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b|\bfe80::[0-9a-fA-F:]+\b'),
         'email': re.compile(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'),
-        'url': re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+', re.I),
-        'domain': re.compile(r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b'),
-        'file_path_windows': re.compile(r'[A-Za-z]:\\[^\s<>"|?*\n]+'),
+        'url': re.compile(r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*', re.I),
+        'domain': re.compile(r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(?:\[\.\]|\.))+(?:com|net|org|io|top|de|es|co|xyz|info|biz|ru|cn|uk|ca|au|zapto|anondns|ikhelp|trycloudflare)\b', re.I),
+        'file_path_windows': re.compile(r'[A-Za-z]:\\[^\s<>"|?*\n:]+(?:\.[a-zA-Z0-9]{1,10})?'),
         'file_path_unc': re.compile(r'\\\\[^\s<>"|?*\n]+'),
-        'registry_key': re.compile(r'(?:HKEY_[A-Z_]+|HKLM|HKCU|HKU|HKCR)\\[^\s\n]+', re.I),
-        'sid': re.compile(r'S-1-\d+-\d+(?:-\d+)*'),
+        'file_path_unix': re.compile(r'(?:^|[\s"])(/(?:usr|bin|etc|var|tmp|home|opt|sbin|lib|ProgramData|inetpub)[^\s<>"|?*\n]+)'),
+        'registry_key': re.compile(r'(?:HKEY_[A-Z_]+|HKLM|HKCU|HKU|HKCR)\\[^\s\n"]+', re.I),
+        'sid': re.compile(r'S-1-\d+-\d+(?:-\d+)+'),
+        'cve': re.compile(r'CVE-\d{4}-\d{4,7}', re.I),
+        'service_name': re.compile(r'(?:Delete Service\s*-\s*name:\s*)([^\n+]+)', re.I),
+        'scheduled_task': re.compile(r'C:\\WINDOWS\\System32\\Tasks\\[^\s\n"]+', re.I),
+        'screenconnect_id': re.compile(r'ScreenConnect Client \(([a-f0-9]{16})\)', re.I),
+        'vnc_connection_id': re.compile(r'-autoreconnect\s+ID:(\d+)', re.I),
+        # Password extraction from net user commands
+        'net_user_password': re.compile(r'net\s+user\s+(\S+)\s+(\S+)\s+/add', re.I),
+        # SMB credentials
+        'smb_creds': re.compile(r'net\s+use\s+[^\s]+\s+/user:(\S+)\s+(\S+)', re.I),
+        # PowerShell encoded command
+        'encoded_powershell': re.compile(r'-(?:enc|encodedcommand)\s+([A-Za-z0-9+/=]{50,})', re.I),
+        # Exchange version
+        'exchange_version': re.compile(r'Exchange v(\d+\.\d+\.\d+\.\d+)', re.I),
+        # Cloudflare tunnels
+        'cloudflare_tunnel': re.compile(r'[a-z\-]+\.trycloudflare\.com', re.I),
+        # Process with parent context
+        'parent_process': re.compile(r'Parent Process:\s*([^\n]+)', re.I),
     }
+    
+    # Known RMM tools to flag
+    RMM_TOOLS = [
+        'screenconnect', 'connectwise', 'netsupport', 'anydesk', 'ultravnc', 
+        'simplehelp', 'atera', 'splashtop', 'gotoassist', 'centrastage',
+        'datto', 'teamviewer', 'logmein', 'bomgar'
+    ]
+    
+    # Known malware families from reports
+    MALWARE_FAMILIES = [
+        'qakbot', 'dridex', 'socgholish', 'gootloader', 'cobalt strike',
+        'trickbot', 'lunar', 'ursnif', 'fakeupdates'
+    ]
     
     def __init__(self):
         pass
@@ -177,23 +341,24 @@ class RegexIOCExtractor:
     def defang(self, text: str) -> str:
         """De-obfuscate/defang indicators in text"""
         for pattern, replacement in self.DEFANG_PATTERNS:
-            if callable(replacement):
-                text = pattern.sub(replacement, text)
-            else:
-                text = pattern.sub(replacement, text)
+            text = pattern.sub(replacement, text)
         return text
     
     def extract(self, text: str) -> Dict[str, Any]:
         """Extract IOCs from text using regex patterns"""
         # De-obfuscate first
         clean_text = self.defang(text)
+        original_text = text  # Keep original for some patterns
         
         results = {
             'extraction_summary': {
                 'method': 'regex',
                 'report_date': None,
-                'affected_host': None,
-                'severity_indicators': []
+                'affected_hosts': [],
+                'affected_users': [],
+                'severity_indicators': [],
+                'threat_families': [],
+                'isolated': 'isolated' in text.lower()
             },
             'iocs': {
                 'hashes': [],
@@ -212,11 +377,19 @@ class RegexIOCExtractor:
                 'timestamps': [],
                 'network_shares': [],
                 'email_addresses': [],
-                'mitre_indicators': []
+                'mitre_indicators': [],
+                'services': [],
+                'scheduled_tasks': [],
+                'cves': [],
+                'threat_names': [],
             },
             'raw_artifacts': {
                 'full_commands': [],
-                'filemasks': []
+                'filemasks': [],
+                'encoded_powershell': [],
+                'vnc_connection_ids': [],
+                'screenconnect_ids': [],
+                'parent_child_chains': [],
             }
         }
         
@@ -228,29 +401,67 @@ class RegexIOCExtractor:
         for match in self.PATTERNS['sha256'].findall(clean_text):
             results['iocs']['hashes'].append({'value': match.lower(), 'type': 'sha256', 'context': ''})
         
-        # Extract IP addresses
+        # Extract IP addresses (IPv4 and IPv6)
         for match in self.PATTERNS['ip_v4'].findall(clean_text):
-            # Skip private/local IPs for IOC purposes (keep them but flag)
+            # Clean up any remaining defang artifacts
+            clean_ip = self.defang(match)
+            if self._is_valid_ipv4(clean_ip):
+                results['iocs']['ip_addresses'].append({
+                    'value': clean_ip, 
+                    'port': None, 
+                    'direction': 'unknown',
+                    'context': '',
+                    'type': 'ipv4'
+                })
+        
+        for match in self.PATTERNS['ip_v6'].findall(clean_text):
             results['iocs']['ip_addresses'].append({
                 'value': match, 
                 'port': None, 
                 'direction': 'unknown',
-                'context': ''
+                'context': 'IPv6 address',
+                'type': 'ipv6'
+            })
+        
+        # Extract domains
+        for match in self.PATTERNS['domain'].findall(clean_text):
+            domain = self.defang(match.lower())
+            # Skip if it's a Huntress portal URL
+            if 'huntress.io' in domain:
+                continue
+            results['iocs']['domains'].append({'value': domain, 'context': ''})
+        
+        # Extract Cloudflare tunnels
+        for match in self.PATTERNS['cloudflare_tunnel'].findall(clean_text):
+            results['iocs']['domains'].append({
+                'value': match.lower(), 
+                'context': 'Cloudflare Quick Tunnel (potential C2)'
             })
         
         # Extract URLs
         for match in self.PATTERNS['url'].findall(clean_text):
+            url = self.defang(match)
             url_type = 'unknown'
-            if 'huntress' in match.lower() or 'portal' in match.lower():
-                url_type = 'report'
-            results['iocs']['urls'].append({'value': match, 'type': url_type, 'context': ''})
+            if 'huntress' in url.lower() or 'portal' in url.lower():
+                continue  # Skip report URLs
+            results['iocs']['urls'].append({'value': url, 'type': url_type, 'context': ''})
         
-        # Extract file paths
+        # Extract file paths (Windows)
         for match in self.PATTERNS['file_path_windows'].findall(clean_text):
+            path = match.rstrip('.,;:')
             results['iocs']['file_paths'].append({
-                'value': match.rstrip('.,;:'),
+                'value': path,
                 'action': 'unknown',
                 'context': ''
+            })
+        
+        # Extract file paths (Unix/macOS)
+        for match in self.PATTERNS['file_path_unix'].findall(clean_text):
+            path = match.rstrip('.,;:')
+            results['iocs']['file_paths'].append({
+                'value': path,
+                'action': 'unknown',
+                'context': 'Unix/macOS path'
             })
         
         # Extract UNC paths (network shares)
@@ -276,17 +487,115 @@ class RegexIOCExtractor:
         for match in self.PATTERNS['email'].findall(clean_text):
             results['iocs']['email_addresses'].append(match.lower())
         
+        # Extract CVEs
+        for match in self.PATTERNS['cve'].findall(clean_text):
+            results['iocs']['cves'].append(match.upper())
+        
+        # Extract service names from "Delete Service" entries
+        for match in self.PATTERNS['service_name'].findall(original_text):
+            service = match.strip()
+            results['iocs']['services'].append({
+                'name': service,
+                'action': 'delete',
+                'context': 'From remediation'
+            })
+        
+        # Extract scheduled tasks
+        for match in self.PATTERNS['scheduled_task'].findall(clean_text):
+            results['iocs']['scheduled_tasks'].append({
+                'path': match,
+                'action': 'delete',
+                'context': ''
+            })
+        
+        # Extract ScreenConnect instance IDs
+        for match in self.PATTERNS['screenconnect_id'].findall(original_text):
+            results['raw_artifacts']['screenconnect_ids'].append(match)
+        
+        # Extract VNC connection IDs
+        for match in self.PATTERNS['vnc_connection_id'].findall(clean_text):
+            results['raw_artifacts']['vnc_connection_ids'].append(match)
+        
+        # Extract encoded PowerShell
+        for match in self.PATTERNS['encoded_powershell'].findall(clean_text):
+            results['raw_artifacts']['encoded_powershell'].append(match)
+        
+        # Extract passwords from net user commands
+        for match in self.PATTERNS['net_user_password'].findall(clean_text):
+            username, password = match
+            results['iocs']['credentials'].append({
+                'type': 'password',
+                'username': username,
+                'value': password,
+                'context': 'From net user /add command - attacker-created account'
+            })
+        
+        # Extract SMB credentials
+        for match in self.PATTERNS['smb_creds'].findall(clean_text):
+            username, password = match
+            results['iocs']['credentials'].append({
+                'type': 'password',
+                'username': username,
+                'value': password,
+                'context': 'SMB share credentials from net use command'
+            })
+        
+        # Extract parent process context
+        for match in self.PATTERNS['parent_process'].findall(clean_text):
+            parent = match.strip()
+            # Check for SQL/IIS exploitation indicators
+            if 'sqlservr.exe' in parent.lower():
+                results['raw_artifacts']['parent_child_chains'].append({
+                    'parent': parent,
+                    'context': 'SQL Server xp_cmdshell exploitation'
+                })
+            elif 'w3wp.exe' in parent.lower():
+                results['raw_artifacts']['parent_child_chains'].append({
+                    'parent': parent,
+                    'context': 'IIS web shell activity'
+                })
+        
+        # Detect threat families
+        text_lower = text.lower()
+        for family in self.MALWARE_FAMILIES:
+            if family in text_lower:
+                results['extraction_summary']['threat_families'].append(family.title())
+        
+        # Detect RMM tools
+        for tool in self.RMM_TOOLS:
+            if tool in text_lower:
+                if tool.title() not in results['extraction_summary']['severity_indicators']:
+                    results['extraction_summary']['severity_indicators'].append(f"Rogue {tool.title()}")
+        
         # Deduplicate
         results['iocs']['hashes'] = self._dedupe_list_of_dicts(results['iocs']['hashes'], 'value')
         results['iocs']['ip_addresses'] = self._dedupe_list_of_dicts(results['iocs']['ip_addresses'], 'value')
         results['iocs']['urls'] = self._dedupe_list_of_dicts(results['iocs']['urls'], 'value')
+        results['iocs']['domains'] = self._dedupe_list_of_dicts(results['iocs']['domains'], 'value')
         results['iocs']['file_paths'] = self._dedupe_list_of_dicts(results['iocs']['file_paths'], 'value')
         results['iocs']['network_shares'] = self._dedupe_list_of_dicts(results['iocs']['network_shares'], 'value')
         results['iocs']['registry_keys'] = self._dedupe_list_of_dicts(results['iocs']['registry_keys'], 'value')
+        results['iocs']['services'] = self._dedupe_list_of_dicts(results['iocs']['services'], 'name')
         results['iocs']['sids'] = list(set(results['iocs']['sids']))
         results['iocs']['email_addresses'] = list(set(results['iocs']['email_addresses']))
+        results['iocs']['cves'] = list(set(results['iocs']['cves']))
+        results['extraction_summary']['threat_families'] = list(set(results['extraction_summary']['threat_families']))
         
         return results
+    
+    def _is_valid_ipv4(self, ip: str) -> bool:
+        """Validate IPv4 address format"""
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return False
+        for part in parts:
+            try:
+                num = int(part)
+                if num < 0 or num > 255:
+                    return False
+            except ValueError:
+                return False
+        return True
     
     def _dedupe_list_of_dicts(self, items: List[Dict], key: str) -> List[Dict]:
         """Deduplicate a list of dicts by a key"""
@@ -327,8 +636,8 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             model_config = AI_MODEL_CONFIG.get(gpu_tier, AI_MODEL_CONFIG['8gb'])
             model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')
         
-        # Truncate report if very long (keep under ~12000 chars for context window)
-        MAX_REPORT_LENGTH = 12000
+        # Truncate report if very long (keep under ~16000 chars for context window)
+        MAX_REPORT_LENGTH = 16000
         truncated_text = report_text
         if len(truncated_text) > MAX_REPORT_LENGTH:
             truncated_text = truncated_text[:MAX_REPORT_LENGTH] + "\n\n[... REPORT TRUNCATED FOR PROCESSING ...]"
@@ -349,17 +658,20 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Extract all IOCs from this security report:\n\n{truncated_text}"}
+                {"role": "user", "content": f"Extract ALL IOCs from this Huntress EDR security report. Be thorough - capture everything:\n\n{truncated_text}"}
             ],
             format="json",
             options={
                 "temperature": 0,
                 "top_p": 0.1,
-                "num_ctx": 8192
+                "num_ctx": 16384
             }
         )
         
         extraction = json.loads(response['message']['content'])
+        
+        # Normalize the extraction to our expected format
+        extraction = _normalize_ai_extraction(extraction)
         extraction['extraction_summary'] = extraction.get('extraction_summary', {})
         extraction['extraction_summary']['method'] = 'ai'
         extraction['extraction_summary']['model'] = model
@@ -369,6 +681,217 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     except Exception as e:
         logger.warning(f"AI extraction failed, using regex fallback: {e}")
         return RegexIOCExtractor().extract(report_text), False
+
+
+def _normalize_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize AI extraction output to our expected format.
+    Handles variations in AI response structure.
+    """
+    normalized = {
+        'extraction_summary': extraction.get('extraction_summary', {}),
+        'iocs': {
+            'hashes': [],
+            'ip_addresses': [],
+            'domains': [],
+            'urls': [],
+            'file_paths': [],
+            'file_names': [],
+            'users': [],
+            'sids': [],
+            'registry_keys': [],
+            'commands': [],
+            'processes': [],
+            'credentials': [],
+            'hostnames': [],
+            'timestamps': [],
+            'network_shares': [],
+            'email_addresses': [],
+            'mitre_indicators': [],
+            'services': [],
+            'scheduled_tasks': [],
+            'cves': [],
+            'threat_names': [],
+        },
+        'raw_artifacts': extraction.get('raw_artifacts', {})
+    }
+    
+    # Map from new structure to old structure for compatibility
+    
+    # Network IOCs
+    network = extraction.get('network_iocs', {})
+    for ip in network.get('ipv4', []):
+        if isinstance(ip, dict):
+            ip['type'] = 'ipv4'
+            normalized['iocs']['ip_addresses'].append(ip)
+        else:
+            normalized['iocs']['ip_addresses'].append({'value': ip, 'type': 'ipv4'})
+    
+    for ip in network.get('ipv6', []):
+        if isinstance(ip, dict):
+            ip['type'] = 'ipv6'
+            normalized['iocs']['ip_addresses'].append(ip)
+        else:
+            normalized['iocs']['ip_addresses'].append({'value': ip, 'type': 'ipv6'})
+    
+    for domain in network.get('domains', []):
+        if isinstance(domain, dict):
+            normalized['iocs']['domains'].append(domain)
+        else:
+            normalized['iocs']['domains'].append({'value': domain})
+    
+    for tunnel in network.get('cloudflare_tunnels', []):
+        normalized['iocs']['domains'].append({
+            'value': tunnel,
+            'context': 'Cloudflare Quick Tunnel (potential C2)'
+        })
+    
+    for url in network.get('urls', []):
+        if isinstance(url, dict):
+            normalized['iocs']['urls'].append(url)
+        else:
+            normalized['iocs']['urls'].append({'value': url})
+    
+    # File IOCs
+    file_iocs = extraction.get('file_iocs', {})
+    for h in file_iocs.get('hashes', []):
+        if isinstance(h, dict):
+            normalized['iocs']['hashes'].append(h)
+        else:
+            normalized['iocs']['hashes'].append({'value': h})
+    
+    for fp in file_iocs.get('file_paths', []):
+        if isinstance(fp, dict):
+            normalized['iocs']['file_paths'].append(fp)
+        else:
+            normalized['iocs']['file_paths'].append({'value': fp})
+    
+    for fn in file_iocs.get('file_names', []):
+        normalized['iocs']['file_names'].append(fn)
+    
+    # Process IOCs
+    process_iocs = extraction.get('process_iocs', {})
+    for cmd in process_iocs.get('commands', []):
+        if isinstance(cmd, dict):
+            # Map new structure to old
+            mapped = {
+                'value': cmd.get('full_command', ''),
+                'executable': cmd.get('executable', ''),
+                'context': cmd.get('context', ''),
+                'parent': cmd.get('parent_process', ''),
+                'user': cmd.get('user', ''),
+                'pid': cmd.get('pid', '')
+            }
+            normalized['iocs']['commands'].append(mapped)
+        else:
+            normalized['iocs']['commands'].append({'value': cmd})
+    
+    for svc in process_iocs.get('services', []):
+        if isinstance(svc, dict):
+            normalized['iocs']['services'].append(svc)
+        else:
+            normalized['iocs']['services'].append({'name': svc})
+    
+    for task in process_iocs.get('scheduled_tasks', []):
+        if isinstance(task, dict):
+            normalized['iocs']['scheduled_tasks'].append(task)
+        else:
+            normalized['iocs']['scheduled_tasks'].append({'name': task})
+    
+    # Persistence IOCs
+    persistence = extraction.get('persistence_iocs', {})
+    for reg in persistence.get('registry', []):
+        if isinstance(reg, dict):
+            # Combine key and value into full path
+            key = reg.get('key', '')
+            value_name = reg.get('value_name', '')
+            normalized['iocs']['registry_keys'].append({
+                'value': key,
+                'value_name': value_name,
+                'value_data': reg.get('value_data', ''),
+                'action': reg.get('action', 'unknown'),
+                'context': reg.get('context', '')
+            })
+    
+    # Credential theft indicators
+    for cred_theft in persistence.get('credential_theft_indicators', []):
+        if isinstance(cred_theft, dict):
+            normalized['iocs']['registry_keys'].append({
+                'value': cred_theft.get('registry_key', ''),
+                'value_name': cred_theft.get('value', ''),
+                'value_data': cred_theft.get('data', ''),
+                'context': f"Credential theft: {cred_theft.get('context', '')}"
+            })
+    
+    # Authentication IOCs
+    auth = extraction.get('authentication_iocs', {})
+    for user in auth.get('compromised_users', []):
+        if isinstance(user, dict):
+            normalized['iocs']['users'].append(user)
+        else:
+            normalized['iocs']['users'].append({'value': user})
+    
+    for user in auth.get('created_users', []):
+        if isinstance(user, dict):
+            # Add created users as both users and credentials
+            normalized['iocs']['users'].append({
+                'value': user.get('username', ''),
+                'context': 'Attacker-created account',
+                'sid': user.get('sid', '')
+            })
+            if user.get('password'):
+                normalized['iocs']['credentials'].append({
+                    'type': 'password',
+                    'username': user.get('username', ''),
+                    'value': user.get('password', ''),
+                    'context': 'Attacker-created account password'
+                })
+    
+    for cred in auth.get('passwords_observed', []):
+        if isinstance(cred, dict):
+            normalized['iocs']['credentials'].append({
+                'type': 'password',
+                'username': cred.get('username', ''),
+                'value': cred.get('password', ''),
+                'context': cred.get('context', '')
+            })
+    
+    # Vulnerability IOCs
+    vuln = extraction.get('vulnerability_iocs', {})
+    for cve in vuln.get('cves', []):
+        normalized['iocs']['cves'].append(cve)
+    
+    for webshell in vuln.get('webshells', []):
+        if isinstance(webshell, dict):
+            normalized['iocs']['file_paths'].append({
+                'value': webshell.get('path', ''),
+                'context': f"Web shell: {webshell.get('context', '')}",
+                'action': 'malicious'
+            })
+    
+    # Threat Intel
+    threat = extraction.get('threat_intel', {})
+    for name in threat.get('threat_names', []):
+        normalized['iocs']['threat_names'].append(name)
+    
+    # MITRE ATT&CK
+    for technique in extraction.get('mitre_attack', []):
+        if isinstance(technique, dict):
+            normalized['iocs']['mitre_indicators'].append(technique)
+    
+    # Also process legacy format if present
+    legacy_iocs = extraction.get('iocs', {})
+    if legacy_iocs:
+        for key in normalized['iocs'].keys():
+            if key in legacy_iocs and legacy_iocs[key]:
+                normalized['iocs'][key].extend(legacy_iocs[key])
+    
+    # Extract hostnames from summary
+    summary = extraction.get('extraction_summary', {})
+    for host in summary.get('affected_hosts', []):
+        normalized['iocs']['hostnames'].append(host)
+    
+    return normalized
 
 
 # ============================================
@@ -511,11 +1034,15 @@ def process_extraction_for_import(
         ioc_type = IOC_TYPE_MAP.get(hash_type, 'SHA256 Hash')
         category = IOC_CATEGORY_MAP.get(hash_type, 'File')
         
+        context = hash_item.get('context', '')
+        if hash_item.get('filename'):
+            context = f"Filename: {hash_item['filename']} | {context}" if context else f"Filename: {hash_item['filename']}"
+        
         ioc_entry = _create_ioc_entry(
             value=value,
             ioc_type=ioc_type,
             category=category,
-            context=hash_item.get('context', ''),
+            context=context,
             case_id=case_id
         )
         if ioc_entry:
@@ -529,7 +1056,8 @@ def process_extraction_for_import(
         seen_values.add(value.lower())
         
         # Determine IPv4 or IPv6
-        ioc_type = 'IP Address (IPv6)' if ':' in value else 'IP Address (IPv4)'
+        ip_type = ip_item.get('type', 'ipv4')
+        ioc_type = 'IP Address (IPv6)' if ip_type == 'ipv6' or ':' in value else 'IP Address (IPv4)'
         
         context_parts = []
         if ip_item.get('port'):
@@ -588,7 +1116,7 @@ def process_extraction_for_import(
         seen_values.add(value.lower())
         
         # Skip Huntress report URLs - these are not IOCs
-        if url_type == 'report':
+        if url_type == 'report' or 'huntress.io' in value.lower():
             continue
         
         context_with_type = f"Type: {url_type}" + (f" | {context}" if context else "")
@@ -604,7 +1132,6 @@ def process_extraction_for_import(
             iocs_to_import.append(ioc_entry)
     
     # Process file paths - generate primary IOC (filename) with path as alias
-    # Uses type-aware deduplication to handle existing File Name IOCs
     for fp_item in iocs_data.get('file_paths', []):
         if isinstance(fp_item, dict):
             value = fp_item.get('value', '').strip()
@@ -640,8 +1167,6 @@ def process_extraction_for_import(
             context_with_action += f" | {context}" if context_with_action else context
         context_with_action += f" | Path: {value}"
         
-        # Use type-aware deduplication
-        # For file paths, if File Name IOC exists, add path as alias to it
         ioc_entry = _create_ioc_entry_with_type_awareness(
             primary_value=primary_value,
             primary_type=alias_result['primary_type'],
@@ -677,8 +1202,83 @@ def process_extraction_for_import(
             value = reg_item.get('value', '').strip()
             action = reg_item.get('action', '')
             context = reg_item.get('context', '')
+            value_name = reg_item.get('value_name', '')
+            value_data = reg_item.get('value_data', '')
         else:
             value = str(reg_item).strip()
+            action = ''
+            context = ''
+            value_name = ''
+            value_data = ''
+        
+        if not value or value.lower() in seen_values:
+            continue
+        seen_values.add(value.lower())
+        
+        context_parts = []
+        if action:
+            context_parts.append(f"Action: {action}")
+        if value_name:
+            context_parts.append(f"Value: {value_name}")
+        if value_data:
+            context_parts.append(f"Data: {value_data[:200]}..." if len(str(value_data)) > 200 else f"Data: {value_data}")
+        if context:
+            context_parts.append(context)
+        
+        ioc_entry = _create_ioc_entry(
+            value=value,
+            ioc_type='Registry Key',
+            category='Registry',
+            context=' | '.join(context_parts),
+            case_id=case_id
+        )
+        if ioc_entry:
+            iocs_to_import.append(ioc_entry)
+    
+    # Process services
+    for svc_item in iocs_data.get('services', []):
+        if isinstance(svc_item, dict):
+            value = svc_item.get('name', '').strip()
+            action = svc_item.get('action', '')
+            context = svc_item.get('context', '')
+            path = svc_item.get('path', '')
+        else:
+            value = str(svc_item).strip()
+            action = ''
+            context = ''
+            path = ''
+        
+        if not value or value.lower() in seen_values:
+            continue
+        seen_values.add(value.lower())
+        
+        context_parts = []
+        if action:
+            context_parts.append(f"Action: {action}")
+        if path:
+            context_parts.append(f"Path: {path}")
+        if context:
+            context_parts.append(context)
+        
+        ioc_entry = _create_ioc_entry(
+            value=value,
+            ioc_type='Service Name',
+            category='Process',
+            context=' | '.join(context_parts),
+            case_id=case_id
+        )
+        if ioc_entry:
+            iocs_to_import.append(ioc_entry)
+    
+    # Process scheduled tasks
+    for task_item in iocs_data.get('scheduled_tasks', []):
+        if isinstance(task_item, dict):
+            value = task_item.get('name', '') or task_item.get('path', '')
+            value = value.strip()
+            action = task_item.get('action', '')
+            context = task_item.get('context', '')
+        else:
+            value = str(task_item).strip()
             action = ''
             context = ''
         
@@ -686,31 +1286,30 @@ def process_extraction_for_import(
             continue
         seen_values.add(value.lower())
         
-        context_with_action = f"Action: {action}" if action else ""
-        if context:
-            context_with_action += f" | {context}" if context_with_action else context
-        
         ioc_entry = _create_ioc_entry(
             value=value,
-            ioc_type='Registry Key',
-            category='Registry',
-            context=context_with_action,
+            ioc_type='Scheduled Task',
+            category='Process',
+            context=f"Action: {action} | {context}" if action else context,
             case_id=case_id
         )
         if ioc_entry:
             iocs_to_import.append(ioc_entry)
     
     # Process commands - generate primary IOC (executable) with command aliases
-    # Uses type-aware deduplication to handle File Name / Command Line overlap
     for cmd_item in iocs_data.get('commands', []):
         if isinstance(cmd_item, dict):
             value = cmd_item.get('value', '').strip()
             executable = cmd_item.get('executable', '')
             context = cmd_item.get('context', '')
+            parent = cmd_item.get('parent', '')
+            user = cmd_item.get('user', '')
         else:
             value = str(cmd_item).strip()
             executable = ''
             context = ''
+            parent = ''
+            user = ''
         
         if not value or value.lower() in seen_values:
             continue
@@ -723,7 +1322,6 @@ def process_extraction_for_import(
         
         # Skip if we've already seen this primary value in THIS extraction
         if primary_value.lower() in seen_values:
-            # But still add the aliases to the existing IOC entry if possible
             for entry in iocs_to_import:
                 if entry.get('value', '').lower() == primary_value.lower():
                     existing_aliases = entry.get('aliases', [])
@@ -732,20 +1330,24 @@ def process_extraction_for_import(
             continue
         seen_values.add(primary_value.lower())
         
-        context_with_exe = f"Executable: {executable}" if executable else ""
+        context_parts = []
+        if executable:
+            context_parts.append(f"Executable: {executable}")
+        if parent:
+            context_parts.append(f"Parent: {parent}")
+        if user:
+            context_parts.append(f"User: {user}")
         if context:
-            context_with_exe += f" | {context}" if context_with_exe else context
-        context_with_exe += f" | Original command: {value[:200]}..." if len(value) > 200 else f" | Original command: {value}"
+            context_parts.append(context)
+        context_parts.append(f"Full command: {value[:500]}..." if len(value) > 500 else f"Full command: {value}")
         
-        # Use type-aware deduplication
-        # This checks if File Name IOC exists and handles Command Line separately
         ioc_entry = _create_ioc_entry_with_type_awareness(
             primary_value=primary_value,
             primary_type=alias_result['primary_type'],
             aliases=aliases,
             original_type='Command Line',
             category='File',
-            context=context_with_exe,
+            context=' | '.join(context_parts),
             case_id=case_id
         )
         if ioc_entry:
@@ -762,7 +1364,7 @@ def process_extraction_for_import(
             continue
         seen_values.add(cred_value.lower())
         
-        ioc_type = IOC_TYPE_MAP.get(cred_type, 'Password Hash')
+        ioc_type = IOC_TYPE_MAP.get(cred_type, 'Password')
         
         context_with_user = f"Username: {cred_user}" if cred_user else ""
         if context:
@@ -773,6 +1375,40 @@ def process_extraction_for_import(
             ioc_type=ioc_type,
             category='Authentication',
             context=context_with_user,
+            case_id=case_id
+        )
+        if ioc_entry:
+            iocs_to_import.append(ioc_entry)
+    
+    # Process CVEs
+    for cve in iocs_data.get('cves', []):
+        value = str(cve).strip().upper()
+        if not value or value in seen_values:
+            continue
+        seen_values.add(value)
+        
+        ioc_entry = _create_ioc_entry(
+            value=value,
+            ioc_type='CVE',
+            category='Vulnerability',
+            context='',
+            case_id=case_id
+        )
+        if ioc_entry:
+            iocs_to_import.append(ioc_entry)
+    
+    # Process threat names
+    for threat_name in iocs_data.get('threat_names', []):
+        value = str(threat_name).strip()
+        if not value or value.lower() in seen_values:
+            continue
+        seen_values.add(value.lower())
+        
+        ioc_entry = _create_ioc_entry(
+            value=value,
+            ioc_type='Threat Name',
+            category='Threat Intel',
+            context='',
             case_id=case_id
         )
         if ioc_entry:
@@ -830,19 +1466,35 @@ def process_extraction_for_import(
         if system_result:
             known_systems_results.append(system_result)
     
-    # Also process affected_host from summary
-    affected_host = extraction.get('extraction_summary', {}).get('affected_host', '')
-    if affected_host and affected_host.strip():
-        system_result = _process_known_system(affected_host.strip(), case_id, username)
-        if system_result:
-            known_systems_results.append(system_result)
+    # Also process affected_hosts from summary
+    summary = extraction.get('extraction_summary', {})
+    for host in summary.get('affected_hosts', []):
+        if host and host.strip():
+            system_result = _process_known_system(host.strip(), case_id, username)
+            if system_result:
+                known_systems_results.append(system_result)
+    
+    # Process affected users from summary
+    for user in summary.get('affected_users', []):
+        if isinstance(user, dict):
+            username_val = user.get('username', '').strip()
+            sid = user.get('sid', '')
+        else:
+            username_val = str(user).strip()
+            sid = ''
+        
+        if username_val:
+            user_result = _process_known_user(username_val, sid, case_id, username, 'From extraction summary')
+            if user_result:
+                known_users_results.append(user_result)
     
     return {
         'iocs_to_import': iocs_to_import,
         'known_systems_results': known_systems_results,
         'known_users_results': known_users_results,
         'extraction_summary': extraction.get('extraction_summary', {}),
-        'mitre_indicators': iocs_data.get('mitre_indicators', [])
+        'mitre_indicators': iocs_data.get('mitre_indicators', []),
+        'raw_artifacts': extraction.get('raw_artifacts', {})
     }
 
 
@@ -1347,7 +1999,6 @@ def save_extracted_iocs(
                     new_user.link_to_case(case_id)
                     
                     # Create Username IOC for compromised user
-                    # Include SID as alias if available - matching will search sid column too
                     user_aliases = [sid] if sid else None
                     try:
                         user_ioc, created = IOC.get_or_create(
@@ -1384,7 +2035,6 @@ def save_extracted_iocs(
                             user.notes = f"Marked compromised from EDR report extraction by {username}"
                         
                         # Create Username IOC for compromised user
-                        # Include SID as alias if available - matching will search sid column too
                         user_sid = sid or user.sid
                         user_aliases = [user_sid] if user_sid else None
                         try:

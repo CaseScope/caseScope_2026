@@ -1,0 +1,59 @@
+Investigative Summary
+---------------------
+At 2025-08-21 22:32:16 UTC, Huntress observed the following users are compromised:
+tabadmin (SID: S-1-5-21-3426696237-1254496141-3661801895-1133)
+jeanette (SID: S-1-5-21-3426696237-1254496141-3661801895-1108)
+
+The compromised user 'jeanette' appears to have logged in from the IP 192.168.10.50 (Host name: DESKTOP-K1PKL6P) to the endpoint ATN79684 at approximately 2025-08-21 19:28:27. 
+
+This user was then observed logging into the endpoint accounting-DAFF0JD at approximately 2025-08-21 22:04:08 and then utilized PSEXEC. Afterwards, this user gained access to the endpoint DEPCO-DC01 and accessed the tabadmin account. Cobalt Strike was utilized during this intrusion, in addition to disabling security features.
+
+It is likely that the initial access occurred through SonicWall. Huntress recommends engaging with incident response as soon as possible in addition to the remediation section. Mass isolation has been deployed to prevent further malicious activity.
+
+Threat Descriptions:
+-------------------
+Disabling or Modifying Security Tools on Endpoint: The threat actor has disabled or modified security tooling in an attempt to bypass controls and further compromise the network.
+
+Command and Control: Command and Control (C2) consists of techniques that adversaries may use to communicate with systems under their control within a victim network. Adversaries commonly attempt to mimic normal, expected traffic to avoid detection. There are many ways an adversary can establish command and control with various levels of stealth depending on the victim’s network structure and defenses.
+
+Powershell Scriptblock - Potential Cobalt Strike Loader: A Cobalt Strike Loader is used to stage/inject the beacon for additional post-exploitation/C2 activity.
+
+Lateral Movement: Lateral movement involves the threat actor pivoting across machines. 
+
+Enumeration (Active directory, Network, Cloud, etc): Enumeration allows a threat actor to identity users, groups, privileges, and assets that can facilitate further ingress and compromise. 
+
+Defense Evasion: Defense Evasion consists of techniques that adversaries use to avoid detection throughout their compromise. Techniques used for defense evasion include uninstalling/disabling security software, clearing logs, or obfuscating/encrypting data and scripts. Adversaries also leverage and abuse trusted processes to hide and masquerade their malware. 
+
+Remediations:
+-------------
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Disable and/or rotate credentials for any affected user accounts.
+- Deploy the Huntress agent to all endpoints in the organization to increase visibility across the network for the Huntress SOC.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+- Ensure endpoint anti-virus solutions are deployed and are functioning properly. Audit these services for alerts or warnings on affected hosts.
+- Consider enacting incident response procedures to assist in fully scoping this security incident.
+- Audit network perimeter device logs such as firewalls, remote desktop services, etc. for anomalous/unauthorized access.
+- Reboot the host to terminate malicious processes & sever any potentially outstanding connections. 
+- Consider re-imaging this host or restoring from a known-good baseline to ensure total remediation of this security incident. 
+- Audit affected directories/files for additional suspicious files and remove those found. 
+- We recommend taking the following steps to respond to this incident:
+ 
+- Disable SSLVPN until this subset of remediations can be accomplished: 
+    - Ensure SonicOS is updated to version 7.3 or greater.
+    - Rotate all credentials for all users on the SonicWall SSLVPN. 
+    - Audit organization LDAP SSLVPN Default User Groups configuration.
+    - Disable/reenable TOTP/MFA for relevant accounts. 
+    - You can read more about this set of remediations here: https://www.sonicwall.com/support/notices/gen-7-and-newer-sonicwall-firewalls-sslvpn-recent-threat-activity/250804095336430
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105150/infection_reports/1659489#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Suspicious Defender Exclusions
+Detected At: 2025-08-21 22:31:36 UTC
+Start Time: 2025-08-21 22:29:05 UTC
+Command: powershell Set-MpPreference -DisableRealtimeMonitoring $true
+Executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 81de3405-7eda-11f0-97dd-00155d013d00
+Parent Process: C:\Windows\system32\wbem\wmiprvse.exe
+User: tabadmin

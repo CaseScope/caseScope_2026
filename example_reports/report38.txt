@@ -1,0 +1,59 @@
+Investigative Summary
+---------------------
+At 2025-08-02 07:07:41UTC user "tabadmin" logged onto host 	SL-DC-01 from an internal IP address of 10.100.0[.]6 which is a Huntress unmanaged host.
+
+At 2025-08-02 07:28 UTC, Huntress detected an adversary using "WinRAR.exe" to archive and password-protect numerous sensitive document types. This was part of a broader series of interactive commands, including reconnaissance with "whoami.exe" and an attempt to uninstall the Huntress agent. The presence of "rdpclip.exe" indicates the attacker was connected via a Remote Desktop session.
+
+These actions are consistent with pre-ransomware activity. The threat actor accessed backup software, likely to disable or delete recovery points, and have download data exfiltration tool. The attempt to remove the Huntress agent, is a clear defence evasion tactic designed to prolong unauthorized access and evade detection.
+
+The attacker has active control of this system, posing an immediate risk of widespread data theft and business disruption. If successful, the attacker could encrypt critical files, leak stolen data publicly, and demand a ransom, leading to significant operational and financial damage.
+
+Huntress has mass isolated the organisation to prevent further compromise. Please carry out assisted remediation, rotate all user credentials and activate your incident response plan. If the mass isolation is lifted without determining the root cause of this intrusion, the threat actor access will maintain control over this system.
+
+Technical Artefacts:
+-------------------
+- Compromised user: "SL\tabadmin (S-1-5-21-2554046153-4285503646-2850861276-5162)"
+- File path: "c:\Program Files\WinRAR\WinRAR.exe"
+- Command Line: `winrar.exe a -m0 -v3g -tn1000d -n*.txt -n*.pdf -n*.xls -n*.doc -n*.xlsx -n*.docx -hpctlobby[.]com "C:\DATA\done\DATA.rar" "C:\DATA"`
+- File path: "C:\Windows\System32\CMD.exe"
+- Command Line: `/C "whoami"`
+- File path: "C:\Windows\System32\rdpclip.exe"
+- File path: "E:\Program Files\Veeam\Backup and Replication\Console\veeam.backup.shell.exe"
+- File path: "C:\Users\tabadmin\Downloads\WinRAR-713.exe"
+- File path: "C:\Program Files\Huntress\Uninstall.exe"
+- File path: "C:\Program Files\WinRAR\uninstall.exe"
+- Command Line: `"C:\Program Files\WinRAR\uninstall.exe" /setup`
+- File path: "C:\Windows\system32\whoami.exe"
+
+Threat Descriptions:
+-------------------
+Exfiltration Tools: The adversary is using data exfiltration tools, which facilitate the malicious transfer of data out of the network. This is not evidence of successful exfiltration, and Huntress does not have insight on the affected files. 
+
+Lateral Movement: Lateral movement involves the threat actor pivoting across machines. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: c:\Program Files\WinRAR\WinRAR.exe + pid: 11600
+- Kill Process - path: C:\Windows\System32\rdpclip.exe + pid: 15168
+- Kill Process - path: E:\Program Files\Veeam\Backup and Replication\Console\veeam.backup.shell.exe + pid: 18916
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Audit network perimeter device logs such as firewalls, remote desktop services, etc. for anomalous/unauthorized access.
+- Consider enacting incident response procedures to assist in fully scoping this security incident.
+- Disable and/or rotate credentials for any affected user accounts.
+- Deploy the Huntress agent to all endpoints in the organization to increase visibility across the network for the Huntress SOC.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/403784/infection_reports/1625902#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Archive Multiple Document Types From Shell Process Parent
+Detected At: 2025-08-02 07:27:48 UTC
+Start Time: 2025-08-02 07:27:33 UTC
+Command: winrar.exe  a -m0 -v3g -tn1000d -n*.txt -n*.pdf -n*.xls -n*.doc -n*.xlsx -n*.docx -hpctlobby.com "C:\DATA\done\DATA.rar" "C:\DATA"
+Executable: c:\Program Files\WinRAR\WinRAR.exe
+Process ID: a4261693-6f71-11f0-848c-000c29b27c12
+Parent Process: C:\Windows\system32\cmd.exe
+User: tabadmin

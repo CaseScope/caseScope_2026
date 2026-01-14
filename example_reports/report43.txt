@@ -1,0 +1,33 @@
+Investigative Summary
+---------------------
+Huntress detected the following: 
+
+Evidence suggests that on 2025-07-17 the host "DRA" joined Huntress with artifacts from a malware infection which predates the Huntress agent installation. 
+
+Two autorun values titled "Bqrgro" and "Dhputgczz" were identified, which were instructed to run the following executables: 
+
+ - C:\Users\cjohnson\AppData\Roaming\Microsoft\PowerPoint\WA5A\tabcal.exe
+ - C:\Users\cjohnson\AppData\Roaming\Microsoft\Protect\Dac\Dxpserver.exe
+
+Please follow the assisted remediations to remove these artefacts from the host. 
+
+The Huntress SOC identified the Malware Family as Dridex.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Delete Registry Value - key: HKU\S-1-5-21-2524997700-189062904-641889743-1175\SOFTWARE\Microsoft\Windows\CurrentVersion\Run + value: Bqrgro
+- Delete File - path: c:\users\cjohnson\appdata\roaming\microsoft\powerpoint\wa5a\tabcal.exe
+- Delete File - path: c:\users\cjohnson\appdata\roaming\microsoft\windows\start menu\programs\startup\awdzitlozccamev.lnk
+- Delete File - path: c:\users\cjohnson\appdata\roaming\microsoft\protect\dac\dxpserver.exe
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/498557/infection_reports/1604751#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Dridex
+Detected At: 2025-07-17 11:27:39 UTC
+Registry Key: HKU\S-1-5-21-2524997700-189062904-641889743-1175\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+Registry Value: Bqrgro
+Registry Data: C:\Users\cjohnson\AppData\Roaming\Microsoft\PowerPoint\WA5A\tabcal.exe
+File Path: c:\users\cjohnson\appdata\roaming\microsoft\powerpoint\wa5a\tabcal.exe

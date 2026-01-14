@@ -1,0 +1,39 @@
+Investigative Summary
+---------------------
+At 2025-09-11 14:56:11 UTC, Huntress observed user "usedsales" [S-1-5-21-3694373414-3881711598-125369868-1107] executing a malicious process "support.ClientSetup.msi." Evidence suggests that this is a rogue ScreenConnect installation configured to communicate with "onyxcrytolive[.]top," with an anomalous connection observed going outbound to "50[.]225[.]154[.]136" after execution. Due to the nature of this activity, we have elected to isolate the endpoint. We recommend removing all associated files and directories, reimaging the host, and enrolling the end user in security awareness training.
+
+Threat Descriptions:
+-------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\ScreenConnect.ClientService.exe + pid: 16932
+- Delete File - path: C:\\Users\\USEDSALES\\Downloads\support.ClientSetup.msi
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\web.config
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\system.config
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\app.config
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\ScreenConnect.WindowsFileManager.exe.config
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\ScreenConnect.WindowsFileManager.exe
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\ScreenConnect.WindowsCredentialProvider.dll
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\ScreenConnect.WindowsClient.exe.config
+- Delete File - path: C:\Program Files (x86)\ScreenConnect Client (a400efb4931311b7)\\ScreenConnect.WindowsClient.exe
+- + 22 more
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105203/infection_reports/1693184#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: HaaS Pdq Deploy Suspicious MS I
+Detected At: 2025-09-11 14:55:21 UTC
+Start Time: 2025-09-11 14:54:42 UTC
+Command: "C:\WINDOWS\system32\msiexec.exe" /i "support.ClientSetup(2).msi" ALLUSERS=1 /qn /norestart /log output.log
+Executable: C:\WINDOWS\system32\msiexec.exe
+Process ID: a0468e15-8f07-11f0-a9cd-8cdcd43b852e
+Parent Process: 
+User: SYSTEM

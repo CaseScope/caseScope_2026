@@ -1,0 +1,31 @@
+Investigative Summary
+---------------------
+At 2025-06-09 15:49:02 UTC, Huntress observed user "Fran" executing a malicious process C:\Users\Fran\Downloads\Invite.exe. This is a rogue screenconnect that is configured to communicate with the domain [jolertipor33[.]top].
+
+Threat Descriptions:
+-------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\Fran\Downloads\Invite.exe + pid: 73632
+- Delete File - path: C:\Users\Fran\Downloads\Invite.exe
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan + name:  + parameters: 
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/104951/infection_reports/1552820#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Malicious Rogue Screenconnect Installation Via Browser
+Detected At: 2025-06-09 15:48:18 UTC
+Start Time: 2025-06-09 15:44:04 UTC
+Command: "C:\Users\Fran\Downloads\Invite.exe"
+Executable: C:\Users\Fran\Downloads\Invite.exe
+Process ID: 6cc217c1-453e-11f0-abcc-8c2c5bc19fe4
+Parent Process: 
+User: Fran

@@ -1,0 +1,31 @@
+Investigative Summary
+---------------------
+At 2025-04-08 17:02:41 UTC, Huntress observed user "cdemeo" executing a malicious executable (C:\\Users\\cdemeo\\Downloads\\RFP.exe) which deployed a rogue screenconnect instance on this host, configured to connect to relay[.]prarpa[.]com
+
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Delete Service - name: ScreenConnect Client (80ad4b9fdcdcd119)
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\ScreenConnect Client (80ad4b9fdcdcd119)
+- Delete File - path: c:\program files (x86)\screenconnect client (80ad4b9fdcdcd119)\screenconnect.clientservice.exe
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+- Kill Process - path: C:\Windows\SysWOW64\msiexec.exe + pid: 26880
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105291/infection_reports/1472621#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Suspicious Screen Connect Install
+Detected At: 2025-04-08 17:01:39 UTC
+Start Time: 2025-04-08 17:01:15 UTC
+Command: "C:\Windows\System32\msiexec.exe" /i "C:\Users\cdemeo\AppData\Local\Temp\ScreenConnect\24.3.7.9067\80ad4b9fdcdcd119\ScreenConnect.ClientSetup.msi"
+Executable: C:\Windows\SysWOW64\msiexec.exe
+Process ID: 4be0ff8d-149a-11f0-8800-90324b233ec3
+Parent Process: C:\Users\cdemeo\Downloads\RFP.exe
+User: cdemeo

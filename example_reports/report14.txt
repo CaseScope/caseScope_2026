@@ -1,0 +1,45 @@
+Investigative Summary:
+----------------------
+At 2025-10-25 05:12 UTC, Huntress observed domain enumeration commands executed under the user context of Xerox (SID: S-1-5-21-2262026380-2319951226-2254446633-1512) on host ATN44023. 
+
+The activity originated from the internal IP address 10.11.50[.]100. This IP corresponds to a workstation, DESKTOP-DBB1FMG, which has been observed authenticating the Xerox account as far back as 2025-10-24. The absence of a Huntress Agent on the source host limits visibility into the full extent of the user's activity.
+
+The activity involves the execution of Windows' built-in utility, nltest.exe, with parameters commonly used for domain reconnaissance.
+
+Observed commands:
+C:\WINDOWS\system32\nltest.exe" /dclist:
+C:\WINDOWS\system32\nltest.exe" /domain_Trusts /all_trusts
+
+The nltest utility is a legitimate Windows command-line tool used for network and trust relationship testing. However, its use to list Domain Controllers (/dclist) and enumerate all domain trusts (/domain_Trusts /all_trusts) is a common tactic employed by threat actors post-compromise to map the Active Directory (AD) environment. 
+
+This reconnaissance activity suggests the user account is determining the network topology to facilitate lateral movement and identify potential high-value targets, such as Domain Controllers. The lack of a Huntress Agent on the source IP/workstation 10.11.50[.]100 makes it impossible to definitively confirm the full context of the user's actions or determine the initial compromise vector. Due to the nature of the commands and the risk of further pivoting, the host has been isolated to contain the threat.
+
+Recommendations:
+----------------------------------
+- Confirm if this activity is performed by a known system administrator and is part of routine maintenance. 
+- If unexpected, reset the password for the Xerox account and force logouts for any active sessions. 
+- Review all activity associated with the Xerox account on all devices since at least 2025-10-24.
+- Review the isolated host for any other persistence mechanisms or staging folders left by the threat actor.
+
+Threat Descriptions:
+--------------------
+Enumeration (Active directory, Network, Cloud, etc): Enumeration allows a threat actor to identity users, groups, privileges, and assets that can facilitate further ingress and compromise. 
+
+Remediations:
+-------------
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Disable and/or rotate credentials for any affected user accounts.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/103323/infection_reports/1766467#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Suspicious Domain Trust Discovery
+Detected At: 2025-10-25 05:16:30 UTC
+Start Time: 2025-10-25 05:12:55 UTC
+Command: "C:\WINDOWS\system32\nltest.exe" /domain_Trusts /all_trusts
+Executable: C:\WINDOWS\system32\nltest.exe
+Process ID: fb43554a-b160-11f0-a971-0013ef802281
+Parent Process: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+User: Xerox

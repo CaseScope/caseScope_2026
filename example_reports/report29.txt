@@ -1,0 +1,60 @@
+Investigative Summary
+---------------------
+At 2025-08-21 22:32:16 UTC, Huntress observed the following users are compromised:
+tabadmin (SID: S-1-5-21-3426696237-1254496141-3661801895-1133)
+jeanette (SID: S-1-5-21-3426696237-1254496141-3661801895-1108)
+
+The compromised user 'jeanette' appears to have logged in from the IP 192.168.10.50 (Host name: DESKTOP-K1PKL6P) to the endpoint ATN79684 at approximately 2025-08-21 19:28:27.
+
+This user was then observed logging into the endpoint accounting-DAFF0JD at approximately 2025-08-21 22:04:08 and then utilized PSEXEC. Afterwards, this user gained access to the endpoint DEPCO-DC01 and accessed the tabadmin account. Cobalt Strike was utilized during this intrusion, in addition to disabling security features.
+
+It is likely that the initial access occurred through SonicWall. Huntress recommends engaging with incident response as soon as possible in addition to the remediation section. Mass isolation has been deployed to prevent further malicious activity.
+
+Threat Descriptions:
+-------------------
+Lateral Movement: Lateral movement involves the threat actor pivoting across machines. 
+
+Enumeration (Active directory, Network, Cloud, etc): Enumeration allows a threat actor to identity users, groups, privileges, and assets that can facilitate further ingress and compromise. 
+
+Defense Evasion: Defense Evasion consists of techniques that adversaries use to avoid detection throughout their compromise. Techniques used for defense evasion include uninstalling/disabling security software, clearing logs, or obfuscating/encrypting data and scripts. Adversaries also leverage and abuse trusted processes to hide and masquerade their malware. 
+
+Privilege Escalation: Privilege Escalation consists of techniques that adversaries use to gain higher-level permissions on a system or network. Adversaries can often enter and explore a network with unprivileged access but require elevated permissions to follow through on their objectives. Common approaches are to take advantage of system weaknesses, misconfigurations, and vulnerabilities. Examples of elevated access include:  SYSTEM/root level local administrator user account with admin-like access user accounts with access to specific system or perform specific function These techniques often overlap with Persistence techniques, as OS features that let an adversary persist can execute in an elevated context.
+
+Disabling or Modifying Security Tools on Endpoint: The threat actor has disabled or modified security tooling in an attempt to bypass controls and further compromise the network.
+
+Command and Control: Command and Control (C2) consists of techniques that adversaries may use to communicate with systems under their control within a victim network. Adversaries commonly attempt to mimic normal, expected traffic to avoid detection. There are many ways an adversary can establish command and control with various levels of stealth depending on the victim’s network structure and defenses.
+
+Remediations:
+-------------
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enacting incident response procedures to assist in fully scoping this security incident.
+- Reboot the host to terminate malicious processes & sever any potentially outstanding connections. 
+- Audit affected directories/files for additional suspicious files and remove those found. 
+- Ensure endpoint anti-virus solutions are deployed and are functioning properly. Audit these services for alerts or warnings on affected hosts.
+- Consider re-imaging this host or restoring from a known-good baseline to ensure total remediation of this security incident. 
+- Disable and/or rotate credentials for any affected user accounts.
+- Audit network perimeter device logs such as firewalls, remote desktop services, etc. for anomalous/unauthorized access.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+- Deploy the Huntress agent to all endpoints in the organization to increase visibility across the network for the Huntress SOC.
+- We recommend taking the following steps to respond to this incident: - Disable SSLVPN until this subset of remediations can be accomplished: - Ensure SonicOS is updated to version 7.3 or greater. - Rotate all credentials for all users on the SonicWall SSLVPN. - Audit organization LDAP SSLVPN Default User Groups configuration. - Disable/reenable TOTP/MFA for relevant accounts. - You can read more about this set of remediations here: https://www.sonicwall.com/support/notices/gen-7-and-newer-sonicwall-firewalls-sslvpn-recent-threat-activity/250804095336430
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105150/infection_reports/1659496#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Mav Defender Contained
+Detected At: 2025-08-21 22:08:07 UTC
+Threat Name: Behavior:Win32/ScrpService.B
+Category: Vulnerability
+Threat Type: Known Bad
+Remediated At: 2025-08-21 22:08:25 UTC
+Created At: 2025-08-21 22:12:43 UTC
+Severity: Severe
+Threat Action: Remove
+Threat Status: Removed
+Detection Source: System
+Execution Status: Unknown
+OS Resources: ["behavior:_process: C:\\Windows\\System32\\services.exe, pid:1304:784724548234423", "regkeyvalue:_HKLM\\SYSTEM\\ControlSet001\\Services\\e3c251a\\\\ImagePath"]
+Domain User: NT AUTHORITY\SYSTEM
+Process Name: Unknown
+Additional Actions: None

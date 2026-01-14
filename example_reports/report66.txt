@@ -1,0 +1,49 @@
+Investigative Summary
+---------------------
+[WARNING]
+Please review this incident report to understand what was identified before remediating. There may be unknown malicious processes, files, or other changes made to the host that remain undetected. Restoring from a known good backup or clean OS install is the only way to ensure a complete host-level remediation. While the Assisted Remediation service is an option, it will only remove specific items documented in this report.
+
+Microsoft Defender Antivirus detected the following:
+- Generic Malware : Evidence suggests the user "bob" downloaded a malicious file posing as a voicemail. We're unable to determine what the file does or if the user actually interacted with it given that the host is now currently offline. We're raising this report for your awareness.
+
+
+
+Remediation Instructions
+------------------------
+To remediate, perform the actions below:
+- Remove the "c:\users\bob\downloads\play_now ⏮️ ▶️ ⏭️ 03min25secs__3pm.htm" file and ensure it is not recreated.
+- Submit the user "bob" for security awareness training
+
+Defender Threat Details
+-----------------------
+Threat Name: Trojan:HTML/Phish.PAKU!MTB
+Category: Trojan
+Threat Type: Known Bad
+Detected At: 2025-01-28 20:37:10 UTC
+Remediated At: 2025-01-28 20:37:34 UTC
+Created At: 2025-02-07 15:05:02 UTC
+Severity: Severe
+Threat Action: Quarantine
+Threat Status: Remove Failed
+Detection Source: Real Time
+Execution Status: Blocked
+OS Resources: ["file:_C:\\Users\\Bob\\Downloads\\Play_Now ⏮️ ▶️ ⏭️ 03min25secs__3pm.htm"]
+Domain User: ATN59173\User
+Process Name: E:\Fab's AutoBackup 7 Pro\AutoBackup7Pro.exe
+Additional Actions: None
+
+Threat Name: Trojan:HTML/Phish.EB!MTB
+Category: Trojan
+Threat Type: Known Bad
+Detected At: 2025-01-28 20:37:40 UTC
+Remediated At: 2025-01-28 20:38:01 UTC
+Created At: 2025-02-07 15:05:05 UTC
+Severity: Severe
+Threat Action: Quarantine
+Threat Status: Quarantined
+Detection Source: Real Time
+Execution Status: Blocked
+OS Resources: ["file:_C:\\Users\\Bob\\Downloads\\Ref# Voice 381 (292675).htm", "file:_C:\\Users\\Bob\\Downloads\\Ref# Voice 381 (568228).htm"]
+Domain User: ATN59173\User
+Process Name: E:\Fab's AutoBackup 7 Pro\AutoBackup7Pro.exe
+Additional Actions: None

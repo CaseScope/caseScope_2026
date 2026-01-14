@@ -1,0 +1,31 @@
+Investigative Summary
+---------------------
+On 2025-05-22 at 16:30:10 UTC, Huntress observed user "User" (S-1-5-21-756716675-2851001368-3139789203-1001) on endpoint "DESKTOP-8OG3MIG" executing a malicious file "C:\Users\User\Downloads\OrderInvoiice7667290093.exe", which was downloaded from "hxxps[://]teuehebaji[.]de/ture.html". This file is a ScreenConnect Remote Desktop agent installer configured to communicate with adversarial domain "yoc736[.]ikhelp[.]top". No additional evidence of malice was observed within available data at the time of investigation.
+
+Threat Descriptions:
+-------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\User\Downloads\OrderInvoiice7667290093.exe + pid: 3068
+- Delete File - path: C:\Users\User\Downloads\OrderInvoiice7667290093.exe
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan + name:  + parameters: 
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/128766/infection_reports/1530959#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Malicious Rogue Screenconnect Installation Via Browser
+Detected At: 2025-05-22 16:30:00 UTC
+Start Time: 2025-05-22 16:14:20 UTC
+Command: "C:\Users\User\Downloads\OrderInvoiice7667290093.exe"
+Executable: C:\Users\User\Downloads\OrderInvoiice7667290093.exe
+Process ID: 1df1aa46-371d-11f0-a69a-5c3a45f6046c
+Parent Process: C:\Program Files\Google\Chrome\Application\chrome.exe
+User: User

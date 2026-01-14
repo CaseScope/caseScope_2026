@@ -1,0 +1,41 @@
+Investigative Summary
+---------------------
+[WARNING]
+Please review this incident report to understand what was identified before remediating. There may be unknown malicious processes, files, or other changes made to the host that remain undetected. Restoring from a known good backup or clean OS install is the only way to ensure a complete host-level remediation. While the Assisted Remediation service is an option, it will only remove specific items documented in this report.
+
+Huntress has investigated threat signals from host Jerry5420. Due to the nature of these signals, the host has been isolated.
+
+Evidence suggests at 2025-01-20 13:35:51 UTC, user 'jchesley' (S-1-5-21-1402576329-860971221-1604830738-1146) interacted with a phishing email from Outlook that reached out to domain 'hxxps[://]authentification-live[.]es/' to download the rogue ScreenConnect install 'marketing_report-pdf.Client.exe'. 
+
+Huntress highly recommends restoring from a known good backup prior to the time of infection. 
+
+Huntress detected the following:
+- Rogue ScreenConnect Install : Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host.
+
+Remediation Instructions
+------------------------
+To remediate, perform the actions below:
+- Remove the "c:\users\jchesley\appdata\local\apps\2.0\jkja21am.q16\31405mpk.at9\scre..tion_25b0fbb6ef7eb094_0018.0003_8e1d6c2ba92502c3\screenconnect.windowsclient.exe" file and ensure it is not recreated.
+
+Processes
+---------
+Start Time: 2025-01-20 13:36:34 UTC
+Command: "C:\Users\jchesley\Downloads\marketing_report-pdf.Client (1).exe"
+Executable: C:\Users\jchesley\Downloads\marketing_report-pdf.Client (1).exe
+Process ID: c274ec94-d732-11ef-9e4c-a02919175942
+Parent Process: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+User: jchesley
+
+Start Time: 2025-01-20 13:35:50 UTC
+Command: "C:\Users\jchesley\Downloads\marketing_report-pdf.Client.exe"
+Executable: C:\Users\jchesley\Downloads\marketing_report-pdf.Client.exe
+Process ID: c274ec2d-d732-11ef-9e4c-a02919175942
+Parent Process: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+User: jchesley
+
+Start Time: 
+Command: "C:\Users\jchesley\AppData\Local\Apps\2.0\JKJA21AM.Q16\31405MPK.AT9\scre..tion_25b0fbb6ef7eb094_0018.0003_8e1d6c2ba92502c3\ScreenConnect.WindowsClient.exe"
+Executable: C:\Users\jchesley\AppData\Local\Apps\2.0\JKJA21AM.Q16\31405MPK.AT9\scre..tion_25b0fbb6ef7eb094_0018.0003_8e1d6c2ba92502c3\ScreenConnect.WindowsClient.exe
+Process ID: c274ec99-d732-11ef-9e4c-a02919175942
+Parent Process: 
+User: 

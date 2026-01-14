@@ -53,13 +53,15 @@ class IOCCategory:
     BEHAVIORAL = 'Behavioral'
     CRYPTOCURRENCY = 'Cryptocurrency'
     MOBILE = 'Mobile'
+    VULNERABILITY = 'Vulnerability'
+    THREAT_INTEL = 'Threat Intel'
     
     @classmethod
     def all(cls):
         return [
             cls.NETWORK, cls.FILE, cls.EMAIL, cls.REGISTRY, cls.PROCESS,
             cls.AUTHENTICATION, cls.MALWARE, cls.BEHAVIORAL, 
-            cls.CRYPTOCURRENCY, cls.MOBILE
+            cls.CRYPTOCURRENCY, cls.MOBILE, cls.VULNERABILITY, cls.THREAT_INTEL
         ]
     
     @classmethod
@@ -303,7 +305,25 @@ IOC_TYPE_DEFINITIONS = {
     'Device IMEI': {
         'category': IOCCategory.MOBILE,
         'regex': r'^\d{15,17}$'
-    }
+    },
+    
+    # Vulnerability
+    'CVE': {
+        'category': IOCCategory.VULNERABILITY,
+        'regex': r'^CVE-\d{4}-\d{4,7}$'
+    },
+    
+    # Threat Intel
+    'Threat Name': {
+        'category': IOCCategory.THREAT_INTEL,
+        'regex': None
+    },
+    
+    # Authentication - Password (visible in commands)
+    'Password': {
+        'category': IOCCategory.AUTHENTICATION,
+        'regex': None
+    },
 }
 
 

@@ -1,0 +1,51 @@
+Investigative Summary
+---------------------
+Evidence suggests that the user 'tabadmin' (S-1-5-21-2922803321-3646860260-2870289857-1142) has been compromised. Huntress observed the following timeline: 
+
+- At 2025-08-12 06:57 UTC, 'tabadmin' authenticated to 'CM-DC01' from the internal IP '192.168.0.254', this suggests the use of a gateway device. There is a Sonicwall gateway device in place on '96.78.213.49:60443'. Huntress recommends auditing this device as a potential point of initial access.
+- At 07:01 UTC, 'tabadmin' authenticated to 'CM-DC01' from the internal IP '172.16.10.25'
+- At 07:01 UTC, 'tabadmin' authenticated to 'CM-DC01' from the internal host "CM-VMHOST" (192.168.0.8)
+- At 07:10 UTC, 'tabadmin' authenticated to 'CM-DC01' from the internal host 'WIN-HU67JDG9MF1' (172.16.10.26). Huntress has associated this hostname with malicious intrusions. 
+- 07:12 UTC, 'tabadmin' enumerated the domain trusts
+- 07:13 UTC, 'tabadmin' accessed the files 'C:\ProgramData\AdUsers.txt' and 'C:\ProgramData\AdComp.txt' 
+- 07:14 UTC, 'tabadmin' executed 'C:\Users\tabadmin\AppData\Local\Temp\2\Advanced IP Scanner 2\advanced_ip_scanner.exe' to enumerate the network 
+
+Due to the severity of this incident, mass isolation has been issued to prevent further ingress. 
+
+Huntress has the following recommendations: 
+- Temporarily disable the user account  'tabadmin' (S-1-5-21-2922803321-3646860260-2870289857-1142) 
+- Audit the Sonicwall gateway device in place on '96.78.213.49:60443'
+- Consider implementing your Incident Response procedures to fully scope the incident as attackers will often move to other hosts on the network.
+- Review internal log sources to identify potential unauthorized access.
+- Review compromised hosts, and if applicable, Active Directory, for any unauthorized accounts.
+- Consider resetting passwords for all potentially impacted accounts.
+- Run a full system scan to identify anything real-time scanning may not have identified.
+- Ensure that all security products are running and correctly configured as expected on affected endpoints as well all possible hosts to increase visibility into potential threat actor activity.
+- Wipe any affected hosts and reinstall from a known good baseline.
+
+Threat Descriptions:
+-------------------
+Enumeration (Active directory, Network, Cloud, etc): Enumeration allows a threat actor to identity users, groups, privileges, and assets that can facilitate further ingress and compromise. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Windows\system32\NOTEPAD.EXE + pid: 7548
+- Kill Process - path: C:\Windows\System32\rdpclip.exe + pid: 8700
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+- Disable and/or rotate credentials for any affected user accounts.
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/103290/infection_reports/1638683#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Haa S Reference To Suspicious Enumeration File In Command Line
+Detected At: 2025-08-12 07:14:08 UTC
+Start Time: 2025-08-12 07:13:24 UTC
+Command: "C:\Windows\system32\NOTEPAD.EXE" C:\ProgramData\AdComp.txt
+Executable: C:\Windows\system32\NOTEPAD.EXE
+Process ID: 805be7d6-774b-11f0-9dd0-00155d01c800
+Parent Process: C:\Windows\Explorer.EXE
+User: tabadmin

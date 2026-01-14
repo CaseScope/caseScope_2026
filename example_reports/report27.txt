@@ -1,0 +1,14 @@
+Investigative Summary
+---------------------
+Huntress have leveraged SIEM telemetry to conduct a retrospective threat hunt. This hunt has identified a malicious authentication from the Sonicwall device
+
+Specifically, on 2025 August 25th 13:04:05, the account 'bflaherty' authenticated from the Public IPv4 `79.141.173.235`, originating from the suspicious hosting provider `HZ Hosting Ltd`
+
+To deny the threat actor further ingress and access, we have temporarily disabled the `bflaherty` user from an AD perspective . We have guidance for the following next steps
+
+Remediations:
+-------------
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Temporarily disable the `bflaherty` account at the VPN level
+- Please rotate all AD and VPN users credentials
+- Please deploy additonal security controls to the Sonicwall device, such as MFA and GEO/IP allow-listing

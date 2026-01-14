@@ -1,0 +1,48 @@
+Investigative Summary:
+----------------------
+Evidence suggests that on 2025-12-04 10:58:36 UTC, the user "PaulHawley" (S-1-5-21-3641823291-2294564657-979110523-1004) executed NetSupport RAT, which is masquerading as "systemcore.exe".
+
+The execution chain began with a scheduled task launching cmd.exe, which executed PowerShell with an encoded command that renamed an executable in %LOCALAPPDATA%\programs\common\ to smscs.exe. This renamed executable then launched the detected NetSupport client (systemcore.exe). The PowerShell script also extracted a zip file (corepack.zip) containing the NetSupport components.
+
+Huntress inspected CLIENT32.ini and found that NetSupport was reaching out to "91.199.163[.]53".
+
+A Remote Access Trojan (RAT) facilitates a threat actor's malicious remote control and persistent to access to a machine.
+
+Due to this, Huntress has isolated the endpoint. 
+
+Indicators of Compromise (IOCs):
+-----------------------------------------------
+Binary Name: systemcore.exe
+Path: C:\Users\PaulHawley\AppData\Local\\BitgetSuite\\Core_1320\\systemcore.exe
+SHA 256: 168f1b974b31df0889e6dbe75f0fe8486cf932d72f0d6ad8348c97a2e537a738
+
+Network:
+"91.199.163[.]53".
+
+Huntress recommends reimaging this endpoint to a known clean backup and blocking the above IP if there is no business need.
+
+Threat Descriptions:
+--------------------
+Remote Access Trojan (RAT): A Remote Access Trojan (RAT) facilitates a threat actor's malicious remote control and persistent to access to a machine.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_1320\systemcore.exe + pid: 18252
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105307/infection_reports/1830386#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Net Support Rat Execution Pattern
+Detected At: 2025-12-04 10:59:30 UTC
+Start Time: 2025-12-04 10:58:36 UTC
+Command: "C:\Users\PaulHawley\AppData\Local\\BitgetSuite\\Core_1320\\systemcore.exe"
+Executable: C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_1320\systemcore.exe
+Process ID: 314b9be1-d0f9-11f0-8719-04421aef22fa
+Parent Process: C:\Users\PaulHawley\AppData\Local\programs\common\smscs.exe
+User: PaulHawley

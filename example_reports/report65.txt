@@ -1,0 +1,67 @@
+Investigative Summary
+---------------------
+[WARNING]
+Please review this incident report to understand what was identified before remediating. There may be unknown malicious processes, files, or other changes made to the host that remain undetected. Restoring from a known good backup or clean OS install is the only way to ensure a complete host-level remediation. 
+
+Huntress detected the following:
+- Active Directory Domain Enumeration : Adversaries may attempt to enumerate an Active Directory domain to find user accounts, computer accounts, and other domain information that could be used to enable Lateral Movement.
+
+
+Evidence suggests that the user "katespilka" (S-1-5-21-3569356037-4259493439-458336622-1195) has been compromised.
+
+Huntress observed the following timeline: 
+
+- 2025-02-12 10:51:19 UTC - the user "katespilka" authenticated to the host via RDP from the IP address ""23.158.40.209" with hostname "WIN-CL9PCU3A0KL".
+
+
+- 2025-02-12 10:57:27 UTC -  once authenticated the threat actor ran various commands related to domain enumeration: 
+
+ - whoami
+ - net  user katespilka /domain
+ - nltest  /dclist:
+ - wmic  product get name	
+
+
+ - 2025-02-12 10:59:13 UTC - the user "katespilka" authenticated to the host via RDP from the IP address  "5.181.234.58" with hostname "DESKTOP-6B2BD6E". 
+
+Due to the nature of this incident the host has been isolated from the network to prevent further ingress. 
+
+Huntress have the following recommendations: 
+
+Remediation Instructions
+------------------------
+- Temporarily disable the user account "katespilka" (S-1-5-21-3569356037-4259493439-458336622-1195) and rotate the users credentials.  
+- Consider resetting passwords for all potentially impacted accounts. 
+- Review internal log sources to identify potential unauthorized access. 
+- Ensure the RDP service is not externally accessible. 
+
+
+Processes
+---------
+Start Time: 2025-02-12 10:57:37 UTC
+Command: nltest  /dclist:
+Executable: C:\Windows\system32\nltest.exe
+Process ID: f956d30b-e92f-11ef-afed-00155d019505
+Parent Process: C:\Windows\System32\cmd.exe
+User: katespilka
+
+Start Time: 2025-02-12 10:57:37 UTC
+Command: nltest  /dclist:
+Executable: C:\Windows\system32\nltest.exe
+Process ID: f956d30b-e92f-11ef-afed-00155d019505
+Parent Process: C:\Windows\System32\cmd.exe
+User: katespilka
+
+Start Time: 
+Command: whoami
+Executable: C:\Windows\system32\whoami.exe
+Process ID: f956d245-e92f-11ef-afed-00155d019505
+Parent Process: 
+User: 
+
+Start Time: 
+Command: C:\Windows\system32\net1  user katespilka /domain
+Executable: C:\Windows\system32\net1.exe
+Process ID: f956d2b3-e92f-11ef-afed-00155d019505
+Parent Process: 
+User: 

@@ -1,0 +1,29 @@
+Investigative Summary
+---------------------
+At 2025-04-21 17:33:44 UTC, Huntress observed user "daveg" executing a malicious process StatmentSSA.exe. This is a rogue screenconnect instance. 
+The host has been turned off preventing additional file retrieval and analysis.
+
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\daveg\Downloads\StatmentSSA.exe + pid: 22496
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105281/infection_reports/1488421#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Malicious Rogue Screenconnect Installation Via Browser
+Detected At: 2025-04-21 17:33:12 UTC
+Start Time: 2025-04-21 17:25:19 UTC
+Command: "C:\Users\daveg\Downloads\StatmentSSA.exe"
+Executable: C:\Users\daveg\Downloads\StatmentSSA.exe
+Process ID: b6d57620-1dfc-11f0-a270-4ed577759dd7
+Parent Process: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+User: daveg

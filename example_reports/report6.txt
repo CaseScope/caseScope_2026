@@ -1,0 +1,43 @@
+Investigative Summary:
+----------------------
+In relation to our previous report sent via https://tabinc.huntress.io/admin/infection_reports/1830486#investigative-summary-tab, Huntress is detecting an ongoing malicious NetSupport install on this host.
+
+Please see the assisted remediations listed.
+The host has been isolated to prevent further malice.
+
+Threat Descriptions:
+--------------------
+Hidden NetSupport: NetSupport is a legitimate remote management tool that is misused by threat actors to gain unauthorized access and control of the reported endpoint. Threat actors do this to hide their presence, maintain persistence, and further exploit the network.
+
+Remote Access Trojan (RAT): A Remote Access Trojan (RAT) facilitates a threat actor's malicious remote control and persistent to access to a machine.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_1320\systemcore.exe + pid: 3156
+- Kill Process - path: C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_2986\systemcore.exe + pid: 28068
+- Delete File - path: C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_1320\AudioCapture.dll
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\PluginHelper.dll
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\PowerMgr.dll
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\Qt5Core.dll
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\Qt5Gui.dll
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\Qt5Xml.dll
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\Quailrous.amu
+- Delete File - path: C:\\Users\\PaulHawley\\AppData\\Local\\programs\\common\\\Reas.qggu
+- + 94 more
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105307/infection_reports/1830486#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Net Support Rat Execution Pattern
+Detected At: 2025-12-04 14:22:47 UTC
+Start Time: 2025-12-04 14:14:41 UTC
+Command: "C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_1320\systemcore.exe"
+Executable: C:\Users\PaulHawley\AppData\Local\BitgetSuite\Core_1320\systemcore.exe
+Process ID: 2e66ad17-d11b-11f0-871b-04421aef22fa
+Parent Process: C:\WINDOWS\Explorer.EXE
+User: PaulHawley

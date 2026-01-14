@@ -1,0 +1,53 @@
+Investigative Summary
+---------------------
+Huntress has investigated alerts for this host. Due to the nature of these alerts, the host has been isolated.
+
+Evidence suggests the user account "tabadmin" has been compromised and on 2025-08-23  at 11:10:40  the user account "tabadmin" (S-1-5-21-3426696237-1254496141-3661801895-1133) laterally moved to the host from the machine "DEPCO-DC01 ” with Internal IP address "192.168.10.50"
+
+Evidence also suggests the user “tabadmin” attempted to deploy Cobalt Strike malware on the host via PowerShell execution
+
+Evidence suggests that Defender attempted to remove the malicious Cobalt Strike malware, but was unable to block its execution
+
+To prevent further malicious activity, Huntress has deployed mass isolation across all hosts in the org.
+
+Huntress recommends reviewing and actioning the remediations in the previous report as well as those in this report to effectively respond to this incident and permanently evict the adversary.
+
+Threat Descriptions:
+-------------------
+Command and Control: Command and Control (C2) consists of techniques that adversaries may use to communicate with systems under their control within a victim network. Adversaries commonly attempt to mimic normal, expected traffic to avoid detection. There are many ways an adversary can establish command and control with various levels of stealth depending on the victim’s network structure and defenses.
+
+The Huntress SOC identified the Malware Family as Cobalt Strike.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Reboot the Host - remediation: A reboot is required to complete the remediation plan
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Consider enacting incident response procedures to assist in fully scoping this security incident.
+- Audit network perimeter device logs such as firewalls, remote desktop services, etc. for anomalous/unauthorized access.
+- Audit local endpoint logging on affected hosts for anomalous access times or unanticipated activity.
+- Reboot the host to terminate malicious processes & sever any potentially outstanding connections. 
+- Consider re-imaging this host or restoring from a known-good baseline to ensure total remediation of this security incident. 
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/105150/infection_reports/1662705#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Mav Defender Contained
+Detected At: 2025-08-23 09:45:22 UTC
+Threat Name: Behavior:Win32/CobaltStrike.K!sms
+Category: Vulnerability
+Threat Type: Known Bad
+Remediated At: 2025-08-23 09:45:23 UTC
+Created At: 2025-08-23 13:06:02 UTC
+Severity: Severe
+Threat Action: Remove
+Threat Status: Removed
+Detection Source: Unknown
+Execution Status: Executing
+OS Resources: ["behavior:_process: C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe, pid:9540:142607028042294", "process:_pid:9540,ProcessStart:134002882946255941"]
+Domain User: 
+Process Name: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe
+Additional Actions: None

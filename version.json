@@ -1,6 +1,30 @@
 {
-  "version": "3.80.00",
+  "version": "3.81.00",
   "changelog": [
+    {
+      "version": "3.81.00",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Extraction: Major overhaul based on analysis of 75 real Huntress EDR reports",
+        "IOC Extraction: Example-based AI prompt for significantly improved extraction accuracy",
+        "IOC Extraction: Added new IOC types - CVE, Password, Threat Name, Scheduled Task",
+        "IOC Extraction: Added new categories - Vulnerability, Threat Intel",
+        "IOC Extraction: Enhanced defanging - hxxp://, hxxps://, [://], mixed patterns",
+        "IOC Extraction: IPv6 address extraction including link-local (fe80::)",
+        "IOC Extraction: Cloudflare tunnel detection (*.trycloudflare.com)",
+        "IOC Extraction: Dynamic DNS detection (zapto.org, anondns.net, ikhelp.top)",
+        "IOC Extraction: Password extraction from net user/net use commands",
+        "IOC Extraction: Service name extraction from remediations",
+        "IOC Extraction: SQL Server/IIS exploitation chain detection",
+        "IOC Extraction: Parent-child process relationship tracking",
+        "IOC Extraction: ScreenConnect instance ID extraction",
+        "IOC Extraction: VNC connection ID extraction",
+        "IOC Extraction: Encoded PowerShell detection",
+        "IOC Extraction: Registry key+value+data triplet extraction",
+        "IOC Extraction: RMM tool detection (ScreenConnect, NetSupport, AnyDesk, etc.)",
+        "IOC Extraction: Malware family detection (QakBot, Dridex, SocGholish, etc.)"
+      ]
+    },
     {
       "version": "3.80.00",
       "date": "2026-01-14",

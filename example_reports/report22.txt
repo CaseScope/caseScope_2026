@@ -1,0 +1,18 @@
+Investigative Summary
+---------------------
+At 2025-09-17 19:08:52 UTC, Huntress detected the user "llavallee" visiting the following domain "login[.]auth-secure[.]online". Huntress believes with high confidence that this domain is hosting a Phishing page designed to capture the users credentials and session token. Commonly for Microsoft 365 logins.
+
+Huntress can confirm the user visited this phishing page but is unable to confirm if the user typed in their username & password based on this endpoint alert.
+
+Threat Descriptions:
+-------------------
+Phishing AiTM: Phishing AITM (Adversary-in-the-Middle) is a sophisticated phishing attack where the threat actor positions themselves between the victim and the legitimate website they're trying to access. The threat actor then creates a fake login page that looks identical to the real one. If the victim enters their credentials, the actor steals them and can then access the victim's account. This type of attack is particularly dangerous because it can bypass even multi-factor authentication (MFA).
+
+Remediations:
+-------------
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Disable and/or rotate credentials for any affected user accounts.
+- Audit MFA devices for the identity.
+- Audit for malicious inbox rules and forwards.
+- Audit for malicious OAuth grants.
+- Check to see if the user had a successful login from a suspicious location or device matching the time of the EDR alert.

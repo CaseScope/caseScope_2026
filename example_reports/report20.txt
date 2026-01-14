@@ -1,0 +1,70 @@
+Investigative Summary
+---------------------
+At 2025-09-30 20:03:17 UTC, Microsoft Defender Antivirus identified the following suspicious behavior "Trojan:JS/Trickbot.S!MSR" in the following location on the endpoint: Dannis ~ C:\ProgramData\controlScr.hta.
+
+Huntress detected remnants of malicious software on the endpoint. In this case, artifacts were observed indicating suspicious files (e.g., script or executable references in temporary directories, startup items, or scheduled tasks) that are no longer present on the system. From our investigation, we noted the malicious .hta file was successfully blocked and quarantined by Defender. Secondarily, during the investigation, a script designed to disable Windows Defender was detected. These Malware artifacts are indicators of compromise prior to the Huntress agent being installed, hindering further investigation.
+
+These remnants typically occur when:
+- Malware cleans itself up after execution to evade detection
+- Antivirus or other tools partially remove a threat but leave behind persistence entries
+- Installers or droppers create scheduled tasks, registry keys, or startup items that remain even after the payload is deleted
+
+Although no active payload was detected at this time, these artifacts suggest that malware execution likely occurred on the endpoint. Remnants can still represent risk if additional persistence or secondary payloads were deployed during the initial compromise. As such, Huntress SOC has identified these items needing removal.
+
+Threat Descriptions:
+-------------------
+Prior Compromise: The security incident on this host occurred prior to the Huntress agent installation. We will attempt to address any observed malicious behavior, but there may be unreported changes to this host that will not be detected due to limited telemetry.
+
+Malicious Script: A malicious script is a type of code that can be used to harm a computer without the user's knowledge. Malicious scripts are a type of malicious code, which is any computer programming or web scripting that is designed to cause damage or create security holes.
+
+Malware Artifact: A Malware Artifact is a piece of evidence left behind by malware on a computer system. It could be a file, registry entry, or network connection that indicates the presence of malicious activity.
+
+The Huntress SOC identified the Malware Family as TrickBot.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Remove AV Defender + value: SD
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Remove AV Defender + value: Id
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Remove AV Defender + value: Index
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: Path
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: Hash
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: Schema
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: Description
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: URI
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: Triggers
+- Delete Registry Value - key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B0791C14-64C9-4BF9-B4A5-63764FE1E01F} + value: Actions
+- + 5 more
+
+Manual Remediations provided by the Huntress SOC are highly recommended remediation actions to be conducted by your team before resolving the incident in the Huntress Platform:
+- Identify and remove all unauthorized software, scripts, or services from the system.
+- Reimage the system if compromise is extensive or trust in integrity cannot be restored.
+- Audit affected directories/files for additional suspicious files and remove those found.
+- Reset credentials for the affected system's user(s) and any privileged accounts recently used on the system.
+- Enroll the user in a security awareness training session to reinforce safe practices in the corporate environment.
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/528966/infection_reports/1724486#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Mav Trickbot
+Detected At: 2025-09-30 19:33:32 UTC
+Threat Name: Trojan:JS/Trickbot.S!MSR
+Category: Trojan
+Threat Type: Known Bad
+Remediated At: 2025-09-30 19:33:54 UTC
+Created At: 2025-09-30 20:03:17 UTC
+Severity: Severe
+Threat Action: Quarantine
+Threat Status: Quarantined
+Detection Source: Real Time
+Execution Status: Blocked
+OS Resources: ["file:_C:\\ProgramData\\controlScr.hta"]
+Domain User: NT AUTHORITY\SYSTEM
+Process Name: C:\Program Files\Huntress\HuntressAgent.exe
+Additional Actions: None
+File Original Create Time: 2021-06-21 14:21:09 UTC
+File Original Mod Time: 2021-06-21 14:23:09 UTC
+File Original File Size: 2953
+File Quarantine Time: 2025-09-30 19:33:54 UTC
+File Resource ID: 65066AAC095C498411DDB0BD1C54F2CB0D6B489A

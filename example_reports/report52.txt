@@ -1,0 +1,25 @@
+Investigative Summary
+---------------------
+At 2025-05-14 23:12:27 UTC, Huntress observed user "root" executing a command to disable spctl. Threat actors like to disable this before running their malicious executables. We recommend that this security control be re-enabled.
+
+Threat Descriptions:
+-------------------
+macOS Subvert Apple Controls: Actions were taken by a threat actor to subvert built in macOS security controls.
+
+Remediations:
+-------------
+Assisted Remediations provided by the Huntress SOC to remediate the incident. These can be executed automatically in the Huntress Platform:
+- Kill Process - path: /usr/sbin/spctl + pid: 30344
+
+All remediations provided can be found in the Huntress Platform: Incident Report: https://tabinc.huntress.io/org/103536/infection_reports/1519676#remediations-tab
+
+Lead Signal Information
+-----------------------
+Signal Name: Gatekeeper Disabled Via Commandline
+Detected At: 2025-05-14 23:12:20 UTC
+Start Time: 2025-05-14 22:46:43 UTC
+Command: spctl --master-disable
+Executable: /usr/sbin/spctl
+Process ID: 775d4c76-9575-4e03-8e85-8f05396a0dfb
+Parent Process: /usr/bin/sudo
+User: root
