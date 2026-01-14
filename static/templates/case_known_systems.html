@@ -627,7 +627,7 @@ function formatList(arr, max) {
     return arr.slice(0, max).join(', ') + ` (+${arr.length - max})`;
 }
 
-function formatSourceBadges(sources) {
+function formatSourceBadges(sources, maxShow = 3) {
     if (!sources || sources.length === 0) return '<span class="text-muted">-</span>';
     
     const sourceLabels = {
@@ -652,10 +652,25 @@ function formatSourceBadges(sources) {
         'unknown': { label: '?', class: 'badge-muted' }
     };
     
-    return sources.map(src => {
-        const info = sourceLabels[src] || { label: src.toUpperCase(), class: 'badge-source-default' };
-        return `<span class="badge ${info.class}">${info.label}</span>`;
-    }).join(' ');
+    const getLabel = (src) => sourceLabels[src]?.label || src.toUpperCase();
+    const getClass = (src) => sourceLabels[src]?.class || 'badge-source-default';
+    
+    // Build full list for tooltip
+    const allLabels = sources.map(getLabel).join(', ');
+    
+    // Show first N badges
+    const visible = sources.slice(0, maxShow);
+    const remaining = sources.length - maxShow;
+    
+    let html = `<span class="sources-wrapper" title="${escapeHtml(allLabels)}">`;
+    html += visible.map(src => `<span class="badge ${getClass(src)}">${getLabel(src)}</span>`).join(' ');
+    
+    if (remaining > 0) {
+        html += ` <span class="badge badge-muted">+${remaining}</span>`;
+    }
+    html += '</span>';
+    
+    return html;
 }
 
 function formatDate(dateStr) {

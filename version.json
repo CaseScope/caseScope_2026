@@ -1,6 +1,14 @@
 {
-  "version": "3.79.00",
+  "version": "3.79.01",
   "changelog": [
+    {
+      "version": "3.79.01",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Systems/Users: Sources column truncated to 3 badges with +N indicator",
+        "Known Systems/Users: Hover tooltip shows all sources"
+      ]
+    },
     {
       "version": "3.79.00",
       "date": "2026-01-14",

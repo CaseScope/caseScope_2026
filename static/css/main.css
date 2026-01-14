@@ -920,6 +920,14 @@ tbody td {
   padding: 2px 5px;
 }
 
+.sources-wrapper {
+  cursor: help;
+}
+
+.sources-wrapper .badge {
+  margin-right: 3px;
+}
+
 /* Parser Badge */
 .parser-badge {
   display: inline-block;
