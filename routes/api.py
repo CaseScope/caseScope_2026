@@ -1523,104 +1523,152 @@ def get_hunting_events(case_id):
         """
         
         if search:
-            # Parse search for exclusions: -"term" or -term excludes, regular terms include
+            # Advanced search parser with per-group exclusions
+            # Syntax:
+            #   term1 term2 = AND (both must match)
+            #   term1|term2 = OR (either can match)
+            #   -term or -"quoted term" = exclude
+            #   (group) = group terms together
+            #   (grp1)|(grp2) = OR between groups
+            #   Exclusions inside () apply to that group only
+            #   Exclusions outside () apply globally
             import re
-            # Find all -"quoted terms" and -unquoted_terms
-            exclude_pattern = re.compile(r'-"([^"]+)"|-(\S+)')
-            excludes = []
-            for match in exclude_pattern.finditer(search):
-                term = match.group(1) or match.group(2)
-                if term:
-                    excludes.append(term)
             
-            # Remove exclusion patterns from search to get the main search term
-            main_search = exclude_pattern.sub('', search).strip()
-            
-            # Build search conditions
-            search_conditions = []
             params = {
                 'case_id': case_id,
                 'limit': per_page,
                 'offset': offset
             }
             
-            # Helper function to build conditions for a group of AND terms
-            def build_group_conditions(group_str, prefix):
-                """Build AND conditions for space-separated terms in a group"""
-                group_conditions = []
-                terms = group_str.split()
-                for j, term in enumerate(terms):
-                    param_name = f'{prefix}_{j}'
-                    # Check for simple OR within term (no parentheses)
-                    if '|' in term and '(' not in term:
-                        or_parts = [p.strip() for p in term.split('|') if p.strip()]
-                        if or_parts:
-                            or_conds = []
-                            for k, part in enumerate(or_parts):
-                                or_param = f'{prefix}_{j}_{k}'
-                                if part.isdigit():
-                                    params[or_param] = part
-                                    or_conds.append(f"event_id = {{{or_param}:String}}")
-                                else:
-                                    params[or_param] = f'%{part}%'
-                                    or_conds.append(f"search_blob ilike {{{or_param}:String}}")
-                            group_conditions.append(f"({' OR '.join(or_conds)})")
-                    elif term.isdigit():
-                        params[param_name] = term
-                        group_conditions.append(f"event_id = {{{param_name}:String}}")
-                    else:
-                        params[param_name] = f'%{term}%'
-                        group_conditions.append(f"search_blob ilike {{{param_name}:String}}")
-                return group_conditions
+            # Pattern to find exclusions: -"quoted" or -unquoted
+            exclude_pattern = re.compile(r'-"([^"]+)"|-([^\s|()]+)')
             
-            # Check for parentheses groups: (group1) | (group2) | ...
-            paren_group_pattern = re.compile(r'\(([^)]+)\)')
-            paren_groups = paren_group_pattern.findall(main_search)
-            
-            if paren_groups and '|' in main_search:
-                # We have parentheses groups with OR between them
-                # Parse: (term1 term2) | (term3 term4) -> (t1 AND t2) OR (t3 AND t4)
-                group_conditions_list = []
-                for i, group in enumerate(paren_groups):
-                    group_conds = build_group_conditions(group.strip(), f'grp{i}')
-                    if group_conds:
-                        group_conditions_list.append(f"({' AND '.join(group_conds)})")
+            def parse_term(term, prefix):
+                """Parse a single term (may contain | for OR). Returns (conditions_list, is_exclusion)"""
+                conditions = []
                 
-                if group_conditions_list:
-                    search_conditions.append(f"({' OR '.join(group_conditions_list)})")
-            elif main_search:
-                # No parentheses groups - use original logic
-                # Terms joined by | are OR conditions, space-separated terms are AND
-                terms = main_search.split()
-                for i, term in enumerate(terms):
-                    # Check for OR groups (pipe-separated)
-                    if '|' in term:
-                        or_parts = [p.strip() for p in term.split('|') if p.strip()]
-                        if or_parts:
-                            or_conditions = []
-                            for j, part in enumerate(or_parts):
-                                param_name = f'or_{i}_{j}'
-                                if part.isdigit():
-                                    params[param_name] = part
-                                    or_conditions.append(f"event_id = {{{param_name}:String}}")
-                                else:
-                                    params[param_name] = f'%{part}%'
-                                    or_conditions.append(f"search_blob ilike {{{param_name}:String}}")
-                            search_conditions.append(f"({' OR '.join(or_conditions)})")
-                    elif term.isdigit():
-                        # Numeric terms match event_id exactly
-                        params[f'event_id_{i}'] = term
-                        search_conditions.append(f"event_id = {{event_id_{i}:String}}")
-                    else:
-                        # Text terms match search_blob
-                        params[f'pattern_{i}'] = f'%{term}%'
-                        search_conditions.append(f"search_blob ilike {{pattern_{i}:String}}")
+                # Check if this is an exclusion term
+                if term.startswith('-'):
+                    excl_match = exclude_pattern.match(term)
+                    if excl_match:
+                        excl_term = excl_match.group(1) or excl_match.group(2)
+                        if excl_term:
+                            param_name = f'{prefix}_excl'
+                            params[param_name] = f'%{excl_term}%'
+                            return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
+                    return ([], False)
+                
+                # Handle OR within term (pipe-separated, no spaces)
+                if '|' in term:
+                    or_parts = [p.strip() for p in term.split('|') if p.strip()]
+                    if or_parts:
+                        or_conds = []
+                        for k, part in enumerate(or_parts):
+                            or_param = f'{prefix}_or{k}'
+                            if part.isdigit():
+                                params[or_param] = part
+                                or_conds.append(f"event_id = {{{or_param}:String}}")
+                            else:
+                                params[or_param] = f'%{part}%'
+                                or_conds.append(f"search_blob ilike {{{or_param}:String}}")
+                        if or_conds:
+                            conditions.append(f"({' OR '.join(or_conds)})")
+                elif term.isdigit():
+                    param_name = f'{prefix}_id'
+                    params[param_name] = term
+                    conditions.append(f"event_id = {{{param_name}:String}}")
+                else:
+                    param_name = f'{prefix}_txt'
+                    params[param_name] = f'%{term}%'
+                    conditions.append(f"search_blob ilike {{{param_name}:String}}")
+                
+                return (conditions, False)
             
-            # Add exclusion conditions
-            for i, excl in enumerate(excludes):
-                param_name = f'excl_{i}'
-                params[param_name] = f'%{excl}%'
-                search_conditions.append(f"NOT search_blob ilike {{{param_name}:String}}")
+            def parse_group(group_str, prefix):
+                """Parse a group string, returning (positive_conditions, exclusion_conditions)"""
+                positive_conds = []
+                exclusion_conds = []
+                
+                # Tokenize: handle quoted strings and regular terms
+                # Match: -"quoted", "quoted", -term, or term (including those with |)
+                token_pattern = re.compile(r'-"[^"]+"|-[^\s|()]+|"[^"]+"|[^\s()]+')
+                tokens = token_pattern.findall(group_str)
+                
+                for j, token in enumerate(tokens):
+                    # Skip standalone pipes used as separators between groups
+                    if token == '|':
+                        continue
+                    
+                    # Remove surrounding quotes from quoted terms (non-exclusion)
+                    if token.startswith('"') and token.endswith('"'):
+                        token = token[1:-1]
+                    
+                    term_conds, is_exclusion = parse_term(token, f'{prefix}_{j}')
+                    if is_exclusion:
+                        exclusion_conds.extend(term_conds)
+                    else:
+                        positive_conds.extend(term_conds)
+                
+                return (positive_conds, exclusion_conds)
+            
+            def build_group_sql(positive_conds, exclusion_conds):
+                """Combine positive and exclusion conditions for a group"""
+                all_conds = positive_conds + exclusion_conds
+                if all_conds:
+                    return f"({' AND '.join(all_conds)})"
+                return None
+            
+            # Find parenthesized groups and content outside them
+            # Pattern matches: (content) or bare content between groups
+            paren_pattern = re.compile(r'\(([^)]+)\)')
+            paren_groups = paren_pattern.findall(search)
+            
+            # Get content outside parentheses (global terms/exclusions)
+            outside_content = paren_pattern.sub(' ', search).strip()
+            
+            # Parse global terms (outside all parentheses)
+            global_positive = []
+            global_exclusions = []
+            if outside_content:
+                # Remove stray pipes that were between groups
+                outside_clean = re.sub(r'\s*\|\s*', ' ', outside_content).strip()
+                if outside_clean:
+                    gp, ge = parse_group(outside_clean, 'global')
+                    global_positive = gp
+                    global_exclusions = ge
+            
+            search_conditions = []
+            
+            if paren_groups:
+                # We have parenthesized groups
+                # Check if there are | between groups (OR relationship)
+                # Find the structure: look for ) | ( pattern or ) | ( with spaces
+                has_group_or = bool(re.search(r'\)\s*\|\s*\(', search))
+                
+                group_sqls = []
+                for i, group_content in enumerate(paren_groups):
+                    pos_conds, excl_conds = parse_group(group_content.strip(), f'g{i}')
+                    group_sql = build_group_sql(pos_conds, excl_conds)
+                    if group_sql:
+                        group_sqls.append(group_sql)
+                
+                if group_sqls:
+                    if has_group_or or len(group_sqls) > 1:
+                        # Multiple groups with OR between them
+                        search_conditions.append(f"({' OR '.join(group_sqls)})")
+                    else:
+                        # Single group, just add its conditions
+                        search_conditions.append(group_sqls[0])
+                
+                # Add global positive conditions (terms outside parens that aren't exclusions)
+                search_conditions.extend(global_positive)
+                # Add global exclusions
+                search_conditions.extend(global_exclusions)
+            else:
+                # No parenthesized groups - simple search
+                pos_conds, excl_conds = parse_group(search, 'simple')
+                search_conditions.extend(pos_conds)
+                search_conditions.extend(excl_conds)
             
             # Combine conditions
             if search_conditions:

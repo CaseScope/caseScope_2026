@@ -1,6 +1,14 @@
 {
-  "version": "3.82.03",
+  "version": "3.83.00",
   "changelog": [
+    {
+      "version": "3.83.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: Advanced search parser with per-group exclusions - exclusions inside (group) apply to that group only, exclusions outside apply globally",
+        "Hunting: Search now supports complex queries like (4625 security -anonymous)|(33 user login) for multi-source searches"
+      ]
+    },
     {
       "version": "3.82.03",
       "date": "2026-01-14",
