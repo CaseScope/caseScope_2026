@@ -885,6 +885,26 @@ tbody td {
   color: #818cf8;
 }
 
+.badge-source-huntress {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.badge-source-sonicwall {
+  background-color: rgba(249, 115, 22, 0.2);
+  color: #fb923c;
+}
+
+.badge-source-cylr {
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+.badge-source-iis {
+  background-color: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+}
+
 .badge-source-default {
   background-color: var(--bg-tertiary);
   color: var(--text-secondary);

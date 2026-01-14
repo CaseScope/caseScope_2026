@@ -144,13 +144,19 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                     'ip_addresses': set(stats.get('ip_addresses', []))
                 }
         
-        # Merge from case_files
+        # Merge from case_files (now includes file_type as sources)
         for hostname, stats in file_stats.items():
-            merge_stats(hostname, stats, 'case_files')
+            file_sources = stats.get('sources', set())
+            for source in file_sources:
+                merge_stats(hostname, stats, source)
         
         # Merge from source events (EVTX, NDJSON, etc. - source_host field)
+        # Now contains artifact_type sources directly
         for hostname, stats in event_stats.items():
-            merge_stats(hostname, stats, 'events')
+            # Event stats now include sources from artifact_type
+            event_sources = stats.get('sources', set())
+            for source in event_sources:
+                merge_stats(hostname, stats, source)
         
         # Merge from destination hosts (UNC paths in events)
         for hostname, stats in dest_stats.items():
@@ -250,32 +256,75 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
 def _get_hostnames_from_case_files(case_uuid: str) -> dict:
     """Get hostname stats from case_files table
     
-    Returns dict: {hostname: {'count': N, 'last_seen': datetime}}
+    Returns dict: {hostname: {'count': N, 'last_seen': datetime, 'sources': set}}
+    
+    Tracks file_type as source (CyLR, Huntress NDJSON, etc.)
     """
     from models.case_file import CaseFile
     from sqlalchemy import func
     
     hostname_stats = {}
     
-    # Query hostname with count and max uploaded_at
+    # Query hostname with file_type, count and max uploaded_at
     rows = db.session.query(
         CaseFile.hostname,
+        CaseFile.file_type,
         func.count(CaseFile.id).label('count'),
         func.max(CaseFile.uploaded_at).label('last_seen')
     ).filter(
         CaseFile.case_uuid == case_uuid,
         CaseFile.hostname.isnot(None),
         CaseFile.hostname != ''
-    ).group_by(CaseFile.hostname).all()
+    ).group_by(CaseFile.hostname, CaseFile.file_type).all()
     
     for row in rows:
-        if row[0]:
-            hostname_stats[row[0].strip()] = {
-                'count': row[1],
-                'last_seen': row[2]
+        hostname = row[0].strip() if row[0] else None
+        file_type = row[1]
+        count = row[2]
+        last_seen = row[3]
+        
+        if not hostname:
+            continue
+        
+        # Normalize file_type to source identifier
+        source = _normalize_file_type_to_source(file_type) if file_type else 'case_files'
+        
+        if hostname in hostname_stats:
+            hostname_stats[hostname]['count'] += count
+            hostname_stats[hostname]['sources'].add(source)
+            if last_seen and (not hostname_stats[hostname]['last_seen'] or last_seen > hostname_stats[hostname]['last_seen']):
+                hostname_stats[hostname]['last_seen'] = last_seen
+        else:
+            hostname_stats[hostname] = {
+                'count': count,
+                'last_seen': last_seen,
+                'sources': {source}
             }
     
     return hostname_stats
+
+
+def _normalize_file_type_to_source(file_type: str) -> str:
+    """Normalize file_type from case_files to a source identifier
+    
+    Maps file types like 'CyLR', 'Huntress NDJSON' to source identifiers
+    """
+    if not file_type:
+        return 'case_files'
+    
+    file_type_lower = file_type.lower()
+    
+    # Map common file types to source identifiers
+    if 'ndjson' in file_type_lower or 'huntress' in file_type_lower:
+        return 'ndjson'
+    elif 'cylr' in file_type_lower:
+        return 'cylr'
+    elif 'iis' in file_type_lower:
+        return 'iis'
+    elif 'sonicwall' in file_type_lower:
+        return 'sonicwall'
+    else:
+        return file_type_lower.replace(' ', '_')
 
 
 def _get_system_details_from_events(case_id: int, hostname: str) -> dict:
@@ -617,7 +666,9 @@ def _get_remote_workstations_from_logon_events(case_id: int) -> dict:
 def _get_hostnames_from_events(case_id: int) -> dict:
     """Get hostname stats from ClickHouse events table
     
-    Returns dict: {hostname: {'count': N, 'last_seen': datetime}}
+    Returns dict: {hostname: {'count': N, 'last_seen': datetime, 'sources': set}}
+    
+    Now tracks artifact_type as source (evtx, ndjson, sonicwall, etc.)
     """
     from utils.clickhouse import get_client
     
@@ -626,22 +677,36 @@ def _get_hostnames_from_events(case_id: int) -> dict:
     try:
         client = get_client()
         
-        # Query source_host with count and max timestamp
+        # Query source_host with artifact_type for proper source tracking
         result = client.query(
-            """SELECT source_host, count() as cnt, max(timestamp) as last_ts
+            """SELECT source_host, artifact_type, count() as cnt, max(timestamp) as last_ts
                FROM events 
                WHERE case_id = {case_id:UInt32} 
                  AND source_host != ''
-               GROUP BY source_host
-               LIMIT 10000""",
+               GROUP BY source_host, artifact_type
+               LIMIT 50000""",
             parameters={'case_id': case_id}
         )
         
         for row in result.result_rows:
-            if row[0]:
-                hostname_stats[row[0].strip()] = {
-                    'count': row[1],
-                    'last_seen': row[2]
+            hostname = row[0].strip() if row[0] else None
+            artifact_type = row[1].lower() if row[1] else 'unknown'
+            count = row[2]
+            last_ts = row[3]
+            
+            if not hostname:
+                continue
+            
+            if hostname in hostname_stats:
+                hostname_stats[hostname]['count'] += count
+                hostname_stats[hostname]['sources'].add(artifact_type)
+                if last_ts and (not hostname_stats[hostname]['last_seen'] or last_ts > hostname_stats[hostname]['last_seen']):
+                    hostname_stats[hostname]['last_seen'] = last_ts
+            else:
+                hostname_stats[hostname] = {
+                    'count': count,
+                    'last_seen': last_ts,
+                    'sources': {artifact_type}
                 }
                 
     except Exception as e:

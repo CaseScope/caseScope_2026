@@ -1,6 +1,16 @@
 {
-  "version": "3.78.02",
+  "version": "3.79.00",
   "changelog": [
+    {
+      "version": "3.79.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Systems: Now tracks artifact_type (EVTX, NDJSON, Sonicwall, etc.) as sources",
+        "Known Systems: Sources column now matches Known Users functionality",
+        "Known Systems: Discovery tracks file_type from case_files and artifact_type from events",
+        "Known Systems/Users: Added Huntress, Sonicwall, CyLR, IIS source badges"
+      ]
+    },
     {
       "version": "3.78.02",
       "date": "2026-01-14",
