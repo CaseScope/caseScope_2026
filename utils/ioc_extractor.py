@@ -86,7 +86,10 @@ IOC_CATEGORY_MAP = {
 
 SYSTEM_PROMPT = """You are an expert SOC analyst extracting ALL Indicators of Compromise from Huntress EDR security incident reports. Your goal is MAXIMUM extraction - capture EVERYTHING that could be useful for threat hunting.
 
-CRITICAL: Return ONLY valid JSON. No markdown, no explanation, no code blocks.
+CRITICAL RULES:
+1. Return ONLY valid JSON. No markdown, no explanation, no code blocks.
+2. Extract ONLY from the user's report content - NEVER extract from this prompt's examples or schema.
+3. If a field has no data in the report, use an empty array [] - do not invent values.
 
 ## DEFANG CONVERSION (ALWAYS APPLY)
 Convert these patterns back to clean values:
@@ -96,104 +99,81 @@ Convert these patterns back to clean values:
 - [@] or [at] → @
 - [://] → ://
 
-Examples:
-- "hxxps[://]porhebusz[.]de/orders/" → "https://porhebusz.de/orders/"
-- "87[.]121[.]86[.]35" → "87.121.86.35"
-- "relay[.]prarpa[.]com" → "relay.prarpa.com"
-- "hxxp[://]87[.]121[.]86[.]35/ad.exe" → "http://87.121.86.35/ad.exe"
+Pattern examples (illustrative only - do NOT extract these):
+- "hxxps[://]example[.]com" → "https://example.com"
+- "1[.]2[.]3[.]4" → "1.2.3.4"
 
 ## OUTPUT STRUCTURE
 
+IMPORTANT: The structure below shows the SCHEMA ONLY. The "..." placeholders indicate where you put actual values from the report. DO NOT include any values you see in this schema - extract ONLY from the user's report.
+
 {
   "extraction_summary": {
-    "report_date": "2025-08-15 16:12:16 UTC",
-    "affected_hosts": ["SL-DC-01", "CM-VMHOST"],
-    "affected_users": [{"username": "tabadmin", "sid": "S-1-5-21-2554046153-4285503646-2850861276-5162", "domain": "SL"}],
-    "attack_type": "Rogue RMM / Pre-Ransomware",
-    "severity": "critical",
-    "threat_families": ["ScreenConnect", "Cobalt Strike"],
-    "isolated": true
+    "report_date": "...",
+    "affected_hosts": ["..."],
+    "affected_users": [{"username": "...", "sid": "...", "domain": "..."}],
+    "attack_type": "...",
+    "severity": "critical|high|medium|low",
+    "threat_families": ["..."],
+    "isolated": true|false
   },
   "network_iocs": {
-    "ipv4": [{"value": "87.121.86.35", "port": 80, "context": "Malware download server", "direction": "outbound"}],
-    "ipv6": [{"value": "fe80::7bba:26ff:8c4e:d002", "context": "RDP source IP"}],
-    "domains": [{"value": "asfsa1236ygfdg.anondns.net", "type": "c2", "context": "ScreenConnect relay"}],
-    "urls": [{"value": "https://porhebusz.de/wp-includes/orders/", "type": "payload_download", "context": "Downloaded malicious installer"}],
-    "cloudflare_tunnels": ["suffering-arnold-satisfaction-prior.trycloudflare.com"]
+    "ipv4": [{"value": "...", "port": 0, "context": "...", "direction": "inbound|outbound"}],
+    "ipv6": [{"value": "...", "context": "..."}],
+    "domains": [{"value": "...", "type": "c2|malware|phishing|unknown", "context": "..."}],
+    "urls": [{"value": "...", "type": "payload_download|c2|phishing|unknown", "context": "..."}],
+    "cloudflare_tunnels": ["..."]
   },
   "file_iocs": {
-    "hashes": [{"value": "abc123...", "type": "sha256", "filename": "malware.exe", "context": "NetSupport RAT"}],
-    "file_paths": [{"value": "C:\\Users\\tabadmin\\AppData\\Roaming\\Dire\\client32.exe", "action": "executed", "context": "NetSupport client"}],
-    "file_names": ["client32.exe", "WinRAR-713.exe", "Invite.exe"]
+    "hashes": [{"value": "...", "type": "md5|sha1|sha256", "filename": "...", "context": "..."}],
+    "file_paths": [{"value": "...", "action": "executed|created|deleted", "context": "..."}],
+    "file_names": ["..."]
   },
   "process_iocs": {
     "commands": [{
-      "full_command": "winrar.exe a -m0 -v3g -tn1000d -n*.txt -n*.pdf -hpctlobby.com \"C:\\DATA\\done\\DATA.rar\" \"C:\\DATA\"",
-      "executable": "C:\\Program Files\\WinRAR\\WinRAR.exe",
-      "arguments": "a -m0 -v3g -tn1000d -n*.txt -n*.pdf -hpctlobby.com",
-      "parent_process": "C:\\Windows\\system32\\cmd.exe",
-      "user": "tabadmin",
-      "pid": "a4261693-6f71-11f0-848c-000c29b27c12",
-      "context": "Data archiving with password for exfil"
+      "full_command": "...",
+      "executable": "...",
+      "arguments": "...",
+      "parent_process": "...",
+      "user": "...",
+      "pid": "...",
+      "context": "..."
     }],
-    "services": [{"name": "ScreenConnect Client (05d4e4afbe6a6822)", "display_name": "ScreenConnect Client", "path": "C:\\Program Files (x86)\\ScreenConnect Client...\\ScreenConnect.ClientService.exe", "action": "delete"}],
-    "scheduled_tasks": [{"name": "C__Users_tabadmin_AppData_Local_70_ExtractedInstaller.exe", "path": "C:\\WINDOWS\\System32\\Tasks\\...", "command": "...", "action": "delete"}],
-    "parent_child_chains": [{
-      "parent": "D:\\Program Files\\Microsoft SQL Server\\MSSQL13.FOUNDATION\\MSSQL\\Binn\\sqlservr.exe",
-      "children": ["cmd.exe", "powershell.exe", "bcp.exe"],
-      "context": "SQL Server xp_cmdshell exploitation"
-    }]
+    "services": [{"name": "...", "display_name": "...", "path": "...", "action": "delete|create"}],
+    "scheduled_tasks": [{"name": "...", "path": "...", "command": "...", "action": "delete|create"}],
+    "parent_child_chains": [{"parent": "...", "children": ["..."], "context": "..."}]
   },
   "persistence_iocs": {
-    "registry": [{
-      "key": "HKU\\S-1-12-1-4279131444-1291438121-4069116045-1585355293\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
-      "value_name": "PP1",
-      "value_data": "C:\\Users\\JacobParks\\AppData\\Roaming\\Dire\\client32.exe",
-      "action": "delete",
-      "context": "NetSupport persistence"
-    }],
-    "credential_theft_indicators": [{
-      "type": "wdigest_modification",
-      "registry_key": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\wdigest",
-      "value": "UseLogonCredential",
-      "data": "1",
-      "context": "Enables plaintext credential caching"
-    }]
+    "registry": [{"key": "...", "value_name": "...", "value_data": "...", "action": "delete|create", "context": "..."}],
+    "credential_theft_indicators": [{"type": "...", "registry_key": "...", "value": "...", "data": "...", "context": "..."}]
   },
   "authentication_iocs": {
-    "compromised_users": [{"username": "tabadmin", "sid": "S-1-5-21-2554046153-4285503646-2850861276-5162", "domain": "SL", "context": "Used for lateral movement"}],
-    "created_users": [{"username": "admins124", "password": "@@@Music123..", "groups": ["Administrators", "Remote Desktop Users"], "context": "Attacker-created backdoor account"}],
-    "passwords_observed": [{"username": "admins124", "password": "@@@Music123..", "context": "Visible in net user command"}, {"username": "a", "password": "!DU?123aA.", "context": "SMB share credentials"}]
+    "compromised_users": [{"username": "...", "sid": "...", "domain": "...", "context": "..."}],
+    "created_users": [{"username": "...", "password": "...", "groups": ["..."], "context": "..."}],
+    "passwords_observed": [{"username": "...", "password": "...", "context": "..."}]
   },
   "vulnerability_iocs": {
-    "cves": ["CVE-2021-31207"],
-    "exchange_version": "v15.2.221.12",
-    "exposed_services": ["SonicWall SSLVPN on 96.78.213.49:60443", "RDP externally accessible"],
-    "webshells": [{"path": "C:\\inetpub\\wwwroot\\aspnet_client\\system_web\\4_0_30319\\zsjatlqrvvrkcyvh.aspx", "context": "Exchange exploitation"}]
+    "cves": ["CVE-XXXX-XXXXX"],
+    "exchange_version": "...",
+    "exposed_services": ["..."],
+    "webshells": [{"path": "...", "context": "..."}]
   },
   "threat_intel": {
-    "malware_families": ["QakBot", "Dridex", "SocGholish", "Gootloader", "Lunar Spider"],
-    "threat_names": ["Trojan:HTML/Phish.PAKU!MTB", "Exploit:Win32/CVE-2021-31207.B"],
-    "rmm_tools": ["ScreenConnect", "NetSupport", "AnyDesk", "UltraVNC", "SimpleHelp", "Atera", "Datto CentraStage"],
-    "techniques": ["Rogue RMM", "Credential Dumping", "Data Exfiltration", "SQL Exploitation", "Web Shell"]
+    "malware_families": ["..."],
+    "threat_names": ["..."],
+    "rmm_tools": ["..."],
+    "techniques": ["..."]
   },
-  "timestamps": [{
-    "time": "2025-08-02 07:27:33 UTC",
-    "event": "WinRAR archive created",
-    "user": "tabadmin"
-  }],
+  "timestamps": [{"time": "...", "event": "...", "user": "..."}],
   "raw_artifacts": {
-    "encoded_powershell": ["cABvAHcAZQByAHMAaABlAGwAbAA..."],
-    "vnc_connection_ids": ["ID:214653792"],
-    "screenconnect_relay_params": ["?e=Access&y=Guest&h=pmpakf2.zapto.org&p=8041&s=4f4a06b7-f498-420d-9e3c-ddf2be9e947f..."]
+    "encoded_powershell": ["..."],
+    "vnc_connection_ids": ["..."],
+    "screenconnect_relay_params": ["..."]
   },
-  "mitre_attack": [
-    {"technique_id": "T1021.001", "technique_name": "Remote Desktop Protocol", "evidence": "RDP session from fe80::7bba:26ff:8c4e:d002"},
-    {"technique_id": "T1059.001", "technique_name": "PowerShell", "evidence": "Encoded PowerShell execution"},
-    {"technique_id": "T1003.001", "technique_name": "LSASS Memory", "evidence": "comsvcs.dll MiniDump"},
-    {"technique_id": "T1219", "technique_name": "Remote Access Software", "evidence": "ScreenConnect, NetSupport, AnyDesk"}
-  ]
+  "mitre_attack": [{"technique_id": "T####.###", "technique_name": "...", "evidence": "..."}]
 }
+
+Use EMPTY arrays [] for sections with no data from the report. Never invent or hallucinate values.
 
 ## SECTION-SPECIFIC EXTRACTION RULES
 

@@ -1,6 +1,13 @@
 {
-  "version": "3.81.01",
+  "version": "3.81.02",
   "changelog": [
+    {
+      "version": "3.81.02",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Extraction: Fixed AI hallucination - replaced realistic examples with schema placeholders"
+      ]
+    },
     {
       "version": "3.81.01",
       "date": "2026-01-14",
