@@ -316,15 +316,18 @@ class KnownSystem(db.Model):
         
         Valid sources: case_files, evtx, ndjson, logon_events, unc_paths, firewall
         """
+        from sqlalchemy.orm.attributes import flag_modified
+        
         if not source:
             return False
         
         source = source.lower()
-        current_sources = self.sources or []
+        current_sources = list(self.sources or [])  # Create a new list copy
         
         if source not in current_sources:
             current_sources.append(source)
             self.sources = current_sources
+            flag_modified(self, 'sources')  # Tell SQLAlchemy the column changed
             return True
         return False
 
