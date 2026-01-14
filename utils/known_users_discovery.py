@@ -30,6 +30,7 @@ SYSTEM_ACCOUNTS = {
 
 # Well-known SIDs to exclude
 SYSTEM_SIDS_EXACT = {
+    'S-1-0-0',   # Nobody - null SID
     'S-1-5-4',   # Interactive
     'S-1-5-18',  # Local System
     'S-1-5-19',  # Local Service  
@@ -327,10 +328,15 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
             except Exception as e:
                 logger.error(f"Error processing user '{stats}': {e}")
                 results['errors'].append(f"Error with user: {str(e)}")
+                db.session.rollback()  # Rollback to allow subsequent users to process
                 processed += 1
         
         # Commit all changes
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as commit_err:
+            logger.warning(f"Final commit failed (some users may not have been saved): {commit_err}")
+            db.session.rollback()
         
         # Count case links added
         results['case_links_added'] = KnownUserCase.query.filter_by(case_id=case_id).count()
