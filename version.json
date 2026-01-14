@@ -1,6 +1,13 @@
 {
-  "version": "3.74.00",
+  "version": "3.74.01",
   "changelog": [
+    {
+      "version": "3.74.01",
+      "date": "2026-01-14",
+      "changes": [
+        "Fix: Completion task now auto-triggers when all files processed"
+      ]
+    },
     {
       "version": "3.74.00",
       "date": "2026-01-14",
