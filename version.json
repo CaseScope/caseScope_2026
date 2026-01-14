@@ -1,6 +1,17 @@
 {
-  "version": "3.77.00",
+  "version": "3.78.00",
   "changelog": [
+    {
+      "version": "3.78.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Systems/Users: Now tracks data sources (EVTX, NDJSON, UNC paths, logon events, etc.)",
+        "Known Systems/Users: Sources displayed as color-coded badges in table views",
+        "Known Systems: Sources tracked from case_files, events, unc_paths, logon_events",
+        "Known Users: Sources tracked from artifact_type (evtx, ndjson, registry, etc.)",
+        "Multiple sources per system/user when data comes from multiple artifact types"
+      ]
+    },
     {
       "version": "3.77.00",
       "date": "2026-01-14",

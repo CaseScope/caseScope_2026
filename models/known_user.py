@@ -41,6 +41,9 @@ class KnownUser(db.Model):
     # Compromised flag
     compromised = db.Column(db.Boolean, nullable=False, default=False)
     
+    # Data sources that contributed to this user (evtx, ndjson, etc.)
+    sources = db.Column(db.JSON, nullable=False, default=list)
+    
     # Relationships
     aliases = db.relationship('KnownUserAlias', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     emails = db.relationship('KnownUserEmail', backref='user', lazy='dynamic', cascade='all, delete-orphan')
@@ -62,6 +65,7 @@ class KnownUser(db.Model):
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'notes': self.notes,
             'compromised': self.compromised,
+            'sources': self.sources or [],
             'aliases': [alias.alias for alias in self.aliases],
             'emails': [email.email for email in self.emails],
             'case_count': self.cases.count()
@@ -248,6 +252,23 @@ class KnownUser(db.Model):
                 first_seen_in_case=datetime.utcnow()
             )
             db.session.add(new_link)
+            return True
+        return False
+    
+    def add_source(self, source):
+        """Add a data source if not already present
+        
+        Valid sources: evtx, ndjson, etc.
+        """
+        if not source:
+            return False
+        
+        source = source.lower()
+        current_sources = self.sources or []
+        
+        if source not in current_sources:
+            current_sources.append(source)
+            self.sources = current_sources
             return True
         return False
 

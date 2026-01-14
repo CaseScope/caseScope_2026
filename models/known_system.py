@@ -87,6 +87,9 @@ class KnownSystem(db.Model):
     # Compromised flag
     compromised = db.Column(db.Boolean, nullable=False, default=False)
     
+    # Data sources that contributed to this system (evtx, ndjson, case_files, logon_events, unc_paths)
+    sources = db.Column(db.JSON, nullable=False, default=list)
+    
     # Relationships
     ip_addresses = db.relationship('KnownSystemIP', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     mac_addresses = db.relationship('KnownSystemMAC', backref='system', lazy='dynamic', cascade='all, delete-orphan')
@@ -110,6 +113,7 @@ class KnownSystem(db.Model):
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'notes': self.notes,
             'compromised': self.compromised,
+            'sources': self.sources or [],
             'ip_addresses': [ip.ip_address for ip in self.ip_addresses],
             'mac_addresses': [mac.mac_address for mac in self.mac_addresses],
             'aliases': [alias.alias for alias in self.aliases],
@@ -304,6 +308,23 @@ class KnownSystem(db.Model):
                 first_seen_in_case=datetime.utcnow()
             )
             db.session.add(new_link)
+            return True
+        return False
+    
+    def add_source(self, source):
+        """Add a data source if not already present
+        
+        Valid sources: case_files, evtx, ndjson, logon_events, unc_paths, firewall
+        """
+        if not source:
+            return False
+        
+        source = source.lower()
+        current_sources = self.sources or []
+        
+        if source not in current_sources:
+            current_sources.append(source)
+            self.sources = current_sources
             return True
         return False
 

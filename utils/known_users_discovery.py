@@ -278,7 +278,8 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
                     added_by=username,
                     artifact_count=stats['count'],
                     last_seen=stats['last_seen'],
-                    alias_formats=stats.get('alias_formats', set())
+                    alias_formats=stats.get('alias_formats', set()),
+                    sources=list(stats.get('sources', set()))
                 )
                 
                 if created:
@@ -312,7 +313,8 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
                         added_by=username,
                         artifact_count=stats['count'],
                         last_seen=stats['last_seen'],
-                        alias_formats=stats.get('alias_formats', set())
+                        alias_formats=stats.get('alias_formats', set()),
+                        sources=list(stats.get('sources', set()))
                     )
                     if updated:
                         results['users_updated'] += 1
@@ -354,7 +356,7 @@ def _get_users_from_events(case_id: int) -> dict:
     - sid field (Windows events)
     - domain field (for context)
     
-    Returns dict: {key: {'username': X, 'sid': Y, 'domain': Z, 'count': N, 'last_seen': datetime}}
+    Returns dict: {key: {'username': X, 'sid': Y, 'domain': Z, 'count': N, 'last_seen': datetime, 'sources': set}}
     """
     from utils.clickhouse import get_client
     
@@ -363,19 +365,20 @@ def _get_users_from_events(case_id: int) -> dict:
     try:
         client = get_client()
         
-        # Query for unique username/SID combinations with counts
+        # Query for unique username/SID combinations with counts and artifact types
         result = client.query(
             """SELECT 
                 username, 
                 sid, 
                 domain,
+                artifact_type,
                 count() as cnt, 
                 max(timestamp) as last_ts
                FROM events 
                WHERE case_id = {case_id:UInt32} 
                  AND (username != '' OR sid != '')
-               GROUP BY username, sid, domain
-               LIMIT 50000""",
+               GROUP BY username, sid, domain, artifact_type
+               LIMIT 100000""",
             parameters={'case_id': case_id}
         )
         
@@ -383,8 +386,9 @@ def _get_users_from_events(case_id: int) -> dict:
             raw_username = row[0].strip() if row[0] else None
             sid = row[1].strip() if row[1] else None
             domain = row[2].strip() if row[2] else None
-            count = row[3]
-            last_ts = row[4]
+            artifact_type = row[3].strip().lower() if row[3] else 'unknown'
+            count = row[4]
+            last_ts = row[5]
             
             # Clean the username (strip Context: prefix, filter garbage)
             username = clean_username(raw_username) if raw_username else None
@@ -425,6 +429,8 @@ def _get_users_from_events(case_id: int) -> dict:
             # Merge stats for same key
             if key in user_stats:
                 user_stats[key]['count'] += count
+                # Track artifact types as sources
+                user_stats[key]['sources'].add(artifact_type)
                 if last_ts and (not user_stats[key]['last_seen'] or last_ts > user_stats[key]['last_seen']):
                     user_stats[key]['last_seen'] = last_ts
                 # Update username if we have it now but didn't before
@@ -448,6 +454,7 @@ def _get_users_from_events(case_id: int) -> dict:
                     'domain': domain,
                     'count': count,
                     'last_seen': last_ts,
+                    'sources': {artifact_type},
                     'alias_formats': {original_format} if original_format else set()
                 }
                 
@@ -459,7 +466,7 @@ def _get_users_from_events(case_id: int) -> dict:
 
 def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: str,
                   artifact_count: int = 1, last_seen: datetime = None,
-                  alias_formats: set = None) -> Tuple[bool, bool, bool, bool]:
+                  alias_formats: set = None, sources: List[str] = None) -> Tuple[bool, bool, bool, bool]:
     """Process a single user through deduplication logic
     
     Matching logic:
@@ -478,11 +485,14 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
         artifact_count: Number of artifacts referencing this user
         last_seen: Timestamp of most recent artifact with this user
         alias_formats: Set of DOMAIN\\USER format strings to add as aliases
+        sources: List of data sources (evtx, ndjson, etc.)
     
     Returns: (created, updated, alias_added, email_added)
     """
     if alias_formats is None:
         alias_formats = set()
+    if sources is None:
+        sources = []
     created = False
     updated = False
     alias_added = False
@@ -569,6 +579,10 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
                     new_value=domain_user
                 )
         
+        # Add data sources
+        for source in sources:
+            user.add_source(source)
+        
         # Link to case
         user.link_to_case(case_id)
         
@@ -586,7 +600,8 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
             artifacts_with_user=artifact_count,
             added_on=datetime.utcnow(),
             added_by=added_by,
-            last_seen=last_seen if last_seen else datetime.utcnow()
+            last_seen=last_seen if last_seen else datetime.utcnow(),
+            sources=sources  # Track data sources
         )
         db.session.add(user)
         db.session.flush()  # Get the ID

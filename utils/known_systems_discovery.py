@@ -106,12 +106,14 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         all_hostname_stats = {}
         
         # Helper to merge hostname stats
-        def merge_stats(hostname, stats):
+        def merge_stats(hostname, stats, source_type):
             if not hostname:
                 return
             hostname = hostname.upper()
             if hostname in all_hostname_stats:
                 all_hostname_stats[hostname]['count'] += stats['count']
+                # Track all sources that contributed to this hostname
+                all_hostname_stats[hostname]['sources'].add(source_type)
                 # Take the later last_seen (handle timezone-aware vs naive)
                 new_ts = stats['last_seen']
                 old_ts = all_hostname_stats[hostname]['last_seen']
@@ -131,24 +133,25 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                 all_hostname_stats[hostname] = {
                     'count': stats['count'],
                     'last_seen': stats['last_seen'],
+                    'sources': {source_type},
                     'ip_addresses': set(stats.get('ip_addresses', []))
                 }
         
         # Merge from case_files
         for hostname, stats in file_stats.items():
-            merge_stats(hostname, stats)
+            merge_stats(hostname, stats, 'case_files')
         
-        # Merge from source events
+        # Merge from source events (EVTX, NDJSON, etc. - source_host field)
         for hostname, stats in event_stats.items():
-            merge_stats(hostname, stats)
+            merge_stats(hostname, stats, 'events')
         
-        # Merge from destination hosts
+        # Merge from destination hosts (UNC paths in events)
         for hostname, stats in dest_stats.items():
-            merge_stats(hostname, stats)
+            merge_stats(hostname, stats, 'unc_paths')
         
         # Merge from remote workstations (attackers, admins connecting remotely)
         for hostname, stats in remote_stats.items():
-            merge_stats(hostname, stats)
+            merge_stats(hostname, stats, 'logon_events')
         
         total_hostnames = len(all_hostname_stats)
         results['hostnames_processed'] = total_hostnames
@@ -168,12 +171,16 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                 # Get IPs from remote logon events (for systems we don't have EDR data on)
                 logon_ips = list(stats.get('ip_addresses', set()))
                 
+                # Get sources that contributed to this hostname
+                host_sources = list(stats.get('sources', set()))
+                
                 created, updated, alias_added = _process_hostname(
                     hostname, case_id, username,
                     artifact_count=stats['count'],
                     last_seen=stats['last_seen'],
                     shares=host_shares,
-                    logon_ips=logon_ips
+                    logon_ips=logon_ips,
+                    sources=host_sources
                 )
                 
                 if created:
@@ -638,7 +645,8 @@ def _get_hostnames_from_events(case_id: int) -> dict:
 
 def _process_hostname(hostname: str, case_id: int, username: str,
                       artifact_count: int = 1, last_seen: datetime = None,
-                      shares: List[str] = None, logon_ips: List[str] = None) -> Tuple[bool, bool, bool]:
+                      shares: List[str] = None, logon_ips: List[str] = None,
+                      sources: List[str] = None) -> Tuple[bool, bool, bool]:
     """Process a single hostname through deduplication logic
     
     Args:
@@ -649,6 +657,7 @@ def _process_hostname(hostname: str, case_id: int, username: str,
         last_seen: Timestamp of most recent artifact with this hostname
         shares: List of shares hosted by this system (from UNC paths)
         logon_ips: List of IPs this system connected FROM (from logon events)
+        sources: List of data sources (case_files, events, unc_paths, logon_events)
     
     Returns: (created, updated, alias_added)
     """
@@ -656,6 +665,8 @@ def _process_hostname(hostname: str, case_id: int, username: str,
         shares = []
     if logon_ips is None:
         logon_ips = []
+    if sources is None:
+        sources = []
     created = False
     updated = False
     alias_added = False
@@ -795,6 +806,10 @@ def _process_hostname(hostname: str, case_id: int, username: str,
                     new_value=hostname.upper()
                 )
         
+        # Add data sources
+        for source in sources:
+            system.add_source(source)
+        
         # Link to case
         system.link_to_case(case_id)
         
@@ -808,7 +823,8 @@ def _process_hostname(hostname: str, case_id: int, username: str,
             added_on=datetime.utcnow(),
             last_seen=last_seen if last_seen else datetime.utcnow(),
             os_type=details.get('os_type'),  # Auto-set from artifacts
-            os_version=details.get('os_version')  # Auto-set from NDJSON sources
+            os_version=details.get('os_version'),  # Auto-set from NDJSON sources
+            sources=sources  # Track data sources
         )
         db.session.add(system)
         db.session.flush()  # Get the ID

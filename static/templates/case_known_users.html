@@ -55,6 +55,7 @@
                     <tr>
                         <th>Username</th>
                         <th>SID</th>
+                        <th>Sources</th>
                         <th>Email</th>
                         <th>Aliases</th>
                         <th>Artifacts</th>
@@ -65,7 +66,7 @@
                 </thead>
                 <tbody id="usersBody">
                     <tr class="loading-row">
-                        <td colspan="8" class="text-center text-muted">Loading users...</td>
+                        <td colspan="9" class="text-center text-muted">Loading users...</td>
                     </tr>
                 </tbody>
             </table>
@@ -267,7 +268,7 @@ function renderUsers(users) {
     if (users.length === 0) {
         tbody.innerHTML = `
             <tr class="empty-row">
-                <td colspan="8" class="text-center text-muted">
+                <td colspan="9" class="text-center text-muted">
                     No known users found. Click "Find in Artifacts" to discover users.
                 </td>
             </tr>
@@ -279,6 +280,7 @@ function renderUsers(users) {
         <tr class="user-row ${u.compromised ? 'compromised' : ''}" onclick="openUserModal(${u.id})">
             <td class="username-cell">${escapeHtml(u.username || '-')}</td>
             <td class="sid-cell">${formatSID(u.sid)}</td>
+            <td class="sources-cell">${formatSourceBadges(u.sources)}</td>
             <td class="email-cell">${escapeHtml(u.email || '-')}</td>
             <td class="alias-cell">${formatList(u.aliases, 2)}</td>
             <td class="artifacts-cell">${u.artifacts_with_user}</td>
@@ -297,7 +299,8 @@ function filterUsers() {
         (u.username || '').toLowerCase().includes(search) ||
         (u.sid || '').toLowerCase().includes(search) ||
         (u.email || '').toLowerCase().includes(search) ||
-        u.aliases.some(a => a.toLowerCase().includes(search))
+        u.aliases.some(a => a.toLowerCase().includes(search)) ||
+        (u.sources || []).some(src => src.toLowerCase().includes(search))
     );
     renderUsers(filtered);
 }
@@ -571,6 +574,33 @@ function formatList(arr, max) {
     if (!arr || arr.length === 0) return '-';
     if (arr.length <= max) return arr.join(', ');
     return arr.slice(0, max).join(', ') + ` (+${arr.length - max})`;
+}
+
+function formatSourceBadges(sources) {
+    if (!sources || sources.length === 0) return '<span class="text-muted">-</span>';
+    
+    const sourceLabels = {
+        'case_files': { label: 'Files', class: 'badge-source-files' },
+        'events': { label: 'Events', class: 'badge-source-events' },
+        'evtx': { label: 'EVTX', class: 'badge-source-evtx' },
+        'ndjson': { label: 'NDJSON', class: 'badge-source-ndjson' },
+        'unc_paths': { label: 'UNC', class: 'badge-source-unc' },
+        'logon_events': { label: 'Logon', class: 'badge-source-logon' },
+        'firewall': { label: 'Firewall', class: 'badge-source-firewall' },
+        'registry': { label: 'Registry', class: 'badge-source-registry' },
+        'prefetch': { label: 'Prefetch', class: 'badge-source-prefetch' },
+        'lnk': { label: 'LNK', class: 'badge-source-lnk' },
+        'jumplist': { label: 'JumpList', class: 'badge-source-jumplist' },
+        'mft': { label: 'MFT', class: 'badge-source-mft' },
+        'srum': { label: 'SRUM', class: 'badge-source-srum' },
+        'browser': { label: 'Browser', class: 'badge-source-browser' },
+        'unknown': { label: '?', class: 'badge-muted' }
+    };
+    
+    return sources.map(src => {
+        const info = sourceLabels[src] || { label: src.toUpperCase(), class: 'badge-source-default' };
+        return `<span class="badge ${info.class}">${info.label}</span>`;
+    }).join(' ');
 }
 
 function formatSID(sid) {

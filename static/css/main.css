@@ -814,6 +814,92 @@ tbody td {
   color: #f472b6;
 }
 
+/* Data Source Badges - for Known Systems/Users */
+.badge-source-files {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.badge-source-events {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.badge-source-evtx {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.badge-source-ndjson {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.badge-source-unc {
+  background-color: rgba(6, 182, 212, 0.2);
+  color: #22d3d8;
+}
+
+.badge-source-logon {
+  background-color: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
+.badge-source-firewall {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.badge-source-registry {
+  background-color: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.badge-source-prefetch {
+  background-color: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+}
+
+.badge-source-lnk {
+  background-color: rgba(20, 184, 166, 0.2);
+  color: #2dd4bf;
+}
+
+.badge-source-jumplist {
+  background-color: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
+.badge-source-mft {
+  background-color: rgba(132, 204, 22, 0.2);
+  color: #a3e635;
+}
+
+.badge-source-srum {
+  background-color: rgba(217, 70, 239, 0.2);
+  color: #e879f9;
+}
+
+.badge-source-browser {
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+
+.badge-source-default {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.sources-cell {
+  white-space: nowrap;
+}
+
+.sources-cell .badge {
+  margin-right: 2px;
+  font-size: 0.7rem;
+  padding: 2px 5px;
+}
+
 /* Parser Badge */
 .parser-badge {
   display: inline-block;
