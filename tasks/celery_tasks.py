@@ -558,7 +558,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         Dict with completion results
     """
     from utils.clickhouse import get_fresh_client
-    from utils.progress import clear_progress, set_completion_phase
+    from utils.progress import clear_progress, set_phase
     
     logger.info(f"Running completion tasks for case {case_uuid}")
     
@@ -572,7 +572,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
     }
     
     # Step 1: Flush ClickHouse buffer table
-    set_completion_phase(case_uuid, 'flushing_buffer')
+    set_phase(case_uuid, 'buffer_flush')
     self.update_state(state='PROCESSING', meta={'stage': 'flushing_buffer'})
     try:
         client = get_fresh_client()
@@ -585,8 +585,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         logger.debug(f"Buffer flush skipped: {e}")
         results['buffer_flushed'] = True  # Not an error if buffer doesn't exist
     
-    # Step 2: Run known systems discovery
-    set_completion_phase(case_uuid, 'discovering_systems')
+    # Step 2: Run known systems discovery (with progress tracking)
     self.update_state(state='PROCESSING', meta={'stage': 'discovering_systems'})
     try:
         from utils.known_systems_discovery import discover_known_systems
@@ -597,7 +596,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
                 case_id=case_id,
                 case_uuid=case_uuid,
                 username='system',
-                track_progress=False
+                track_progress=True  # Enable progress tracking
             )
             results['systems_discovered'] = systems_result.get('systems_created', 0) + systems_result.get('systems_updated', 0)
             logger.info(f"Systems discovery complete: {results['systems_discovered']} systems")
@@ -605,8 +604,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         logger.warning(f"Systems discovery failed: {e}")
         results['errors'].append(f"Systems discovery: {str(e)}")
     
-    # Step 3: Run known users discovery
-    set_completion_phase(case_uuid, 'discovering_users')
+    # Step 3: Run known users discovery (with progress tracking)
     self.update_state(state='PROCESSING', meta={'stage': 'discovering_users'})
     try:
         from utils.known_users_discovery import discover_known_users
@@ -617,7 +615,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
                 case_id=case_id,
                 case_uuid=case_uuid,
                 username='system',
-                track_progress=False
+                track_progress=True  # Enable progress tracking
             )
             results['users_discovered'] = users_result.get('users_created', 0) + users_result.get('users_updated', 0)
             logger.info(f"Users discovery complete: {results['users_discovered']} users")
@@ -626,7 +624,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         results['errors'].append(f"Users discovery: {str(e)}")
     
     # Step 4: Verify staging folder is empty
-    set_completion_phase(case_uuid, 'verifying_staging')
+    set_phase(case_uuid, 'complete')
     self.update_state(state='PROCESSING', meta={'stage': 'verifying_staging'})
     try:
         staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)

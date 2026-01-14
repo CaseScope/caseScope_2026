@@ -1,6 +1,16 @@
 {
-  "version": "3.73.00",
+  "version": "3.74.00",
   "changelog": [
+    {
+      "version": "3.74.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Progress: Fixed race condition using atomic Redis HINCRBY (no more lost increments)",
+        "Progress: Added phase tracking for post-processing (systems/users discovery)",
+        "Progress: Progress bar now shows discovery progress with item counts",
+        "Progress: Current item being processed displayed during discovery phases"
+      ]
+    },
     {
       "version": "3.73.00",
       "date": "2026-01-13",

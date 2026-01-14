@@ -281,8 +281,25 @@ function loadStats() {
         .catch(err => console.error('Error loading stats:', err));
 }
 
-// Get human-readable completion phase name
-function getCompletionPhaseName(phase) {
+// Get human-readable phase name with progress
+function getCompletionPhaseName(phase, data) {
+    if (phase === 'flushing_buffer' || phase === 'discovering_systems' && (!data || !data.systems)) {
+        return 'Flushing events to database...';
+    }
+    if (phase === 'discovering_systems' && data && data.systems) {
+        const s = data.systems;
+        if (s.total > 0) {
+            return `Discovering systems: ${s.completed} / ${s.total}`;
+        }
+        return 'Discovering known systems...';
+    }
+    if (phase === 'discovering_users' && data && data.users) {
+        const u = data.users;
+        if (u.total > 0) {
+            return `Discovering users: ${u.completed} / ${u.total}`;
+        }
+        return 'Discovering known users...';
+    }
     const phases = {
         'flushing_buffer': 'Flushing events to database...',
         'discovering_systems': 'Discovering known systems...',
@@ -317,17 +334,29 @@ function loadProgress() {
                 
                 // Handle completion phase (post-processing tasks)
                 if (isCompleting) {
-                    document.getElementById('progress-bar').style.width = '100%';
+                    // Calculate progress based on phase
+                    let phasePercent = 100;
+                    let phaseText = getCompletionPhaseName(completionPhase, data);
+                    
+                    // Show progress for discovery phases
+                    if (completionPhase === 'discovering_systems' && data.systems && data.systems.total > 0) {
+                        phasePercent = Math.round((data.systems.completed / data.systems.total) * 100);
+                    } else if (completionPhase === 'discovering_users' && data.users && data.users.total > 0) {
+                        phasePercent = Math.round((data.users.completed / data.users.total) * 100);
+                    }
+                    
+                    document.getElementById('progress-bar').style.width = phasePercent + '%';
                     document.getElementById('progress-current').textContent = processed;
                     document.getElementById('progress-total').textContent = total;
                     statusEl.textContent = 'Completing...';
                     statusEl.className = 'tile-status status-completing';
                     progressTile.classList.add('processing');
                     
-                    // Show completion phase in worker list
+                    // Show completion phase with progress in worker list
+                    let currentItem = data.current_item ? ` (${data.current_item})` : '';
                     workerList.innerHTML = `<div class="worker-item completion-phase">
                         <span class="worker-name">🔄</span>
-                        <span class="worker-file">${getCompletionPhaseName(completionPhase)}</span>
+                        <span class="worker-file">${phaseText}${currentItem}</span>
                     </div>`;
                     wasProcessing = true;  // Track for reset detection
                     return;

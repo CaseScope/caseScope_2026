@@ -1,9 +1,10 @@
 """Progress Tracking Utility for CaseScope
 
-Uses Redis to track file processing progress per case.
-Provides persistent progress that survives page navigation.
+Uses Redis hashes for atomic progress tracking per case.
+Tracks file processing and post-processing phases (known systems/users discovery).
+
+All increments use HINCRBY for atomicity - no race conditions.
 """
-import json
 import logging
 import redis
 from typing import Optional, Dict, Any
@@ -47,16 +48,26 @@ def init_progress(case_uuid: str, total_files: int) -> None:
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
         
-        progress_data = {
-            'total': total_files,
-            'completed': 0,
+        # Delete existing key first to reset all fields
+        client.delete(key)
+        
+        # Set all fields using hash
+        client.hset(key, mapping={
+            'phase': 'files',
+            'files_total': total_files,
+            'files_completed': 0,
+            'systems_total': 0,
+            'systems_completed': 0,
+            'users_total': 0,
+            'users_completed': 0,
+            'current_item': '',
             'status': 'processing'
-        }
+        })
         
-        # Set with 24-hour expiry (auto-cleanup for stale progress)
-        client.setex(key, 86400, json.dumps(progress_data))
+        # Set 24-hour expiry
+        client.expire(key, 86400)
         
-        # Clear any existing completion trigger so new batch can trigger when done
+        # Clear any existing completion trigger
         trigger_key = f"completion_triggered:{case_uuid}"
         client.delete(trigger_key)
         
@@ -67,9 +78,9 @@ def init_progress(case_uuid: str, total_files: int) -> None:
 
 
 def increment_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
-    """Increment completed count for a case.
+    """Atomically increment completed file count for a case.
     
-    Called when a file finishes processing.
+    Uses HINCRBY for atomic increment - no race conditions.
     
     Args:
         case_uuid: Case UUID
@@ -81,22 +92,26 @@ def increment_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
         
-        data = client.get(key)
-        if not data:
+        # Check if key exists
+        if not client.exists(key):
             return None
         
-        progress = json.loads(data)
-        progress['completed'] = progress.get('completed', 0) + 1
+        # Atomic increment
+        completed = client.hincrby(key, 'files_completed', 1)
+        total = int(client.hget(key, 'files_total') or 0)
         
-        # Check if complete
-        if progress['completed'] >= progress['total']:
-            progress['status'] = 'complete'
+        # Check if files phase complete
+        if completed >= total:
+            # Don't change status yet - completion task will handle phases
+            pass
         
-        # Update with same TTL
-        client.setex(key, 86400, json.dumps(progress))
-        logger.debug(f"Progress for case {case_uuid}: {progress['completed']}/{progress['total']}")
+        logger.debug(f"Progress for case {case_uuid}: {completed}/{total}")
         
-        return progress
+        return {
+            'completed': completed,
+            'total': total,
+            'status': 'processing'
+        }
         
     except Exception as e:
         logger.warning(f"Failed to increment progress: {e}")
@@ -110,17 +125,37 @@ def get_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
         case_uuid: Case UUID
         
     Returns:
-        Progress dict with {total, completed, status} or None if no active progress
+        Progress dict with all phase data or None if no active progress
     """
     try:
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
         
-        data = client.get(key)
+        data = client.hgetall(key)
         if not data:
             return None
         
-        return json.loads(data)
+        # Convert to proper types
+        return {
+            'phase': data.get('phase', 'files'),
+            'status': data.get('status', 'processing'),
+            'current_item': data.get('current_item', ''),
+            'files': {
+                'total': int(data.get('files_total', 0)),
+                'completed': int(data.get('files_completed', 0))
+            },
+            'systems': {
+                'total': int(data.get('systems_total', 0)),
+                'completed': int(data.get('systems_completed', 0))
+            },
+            'users': {
+                'total': int(data.get('users_total', 0)),
+                'completed': int(data.get('users_completed', 0))
+            },
+            # Legacy compatibility
+            'total': int(data.get('files_total', 0)),
+            'completed': int(data.get('files_completed', 0))
+        }
         
     except Exception as e:
         logger.warning(f"Failed to get progress: {e}")
@@ -159,54 +194,127 @@ def add_to_progress(case_uuid: str, additional_files: int) -> Optional[Dict[str,
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
         
-        data = client.get(key)
-        if not data:
+        if not client.exists(key):
             # No existing progress, initialize new
             init_progress(case_uuid, additional_files)
             return get_progress(case_uuid)
         
-        progress = json.loads(data)
-        progress['total'] = progress.get('total', 0) + additional_files
-        progress['status'] = 'processing'
+        # Atomic increment of total
+        new_total = client.hincrby(key, 'files_total', additional_files)
+        client.hset(key, 'status', 'processing')
         
-        client.setex(key, 86400, json.dumps(progress))
-        logger.info(f"Added {additional_files} files to progress for case {case_uuid}")
+        logger.info(f"Added {additional_files} files to progress for case {case_uuid}, new total: {new_total}")
         
-        return progress
+        return get_progress(case_uuid)
         
     except Exception as e:
         logger.warning(f"Failed to add to progress: {e}")
         return None
 
 
-def set_completion_phase(case_uuid: str, phase: str) -> None:
-    """Set the current completion phase for a case.
-    
-    Called during post-indexing tasks (buffer flush, system/user discovery).
+def set_phase(case_uuid: str, phase: str, total: int = 0, current_item: str = '') -> None:
+    """Set the current processing phase.
     
     Args:
         case_uuid: Case UUID
-        phase: Current phase name ('flushing_buffer', 'discovering_systems', 
-               'discovering_users', 'done')
+        phase: Phase name ('files', 'buffer_flush', 'systems', 'users', 'complete')
+        total: Total items for this phase (for systems/users phases)
+        current_item: Current item being processed (optional)
     """
     try:
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
         
-        data = client.get(key)
-        if data:
-            progress = json.loads(data)
-        else:
-            progress = {'total': 0, 'completed': 0}
+        updates = {
+            'phase': phase,
+            'current_item': current_item
+        }
         
-        progress['status'] = 'completing'
-        progress['completion_phase'] = phase
+        if phase == 'systems':
+            updates['systems_total'] = total
+            updates['systems_completed'] = 0
+            updates['status'] = 'discovering_systems'
+        elif phase == 'users':
+            updates['users_total'] = total
+            updates['users_completed'] = 0
+            updates['status'] = 'discovering_users'
+        elif phase == 'buffer_flush':
+            updates['status'] = 'flushing_buffer'
+        elif phase == 'complete':
+            updates['status'] = 'complete'
         
-        client.setex(key, 86400, json.dumps(progress))
-        logger.debug(f"Set completion phase for case {case_uuid}: {phase}")
+        client.hset(key, mapping=updates)
+        logger.debug(f"Set phase for case {case_uuid}: {phase}")
         
     except Exception as e:
-        logger.warning(f"Failed to set completion phase: {e}")
+        logger.warning(f"Failed to set phase: {e}")
+
+
+def increment_phase(case_uuid: str, phase: str, current_item: str = '') -> Optional[int]:
+    """Atomically increment the counter for the current phase.
+    
+    Args:
+        case_uuid: Case UUID
+        phase: Phase name ('systems' or 'users')
+        current_item: Current item being processed (optional)
+        
+    Returns:
+        New completed count or None on error
+    """
+    try:
+        client = get_redis_client()
+        key = _get_progress_key(case_uuid)
+        
+        if phase == 'systems':
+            completed = client.hincrby(key, 'systems_completed', 1)
+        elif phase == 'users':
+            completed = client.hincrby(key, 'users_completed', 1)
+        else:
+            return None
+        
+        if current_item:
+            client.hset(key, 'current_item', current_item)
+        
+        return completed
+        
+    except Exception as e:
+        logger.warning(f"Failed to increment phase: {e}")
+        return None
+
+
+def set_current_item(case_uuid: str, item: str) -> None:
+    """Set the current item being processed (for display).
+    
+    Args:
+        case_uuid: Case UUID
+        item: Item name/description
+    """
+    try:
+        client = get_redis_client()
+        key = _get_progress_key(case_uuid)
+        client.hset(key, 'current_item', item)
+    except Exception as e:
+        logger.warning(f"Failed to set current item: {e}")
+
+
+# Legacy compatibility functions
+
+def set_completion_phase(case_uuid: str, phase: str) -> None:
+    """Legacy function - maps old phase names to new system.
+    
+    Args:
+        case_uuid: Case UUID
+        phase: Old phase name
+    """
+    phase_mapping = {
+        'flushing_buffer': 'buffer_flush',
+        'discovering_systems': 'systems',
+        'discovering_users': 'users',
+        'verifying_staging': 'complete',
+        'done': 'complete'
+    }
+    new_phase = phase_mapping.get(phase, phase)
+    set_phase(case_uuid, new_phase)
 
 
 def mark_completion_triggered(case_uuid: str) -> bool:

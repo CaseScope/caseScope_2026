@@ -1002,7 +1002,10 @@ def get_file_list(case_uuid):
 @api_bp.route('/files/progress/<case_uuid>')
 @login_required
 def get_processing_progress(case_uuid):
-    """Get processing progress for a case"""
+    """Get processing progress for a case
+    
+    Returns progress for all phases: files, systems discovery, users discovery
+    """
     try:
         from tasks.celery_tasks import celery_app
         from utils.progress import get_progress
@@ -1017,16 +1020,39 @@ def get_processing_progress(case_uuid):
         
         if progress:
             # Active batch in progress
-            total_files = progress.get('total', 0)
-            processed_files = progress.get('completed', 0)
+            phase = progress.get('phase', 'files')
             status = progress.get('status', 'idle')
+            current_item = progress.get('current_item', '')
+            
+            # File progress
+            files_data = progress.get('files', {})
+            total_files = files_data.get('total', 0)
+            processed_files = files_data.get('completed', 0)
+            
+            # Discovery progress
+            systems_data = progress.get('systems', {})
+            users_data = progress.get('users', {})
+            
+            # Determine state
             is_processing = status == 'processing'
-            is_completing = status == 'completing'
-            completion_phase = progress.get('completion_phase') if is_completing else None
+            is_completing = status in ('flushing_buffer', 'discovering_systems', 'discovering_users')
+            
+            # Map new status to legacy completion_phase for backward compatibility
+            completion_phase_map = {
+                'flushing_buffer': 'flushing_buffer',
+                'discovering_systems': 'discovering_systems',
+                'discovering_users': 'discovering_users'
+            }
+            completion_phase = completion_phase_map.get(status)
         else:
             # No active batch - idle state
+            phase = 'idle'
+            status = 'idle'
+            current_item = ''
             total_files = 0
             processed_files = 0
+            systems_data = {'total': 0, 'completed': 0}
+            users_data = {'total': 0, 'completed': 0}
             is_processing = False
             is_completing = False
             completion_phase = None
@@ -1061,12 +1087,23 @@ def get_processing_progress(case_uuid):
         return jsonify({
             'success': True,
             'case_uuid': case_uuid,
+            # Legacy fields for backward compatibility
             'total_files': total_files,
             'processed_files': processed_files,
             'workers': workers,
             'is_processing': is_processing,
             'is_completing': is_completing,
-            'completion_phase': completion_phase
+            'completion_phase': completion_phase,
+            # New phase-based progress
+            'phase': phase,
+            'status': status,
+            'current_item': current_item,
+            'files': {
+                'total': total_files,
+                'completed': processed_files
+            },
+            'systems': systems_data,
+            'users': users_data
         })
         
     except Exception as e:

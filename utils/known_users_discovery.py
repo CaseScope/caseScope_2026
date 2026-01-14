@@ -6,8 +6,6 @@ Can be called from:
 2. UI button click ("Find in Artifacts")
 """
 import logging
-import redis
-import json
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from sqlalchemy.exc import IntegrityError
@@ -20,9 +18,6 @@ from models.known_user import (
 from config import Config
 
 logger = logging.getLogger(__name__)
-
-# Redis client for progress tracking
-_redis_client = None
 
 # Built-in/System accounts to exclude from discovery
 SYSTEM_ACCOUNTS = {
@@ -113,73 +108,36 @@ def clean_username(username: str) -> str:
     return username
 
 
-def get_redis():
-    """Get Redis client for progress tracking"""
-    global _redis_client
-    if _redis_client is None:
-        _redis_client = redis.Redis(
-            host=Config.REDIS_HOST,
-            port=Config.REDIS_PORT,
-            db=Config.REDIS_DB,
-            decode_responses=True
-        )
-    return _redis_client
-
-
 def init_user_discovery_progress(case_uuid: str, total: int):
-    """Initialize discovery progress in Redis"""
-    r = get_redis()
-    key = f"user_discovery:{case_uuid}"
-    r.hset(key, mapping={
-        'status': 'running',
-        'total': total,
-        'processed': 0,
-        'created': 0,
-        'updated': 0,
-        'current_user': ''
-    })
-    r.expire(key, 3600)  # 1 hour TTL
+    """Initialize users discovery progress using unified progress module"""
+    from utils.progress import set_phase
+    set_phase(case_uuid, 'users', total=total)
 
 
 def update_user_discovery_progress(case_uuid: str, processed: int, created: int, updated: int, current: str = ''):
-    """Update discovery progress in Redis"""
-    r = get_redis()
-    key = f"user_discovery:{case_uuid}"
-    r.hset(key, mapping={
-        'processed': processed,
-        'created': created,
-        'updated': updated,
-        'current_user': current
-    })
+    """Update users discovery progress using unified progress module"""
+    from utils.progress import set_current_item
+    # Only update current item, increment is called per-item now
+    set_current_item(case_uuid, current)
 
 
 def complete_user_discovery_progress(case_uuid: str, results: dict):
-    """Mark discovery as complete"""
-    r = get_redis()
-    key = f"user_discovery:{case_uuid}"
-    r.hset(key, mapping={
-        'status': 'complete',
-        'processed': results.get('users_processed', 0),
-        'created': results.get('users_created', 0),
-        'updated': results.get('users_updated', 0),
-        'current_user': ''
-    })
-    r.expire(key, 300)  # Keep for 5 minutes after completion
+    """Mark users discovery as complete - transition handled by caller"""
+    pass  # Phase transition handled by celery task
 
 
 def get_user_discovery_progress(case_uuid: str) -> Optional[dict]:
-    """Get current discovery progress"""
-    r = get_redis()
-    key = f"user_discovery:{case_uuid}"
-    data = r.hgetall(key)
-    if data:
+    """Get current discovery progress from unified progress module"""
+    from utils.progress import get_progress
+    progress = get_progress(case_uuid)
+    if progress and progress.get('phase') == 'users':
         return {
-            'status': data.get('status', 'unknown'),
-            'total': int(data.get('total', 0)),
-            'processed': int(data.get('processed', 0)),
-            'created': int(data.get('created', 0)),
-            'updated': int(data.get('updated', 0)),
-            'current_user': data.get('current_user', '')
+            'status': 'running' if progress.get('status') == 'discovering_users' else progress.get('status'),
+            'total': progress['users']['total'],
+            'processed': progress['users']['completed'],
+            'created': 0,  # Not tracked in unified progress
+            'updated': 0,
+            'current_user': progress.get('current_item', '')
         }
     return None
 
@@ -334,14 +292,13 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
                 
                 processed += 1
                 
-                # Update progress every 10 users or on last one
-                if track_progress and (processed % 10 == 0 or processed == total_users):
-                    update_user_discovery_progress(
-                        case_uuid, processed,
-                        results['users_created'],
-                        results['users_updated'],
-                        stats.get('username', stats.get('sid', ''))
-                    )
+                # Update progress atomically
+                if track_progress:
+                    from utils.progress import increment_phase, set_current_item
+                    increment_phase(case_uuid, 'users')
+                    # Update current item every 10 users to reduce Redis calls
+                    if processed % 10 == 0 or processed == total_users:
+                        set_current_item(case_uuid, stats.get('username', stats.get('sid', '')))
                     
             except IntegrityError:
                 # Race condition - another process created this user

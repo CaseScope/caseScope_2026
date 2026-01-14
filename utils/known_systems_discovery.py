@@ -6,8 +6,6 @@ Can be called from:
 2. UI button click ("Find in Artifacts")
 """
 import logging
-import redis
-import json
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from sqlalchemy.exc import IntegrityError
@@ -21,76 +19,37 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-# Redis client for progress tracking
-_redis_client = None
-
-def get_redis():
-    """Get Redis client for progress tracking"""
-    global _redis_client
-    if _redis_client is None:
-        _redis_client = redis.Redis(
-            host=Config.REDIS_HOST,
-            port=Config.REDIS_PORT,
-            db=Config.REDIS_DB,
-            decode_responses=True
-        )
-    return _redis_client
-
 
 def init_discovery_progress(case_uuid: str, total: int):
-    """Initialize discovery progress in Redis"""
-    r = get_redis()
-    key = f"discovery:{case_uuid}"
-    r.hset(key, mapping={
-        'status': 'running',
-        'total': total,
-        'processed': 0,
-        'created': 0,
-        'updated': 0,
-        'current_hostname': ''
-    })
-    r.expire(key, 3600)  # 1 hour TTL
+    """Initialize systems discovery progress using unified progress module"""
+    from utils.progress import set_phase
+    set_phase(case_uuid, 'systems', total=total)
 
 
 def update_discovery_progress(case_uuid: str, processed: int, created: int, updated: int, current: str = ''):
-    """Update discovery progress in Redis"""
-    r = get_redis()
-    key = f"discovery:{case_uuid}"
-    r.hset(key, mapping={
-        'processed': processed,
-        'created': created,
-        'updated': updated,
-        'current_hostname': current
-    })
+    """Update systems discovery progress using unified progress module"""
+    from utils.progress import increment_phase, set_current_item
+    # Only increment, don't set absolute value (increment is called per-item now)
+    set_current_item(case_uuid, current)
 
 
 def complete_discovery_progress(case_uuid: str, results: dict):
-    """Mark discovery as complete"""
-    r = get_redis()
-    key = f"discovery:{case_uuid}"
-    r.hset(key, mapping={
-        'status': 'complete',
-        'processed': results.get('hostnames_processed', 0),
-        'created': results.get('systems_created', 0),
-        'updated': results.get('systems_updated', 0),
-        'current_hostname': ''
-    })
-    r.expire(key, 300)  # Keep for 5 minutes after completion
+    """Mark systems discovery as complete - transition to next phase handled by caller"""
+    pass  # Phase transition handled by celery task
 
 
 def get_discovery_progress(case_uuid: str) -> Optional[dict]:
-    """Get current discovery progress"""
-    r = get_redis()
-    key = f"discovery:{case_uuid}"
-    data = r.hgetall(key)
-    if data:
+    """Get current discovery progress from unified progress module"""
+    from utils.progress import get_progress
+    progress = get_progress(case_uuid)
+    if progress and progress.get('phase') == 'systems':
         return {
-            'status': data.get('status', 'unknown'),
-            'total': int(data.get('total', 0)),
-            'processed': int(data.get('processed', 0)),
-            'created': int(data.get('created', 0)),
-            'updated': int(data.get('updated', 0)),
-            'current_hostname': data.get('current_hostname', '')
+            'status': 'running' if progress.get('status') == 'discovering_systems' else progress.get('status'),
+            'total': progress['systems']['total'],
+            'processed': progress['systems']['completed'],
+            'created': 0,  # Not tracked in unified progress
+            'updated': 0,
+            'current_hostname': progress.get('current_item', '')
         }
     return None
 
@@ -226,14 +185,13 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
                 
                 processed += 1
                 
-                # Update progress every 10 hostnames or on last one
-                if track_progress and (processed % 10 == 0 or processed == total_hostnames):
-                    update_discovery_progress(
-                        case_uuid, processed,
-                        results['systems_created'],
-                        results['systems_updated'],
-                        hostname
-                    )
+                # Update progress atomically
+                if track_progress:
+                    from utils.progress import increment_phase, set_current_item
+                    increment_phase(case_uuid, 'systems')
+                    # Update current item every 10 hostnames to reduce Redis calls
+                    if processed % 10 == 0 or processed == total_hostnames:
+                        set_current_item(case_uuid, hostname)
                     
             except IntegrityError:
                 # Race condition - another process created this system
