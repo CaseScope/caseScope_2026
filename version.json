@@ -1,6 +1,13 @@
 {
-  "version": "3.85.01",
+  "version": "3.85.02",
   "changelog": [
+    {
+      "version": "3.85.02",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Users: Fixed SID and email column widths to prevent horizontal scroll"
+      ]
+    },
     {
       "version": "3.85.01",
       "date": "2026-01-14",
