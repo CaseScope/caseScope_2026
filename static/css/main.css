@@ -4769,6 +4769,33 @@ input:checked + .slider:before {
    Known Users Styles
    ======================================== */
 
+.users-tile {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.users-tile .tile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.users-tile .tile-body {
+  padding: 0;
+}
+
+.users-count {
+  font-size: 13px;
+  color: var(--text-muted);
+  background-color: var(--bg-secondary);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
 .users-table-container {
   overflow-x: auto;
   max-height: 600px;
