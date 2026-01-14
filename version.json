@@ -1,6 +1,13 @@
 {
-  "version": "3.82.00",
+  "version": "3.82.01",
   "changelog": [
+    {
+      "version": "3.82.01",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: Fixed 'Only These' filter mode - now uses OR logic (match ANY checked type) instead of AND"
+      ]
+    },
     {
       "version": "3.82.00",
       "date": "2026-01-14",

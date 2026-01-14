@@ -1453,44 +1453,44 @@ def get_hunting_events(case_id):
                 quoted_types = "', '".join(types_list)
                 type_filter = f" AND artifact_type IN ('{quoted_types}')"
         
-        # Build sigma/alert filter based on mode
-        # 'all' mode: show all events, 'exclude' hides sigma hits
-        # 'only' mode: 'only' shows only sigma hits, 'exclude_all' shows nothing with alerts
+        # Build alert type filters based on mode
+        # 'all' mode: show all events, unchecking a type hides those events (AND logic - exclusion)
+        # 'only' mode: show only events matching ANY checked type (OR logic - inclusion)
         sigma_filter = ""
-        if sigma_filter_param == 'exclude':
-            # Hide events with SIGMA hits (All Events mode, SIGMA unchecked)
-            sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
-        elif sigma_filter_param == 'only':
-            # Show only events with SIGMA hits (Only These mode, SIGMA checked)
-            sigma_filter = " AND (rule_level IS NOT NULL AND rule_level != '')"
-        elif sigma_filter_param == 'exclude_all':
-            # Only These mode with nothing checked - show no alert events
-            # This effectively means show only non-alert events
-            sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
-        
-        # Build IOC filter based on mode
         ioc_filter = ""
-        if ioc_filter_param == 'exclude':
-            # Hide events with IOC matches (All Events mode, IOC unchecked)
-            ioc_filter = " AND length(ioc_types) = 0"
-        elif ioc_filter_param == 'only':
-            # Show only events with IOC matches (Only These mode, IOC checked)
-            ioc_filter = " AND length(ioc_types) > 0"
-        elif ioc_filter_param == 'exclude_all':
-            # Only These mode with nothing checked - show no IOC events
-            ioc_filter = " AND length(ioc_types) = 0"
-        
-        # Build Analyst Tagged filter based on mode
         analyst_filter = ""
-        if analyst_filter_param == 'exclude':
-            # Hide analyst-tagged events (All Events mode, Analyst unchecked)
-            analyst_filter = " AND analyst_tagged = false"
-        elif analyst_filter_param == 'only':
-            # Show only analyst-tagged events (Only These mode, Analyst checked)
-            analyst_filter = " AND analyst_tagged = true"
-        elif analyst_filter_param == 'exclude_all':
-            # Only These mode with nothing checked - show no analyst-tagged events
-            analyst_filter = " AND analyst_tagged = false"
+        alert_type_filter = ""
+        
+        if alert_mode == 'only':
+            # "Only These" mode - build OR condition for checked types
+            # Events must match AT LEAST ONE of the checked alert types
+            or_conditions = []
+            
+            if sigma_filter_param == 'only':
+                or_conditions.append("(rule_level IS NOT NULL AND rule_level != '')")
+            
+            if ioc_filter_param == 'only':
+                or_conditions.append("(length(ioc_types) > 0)")
+            
+            if analyst_filter_param == 'only':
+                or_conditions.append("(analyst_tagged = true)")
+            
+            if or_conditions:
+                # Show events matching ANY of the checked types
+                alert_type_filter = f" AND ({' OR '.join(or_conditions)})"
+            else:
+                # No types checked in "Only These" mode - show nothing (impossible condition)
+                alert_type_filter = " AND 1=0"
+        else:
+            # "All Events" mode - use AND logic to exclude unchecked types
+            if sigma_filter_param == 'exclude':
+                sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
+            
+            if ioc_filter_param == 'exclude':
+                ioc_filter = " AND length(ioc_types) = 0"
+            
+            if analyst_filter_param == 'exclude':
+                analyst_filter = " AND analyst_tagged = false"
         
         # Build severity level filter
         # This filters which SIGMA severity levels to show/hide
@@ -1631,21 +1631,21 @@ def get_hunting_events(case_id):
             
             count_query = f"""
                 SELECT count() FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}"
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
