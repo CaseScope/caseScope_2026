@@ -1,8 +1,13 @@
 """IOC Artifact Tagger for CaseScope
 
 Searches ClickHouse artifacts for IOC matches and updates artifact counts.
-Handles partial matching (e.g., "winscp.exe" in "c:\\windows\\winscp.exe")
-and case-insensitive comparisons.
+
+Match Types:
+    - token: Uses hasTokenCaseInsensitive() on raw_json for whole-word matching
+      Best for hashes, IPs, unique identifiers
+    - substring: Uses LIKE for partial matching
+      Best for file paths, registry, URLs, command lines
+    - regex: Uses match() for pattern matching
 
 Also marks matching events with IOC types for visual highlighting.
 """
@@ -204,8 +209,91 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[Tuple[str, bool]
     return unique_terms
 
 
+def build_token_match_clause(value: str, column: str = 'raw_json') -> str:
+    """Build hasTokenCaseInsensitive clause for token matching.
+    
+    Token matching ensures 'ltsvc' matches 'c:\\ltsvc\\' but NOT 'altsvc'.
+    Uses raw_json for full event data coverage.
+    
+    Args:
+        value: The IOC value to match as a token
+        column: Column to search (default: raw_json)
+    
+    Returns: SQL clause string
+    """
+    escaped = value.replace("'", "''")
+    return f"hasTokenCaseInsensitive({column}, '{escaped}')"
+
+
+def build_substring_match_clause(value: str, column: str = 'raw_json') -> str:
+    """Build LIKE clause for substring matching.
+    
+    Substring matching finds any occurrence of the value.
+    Uses raw_json for full event data coverage.
+    
+    Args:
+        value: The IOC value to match as substring
+        column: Column to search (default: raw_json)
+    
+    Returns: SQL clause string
+    """
+    escaped = value.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
+    return f"lower({column}) LIKE '%{escaped}%'"
+
+
+def build_regex_match_clause(value: str, column: str = 'raw_json') -> str:
+    """Build regex match clause.
+    
+    Args:
+        value: The regex pattern to match
+        column: Column to search (default: raw_json)
+    
+    Returns: SQL clause string
+    """
+    escaped = value.replace("'", "\\'").replace("\\", "\\\\")
+    return f"match(lower({column}), '{escaped}')"
+
+
+def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str, 
+                           aliases: List[str] = None) -> str:
+    """Build the complete WHERE clause for an IOC based on its match type.
+    
+    Args:
+        ioc_value: The IOC value
+        ioc_type: The IOC type (e.g., 'File Path', 'MD5 Hash')
+        match_type: 'token', 'substring', or 'regex'
+        aliases: Optional list of aliases to also match
+    
+    Returns: SQL WHERE clause (without 'WHERE')
+    """
+    # Build primary match clause based on match_type
+    if match_type == 'token':
+        primary_clause = build_token_match_clause(ioc_value, 'raw_json')
+    elif match_type == 'regex':
+        primary_clause = build_regex_match_clause(ioc_value, 'raw_json')
+    else:  # substring (default)
+        primary_clause = build_substring_match_clause(ioc_value, 'raw_json')
+    
+    # If aliases exist, add alias validation (any alias must also match)
+    if aliases and len(aliases) > 0:
+        alias_clauses = []
+        for alias in aliases:
+            if alias:
+                # Aliases always use substring matching for flexibility
+                alias_clauses.append(build_substring_match_clause(alias, 'raw_json'))
+        
+        if alias_clauses:
+            alias_clause = ' OR '.join(alias_clauses)
+            return f"({primary_clause}) AND ({alias_clause})"
+    
+    return primary_clause
+
+
 def build_search_conditions(search_terms: List[Tuple[str, bool]], param_prefix: str = 'term') -> Tuple[str, Dict]:
     """Build SQL WHERE conditions and parameters for search terms.
+    
+    LEGACY: This function is kept for backward compatibility.
+    New code should use build_ioc_match_clause() instead.
     
     Args:
         search_terms: List of (term, is_filename) tuples. Filenames use word-boundary matching.
@@ -249,11 +337,15 @@ def search_artifacts_for_ioc(
     ioc_value: str,
     ioc_type: str,
     aliases: List[str] = None,
+    match_type: str = None,
     limit: int = 1000
 ) -> Dict[str, Any]:
     """Search ClickHouse artifacts for an IOC.
     
-    Uses case-insensitive partial matching on search_blob.
+    Uses raw_json for comprehensive matching with three modes:
+        - token: hasTokenCaseInsensitive() for whole-word matching
+        - substring: LIKE for partial matching  
+        - regex: match() for pattern matching
     
     If aliases are provided, uses two-tier matching:
     1. Find events matching the primary IOC value
@@ -265,88 +357,27 @@ def search_artifacts_for_ioc(
             'earliest': datetime or None,
             'latest': datetime or None,
             'artifact_types': dict of type -> count,
-            'matched_terms': list of which search terms matched
+            'match_type_used': str
         }
     """
+    from models.ioc import detect_match_type
+    
     client = get_fresh_client()
     
-    # Get searchable terms from primary value
-    search_terms = extract_searchable_terms(ioc_value, ioc_type)
-    
-    if not search_terms:
+    if not ioc_value:
         return {
             'match_count': 0,
             'earliest': None,
             'latest': None,
             'artifact_types': {},
-            'matched_terms': []
+            'match_type_used': None
         }
     
-    where_clause, params = build_search_conditions(search_terms)
+    # Determine match type - explicit > auto-detected
+    effective_match_type = match_type or detect_match_type(ioc_value, ioc_type)
     
-    # For identity types (Username, Hostname, SID), use dedicated column matching
-    # PLUS structured field patterns in search_blob to catch all occurrences
-    # This avoids false positives from bare substring matching while still
-    # catching usernames in fields like TargetUserName, SubjectUserName, etc.
-    identity_types = {'Username', 'Hostname', 'SID'}
-    
-    if ioc_type in identity_types:
-        column_conditions = []
-        escaped_value = ioc_value.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-        
-        if ioc_type == 'Username':
-            # Search username column directly (exact match)
-            params['username_val'] = ioc_value.lower()
-            column_conditions.append(f"lower(username) = {{username_val:String}}")
-            # If we have aliases (which may include SID), search sid column too
-            if aliases:
-                for i, alias in enumerate(aliases):
-                    if alias and alias.startswith('S-1-'):  # SID pattern
-                        params[f'sid_val_{i}'] = alias
-                        column_conditions.append(f"sid = {{sid_val_{i}:String}}")
-            # Search structured field patterns in search_blob (key:value format)
-            # These are the Windows event fields that contain usernames
-            username_fields = ['TargetUserName', 'SubjectUserName', 'User', 'AccountName', 'UserName']
-            for i, field in enumerate(username_fields):
-                params[f'ufield_{i}'] = f'%{field.lower()}:{escaped_value}%'
-                column_conditions.append(f"lower(search_blob) LIKE {{ufield_{i}:String}}")
-        elif ioc_type == 'Hostname':
-            # Search source_host column directly (exact match)
-            params['hostname_val'] = ioc_value.lower()
-            column_conditions.append(f"lower(source_host) = {{hostname_val:String}}")
-            # Search structured field patterns for hostnames
-            hostname_fields = ['Computer', 'WorkstationName', 'SourceHostname', 'DestinationHostname']
-            for i, field in enumerate(hostname_fields):
-                params[f'hfield_{i}'] = f'%{field.lower()}:{escaped_value}%'
-                column_conditions.append(f"lower(search_blob) LIKE {{hfield_{i}:String}}")
-        elif ioc_type == 'SID':
-            # Search sid column directly (exact match)
-            params['sid_exact'] = ioc_value
-            column_conditions.append(f"sid = {{sid_exact:String}}")
-            # Search structured field patterns for SIDs
-            sid_fields = ['TargetUserSid', 'SubjectUserSid', 'UserSid', 'Sid']
-            for i, field in enumerate(sid_fields):
-                params[f'sfield_{i}'] = f'%{field.lower()}:{escaped_value}%'
-                column_conditions.append(f"lower(search_blob) LIKE {{sfield_{i}:String}}")
-        
-        where_clause = ' OR '.join(column_conditions) if column_conditions else '1=0'
-    else:
-        # For other IOC types, use search_blob matching with optional alias validation
-        search_blob_clause = where_clause
-        if aliases and len(aliases) > 0:
-            alias_conditions = []
-            for i, alias in enumerate(aliases):
-                escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-                param_name = f'alias_{i}'
-                params[param_name] = f'%{escaped_alias}%'
-                alias_conditions.append(f"lower(search_blob) LIKE {{{param_name}:String}}")
-            
-            alias_clause = ' OR '.join(alias_conditions)
-            search_blob_clause = f"({where_clause}) AND ({alias_clause})"
-        
-        where_clause = search_blob_clause
-    
-    params['case_id'] = case_id
+    # Build the WHERE clause based on match type
+    where_clause = build_ioc_match_clause(ioc_value, ioc_type, effective_match_type, aliases)
     
     # Get aggregate stats
     query = f"""
@@ -355,12 +386,12 @@ def search_artifacts_for_ioc(
             min(timestamp) as earliest,
             max(timestamp) as latest
         FROM events 
-        WHERE case_id = {{case_id:UInt32}} 
+        WHERE case_id = {case_id}
           AND ({where_clause})
     """
     
     try:
-        result = client.query(query, parameters=params)
+        result = client.query(query)
         row = result.result_rows[0] if result.result_rows else (0, None, None)
         match_count = row[0]
         earliest = row[1]
@@ -372,7 +403,7 @@ def search_artifacts_for_ioc(
             'earliest': None,
             'latest': None,
             'artifact_types': {},
-            'matched_terms': [term for term, _ in search_terms]
+            'match_type_used': effective_match_type
         }
     
     # Get artifact type breakdown if we have matches
@@ -381,14 +412,14 @@ def search_artifacts_for_ioc(
         type_query = f"""
             SELECT artifact_type, count() as cnt
             FROM events 
-            WHERE case_id = {{case_id:UInt32}} 
+            WHERE case_id = {case_id}
               AND ({where_clause})
             GROUP BY artifact_type
             ORDER BY cnt DESC
         """
         
         try:
-            type_result = client.query(type_query, parameters=params)
+            type_result = client.query(type_query)
             artifact_types = {row[0]: row[1] for row in type_result.result_rows}
         except Exception as e:
             logger.warning(f"Error getting artifact types: {e}")
@@ -398,7 +429,7 @@ def search_artifacts_for_ioc(
         'earliest': earliest,
         'latest': latest,
         'artifact_types': artifact_types,
-        'matched_terms': [term for term, _ in search_terms]
+        'match_type_used': effective_match_type
     }
 
 
@@ -421,93 +452,35 @@ def reset_ioc_types_for_case(case_id: int) -> bool:
         return False
 
 
-def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, aliases: List[str] = None) -> int:
+def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, 
+                              aliases: List[str] = None, match_type: str = None) -> int:
     """Mark matching events with an IOC type.
     
     Adds the IOC type to the ioc_types array for matching events.
     Uses arrayPushBack to append without duplicates.
     
-    For identity types (Username, Hostname, SID), uses dedicated column matching only
-    to avoid false positives from substring matching in search_blob.
-    
-    For other types, uses search_blob matching with optional alias validation.
+    Uses raw_json with match_type-appropriate matching:
+        - token: hasTokenCaseInsensitive() for whole-word matching
+        - substring: LIKE for partial matching
+        - regex: match() for pattern matching
     
     Returns number of events updated.
     """
+    from models.ioc import detect_match_type
+    
     client = get_fresh_client()
+    
+    if not ioc_value:
+        return 0
     
     # Get short type name for badge
     short_type = get_short_ioc_type(ioc_type)
     
-    # Identity types use column matching PLUS structured field patterns
-    # to catch all occurrences while avoiding false positives
-    identity_types = {'Username', 'Hostname', 'SID'}
+    # Determine match type - explicit > auto-detected
+    effective_match_type = match_type or detect_match_type(ioc_value, ioc_type)
     
-    if ioc_type in identity_types:
-        column_conditions = []
-        escaped_value = ioc_value.replace("'", "\\'")
-        escaped_like = ioc_value.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-        
-        if ioc_type == 'Username':
-            column_conditions.append(f"lower(username) = lower('{escaped_value}')")
-            # If we have aliases (which may include SID), search sid column too
-            if aliases:
-                for alias in aliases:
-                    if alias and alias.startswith('S-1-'):  # SID pattern
-                        escaped_alias = alias.replace("'", "\\'")
-                        column_conditions.append(f"sid = '{escaped_alias}'")
-            # Search structured field patterns in search_blob (key:value format)
-            username_fields = ['TargetUserName', 'SubjectUserName', 'User', 'AccountName', 'UserName']
-            for field in username_fields:
-                column_conditions.append(f"lower(search_blob) LIKE '%{field.lower()}:{escaped_like}%'")
-        elif ioc_type == 'Hostname':
-            column_conditions.append(f"lower(source_host) = lower('{escaped_value}')")
-            # Search structured field patterns for hostnames
-            hostname_fields = ['Computer', 'WorkstationName', 'SourceHostname', 'DestinationHostname']
-            for field in hostname_fields:
-                column_conditions.append(f"lower(search_blob) LIKE '%{field.lower()}:{escaped_like}%'")
-        elif ioc_type == 'SID':
-            column_conditions.append(f"sid = '{escaped_value}'")
-            # Search structured field patterns for SIDs
-            sid_fields = ['TargetUserSid', 'SubjectUserSid', 'UserSid', 'Sid']
-            for field in sid_fields:
-                column_conditions.append(f"lower(search_blob) LIKE '%{field.lower()}:{escaped_like}%'")
-        
-        full_where = ' OR '.join(column_conditions) if column_conditions else '1=0'
-    else:
-        # For other IOC types, use search_blob matching
-        search_terms = extract_searchable_terms(ioc_value, ioc_type)
-        if not search_terms:
-            return 0
-        
-        # Build the primary search conditions
-        primary_conditions = []
-        for term, is_filename in search_terms:
-            escaped_term = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-            if is_filename:
-                # Word-boundary matching for filenames
-                primary_conditions.append(
-                    f"(lower(search_blob) LIKE '%\\\\{escaped_term}%' "
-                    f"OR lower(search_blob) LIKE '%/{escaped_term}%' "
-                    f"OR lower(search_blob) LIKE '% {escaped_term}%' "
-                    f"OR lower(search_blob) LIKE '%\"{escaped_term}%')"
-                )
-            else:
-                primary_conditions.append(f"lower(search_blob) LIKE '%{escaped_term}%'")
-        
-        primary_where = ' OR '.join(primary_conditions)
-        
-        # If aliases exist, add alias validation conditions
-        if aliases and len(aliases) > 0:
-            alias_conditions = []
-            for alias in aliases:
-                escaped_alias = alias.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "\\'")
-                alias_conditions.append(f"lower(search_blob) LIKE '%{escaped_alias}%'")
-            
-            alias_where = ' OR '.join(alias_conditions)
-            full_where = f"({primary_where}) AND ({alias_where})"
-        else:
-            full_where = primary_where
+    # Build the WHERE clause based on match type
+    full_where = build_ioc_match_clause(ioc_value, ioc_type, effective_match_type, aliases)
     
     try:
         # First check how many will be updated
@@ -531,7 +504,7 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, alias
             """
             
             client.command(inline_query)
-            logger.debug(f"Marked {update_count} events with IOC type '{short_type}' (aliases: {len(aliases) if aliases else 0})")
+            logger.debug(f"Marked {update_count} events with IOC type '{short_type}' using {effective_match_type} match")
         
         return update_count
         
@@ -600,11 +573,15 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
             ioc.value, results['total_artifact_matches']
         )
         try:
+            # Get effective match type (explicit or auto-detected)
+            effective_match_type = ioc.get_effective_match_type()
+            
             search_result = search_artifacts_for_ioc(
                 case_id=case_id,
                 ioc_value=ioc.value,
                 ioc_type=ioc.ioc_type,
-                aliases=ioc.aliases
+                aliases=ioc.aliases,
+                match_type=effective_match_type
             )
             
             if search_result['match_count'] > 0:
@@ -616,7 +593,8 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                     case_id=case_id,
                     ioc_value=ioc.value,
                     ioc_type=ioc.ioc_type,
-                    aliases=ioc.aliases
+                    aliases=ioc.aliases,
+                    match_type=effective_match_type
                 )
                 results['events_tagged'] += events_marked
                 

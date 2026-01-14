@@ -2,11 +2,43 @@
 
 Tracks IOCs discovered across cases with full audit history,
 system sightings, and artifact correlation.
+
+Match Types:
+    - token: Uses hasTokenCaseInsensitive() for whole-word matching (hashes, IPs, unique names)
+    - substring: Uses LIKE for partial matching (file paths, registry, URLs)
+    - regex: Uses regex matching for complex patterns
 """
 import re
 import uuid
 from datetime import datetime
 from models.database import db
+
+
+class IOCMatchType:
+    """Match type options for IOC searching"""
+    TOKEN = 'token'          # Whole-word token matching (hasTokenCaseInsensitive)
+    SUBSTRING = 'substring'  # Partial/contains matching (LIKE)
+    REGEX = 'regex'          # Regular expression matching
+    
+    @classmethod
+    def all(cls):
+        return [cls.TOKEN, cls.SUBSTRING, cls.REGEX]
+    
+    @classmethod
+    def choices(cls):
+        return [
+            (cls.TOKEN, 'Token (Whole Word) - Best for hashes, IPs, unique identifiers'),
+            (cls.SUBSTRING, 'Substring (Contains) - Best for paths, registry, URLs'),
+            (cls.REGEX, 'Regex (Pattern) - For complex matching patterns')
+        ]
+    
+    @classmethod
+    def labels(cls):
+        return {
+            cls.TOKEN: 'Token',
+            cls.SUBSTRING: 'Substring',
+            cls.REGEX: 'Regex'
+        }
 
 
 class IOCCategory:
@@ -280,6 +312,11 @@ class IOC(db.Model):
     
     Central table for tracking all IOCs with metadata about
     creation, artifact sightings, and system associations.
+    
+    Match Types:
+        - token: hasTokenCaseInsensitive() - whole-word matching for hashes, IPs
+        - substring: LIKE matching - for paths, registry, URLs
+        - regex: Pattern matching - for complex indicators
     """
     __tablename__ = 'iocs'
     
@@ -296,6 +333,10 @@ class IOC(db.Model):
     # The actual IOC value
     value = db.Column(db.String(4096), nullable=False)
     value_normalized = db.Column(db.String(4096), nullable=False, index=True)
+    
+    # Match type for searching (token, substring, regex)
+    # If null, auto-detected based on ioc_type and value
+    match_type = db.Column(db.String(20), nullable=True, default=None)
     
     # Creation metadata
     created_by = db.Column(db.String(80), nullable=False)
@@ -390,6 +431,12 @@ class IOC(db.Model):
         
         return True, None
     
+    def get_effective_match_type(self):
+        """Get the effective match type (explicit or auto-detected)"""
+        if self.match_type:
+            return self.match_type
+        return detect_match_type(self.value, self.ioc_type)
+    
     def to_dict(self):
         """Convert to dictionary for API responses"""
         import json
@@ -402,6 +449,8 @@ class IOC(db.Model):
             except (json.JSONDecodeError, TypeError):
                 opencti_data = None
         
+        effective_match_type = self.get_effective_match_type()
+        
         return {
             'id': self.id,
             'uuid': self.uuid,
@@ -409,6 +458,9 @@ class IOC(db.Model):
             'ioc_type': self.ioc_type,
             'value': self.value,
             'aliases': self.aliases or [],
+            'match_type': self.match_type,  # Explicit setting (may be null)
+            'effective_match_type': effective_match_type,  # What will actually be used
+            'match_type_label': IOCMatchType.labels().get(effective_match_type, effective_match_type),
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'first_seen_in_artifacts': self.first_seen_in_artifacts.isoformat() if self.first_seen_in_artifacts else None,
@@ -436,7 +488,7 @@ class IOC(db.Model):
         ).first()
     
     @staticmethod
-    def get_or_create(value, ioc_type, category, created_by, aliases=None):
+    def get_or_create(value, ioc_type, category, created_by, aliases=None, match_type=None):
         """Get existing IOC or create new one
         
         Args:
@@ -445,6 +497,7 @@ class IOC(db.Model):
             category: Category (e.g., 'File', 'Process')
             created_by: Username who created this
             aliases: List of contextual aliases (e.g., full command lines)
+            match_type: Explicit match type ('token', 'substring', 'regex') or None for auto
         
         Returns: (ioc, created_bool)
         """
@@ -463,6 +516,9 @@ class IOC(db.Model):
                 merged = list(set(existing_aliases + new_aliases))
                 if merged != existing_aliases:
                     existing.aliases = merged
+            # Update match_type if provided and not already set
+            if match_type and not existing.match_type:
+                existing.match_type = match_type
             return existing, False
         
         # Validate if type has regex
@@ -481,7 +537,8 @@ class IOC(db.Model):
             value=value,
             value_normalized=normalized,
             created_by=created_by,
-            aliases=normalized_aliases if normalized_aliases else None
+            aliases=normalized_aliases if normalized_aliases else None,
+            match_type=match_type  # Can be None - will use auto-detection
         )
         
         db.session.add(new_ioc)
@@ -692,3 +749,234 @@ def get_category_for_type(ioc_type):
     if type_def:
         return type_def['category']
     return None
+
+
+def detect_match_type(value: str, ioc_type: str) -> str:
+    """Auto-detect the best match type for an IOC based on its value and type.
+    
+    Token matching (hasTokenCaseInsensitive):
+        - Best for unique identifiers that should match as whole words
+        - Hashes, IPs, unique names, domains
+        - Example: 'ltsvc' matches 'c:\\ltsvc\\' but NOT 'altsvc'
+    
+    Substring matching (LIKE):
+        - Best for paths, registry, URLs where exact position matters
+        - Example: 'c:\\windows\\malware.exe' should match that exact path
+    
+    Regex matching:
+        - For complex patterns with wildcards, alternatives, etc.
+    
+    Returns: 'token', 'substring', or 'regex'
+    """
+    if not value:
+        return IOCMatchType.SUBSTRING
+    
+    value = value.strip()
+    
+    # Token matching types - unique identifiers
+    token_types = {
+        'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash', 'Imphash', 'TLSH Hash',
+        'JA3 Hash', 'JA3S Hash', 'SSL Certificate Hash',
+        'IP Address (IPv4)', 'IP Address (IPv6)',
+        'Bitcoin Address', 'Ethereum Address', 'Monero Address',
+        'Email Address', 'Reply-To Address',
+        'SID', 'ASN',
+        'Malware Family', 'YARA Rule Name',
+        'Mutex Name',  # Usually unique identifiers
+    }
+    
+    if ioc_type in token_types:
+        return IOCMatchType.TOKEN
+    
+    # Substring matching types - paths and structured data
+    substring_types = {
+        'File Path', 'Process Path', 'PDB Path',
+        'Registry Key', 'Registry Value',
+        'URL', 'Command Line',
+        'Scheduled Task', 'Cron Job', 'Persistence Mechanism',
+    }
+    
+    if ioc_type in substring_types:
+        return IOCMatchType.SUBSTRING
+    
+    # Value-based detection for ambiguous types
+    # Check for path indicators
+    if '\\' in value or '/' in value:
+        # Looks like a path - use substring
+        return IOCMatchType.SUBSTRING
+    
+    # Check for registry hive prefixes
+    if value.upper().startswith(('HKLM', 'HKCU', 'HKEY_', 'HKU')):
+        return IOCMatchType.SUBSTRING
+    
+    # Check for URL patterns
+    if value.startswith(('http://', 'https://', 'ftp://')):
+        return IOCMatchType.SUBSTRING
+    
+    # Check for command line patterns (has spaces + quotes or switches)
+    if ' ' in value and ('"' in value or value.startswith('-') or ' -' in value or ' /' in value):
+        return IOCMatchType.SUBSTRING
+    
+    # Check if it looks like a hash (hex string of specific lengths)
+    if re.match(r'^[a-fA-F0-9]{32}$', value):  # MD5
+        return IOCMatchType.TOKEN
+    if re.match(r'^[a-fA-F0-9]{40}$', value):  # SHA1
+        return IOCMatchType.TOKEN
+    if re.match(r'^[a-fA-F0-9]{64}$', value):  # SHA256
+        return IOCMatchType.TOKEN
+    
+    # Check for IP address pattern
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', value):
+        return IOCMatchType.TOKEN
+    
+    # For domains/hostnames - token matching works well
+    if ioc_type in ('Domain', 'FQDN', 'Hostname'):
+        return IOCMatchType.TOKEN
+    
+    # For short filenames without path - token matching to avoid partials
+    if ioc_type in ('File Name', 'Process Name', 'Service Name'):
+        # If it's just a filename (no path), token matching is safer
+        # to avoid 'cmd' matching 'scmd' or 'ltsvc' matching 'altsvc'
+        return IOCMatchType.TOKEN
+    
+    # Default to substring for safety (catches everything, may have more false positives)
+    return IOCMatchType.SUBSTRING
+
+
+def detect_ioc_type_from_value(value: str) -> str:
+    """Auto-detect IOC type based on value pattern analysis.
+    
+    Used when user creates IOC without specifying type.
+    Returns the most likely IOC type.
+    """
+    if not value:
+        return 'Unknown'
+    
+    value = value.strip()
+    
+    # Check for hash patterns
+    if re.match(r'^[a-fA-F0-9]{32}$', value):
+        return 'MD5 Hash'
+    if re.match(r'^[a-fA-F0-9]{40}$', value):
+        return 'SHA1 Hash'
+    if re.match(r'^[a-fA-F0-9]{64}$', value):
+        return 'SHA256 Hash'
+    
+    # Check for IP addresses
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', value):
+        return 'IP Address (IPv4)'
+    if ':' in value and re.match(r'^[0-9a-fA-F:]+$', value):
+        return 'IP Address (IPv6)'
+    
+    # Check for email
+    if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value):
+        return 'Email Address'
+    
+    # Check for URL
+    if value.startswith(('http://', 'https://', 'ftp://')):
+        return 'URL'
+    
+    # Check for domain/FQDN
+    if re.match(r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$', value):
+        return 'Domain'
+    
+    # Check for registry paths
+    if value.upper().startswith(('HKLM', 'HKCU', 'HKEY_', 'HKU')):
+        return 'Registry Key'
+    
+    # Check for file paths (Windows or Unix)
+    if '\\' in value or (value.startswith('/') and '/' in value[1:]):
+        if value.lower().endswith(('.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js')):
+            return 'Process Path'
+        return 'File Path'
+    
+    # Check for Windows SID
+    if re.match(r'^S-1-\d+-\d+(-\d+)*$', value):
+        return 'SID'
+    
+    # Check for cryptocurrency
+    if re.match(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$', value) or re.match(r'^bc1[a-zA-HJ-NP-Z0-9]{39,59}$', value):
+        return 'Bitcoin Address'
+    if re.match(r'^0x[a-fA-F0-9]{40}$', value):
+        return 'Ethereum Address'
+    
+    # Check for common executables
+    if value.lower().endswith(('.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.msi')):
+        return 'File Name'
+    
+    # Default - if short could be username, if longer could be command line
+    if ' ' in value or len(value) > 50:
+        return 'Command Line'
+    
+    return 'File Name'  # Default for short strings
+
+
+def get_match_type_recommendation(value: str, ioc_type: str) -> dict:
+    """Get a match type recommendation with explanation.
+    
+    Used when user creates an IOC manually without setting match_type.
+    
+    Returns:
+        {
+            'recommended': 'token' | 'substring' | 'regex',
+            'reason': str,
+            'examples': list of example matches
+        }
+    """
+    detected = detect_match_type(value, ioc_type)
+    
+    # Build explanation based on detection
+    reasons = {
+        IOCMatchType.TOKEN: [],
+        IOCMatchType.SUBSTRING: [],
+    }
+    
+    # Analyze the value
+    is_hash = bool(re.match(r'^[a-fA-F0-9]{32,64}$', value))
+    is_ip = bool(re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', value))
+    has_path_sep = '\\' in value or '/' in value
+    has_spaces = ' ' in value
+    is_url = value.startswith(('http://', 'https://'))
+    is_registry = value.upper().startswith(('HKLM', 'HKCU', 'HKEY_', 'HKU'))
+    
+    if is_hash:
+        reasons[IOCMatchType.TOKEN].append('Hash values are unique identifiers')
+    if is_ip:
+        reasons[IOCMatchType.TOKEN].append('IP addresses are unique identifiers')
+    if has_path_sep:
+        reasons[IOCMatchType.SUBSTRING].append('Contains path separators - needs exact path matching')
+    if is_url:
+        reasons[IOCMatchType.SUBSTRING].append('URLs need substring matching for full path')
+    if is_registry:
+        reasons[IOCMatchType.SUBSTRING].append('Registry paths need substring matching')
+    if has_spaces and not is_url:
+        reasons[IOCMatchType.SUBSTRING].append('Contains spaces - likely a command or complex pattern')
+    
+    # Type-based reasons
+    if ioc_type in ('File Name', 'Process Name'):
+        reasons[IOCMatchType.TOKEN].append(f'{ioc_type} should match as whole word to avoid partial matches')
+    if ioc_type in ('Domain', 'FQDN'):
+        reasons[IOCMatchType.TOKEN].append('Domains match well as tokens')
+    
+    # Build the recommendation
+    if detected == IOCMatchType.TOKEN:
+        reason = '; '.join(reasons[IOCMatchType.TOKEN]) if reasons[IOCMatchType.TOKEN] else 'Unique identifier - best matched as whole word'
+        examples = [
+            f"✓ '{value}' in raw data will match",
+            f"✗ Partial matches like 'x{value}' or '{value}x' will NOT match"
+        ]
+    else:
+        reason = '; '.join(reasons[IOCMatchType.SUBSTRING]) if reasons[IOCMatchType.SUBSTRING] else 'Complex value - needs substring matching'
+        examples = [
+            f"✓ Any occurrence of '{value[:30]}...' in raw data will match",
+            f"⚠ May also match unrelated contexts containing this string"
+        ]
+    
+    return {
+        'recommended': detected,
+        'recommended_label': IOCMatchType.labels().get(detected, detected),
+        'reason': reason,
+        'examples': examples,
+        'ioc_type': ioc_type,
+        'value_preview': value[:50] + ('...' if len(value) > 50 else '')
+    }

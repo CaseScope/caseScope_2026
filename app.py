@@ -9,6 +9,33 @@ from config import Config, UserSettings
 login_manager = LoginManager()
 
 
+def _run_schema_migrations():
+    """Run schema migrations for new columns in existing tables.
+    
+    SQLAlchemy's create_all() doesn't add columns to existing tables,
+    so we need to handle that manually.
+    """
+    from models.database import db
+    from sqlalchemy import text, inspect
+    
+    inspector = inspect(db.engine)
+    
+    # Migration: Add match_type column to iocs table
+    if 'iocs' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('iocs')]
+        if 'match_type' not in columns:
+            try:
+                db.session.execute(text(
+                    "ALTER TABLE iocs ADD COLUMN match_type VARCHAR(20)"
+                ))
+                db.session.commit()
+                print("Migration: Added match_type column to iocs table")
+            except Exception as e:
+                db.session.rollback()
+                # Column may already exist
+                print(f"Migration note: match_type column - {e}")
+
+
 def load_version():
     """Load version info from version.json"""
     version_file = os.path.join(os.path.dirname(__file__), 'version.json')
@@ -171,6 +198,9 @@ def create_app():
         )
         from models.file_audit_log import FileAuditLog
         db.create_all()
+        
+        # Run schema migrations for new columns
+        _run_schema_migrations()
         
         # Seed noise filter defaults if not exists
         seed_noise_defaults()

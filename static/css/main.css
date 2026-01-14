@@ -5094,6 +5094,95 @@ input:checked + .slider:before {
   border: 1px solid var(--border-color);
 }
 
+/* Match Type Badges */
+.match-type-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.match-type-badge.token {
+  background-color: rgba(46, 204, 113, 0.2);
+  color: #27ae60;
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.match-type-badge.substring {
+  background-color: rgba(52, 152, 219, 0.2);
+  color: #2980b9;
+  border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.match-type-badge.regex {
+  background-color: rgba(155, 89, 182, 0.2);
+  color: #8e44ad;
+  border: 1px solid rgba(155, 89, 182, 0.3);
+}
+
+/* Match Type Recommendation Box */
+.match-type-rec-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  margin-bottom: 8px;
+}
+
+.match-type-rec-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.match-type-rec-badge.token {
+  background-color: rgba(46, 204, 113, 0.25);
+  color: #2ecc71;
+}
+
+.match-type-rec-badge.substring {
+  background-color: rgba(52, 152, 219, 0.25);
+  color: #3498db;
+}
+
+.match-type-rec-badge.regex {
+  background-color: rgba(155, 89, 182, 0.25);
+  color: #9b59b6;
+}
+
+.match-type-rec-reason {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.form-select-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: 150px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
 .ioc-status-row {
   display: flex;
   align-items: center;

@@ -1,6 +1,20 @@
 {
-  "version": "3.75.00",
+  "version": "3.76.00",
   "changelog": [
+    {
+      "version": "3.76.00",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Match Types: Hybrid token/substring/regex matching for IOCs",
+        "IOC Match Types: Token matching uses hasTokenCaseInsensitive() for whole-word matching",
+        "IOC Match Types: Auto-detection recommends best match type based on IOC value and type",
+        "IOC Match Types: Hashes, IPs, domains default to Token (avoid partial matches)",
+        "IOC Match Types: Paths, URLs, registry default to Substring (find anywhere)",
+        "IOC Match Types: UI shows match type recommendation when creating IOCs",
+        "IOC Match Types: Users can override auto-detected match type if needed",
+        "IOC Extraction: EDR report extraction includes auto-detected match types"
+      ]
+    },
     {
       "version": "3.75.00",
       "date": "2026-01-14",

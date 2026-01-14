@@ -856,9 +856,10 @@ def _create_ioc_entry(
     """
     Create an IOC entry, checking for existing IOCs
     
-    Returns dict with ioc data and existing_ioc_id if duplicate found
+    Returns dict with ioc data and existing_ioc_id if duplicate found.
+    Includes auto-detected match_type for proper IOC matching.
     """
-    from models.ioc import IOC, IOCCase
+    from models.ioc import IOC, IOCCase, detect_match_type, get_match_type_recommendation
     
     if not value:
         return None
@@ -866,17 +867,24 @@ def _create_ioc_entry(
     # Check for existing IOC
     existing_ioc = IOC.find_by_value(value, ioc_type)
     
+    # Auto-detect match type for this IOC
+    detected_match_type = detect_match_type(value, ioc_type)
+    match_info = get_match_type_recommendation(value, ioc_type)
+    
     entry = {
         'value': value,
         'ioc_type': ioc_type,
         'category': category,
         'context': context,
-        'is_new': existing_ioc is None
+        'is_new': existing_ioc is None,
+        'match_type': detected_match_type,
+        'match_type_reason': match_info.get('reason', '')
     }
     
     if existing_ioc:
         entry['existing_ioc_id'] = existing_ioc.id
         entry['existing_notes'] = existing_ioc.notes
+        entry['existing_match_type'] = existing_ioc.get_effective_match_type()
         # Check if already linked to this case
         existing_link = IOCCase.query.filter_by(
             ioc_id=existing_ioc.id,
@@ -910,9 +918,10 @@ def _create_ioc_entry_with_type_awareness(
        - If no: create new Command Line IOC (keep File Name as broad matcher)
     2. If no File Name conflict: normal flow
     
-    Returns dict with ioc data and metadata
+    Returns dict with ioc data and metadata.
+    Includes auto-detected match_type for proper IOC matching.
     """
-    from models.ioc import IOC, IOCCase
+    from models.ioc import IOC, IOCCase, detect_match_type, get_match_type_recommendation
     
     if not primary_value:
         return None
@@ -921,6 +930,10 @@ def _create_ioc_entry_with_type_awareness(
     existing_filename = IOC.find_by_value(primary_value, 'File Name')
     existing_command = IOC.find_by_value(primary_value, 'Command Line')
     
+    # Auto-detect match type
+    detected_match_type = detect_match_type(primary_value, primary_type)
+    match_info = get_match_type_recommendation(primary_value, primary_type)
+    
     entry = {
         'value': primary_value,
         'ioc_type': primary_type,
@@ -928,7 +941,9 @@ def _create_ioc_entry_with_type_awareness(
         'context': context,
         'aliases': aliases,
         'is_new': True,
-        'merge_into_existing': False
+        'merge_into_existing': False,
+        'match_type': detected_match_type,
+        'match_type_reason': match_info.get('reason', '')
     }
     
     # CASE A: Adding a Command Line IOC
@@ -1175,6 +1190,7 @@ def save_extracted_iocs(
                 ioc_type = ioc_entry['ioc_type']
                 category = ioc_entry['category']
                 aliases = ioc_entry.get('aliases', [])
+                match_type = ioc_entry.get('match_type')  # Auto-detected or explicit
                 
                 try:
                     ioc, created = IOC.get_or_create(
@@ -1182,7 +1198,8 @@ def save_extracted_iocs(
                         ioc_type=ioc_type,
                         category=category,
                         created_by=username,
-                        aliases=aliases
+                        aliases=aliases,
+                        match_type=match_type
                     )
                     
                     if created:
@@ -1195,7 +1212,7 @@ def save_extracted_iocs(
                             changed_by=username,
                             field_name='ioc',
                             action='create',
-                            new_value=f'{ioc_type}: {value}'
+                            new_value=f'{ioc_type}: {value} (match: {ioc.get_effective_match_type()})'
                         )
                         
                         if aliases:

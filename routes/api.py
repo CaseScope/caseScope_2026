@@ -2742,12 +2742,57 @@ def get_iocs_for_case(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/iocs/analyze-match-type', methods=['POST'])
+@login_required
+def analyze_ioc_match_type():
+    """Analyze an IOC value and recommend a match type.
+    
+    Call this when user enters an IOC without explicitly setting type.
+    Returns recommendation with explanation.
+    """
+    try:
+        from models.ioc import get_match_type_recommendation, IOCMatchType
+        
+        data = request.get_json()
+        value = data.get('value', '').strip()
+        ioc_type = data.get('ioc_type', '').strip()
+        
+        if not value:
+            return jsonify({'success': False, 'error': 'Value required'}), 400
+        
+        if not ioc_type:
+            return jsonify({'success': False, 'error': 'IOC type required'}), 400
+        
+        recommendation = get_match_type_recommendation(value, ioc_type)
+        
+        return jsonify({
+            'success': True,
+            'recommendation': recommendation,
+            'match_types': [
+                {'value': IOCMatchType.TOKEN, 'label': 'Token (Whole Word)', 
+                 'description': 'Best for hashes, IPs, unique identifiers - avoids partial matches'},
+                {'value': IOCMatchType.SUBSTRING, 'label': 'Substring (Contains)', 
+                 'description': 'Best for paths, registry, URLs - matches anywhere in event'},
+                {'value': IOCMatchType.REGEX, 'label': 'Regex (Pattern)', 
+                 'description': 'For complex patterns with wildcards'}
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/iocs/create/<case_uuid>', methods=['POST'])
 @login_required
 def create_ioc(case_uuid):
-    """Create a new IOC and link to case"""
+    """Create a new IOC and link to case.
+    
+    If match_type is not provided, auto-detection is used.
+    If ioc_type is not provided, returns a prompt asking user to set it
+    with a recommendation based on value analysis.
+    """
     try:
-        from models.ioc import IOC, IOCAudit, get_category_for_type
+        from models.ioc import IOC, IOCAudit, IOCMatchType, get_category_for_type, get_match_type_recommendation
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
@@ -2759,12 +2804,22 @@ def create_ioc(case_uuid):
         value = data.get('value', '').strip()
         notes = data.get('notes', '').strip()
         malicious = data.get('malicious', False)
-        
-        if not ioc_type:
-            return jsonify({'success': False, 'error': 'IOC type required'}), 400
+        match_type = data.get('match_type', '').strip() or None  # Explicit match type
         
         if not value:
             return jsonify({'success': False, 'error': 'IOC value required'}), 400
+        
+        # If no IOC type, analyze value and recommend
+        if not ioc_type:
+            from models.ioc import detect_ioc_type_from_value
+            suggested_type = detect_ioc_type_from_value(value)
+            return jsonify({
+                'success': False,
+                'needs_type': True,
+                'error': 'Please select an IOC type',
+                'suggestion': suggested_type,
+                'message': f'Based on the value, this looks like a "{suggested_type}". Please confirm or select the correct type.'
+            }), 400
         
         # Get category for this type
         category = get_category_for_type(ioc_type)
@@ -2776,12 +2831,17 @@ def create_ioc(case_uuid):
         if not is_valid:
             return jsonify({'success': False, 'error': error}), 400
         
+        # Validate match_type if provided
+        if match_type and match_type not in IOCMatchType.all():
+            return jsonify({'success': False, 'error': f'Invalid match type: {match_type}'}), 400
+        
         # Get or create IOC
         ioc, created = IOC.get_or_create(
             value=value,
             ioc_type=ioc_type,
             category=category,
-            created_by=current_user.username
+            created_by=current_user.username,
+            match_type=match_type
         )
         
         # Update fields if provided
@@ -2800,15 +2860,19 @@ def create_ioc(case_uuid):
                 changed_by=current_user.username,
                 field_name='ioc',
                 action='create',
-                new_value=f'{ioc_type}: {value}'
+                new_value=f'{ioc_type}: {value} (match: {ioc.get_effective_match_type()})'
             )
         
         db.session.commit()
         
+        # Include match type recommendation in response
+        recommendation = get_match_type_recommendation(value, ioc_type)
+        
         return jsonify({
             'success': True,
             'created': created,
-            'ioc': ioc.to_dict()
+            'ioc': ioc.to_dict(),
+            'match_type_info': recommendation
         })
         
     except ValueError as e:
@@ -2857,7 +2921,7 @@ def update_ioc(ioc_id):
             return jsonify({'success': False, 'error': 'Field name required'}), 400
         
         # Allowed fields to update
-        allowed_fields = ['notes', 'malicious', 'false_positive', 'active', 'aliases']
+        allowed_fields = ['notes', 'malicious', 'false_positive', 'active', 'aliases', 'match_type']
         if field_name not in allowed_fields:
             return jsonify({'success': False, 'error': f'Cannot update field: {field_name}'}), 400
         
@@ -2873,6 +2937,15 @@ def update_ioc(ioc_id):
                 return jsonify({'success': False, 'error': 'Aliases must be a list'}), 400
             # Normalize aliases (lowercase, deduplicate)
             new_value = list(set([str(a).lower().strip() for a in new_value if a]))
+        
+        # Handle match_type field
+        if field_name == 'match_type':
+            from models.ioc import IOCMatchType
+            if new_value and new_value not in IOCMatchType.all():
+                return jsonify({'success': False, 'error': f'Invalid match type: {new_value}'}), 400
+            # Allow None to reset to auto-detection
+            if new_value == '':
+                new_value = None
         
         setattr(ioc, field_name, new_value)
         
@@ -2993,9 +3066,12 @@ def delete_ioc_from_case(ioc_id):
 @api_bp.route('/iocs/bulk-create/<case_uuid>', methods=['POST'])
 @login_required
 def bulk_create_iocs(case_uuid):
-    """Bulk create IOCs from a list"""
+    """Bulk create IOCs from a list.
+    
+    Each IOC can include optional match_type. If not provided, auto-detection is used.
+    """
     try:
-        from models.ioc import IOC, IOCAudit, get_category_for_type
+        from models.ioc import IOC, IOCAudit, IOCMatchType, get_category_for_type
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
@@ -3015,6 +3091,7 @@ def bulk_create_iocs(case_uuid):
         for item in iocs_data:
             ioc_type = item.get('ioc_type', '').strip()
             value = item.get('value', '').strip()
+            match_type = item.get('match_type', '').strip() or None
             
             if not ioc_type or not value:
                 errors.append(f'Missing type or value: {item}')
@@ -3025,12 +3102,18 @@ def bulk_create_iocs(case_uuid):
                 errors.append(f'Unknown type: {ioc_type}')
                 continue
             
+            # Validate match_type if provided
+            if match_type and match_type not in IOCMatchType.all():
+                errors.append(f'Invalid match type for {value}: {match_type}')
+                continue
+            
             try:
                 ioc, created = IOC.get_or_create(
                     value=value,
                     ioc_type=ioc_type,
                     category=category,
-                    created_by=current_user.username
+                    created_by=current_user.username,
+                    match_type=match_type
                 )
                 
                 if created:
@@ -3040,7 +3123,7 @@ def bulk_create_iocs(case_uuid):
                         changed_by=current_user.username,
                         field_name='ioc',
                         action='create',
-                        new_value=f'{ioc_type}: {value}'
+                        new_value=f'{ioc_type}: {value} (match: {ioc.get_effective_match_type()})'
                     )
                 
                 if ioc.link_to_case(case.id):

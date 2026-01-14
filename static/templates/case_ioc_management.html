@@ -158,13 +158,27 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Type <span class="required">*</span></label>
-                <select class="form-input form-select" id="addType">
+                <select class="form-input form-select" id="addType" onchange="analyzeMatchType()">
                     <option value="">-- Select Type --</option>
                 </select>
             </div>
             <div class="form-group">
                 <label class="form-label">Value <span class="required">*</span></label>
-                <input type="text" class="form-input" id="addValue" placeholder="Enter IOC value...">
+                <input type="text" class="form-input" id="addValue" placeholder="Enter IOC value..." onblur="analyzeMatchType()">
+            </div>
+            <!-- Match Type Recommendation -->
+            <div class="form-group" id="matchTypeSection" style="display: none;">
+                <label class="form-label">Match Type</label>
+                <div class="match-type-recommendation" id="matchTypeRecommendation">
+                    <!-- Will be populated by JS -->
+                </div>
+                <select class="form-input form-select" id="addMatchType">
+                    <option value="">Auto-detect (recommended)</option>
+                    <option value="token">Token (Whole Word) - Best for hashes, IPs, unique IDs</option>
+                    <option value="substring">Substring (Contains) - Best for paths, URLs, registry</option>
+                    <option value="regex">Regex (Pattern) - For complex patterns</option>
+                </select>
+                <small class="form-help" id="matchTypeHelp"></small>
             </div>
             <div class="form-group">
                 <label class="form-label">Notes</label>
@@ -207,6 +221,13 @@
                     <div class="ioc-detail-row">
                         <span class="ioc-detail-label">Value:</span>
                         <span class="ioc-detail-value ioc-value-display" id="detailValue"></span>
+                    </div>
+                    <div class="ioc-detail-row">
+                        <span class="ioc-detail-label">Match Type:</span>
+                        <span class="ioc-detail-value" id="detailMatchType">
+                            <span class="match-type-badge" id="detailMatchTypeBadge"></span>
+                            <button class="btn-link btn-sm" onclick="editMatchType()">Edit</button>
+                        </span>
                     </div>
                 </div>
                 
@@ -805,6 +826,10 @@ function openAddIOCModal() {
     document.getElementById('addValue').value = '';
     document.getElementById('addNotes').value = '';
     document.getElementById('addMalicious').checked = false;
+    document.getElementById('addMatchType').value = '';
+    document.getElementById('matchTypeSection').style.display = 'none';
+    document.getElementById('matchTypeRecommendation').innerHTML = '';
+    document.getElementById('matchTypeHelp').textContent = '';
     document.getElementById('addIOCModal').style.display = 'flex';
 }
 
@@ -812,11 +837,63 @@ function closeAddIOCModal() {
     document.getElementById('addIOCModal').style.display = 'none';
 }
 
+// Analyze IOC value and recommend match type
+function analyzeMatchType() {
+    const iocType = document.getElementById('addType').value;
+    const value = document.getElementById('addValue').value.trim();
+    
+    if (!iocType || !value) {
+        document.getElementById('matchTypeSection').style.display = 'none';
+        return;
+    }
+    
+    // Show section and request analysis
+    document.getElementById('matchTypeSection').style.display = 'block';
+    
+    fetch('/api/iocs/analyze-match-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            ioc_type: iocType,
+            value: value
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const rec = data.recommendation;
+            const matchTypeLabels = {
+                'token': 'Token',
+                'substring': 'Substring', 
+                'regex': 'Regex'
+            };
+            
+            let recHtml = `
+                <div class="match-type-rec-box">
+                    <span class="match-type-rec-badge ${rec.recommended}">${matchTypeLabels[rec.recommended] || rec.recommended}</span>
+                    <span class="match-type-rec-reason">${rec.reason}</span>
+                </div>
+            `;
+            
+            document.getElementById('matchTypeRecommendation').innerHTML = recHtml;
+            document.getElementById('matchTypeHelp').textContent = rec.examples ? rec.examples.join(' | ') : '';
+            
+            // Auto-select recommended unless user has already chosen
+            const selectEl = document.getElementById('addMatchType');
+            if (!selectEl.value) {
+                // Leave as auto-detect but show what auto will choose
+            }
+        }
+    })
+    .catch(err => console.error('Match type analysis error:', err));
+}
+
 function createIOC() {
     const iocType = document.getElementById('addType').value;
     const value = document.getElementById('addValue').value.trim();
     const notes = document.getElementById('addNotes').value.trim();
     const malicious = document.getElementById('addMalicious').checked;
+    const matchType = document.getElementById('addMatchType').value || null;
     
     if (!iocType) {
         alert('Please select an IOC type');
@@ -835,7 +912,8 @@ function createIOC() {
             ioc_type: iocType,
             value: value,
             notes: notes,
-            malicious: malicious
+            malicious: malicious,
+            match_type: matchType
         })
     })
     .then(response => response.json())
@@ -843,7 +921,16 @@ function createIOC() {
         if (data.success) {
             closeAddIOCModal();
             loadIOCs();
-            alert(data.created ? 'IOC created successfully' : 'IOC already exists, linked to case');
+            
+            // Show match type info in success message
+            let msg = data.created ? 'IOC created successfully' : 'IOC already exists, linked to case';
+            if (data.match_type_info && data.created) {
+                msg += `\n\nMatch type: ${data.match_type_info.recommended_label || data.ioc.effective_match_type}`;
+            }
+            alert(msg);
+        } else if (data.needs_type) {
+            // User needs to set IOC type - show suggestion
+            alert(data.message);
         } else {
             alert('Error: ' + data.error);
         }
@@ -873,6 +960,17 @@ function populateDetailModal(ioc) {
     document.getElementById('detailCategory').textContent = ioc.category;
     document.getElementById('detailType').textContent = ioc.ioc_type;
     document.getElementById('detailValue').textContent = ioc.value;
+    
+    // Match type display
+    const matchTypeBadge = document.getElementById('detailMatchTypeBadge');
+    const effectiveType = ioc.effective_match_type || 'substring';
+    const matchTypeLabels = { 'token': 'Token', 'substring': 'Substring', 'regex': 'Regex' };
+    matchTypeBadge.textContent = matchTypeLabels[effectiveType] || effectiveType;
+    matchTypeBadge.className = `match-type-badge ${effectiveType}`;
+    if (!ioc.match_type) {
+        matchTypeBadge.textContent += ' (auto)';
+    }
+    
     document.getElementById('detailCreatedBy').textContent = ioc.created_by;
     document.getElementById('detailCreatedAt').textContent = formatDateTime(ioc.created_at);
     document.getElementById('detailFirstSeen').textContent = formatDateTime(ioc.first_seen_in_artifacts) || 'Never';
@@ -1036,9 +1134,48 @@ function updateIOCField(field, value) {
     .then(data => {
         if (!data.success) {
             alert('Update failed: ' + data.error);
+        } else if (field === 'match_type') {
+            // Refresh the modal to show updated match type
+            openDetailModal(currentIOCId);
         }
     })
     .catch(err => alert('Error: ' + err.message));
+}
+
+// Edit match type inline
+function editMatchType() {
+    if (!currentIOCId) return;
+    
+    const matchTypes = [
+        { value: '', label: 'Auto-detect' },
+        { value: 'token', label: 'Token (Whole Word)' },
+        { value: 'substring', label: 'Substring (Contains)' },
+        { value: 'regex', label: 'Regex (Pattern)' }
+    ];
+    
+    const currentType = document.getElementById('detailMatchTypeBadge').dataset.matchType || '';
+    
+    let options = matchTypes.map(t => 
+        `<option value="${t.value}" ${t.value === currentType ? 'selected' : ''}>${t.label}</option>`
+    ).join('');
+    
+    const selectHtml = `
+        <select id="editMatchTypeSelect" class="form-input form-select-sm" onchange="saveMatchType(this.value)">
+            ${options}
+        </select>
+        <button class="btn btn-sm btn-secondary" onclick="cancelEditMatchType()">Cancel</button>
+    `;
+    
+    document.getElementById('detailMatchType').innerHTML = selectHtml;
+}
+
+function saveMatchType(value) {
+    updateIOCField('match_type', value || null);
+}
+
+function cancelEditMatchType() {
+    // Reload the modal to restore original display
+    openDetailModal(currentIOCId);
 }
 
 function addAlias() {
