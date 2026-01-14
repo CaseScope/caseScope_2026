@@ -1449,14 +1449,12 @@ function buildProcessNode(proc, level, hostname) {
     const pid = proc.pid || '';
     const pname = proc.name || '';
     
-    // Base64 encode process data to avoid escaping issues in onclick
-    const procDataForIOC = btoa(encodeURIComponent(JSON.stringify({
-        name: proc.name || '',
-        path: proc.path || '',
-        cmdline: proc.cmdline || '',
-        md5: proc.md5 || '',
-        sha256: proc.sha256 || ''
-    })));
+    // Store process data for IOC modal using data attributes (safer than inline JS)
+    const procName = escapeHtml(proc.name || '');
+    const procPath = escapeHtml(proc.path || '');
+    const procCmdline = escapeHtml(proc.cmdline || '');
+    const procMd5 = escapeHtml(proc.md5 || '');
+    const procSha256 = escapeHtml(proc.sha256 || '');
     
     const actionsHtml = (pid || pname) ? `
         <div class="process-node-actions">
@@ -1469,7 +1467,13 @@ function buildProcessNode(proc, level, hostname) {
             <button class="btn-xs btn-link" onclick="searchFromProcess('${escapeHtml(hostname)}', ${pid || 0}, '${escapeHtml(pname)}', '')" title="Search events for this process">
                 <span class="process-action-icon">🔍</span> Search
             </button>
-            <button class="btn-xs btn-link" onclick="openProcessAddIOCModalFromB64('${procDataForIOC}')" title="Add as IOC">
+            <button class="btn-xs btn-link process-add-ioc-btn" 
+                    data-proc-name="${procName}"
+                    data-proc-path="${procPath}"
+                    data-proc-cmdline="${procCmdline}"
+                    data-proc-md5="${procMd5}"
+                    data-proc-sha256="${procSha256}"
+                    onclick="openProcessAddIOCFromElement(this)" title="Add as IOC">
                 <span class="process-action-icon">➕</span> Add IOC
             </button>
         </div>
@@ -1839,15 +1843,16 @@ function updateProcessIOCTypeOptions() {
     }
 }
 
-// Open Add IOC modal from base64 encoded data (avoids escaping issues)
-function openProcessAddIOCModalFromB64(b64Data) {
-    try {
-        const procData = JSON.parse(decodeURIComponent(atob(b64Data)));
-        openProcessAddIOCModal(procData);
-    } catch (e) {
-        console.error('Error parsing process data:', e);
-        openProcessAddIOCModal(null);
-    }
+// Open Add IOC modal from element's data attributes (safe approach)
+function openProcessAddIOCFromElement(btn) {
+    const procData = {
+        name: btn.dataset.procName || '',
+        path: btn.dataset.procPath || '',
+        cmdline: btn.dataset.procCmdline || '',
+        md5: btn.dataset.procMd5 || '',
+        sha256: btn.dataset.procSha256 || ''
+    };
+    openProcessAddIOCModal(procData);
 }
 
 // Open Add IOC modal with pre-filled data from process tree
