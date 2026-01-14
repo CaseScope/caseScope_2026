@@ -1,6 +1,14 @@
 {
-  "version": "3.78.01",
+  "version": "3.78.02",
   "changelog": [
+    {
+      "version": "3.78.02",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Systems/Users: Source type badges now shown in tile title header",
+        "Known Systems/Users: Aggregate sources across all entries displayed as badges"
+      ]
+    },
     {
       "version": "3.78.01",
       "date": "2026-01-14",

@@ -42,7 +42,7 @@
 <!-- Systems Table -->
 <div class="tile systems-tile">
     <div class="tile-header">
-        <h3 class="tile-title">Known Systems</h3>
+        <h3 class="tile-title">Known Systems <span id="sourceBadges" class="title-badges"></span></h3>
         <div class="tile-controls">
             <input type="text" class="table-search" id="systemsSearch" placeholder="Search systems..." onkeyup="filterSystems()">
             <span class="systems-count" id="systemsCount">0 systems</span>
@@ -270,11 +270,24 @@ function loadSystems() {
             if (data.success) {
                 systemsData = data.systems;
                 renderSystems(systemsData);
+                updateSourceBadges(data.aggregate_sources || []);
             } else {
                 showError('Failed to load systems: ' + data.error);
             }
         })
         .catch(err => showError('Error loading systems: ' + err.message));
+}
+
+function updateSourceBadges(sources) {
+    const badgesEl = document.getElementById('sourceBadges');
+    if (!badgesEl) return;
+    
+    if (!sources || sources.length === 0) {
+        badgesEl.innerHTML = '';
+        return;
+    }
+    
+    badgesEl.innerHTML = formatSourceBadges(sources);
 }
 
 function renderSystems(systems) {

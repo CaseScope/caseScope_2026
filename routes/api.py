@@ -2131,11 +2131,19 @@ def get_known_systems(case_uuid):
         
         systems = get_systems_for_case(case.id)
         
+        # Aggregate all unique sources across all systems
+        all_sources = set()
+        for system in systems:
+            sources = system.get('sources', [])
+            if sources:
+                all_sources.update(sources)
+        
         return jsonify({
             'success': True,
             'case_uuid': case_uuid,
             'systems': systems,
-            'total': len(systems)
+            'total': len(systems),
+            'aggregate_sources': sorted(list(all_sources))
         })
         
     except Exception as e:
@@ -2375,11 +2383,19 @@ def get_known_users(case_uuid):
         
         users = get_users_for_case(case.id)
         
+        # Aggregate all unique sources across all users
+        all_sources = set()
+        for user in users:
+            sources = user.get('sources', [])
+            if sources:
+                all_sources.update(sources)
+        
         return jsonify({
             'success': True,
             'case_uuid': case_uuid,
             'users': users,
-            'total': len(users)
+            'total': len(users),
+            'aggregate_sources': sorted(list(all_sources))
         })
         
     except Exception as e:

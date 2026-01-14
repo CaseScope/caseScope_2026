@@ -42,7 +42,7 @@
 <!-- Users Table -->
 <div class="tile users-tile">
     <div class="tile-header">
-        <h3 class="tile-title">Known Users</h3>
+        <h3 class="tile-title">Known Users <span id="sourceBadges" class="title-badges"></span></h3>
         <div class="tile-controls">
             <input type="text" class="table-search" id="usersSearch" placeholder="Search users..." onkeyup="filterUsers()">
             <span class="users-count" id="usersCount">0 users</span>
@@ -252,11 +252,24 @@ function loadUsers() {
             if (data.success) {
                 usersData = data.users;
                 renderUsers(usersData);
+                updateSourceBadges(data.aggregate_sources || []);
             } else {
                 showError('Failed to load users: ' + data.error);
             }
         })
         .catch(err => showError('Error loading users: ' + err.message));
+}
+
+function updateSourceBadges(sources) {
+    const badgesEl = document.getElementById('sourceBadges');
+    if (!badgesEl) return;
+    
+    if (!sources || sources.length === 0) {
+        badgesEl.innerHTML = '';
+        return;
+    }
+    
+    badgesEl.innerHTML = formatSourceBadges(sources);
 }
 
 function renderUsers(users) {
