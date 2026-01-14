@@ -1,6 +1,27 @@
 {
-  "version": "3.88.00",
+  "version": "3.90.00",
   "changelog": [
+    {
+      "version": "3.90.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Process Analysis: Added Search icon to process tree nodes for quick event search",
+        "Process Analysis: Added Add IOC icon to process tree nodes for quick IOC creation",
+        "Process Analysis: IOC modal pre-fills with process data (hash, path, name, command line)"
+      ]
+    },
+    {
+      "version": "3.89.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Added logging and audit system with Settings > Logging tab",
+        "Implemented unified forensic audit log (AuditLog model) for compliance tracking",
+        "Added operational text-based logging (utils/logger.py) for debugging",
+        "Case-specific file activity logs and run logs",
+        "Configurable log level, path, retention, and rotation settings",
+        "Audit log viewer with filtering and search in Settings > Audit tab"
+      ]
+    },
     {
       "version": "3.88.00",
       "date": "2026-01-14",

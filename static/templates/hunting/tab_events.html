@@ -43,6 +43,61 @@
     </div>
 </div>
 
+<!-- Add IOC Modal (from Process Analysis) -->
+<div class="modal-overlay" id="process-add-ioc-modal" style="display: none;" onclick="closeProcessAddIOCModal(event)">
+    <div class="modal-container modal-ioc-add" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">Add Indicator of Compromise</h3>
+            <button class="modal-close" onclick="closeProcessAddIOCModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Category <span class="required">*</span></label>
+                <select class="form-input form-select" id="processIOCCategory" onchange="updateProcessIOCTypeOptions()">
+                    <option value="">-- Select Category --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Type <span class="required">*</span></label>
+                <select class="form-input form-select" id="processIOCType" onchange="analyzeProcessIOCMatchType()">
+                    <option value="">-- Select Type --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Value <span class="required">*</span></label>
+                <input type="text" class="form-input" id="processIOCValue" placeholder="Enter IOC value..." onblur="analyzeProcessIOCMatchType()">
+            </div>
+            <!-- Match Type Recommendation -->
+            <div class="form-group" id="processMatchTypeSection" style="display: none;">
+                <label class="form-label">Match Type</label>
+                <div class="match-type-recommendation" id="processMatchTypeRecommendation">
+                </div>
+                <select class="form-input form-select" id="processIOCMatchType">
+                    <option value="">Auto-detect (recommended)</option>
+                    <option value="token">Token (Whole Word) - Best for hashes, IPs, unique IDs</option>
+                    <option value="substring">Substring (Contains) - Best for paths, URLs, registry</option>
+                    <option value="regex">Regex (Pattern) - For complex patterns</option>
+                </select>
+                <small class="form-help" id="processMatchTypeHelp"></small>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea class="form-input form-textarea" id="processIOCNotes" rows="3" placeholder="Optional notes about this IOC..."></textarea>
+            </div>
+            <div class="form-group">
+                <label class="filter-checkbox-inline">
+                    <input type="checkbox" id="processIOCMalicious">
+                    <span>Mark as Malicious</span>
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeProcessAddIOCModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="createProcessIOC()">Add IOC</button>
+        </div>
+    </div>
+</div>
+
 <!-- Search Tile -->
 <div class="events-tile events-search-tile">
     <div class="tile-header">

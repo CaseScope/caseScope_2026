@@ -127,6 +127,7 @@
 <script>
 const caseId = {{ case.id }};
 const CASE_ID = caseId;
+const caseUuid = '{{ case.uuid }}';
 let eventsPage = 1;
 let eventsPerPage = 50;
 let eventsSearch = '';
@@ -1447,16 +1448,29 @@ function buildProcessNode(proc, level, hostname) {
     // Build actions for interactive exploration
     const pid = proc.pid || '';
     const pname = proc.name || '';
-    const actionsHtml = (pid && pname) ? `
+    
+    // Prepare process data for IOC modal (JSON encode for onclick)
+    const procDataForIOC = JSON.stringify({
+        name: proc.name || '',
+        path: proc.path || '',
+        cmdline: proc.cmdline || '',
+        md5: proc.md5 || '',
+        sha256: proc.sha256 || ''
+    }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    
+    const actionsHtml = (pid || pname) ? `
         <div class="process-node-actions">
-            <button class="btn-xs btn-link" onclick="findChildrenOf('${escapeHtml(hostname)}', ${pid}, '${escapeHtml(pname)}')" title="Find child processes">
+            <button class="btn-xs btn-link" onclick="findChildrenOf('${escapeHtml(hostname)}', ${pid || 0}, '${escapeHtml(pname)}')" title="Find child processes">
                 🔽 Children
             </button>
-            <button class="btn-xs btn-link" onclick="findParentOf('${escapeHtml(hostname)}', ${pid}, '${escapeHtml(pname)}')" title="Find parent chain">
+            <button class="btn-xs btn-link" onclick="findParentOf('${escapeHtml(hostname)}', ${pid || 0}, '${escapeHtml(pname)}')" title="Find parent chain">
                 🔼 Parents
             </button>
-            <button class="btn-xs btn-link" onclick="searchProcessEvents('${escapeHtml(hostname)}', ${pid}, '${escapeHtml(pname)}')" title="Search all events for this process">
-                🔍 Events
+            <button class="btn-xs btn-link" onclick="searchFromProcess('${escapeHtml(hostname)}', ${pid || 0}, '${escapeHtml(pname)}', '')" title="Search events for this process">
+                <span class="process-action-icon">🔍</span> Search
+            </button>
+            <button class="btn-xs btn-link" onclick="openProcessAddIOCModal(JSON.parse('${procDataForIOC}'))" title="Add as IOC">
+                <span class="process-action-icon">➕</span> Add IOC
             </button>
         </div>
     ` : '';
@@ -1636,6 +1650,15 @@ function buildInteractiveTreeNode(proc, hostname, depth) {
     const nodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
     const hasChildren = proc.child_count && proc.child_count > 0;
     
+    // Prepare process data for IOC modal (JSON encode for onclick)
+    const procDataForIOC = JSON.stringify({
+        name: proc.process_name || '',
+        path: proc.process_path || '',
+        cmdline: proc.command_line || '',
+        md5: proc.md5 || proc.file_hash_md5 || '',
+        sha256: proc.sha256 || proc.file_hash_sha256 || ''
+    }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    
     return `
         <div class="tree-node-interactive" id="${nodeId}" style="margin-left: ${indent}px;">
             <div class="tree-node-row">
@@ -1647,6 +1670,8 @@ function buildInteractiveTreeNode(proc, hostname, depth) {
                 <div class="tree-node-actions-inline">
                     <button class="btn-xs" onclick="findChildrenOf('${escapeHtml(hostname)}', ${proc.pid}, '${escapeHtml(proc.process_name)}')" title="Find children">🔽</button>
                     <button class="btn-xs" onclick="findParentOf('${escapeHtml(hostname)}', ${proc.parent_pid || 0}, '${escapeHtml(proc.parent_process || '')}')" title="Find parent">🔼</button>
+                    <button class="btn-xs" onclick="searchFromProcess('${escapeHtml(hostname)}', ${proc.pid || 0}, '${escapeHtml(proc.process_name || '')}', '')" title="Search events">🔍</button>
+                    <button class="btn-xs" onclick="openProcessAddIOCModal(JSON.parse('${procDataForIOC}'))" title="Add as IOC">➕</button>
                 </div>
             </div>
             ${proc.command_line ? `<div class="tree-node-cmdline">${escapeHtml(proc.command_line.length > 200 ? proc.command_line.substring(0, 200) + '...' : proc.command_line)}</div>` : ''}
@@ -1772,6 +1797,239 @@ function highlightIOCsInText(text) {
 function escapeRegex(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+// ============================================
+// Process Tree IOC Functions
+// ============================================
+
+let processIOCTypesByCategory = {};
+
+// Load IOC types for the Add IOC modal
+function loadProcessIOCTypes() {
+    fetch('/api/iocs/types')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                processIOCTypesByCategory = data.types_by_category;
+                populateProcessIOCCategoryDropdown();
+            }
+        })
+        .catch(err => console.error('Error loading IOC types:', err));
+}
+
+function populateProcessIOCCategoryDropdown() {
+    const categorySelect = document.getElementById('processIOCCategory');
+    if (!categorySelect) return;
+    categorySelect.innerHTML = '<option value="">-- Select Category --</option>';
+    
+    for (const category of Object.keys(processIOCTypesByCategory).sort()) {
+        categorySelect.innerHTML += `<option value="${category}">${category}</option>`;
+    }
+}
+
+function updateProcessIOCTypeOptions() {
+    const category = document.getElementById('processIOCCategory').value;
+    const typeSelect = document.getElementById('processIOCType');
+    typeSelect.innerHTML = '<option value="">-- Select Type --</option>';
+    
+    if (category && processIOCTypesByCategory[category]) {
+        for (const type of processIOCTypesByCategory[category]) {
+            typeSelect.innerHTML += `<option value="${type}">${type}</option>`;
+        }
+    }
+}
+
+// Open Add IOC modal with pre-filled data from process tree
+function openProcessAddIOCModal(procData) {
+    // Ensure IOC types are loaded
+    if (Object.keys(processIOCTypesByCategory).length === 0) {
+        loadProcessIOCTypes();
+    }
+    
+    // Reset form
+    document.getElementById('processIOCCategory').value = '';
+    document.getElementById('processIOCType').innerHTML = '<option value="">-- Select Type --</option>';
+    document.getElementById('processIOCValue').value = '';
+    document.getElementById('processIOCNotes').value = '';
+    document.getElementById('processIOCMalicious').checked = false;
+    document.getElementById('processIOCMatchType').value = '';
+    document.getElementById('processMatchTypeSection').style.display = 'none';
+    document.getElementById('processMatchTypeRecommendation').innerHTML = '';
+    document.getElementById('processMatchTypeHelp').textContent = '';
+    
+    // Pre-fill based on process data
+    if (procData) {
+        let suggestedCategory = 'Process';
+        let suggestedType = '';
+        let suggestedValue = '';
+        let notes = [];
+        
+        // Determine best IOC type based on available data
+        if (procData.md5) {
+            suggestedCategory = 'File';
+            suggestedType = 'MD5 Hash';
+            suggestedValue = procData.md5;
+            if (procData.name) notes.push(`Process: ${procData.name}`);
+            if (procData.path) notes.push(`Path: ${procData.path}`);
+        } else if (procData.sha256) {
+            suggestedCategory = 'File';
+            suggestedType = 'SHA256 Hash';
+            suggestedValue = procData.sha256;
+            if (procData.name) notes.push(`Process: ${procData.name}`);
+            if (procData.path) notes.push(`Path: ${procData.path}`);
+        } else if (procData.cmdline) {
+            suggestedCategory = 'Process';
+            suggestedType = 'Command Line';
+            suggestedValue = procData.cmdline;
+            if (procData.name) notes.push(`Process: ${procData.name}`);
+        } else if (procData.path) {
+            suggestedCategory = 'Process';
+            suggestedType = 'Process Path';
+            suggestedValue = procData.path;
+            if (procData.name) notes.push(`Process: ${procData.name}`);
+        } else if (procData.name) {
+            suggestedCategory = 'Process';
+            suggestedType = 'Process Name';
+            suggestedValue = procData.name;
+        }
+        
+        // Set category and trigger type dropdown population
+        setTimeout(() => {
+            const categorySelect = document.getElementById('processIOCCategory');
+            categorySelect.value = suggestedCategory;
+            updateProcessIOCTypeOptions();
+            
+            // Set type after dropdown is populated
+            setTimeout(() => {
+                const typeSelect = document.getElementById('processIOCType');
+                typeSelect.value = suggestedType;
+                document.getElementById('processIOCValue').value = suggestedValue;
+                document.getElementById('processIOCNotes').value = notes.join('\n');
+                
+                // Trigger match type analysis
+                analyzeProcessIOCMatchType();
+            }, 50);
+        }, 100);
+    }
+    
+    document.getElementById('process-add-ioc-modal').style.display = 'flex';
+}
+
+function closeProcessAddIOCModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('process-add-ioc-modal').style.display = 'none';
+}
+
+// Analyze IOC value and recommend match type
+function analyzeProcessIOCMatchType() {
+    const iocType = document.getElementById('processIOCType').value;
+    const value = document.getElementById('processIOCValue').value.trim();
+    
+    if (!iocType || !value) {
+        document.getElementById('processMatchTypeSection').style.display = 'none';
+        return;
+    }
+    
+    document.getElementById('processMatchTypeSection').style.display = 'block';
+    
+    fetch('/api/iocs/analyze-match-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            ioc_type: iocType,
+            value: value
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const rec = data.recommendation;
+            const matchTypeLabels = {
+                'token': 'Token',
+                'substring': 'Substring', 
+                'regex': 'Regex'
+            };
+            
+            let recHtml = `
+                <div class="match-type-rec-box">
+                    <span class="match-type-rec-badge ${rec.recommended}">${matchTypeLabels[rec.recommended] || rec.recommended}</span>
+                    <span class="match-type-rec-reason">${rec.reason}</span>
+                </div>
+            `;
+            
+            document.getElementById('processMatchTypeRecommendation').innerHTML = recHtml;
+            document.getElementById('processMatchTypeHelp').textContent = rec.examples ? rec.examples.join(' | ') : '';
+        }
+    })
+    .catch(err => console.error('Match type analysis error:', err));
+}
+
+function createProcessIOC() {
+    const iocType = document.getElementById('processIOCType').value;
+    const value = document.getElementById('processIOCValue').value.trim();
+    const notes = document.getElementById('processIOCNotes').value.trim();
+    const malicious = document.getElementById('processIOCMalicious').checked;
+    const matchType = document.getElementById('processIOCMatchType').value || null;
+    
+    if (!iocType) {
+        alert('Please select an IOC type');
+        return;
+    }
+    
+    if (!value) {
+        alert('Please enter an IOC value');
+        return;
+    }
+    
+    fetch(`/api/iocs/create/${caseUuid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            ioc_type: iocType,
+            value: value,
+            notes: notes,
+            malicious: malicious,
+            match_type: matchType
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeProcessAddIOCModal();
+            let msg = data.created ? 'IOC created successfully' : 'IOC already exists, linked to case';
+            if (data.match_type_info && data.created) {
+                msg += `\n\nMatch type: ${data.match_type_info.recommended_label || data.ioc.effective_match_type}`;
+            }
+            alert(msg);
+            // Refresh IOC values for highlighting
+            loadCaseIOCs();
+        } else if (data.needs_type) {
+            alert(data.message);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(err => alert('Error creating IOC: ' + err.message));
+}
+
+// Search for a process from the tree
+function searchFromProcess(hostname, pid, processName, cmdline) {
+    // Build a search query from the process info
+    let searchTerms = [];
+    if (hostname) searchTerms.push(hostname);
+    if (processName) searchTerms.push(`"${processName}"`);
+    if (pid) searchTerms.push(pid.toString());
+    
+    const searchQuery = searchTerms.join(' ');
+    document.getElementById('events-search').value = searchQuery;
+    closeEventModal();
+    searchEvents();
+}
+
+// Load IOC types on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadProcessIOCTypes();
+});
 
 function buildEventDetailHTML(event) {
     let html = '';

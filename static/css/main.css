@@ -2847,6 +2847,12 @@ tbody td {
   padding: 2px 4px;
 }
 
+/* Process action icons in tree */
+.process-action-icon {
+  font-size: 12px;
+  margin-right: 2px;
+}
+
 /* Process Details Section */
 .process-details-section {
   margin-bottom: 24px;
