@@ -1,6 +1,14 @@
 {
-  "version": "3.84.00",
+  "version": "3.84.01",
   "changelog": [
+    {
+      "version": "3.84.01",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Users: Fixed CSV upload to handle duplicate SIDs gracefully",
+        "Known Users: Improved session management during CSV import to prevent transaction errors"
+      ]
+    },
     {
       "version": "3.84.00",
       "date": "2026-01-14",

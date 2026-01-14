@@ -887,7 +887,11 @@ function uploadCsv() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showUploadStatus('success', `Imported ${data.created} new users, updated ${data.updated} existing users`);
+            let msg = `Imported ${data.created} new users, updated ${data.updated} existing`;
+            if (data.skipped > 0) {
+                msg += `, ${data.skipped} skipped`;
+            }
+            showUploadStatus('success', msg);
             setTimeout(() => {
                 closeUploadModal();
                 loadUsers();

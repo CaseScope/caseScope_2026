@@ -2843,23 +2843,26 @@ def upload_known_users_csv(case_uuid):
         
         created_count = 0
         updated_count = 0
-        error_count = 0
+        skipped_count = 0
         
-        for row in reader:
+        # Collect all rows first
+        rows = list(reader)
+        
+        for row in rows:
+            username = row.get('username', '').strip()
+            if not username:
+                continue
+            
+            sid = row.get('sid', '').strip() or None
+            email = row.get('email', '').strip() or None
+            notes = row.get('notes', '').strip() or None
+            
+            # Parse compromised (handle various formats)
+            compromised_str = row.get('compromised', '').strip().lower()
+            compromised = compromised_str in ('true', 'yes', '1', 'y')
+            
             try:
-                username = row.get('username', '').strip()
-                if not username:
-                    continue
-                
-                sid = row.get('sid', '').strip() or None
-                email = row.get('email', '').strip() or None
-                notes = row.get('notes', '').strip() or None
-                
-                # Parse compromised (handle various formats)
-                compromised_str = row.get('compromised', '').strip().lower()
-                compromised = compromised_str in ('true', 'yes', '1', 'y')
-                
-                # Try to find existing user
+                # Try to find existing user by username, sid, or email
                 existing_user, match_type = KnownUser.find_by_username_sid_alias_or_email(
                     username=username, sid=sid, email=email
                 )
@@ -2868,12 +2871,19 @@ def upload_known_users_csv(case_uuid):
                     # Update existing user
                     updated = False
                     
+                    # Only update SID if it's not set AND the new SID isn't used elsewhere
                     if sid and not existing_user.sid:
-                        existing_user.sid = sid
-                        updated = True
+                        # Check if SID already exists on another user
+                        sid_exists = KnownUser.query.filter(
+                            KnownUser.sid == sid,
+                            KnownUser.id != existing_user.id
+                        ).first()
+                        if not sid_exists:
+                            existing_user.sid = sid
+                            updated = True
                     
                     if email and not existing_user.email:
-                        existing_user.email = email
+                        existing_user.email = email.lower()
                         updated = True
                     
                     if notes and not existing_user.notes:
@@ -2898,7 +2908,21 @@ def upload_known_users_csv(case_uuid):
                             None,
                             f'Updated from CSV upload'
                         )
+                    
+                    db.session.commit()
                 else:
+                    # Check if SID already exists before creating
+                    if sid:
+                        sid_exists = KnownUser.query.filter(KnownUser.sid == sid).first()
+                        if sid_exists:
+                            # SID exists but username doesn't match - skip or link
+                            sid_exists.add_alias(username)
+                            sid_exists.link_to_case(case.id)
+                            sid_exists.add_source('csv_import')
+                            db.session.commit()
+                            skipped_count += 1
+                            continue
+                    
                     # Create new user
                     new_user = KnownUser(
                         username=username.upper(),
@@ -2910,7 +2934,7 @@ def upload_known_users_csv(case_uuid):
                         sources=['csv_import']
                     )
                     db.session.add(new_user)
-                    db.session.flush()  # Get the ID
+                    db.session.commit()
                     
                     new_user.link_to_case(case.id)
                     
@@ -2922,19 +2946,19 @@ def upload_known_users_csv(case_uuid):
                         None,
                         f'Created from CSV upload: {username}'
                     )
+                    db.session.commit()
                     created_count += 1
                     
             except Exception as row_err:
-                error_count += 1
+                db.session.rollback()
+                skipped_count += 1
                 continue
-        
-        db.session.commit()
         
         return jsonify({
             'success': True,
             'created': created_count,
             'updated': updated_count,
-            'errors': error_count
+            'skipped': skipped_count
         })
         
     except Exception as e:
