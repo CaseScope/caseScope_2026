@@ -1,6 +1,16 @@
 {
-  "version": "3.84.02",
+  "version": "3.85.00",
   "changelog": [
+    {
+      "version": "3.85.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Systems: Added CSV import/export functionality with dropdown menu",
+        "Known Systems: Upload Systems modal for CSV file upload with drag-and-drop",
+        "Known Systems: Download Systems exports all systems to CSV file",
+        "Known Systems: Show Help modal with PowerShell scripts for domain and local system export"
+      ]
+    },
     {
       "version": "3.84.02",
       "date": "2026-01-14",

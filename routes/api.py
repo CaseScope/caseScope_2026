@@ -2560,6 +2560,264 @@ def get_system_audit(system_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/known-systems/upload/<case_uuid>', methods=['POST'])
+@login_required
+def upload_known_systems_csv(case_uuid):
+    """Upload a CSV file to import known systems"""
+    import csv
+    import io
+    from flask_login import current_user
+    from models.known_system import KnownSystem, KnownSystemAudit
+    
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        if not file.filename.lower().endswith('.csv'):
+            return jsonify({'success': False, 'error': 'File must be a CSV'}), 400
+        
+        # Read and parse CSV
+        content = file.read().decode('utf-8-sig')  # Handle BOM
+        reader = csv.DictReader(io.StringIO(content))
+        
+        # Normalize header names (lowercase, strip whitespace)
+        if reader.fieldnames:
+            reader.fieldnames = [h.lower().strip() for h in reader.fieldnames]
+        
+        # Validate required columns
+        if not reader.fieldnames or 'hostname' not in reader.fieldnames:
+            return jsonify({'success': False, 'error': 'CSV must have a "hostname" column'}), 400
+        
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        
+        # Valid values for system_type and os_type
+        valid_system_types = ['workstation', 'server', 'router', 'switch', 'printer', 'other']
+        valid_os_types = ['windows', 'linux', 'mac', 'other']
+        
+        # Collect all rows first
+        rows = list(reader)
+        
+        for row in rows:
+            hostname = row.get('hostname', '').strip()
+            if not hostname:
+                continue
+            
+            # Extract NETBIOS name
+            netbios_name, full_hostname = KnownSystem.extract_netbios_name(hostname)
+            if not netbios_name:
+                continue
+            
+            system_type = row.get('system_type', '').strip()
+            os_type = row.get('os_type', '').strip()
+            os_version = row.get('os_version', '').strip() or None
+            notes = row.get('notes', '').strip() or None
+            ip_addresses_str = row.get('ip_addresses', '').strip()
+            
+            # Validate and normalize system_type
+            if system_type and system_type.lower() in valid_system_types:
+                system_type = system_type.capitalize()
+            else:
+                system_type = None
+            
+            # Validate and normalize os_type
+            if os_type and os_type.lower() in valid_os_types:
+                os_type = os_type.capitalize()
+            else:
+                os_type = None
+            
+            # Parse compromised (handle various formats)
+            compromised_str = row.get('compromised', '').strip().lower()
+            compromised = compromised_str in ('true', 'yes', '1', 'y')
+            
+            # Parse IP addresses (semicolon-separated)
+            ip_addresses = []
+            if ip_addresses_str:
+                ip_addresses = [ip.strip() for ip in ip_addresses_str.split(';') if ip.strip()]
+            
+            try:
+                # Try to find existing system
+                existing_system = KnownSystem.find_by_hostname_or_alias(netbios_name)
+                
+                if existing_system:
+                    # Update existing system with new data
+                    updated = False
+                    
+                    if system_type and existing_system.system_type != system_type:
+                        existing_system.system_type = system_type
+                        updated = True
+                    
+                    if os_type and existing_system.os_type != os_type:
+                        existing_system.os_type = os_type
+                        updated = True
+                    
+                    if os_version and existing_system.os_version != os_version:
+                        existing_system.os_version = os_version
+                        updated = True
+                    
+                    if notes and existing_system.notes != notes:
+                        existing_system.notes = notes
+                        updated = True
+                    
+                    # Only SET compromised to true - never unflag
+                    if compromised and not existing_system.compromised:
+                        existing_system.compromised = True
+                        updated = True
+                    
+                    # Add IP addresses
+                    for ip in ip_addresses:
+                        existing_system.add_ip(ip)
+                    
+                    # Add full hostname as alias if different
+                    if full_hostname and full_hostname != netbios_name:
+                        existing_system.add_alias(full_hostname)
+                    
+                    # Link to case
+                    existing_system.link_to_case(case.id)
+                    existing_system.add_source('csv_import')
+                    
+                    if updated:
+                        updated_count += 1
+                        KnownSystemAudit.log_change(
+                            existing_system.id,
+                            current_user.username,
+                            'csv_import',
+                            'update',
+                            None,
+                            f'Updated from CSV upload'
+                        )
+                    
+                    db.session.commit()
+                else:
+                    # Create new system
+                    new_system = KnownSystem(
+                        hostname=netbios_name,
+                        system_type=system_type,
+                        os_type=os_type,
+                        os_version=os_version,
+                        notes=notes,
+                        compromised=compromised,
+                        sources=['csv_import']
+                    )
+                    db.session.add(new_system)
+                    db.session.commit()
+                    
+                    # Add IP addresses
+                    for ip in ip_addresses:
+                        new_system.add_ip(ip)
+                    
+                    # Add full hostname as alias if different
+                    if full_hostname and full_hostname != netbios_name:
+                        new_system.add_alias(full_hostname)
+                    
+                    new_system.link_to_case(case.id)
+                    
+                    KnownSystemAudit.log_change(
+                        new_system.id,
+                        current_user.username,
+                        'system',
+                        'create',
+                        None,
+                        f'Created from CSV upload: {netbios_name}'
+                    )
+                    db.session.commit()
+                    created_count += 1
+                    
+            except Exception as row_err:
+                db.session.rollback()
+                skipped_count += 1
+                continue
+        
+        return jsonify({
+            'success': True,
+            'created': created_count,
+            'updated': updated_count,
+            'skipped': skipped_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/download/<case_uuid>')
+@login_required
+def download_known_systems_csv(case_uuid):
+    """Download all known systems for a case as CSV"""
+    import csv
+    import io
+    from flask import Response
+    from utils.known_systems_discovery import get_systems_for_case
+    
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get systems for this case
+        systems = get_systems_for_case(case.id)
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            'hostname', 'system_type', 'os_type', 'os_version', 'compromised',
+            'notes', 'ip_addresses', 'aliases', 'sources', 'artifacts_with_hostname', 'last_seen'
+        ])
+        
+        # Write system rows
+        for system in systems:
+            ip_addresses = ';'.join(system.get('ip_addresses', []))
+            aliases = ';'.join(system.get('aliases', []))
+            sources = ';'.join(system.get('sources', []))
+            
+            writer.writerow([
+                system.get('hostname', ''),
+                system.get('system_type', ''),
+                system.get('os_type', ''),
+                system.get('os_version', ''),
+                'true' if system.get('compromised') else 'false',
+                system.get('notes', ''),
+                ip_addresses,
+                aliases,
+                sources,
+                system.get('artifacts_with_hostname', 0),
+                system.get('last_seen', '')
+            ])
+        
+        # Generate response
+        output.seek(0)
+        
+        # Create filename with case name
+        safe_name = ''.join(c for c in case.name if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f'known_systems_{safe_name}_{case_uuid[:8]}.csv'
+        
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Known Users API Endpoints
 # ============================================

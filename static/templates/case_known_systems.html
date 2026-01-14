@@ -10,6 +10,15 @@
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
     <div class="page-actions">
+        <div class="action-group">
+            <select class="action-select" id="systemActionSelect">
+                <option value="">-- Select Action --</option>
+                <option value="upload">📤 Upload Systems</option>
+                <option value="download">📥 Download Systems</option>
+                <option value="help">❓ Show Help</option>
+            </select>
+            <button class="btn btn-secondary" id="btnGoAction" onclick="executeSystemAction()">Go</button>
+        </div>
         <button class="btn btn-primary" id="btnFindInArtifacts" onclick="findInArtifacts()">
             <span class="btn-icon">🔍</span>
             Find in Artifacts
@@ -248,6 +257,114 @@
                 </div>
                 <div class="progress-current" id="progressCurrent"></div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Systems Modal -->
+<div id="uploadModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-upload">
+        <div class="modal-header">
+            <h3 class="modal-title">📤 Upload Known Systems</h3>
+            <button class="modal-close" onclick="closeUploadModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="upload-instructions">
+                <p>Upload a CSV file with system information. The CSV should contain the following columns:</p>
+                <ul class="csv-columns-list">
+                    <li><strong>hostname</strong> - System hostname/NETBIOS name (required)</li>
+                    <li><strong>system_type</strong> - Workstation, Server, Router, Switch, Printer, Other (optional)</li>
+                    <li><strong>os_type</strong> - Windows, Linux, Mac, Other (optional)</li>
+                    <li><strong>os_version</strong> - OS version string (optional)</li>
+                    <li><strong>compromised</strong> - true/false (optional, defaults to false)</li>
+                    <li><strong>notes</strong> - Analyst notes (optional)</li>
+                    <li><strong>ip_addresses</strong> - Semicolon-separated list of IPs (optional)</li>
+                </ul>
+            </div>
+            <div class="upload-dropzone" id="uploadDropzone">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">📁</span>
+                    <p class="dropzone-text">Drag and drop a CSV file here, or click to browse</p>
+                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
+                </div>
+            </div>
+            <div class="upload-status" id="uploadStatus" style="display: none;">
+                <span class="upload-status-icon"></span>
+                <span class="upload-status-text"></span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+            <button class="btn btn-primary" id="btnUploadCsv" onclick="uploadCsv()" disabled>Upload</button>
+        </div>
+    </div>
+</div>
+
+<!-- Help Modal - PowerShell Scripts -->
+<div id="helpModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-help">
+        <div class="modal-header">
+            <h3 class="modal-title">❓ PowerShell Scripts for System Export</h3>
+            <button class="modal-close" onclick="closeHelpModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="help-section">
+                <h4>Export Domain Computers to CSV</h4>
+                <p class="help-description">Run this PowerShell script on a domain-joined system to export Active Directory computers:</p>
+                <div class="code-block-container">
+                    <pre class="code-block" id="domainScript"># Export Domain Computers to CSV
+# Requires: RSAT AD PowerShell module
+# Run as Administrator on a domain-joined system
+
+Import-Module ActiveDirectory
+
+$OutputPath = "$env:USERPROFILE\Desktop\domain_systems.csv"
+
+Get-ADComputer -Filter * -Properties Name, OperatingSystem, OperatingSystemVersion, IPv4Address |
+    Select-Object @{N='hostname';E={$_.Name}},
+                  @{N='system_type';E={if($_.OperatingSystem -match 'Server'){'Server'}else{'Workstation'}}},
+                  @{N='os_type';E={'Windows'}},
+                  @{N='os_version';E={$_.OperatingSystem}},
+                  @{N='compromised';E={'false'}},
+                  @{N='notes';E={''}},
+                  @{N='ip_addresses';E={$_.IPv4Address}} |
+    Export-Csv -Path $OutputPath -NoTypeInformation
+
+Write-Host "Exported to: $OutputPath" -ForegroundColor Green</pre>
+                    <button class="btn btn-sm btn-copy" onclick="copyScript('domainScript')">📋 Copy</button>
+                </div>
+            </div>
+            <div class="help-section">
+                <h4>Export Local System Info to CSV</h4>
+                <p class="help-description">Run this PowerShell script to export the local system's information:</p>
+                <div class="code-block-container">
+                    <pre class="code-block" id="localScript"># Export Local System Info to CSV
+# Run as Administrator
+
+$OutputPath = "$env:USERPROFILE\Desktop\local_system.csv"
+
+$os = Get-CimInstance Win32_OperatingSystem
+$cs = Get-CimInstance Win32_ComputerSystem
+$ips = (Get-NetIPAddress -AddressFamily IPv4 | 
+        Where-Object {$_.IPAddress -notmatch '^(127\.|169\.254\.)'}).IPAddress -join ';'
+
+[PSCustomObject]@{
+    hostname = $env:COMPUTERNAME
+    system_type = if($os.ProductType -eq 1){'Workstation'}else{'Server'}
+    os_type = 'Windows'
+    os_version = $os.Caption
+    compromised = 'false'
+    notes = ''
+    ip_addresses = $ips
+} | Export-Csv -Path $OutputPath -NoTypeInformation
+
+Write-Host "Exported to: $OutputPath" -ForegroundColor Green</pre>
+                    <button class="btn btn-sm btn-copy" onclick="copyScript('localScript')">📋 Copy</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="closeHelpModal()">Close</button>
         </div>
     </div>
 </div>
@@ -687,6 +804,189 @@ function formatDateTime(dateStr) {
 
 function showError(msg) {
     alert(msg); // Simple for now, could be improved with toast
+}
+
+// ============================================
+// Action Dropdown Functions
+// ============================================
+
+function executeSystemAction() {
+    const select = document.getElementById('systemActionSelect');
+    const action = select.value;
+    
+    switch(action) {
+        case 'upload':
+            openUploadModal();
+            break;
+        case 'download':
+            downloadSystems();
+            break;
+        case 'help':
+            openHelpModal();
+            break;
+        default:
+            showError('Please select an action from the dropdown');
+    }
+    
+    // Reset dropdown after action
+    select.value = '';
+}
+
+// ============================================
+// Upload Systems Modal Functions
+// ============================================
+
+let selectedFile = null;
+
+function openUploadModal() {
+    document.getElementById('uploadModal').style.display = 'flex';
+    selectedFile = null;
+    document.getElementById('btnUploadCsv').disabled = true;
+    document.getElementById('uploadStatus').style.display = 'none';
+    document.getElementById('csvFileInput').value = '';
+    
+    // Setup dropzone events
+    const dropzone = document.getElementById('uploadDropzone');
+    dropzone.onclick = () => document.getElementById('csvFileInput').click();
+    
+    dropzone.ondragover = (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+    };
+    
+    dropzone.ondragleave = () => {
+        dropzone.classList.remove('dragover');
+    };
+    
+    dropzone.ondrop = (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            handleFile(e.dataTransfer.files[0]);
+        }
+    };
+}
+
+function closeUploadModal() {
+    document.getElementById('uploadModal').style.display = 'none';
+    selectedFile = null;
+}
+
+function handleFileSelect(event) {
+    if (event.target.files.length > 0) {
+        handleFile(event.target.files[0]);
+    }
+}
+
+function handleFile(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        showUploadStatus('error', 'Please select a CSV file');
+        return;
+    }
+    
+    selectedFile = file;
+    document.getElementById('btnUploadCsv').disabled = false;
+    showUploadStatus('success', `Selected: ${file.name} (${formatFileSize(file.size)})`);
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function showUploadStatus(type, message) {
+    const statusEl = document.getElementById('uploadStatus');
+    const iconEl = statusEl.querySelector('.upload-status-icon');
+    const textEl = statusEl.querySelector('.upload-status-text');
+    
+    iconEl.textContent = type === 'success' ? '✓' : type === 'error' ? '✕' : '⏳';
+    iconEl.className = 'upload-status-icon status-' + type;
+    textEl.textContent = message;
+    statusEl.style.display = 'flex';
+}
+
+function uploadCsv() {
+    if (!selectedFile) {
+        showError('Please select a file first');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    
+    const btn = document.getElementById('btnUploadCsv');
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+    showUploadStatus('pending', 'Uploading and processing...');
+    
+    fetch(`/api/known-systems/upload/${caseUuid}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let msg = `Imported ${data.created} new systems, updated ${data.updated} existing`;
+            if (data.skipped > 0) {
+                msg += `, ${data.skipped} skipped`;
+            }
+            showUploadStatus('success', msg);
+            setTimeout(() => {
+                closeUploadModal();
+                loadSystems();
+            }, 2000);
+        } else {
+            showUploadStatus('error', 'Upload failed: ' + data.error);
+            btn.disabled = false;
+            btn.textContent = 'Upload';
+        }
+    })
+    .catch(err => {
+        showUploadStatus('error', 'Upload error: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Upload';
+    });
+}
+
+// ============================================
+// Download Systems Function
+// ============================================
+
+function downloadSystems() {
+    window.location.href = `/api/known-systems/download/${caseUuid}`;
+}
+
+// ============================================
+// Help Modal Functions
+// ============================================
+
+function openHelpModal() {
+    document.getElementById('helpModal').style.display = 'flex';
+}
+
+function closeHelpModal() {
+    document.getElementById('helpModal').style.display = 'none';
+}
+
+function copyScript(scriptId) {
+    const scriptEl = document.getElementById(scriptId);
+    const text = scriptEl.textContent;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        // Show temporary feedback
+        const btn = scriptEl.parentElement.querySelector('.btn-copy');
+        const originalText = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        btn.classList.add('copied');
+        
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.classList.remove('copied');
+        }, 2000);
+    }).catch(err => {
+        showError('Failed to copy: ' + err.message);
+    });
 }
 </script>
 {% endblock %}
