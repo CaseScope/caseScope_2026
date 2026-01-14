@@ -1,6 +1,17 @@
 {
-  "version": "3.78.00",
+  "version": "3.78.01",
   "changelog": [
+    {
+      "version": "3.78.01",
+      "date": "2026-01-14",
+      "changes": [
+        "Fix: S-1-0-0 (Nobody SID) added to system account exclusions",
+        "Fix: Discovery progress now properly sets status to complete",
+        "Fix: SQLAlchemy JSON mutation detection with flag_modified()",
+        "Fix: SID conflict check before setting (prevents unique constraint violations)",
+        "Fix: Savepoint isolation per user (one error doesn't cascade to others)"
+      ]
+    },
     {
       "version": "3.78.00",
       "date": "2026-01-14",
