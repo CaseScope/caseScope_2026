@@ -101,16 +101,19 @@ def increment_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
         total = int(client.hget(key, 'files_total') or 0)
         
         # Check if files phase complete
+        status = 'processing'
         if completed >= total:
-            # Don't change status yet - completion task will handle phases
-            pass
+            # Set status to complete so completion task can trigger
+            client.hset(key, 'status', 'complete')
+            status = 'complete'
+            logger.info(f"All files complete for case {case_uuid}: {completed}/{total}")
         
         logger.debug(f"Progress for case {case_uuid}: {completed}/{total}")
         
         return {
             'completed': completed,
             'total': total,
-            'status': 'processing'
+            'status': status
         }
         
     except Exception as e:
