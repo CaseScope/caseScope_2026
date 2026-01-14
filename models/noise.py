@@ -2,78 +2,38 @@
 
 Tracks known-good software/tools to filter out during hunting.
 Opposite of IOCs - these are things we want to IGNORE, not hunt.
+
+Keyword-Based Matching:
+    Uses ClickHouse hasTokenCaseInsensitive() for whole-word matching on raw_json.
+    This ensures 'ltsvc' matches 'c:\\windows\\ltsvc\\agent.exe' but NOT 'altsvc'.
+    
+    Keywords are matched as tokens (split by non-alphanumeric chars):
+    - OR keywords: If ANY keyword is found → noise
+    - AND keywords: Must ALSO find at least one of these → noise  
+    - NOT keywords: If ANY of these found → NOT noise (exclusion)
 """
 import uuid
 from datetime import datetime
 from models.database import db
 
 
+# Legacy classes kept for backward compatibility with existing DB records
 class NoiseFilterType:
-    """Filter type options for noise rules"""
+    """DEPRECATED - No longer used. Kept for DB compatibility."""
     ANY_FIELD = 'any_field'
-    PROCESS_NAME = 'process_name'
-    FILE_PATH = 'file_path'
-    COMMAND_LINE = 'command_line'
-    HASH = 'hash'
-    SERVICE_NAME = 'service_name'
-    NETWORK = 'network'
-    REGISTRY = 'registry'
     
     @classmethod
     def all(cls):
-        return [
-            cls.ANY_FIELD, cls.PROCESS_NAME, cls.FILE_PATH, cls.COMMAND_LINE,
-            cls.HASH, cls.SERVICE_NAME, cls.NETWORK, cls.REGISTRY
-        ]
-    
-    @classmethod
-    def choices(cls):
-        return [
-            (cls.ANY_FIELD, 'Any Field (Full Text)'),
-            (cls.PROCESS_NAME, 'Process Name'),
-            (cls.FILE_PATH, 'File Path'),
-            (cls.COMMAND_LINE, 'Command Line'),
-            (cls.HASH, 'Hash (MD5/SHA256)'),
-            (cls.SERVICE_NAME, 'Service Name'),
-            (cls.NETWORK, 'Network (IP/Domain)'),
-            (cls.REGISTRY, 'Registry Key/Value')
-        ]
-    
-    @classmethod
-    def labels(cls):
-        return {choice[0]: choice[1] for choice in cls.choices()}
+        return [cls.ANY_FIELD]
 
 
 class NoiseMatchMode:
-    """Match mode options for noise rules"""
-    EXACT = 'exact'
+    """DEPRECATED - No longer used. Kept for DB compatibility."""
     CONTAINS = 'contains'
-    STARTS_WITH = 'starts_with'
-    ENDS_WITH = 'ends_with'
-    WILDCARD = 'wildcard'
-    REGEX = 'regex'
     
     @classmethod
     def all(cls):
-        return [
-            cls.EXACT, cls.CONTAINS, cls.STARTS_WITH,
-            cls.ENDS_WITH, cls.WILDCARD, cls.REGEX
-        ]
-    
-    @classmethod
-    def choices(cls):
-        return [
-            (cls.EXACT, 'Exact Match'),
-            (cls.CONTAINS, 'Contains'),
-            (cls.STARTS_WITH, 'Starts With'),
-            (cls.ENDS_WITH, 'Ends With'),
-            (cls.WILDCARD, 'Wildcard (* and ?)'),
-            (cls.REGEX, 'Regular Expression')
-        ]
-    
-    @classmethod
-    def labels(cls):
-        return {choice[0]: choice[1] for choice in cls.choices()}
+        return [cls.CONTAINS]
 
 
 class NoiseCategory(db.Model):
@@ -132,18 +92,20 @@ class NoiseCategory(db.Model):
 class NoiseRule(db.Model):
     """Individual noise filter rules for known-good software/tools
     
-    Each rule defines a pattern to match against event data.
-    Rules can be enabled/disabled independently.
-    Rule is only active if: category.is_enabled AND rule.is_enabled
-    
-    Pattern Syntax:
-        - Comma (,) = OR matching: "screenconnect,control" matches either
-        - Plus (+) = AND condition: "screenconnect+abc123" must contain both
-        - Combined: "screenconnect,control+clientUID" = (screenconnect OR control) AND clientUID
+    Keyword-Based Token Matching:
+        Uses hasTokenCaseInsensitive() on raw_json for whole-word matching.
+        Keywords are split by non-alphanumeric characters as tokens.
         
-    The AND conditions apply to ALL OR patterns. This is useful for:
-        - ScreenConnect with client-specific UIDs
-        - Any tool where multiple executables share a common identifier
+        Example: 'ltsvc' matches 'c:\\windows\\ltsvc\\agent.exe' but NOT 'altsvc'
+        
+    Keyword Fields:
+        - pattern (OR keywords): Comma-separated. Match if ANY keyword found.
+        - pattern_and (AND keywords): Must ALSO find at least one of these.
+        - pattern_not (NOT keywords): Exclude if ANY of these found.
+        
+    Logic: (OR1 or OR2) AND (AND1 or AND2) AND NOT (NOT1 or NOT2)
+    
+    Rule is only active if: category.is_enabled AND rule.is_enabled
     """
     __tablename__ = 'noise_rules'
     
@@ -158,13 +120,14 @@ class NoiseRule(db.Model):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
     
-    # Filter configuration
-    filter_type = db.Column(db.String(50), nullable=False, index=True)
-    pattern = db.Column(db.String(2000), nullable=False)  # OR patterns (comma-separated)
-    pattern_and = db.Column(db.String(2000), default='')  # AND patterns (comma-separated, OR within)
-    pattern_not = db.Column(db.String(2000), default='')  # NOT patterns (comma-separated, exclude if any match)
-    match_mode = db.Column(db.String(20), default=NoiseMatchMode.CONTAINS)
-    is_case_sensitive = db.Column(db.Boolean, default=False)
+    # Keyword configuration (column names kept for DB compatibility)
+    # filter_type and match_mode are legacy - always use token matching on raw_json now
+    filter_type = db.Column(db.String(50), nullable=False, index=True, default='any_field')
+    pattern = db.Column(db.String(2000), nullable=False)  # OR keywords (comma-separated)
+    pattern_and = db.Column(db.String(2000), default='')  # AND keywords (comma-separated)
+    pattern_not = db.Column(db.String(2000), default='')  # NOT keywords (comma-separated)
+    match_mode = db.Column(db.String(20), default='contains')  # Legacy, ignored
+    is_case_sensitive = db.Column(db.Boolean, default=False)  # Legacy, always case-insensitive
     
     # Status and metadata
     is_enabled = db.Column(db.Boolean, default=True, index=True)
@@ -185,6 +148,7 @@ class NoiseRule(db.Model):
         return self.is_enabled and self.category.is_enabled
     
     def to_dict(self):
+        """Convert to dictionary for API responses"""
         return {
             'id': self.id,
             'uuid': self.uuid,
@@ -193,14 +157,15 @@ class NoiseRule(db.Model):
             'category_icon': self.category.icon if self.category else None,
             'name': self.name,
             'description': self.description,
-            'filter_type': self.filter_type,
-            'filter_type_label': NoiseFilterType.labels().get(self.filter_type, self.filter_type),
+            # Keywords (using pattern column names for compatibility)
+            'keywords': self.pattern,  # OR keywords
+            'keywords_and': self.pattern_and or '',  # AND keywords
+            'keywords_not': self.pattern_not or '',  # NOT keywords
+            # Legacy fields (kept for backward compatibility)
             'pattern': self.pattern,
             'pattern_and': self.pattern_and or '',
             'pattern_not': self.pattern_not or '',
-            'match_mode': self.match_mode,
-            'match_mode_label': NoiseMatchMode.labels().get(self.match_mode, self.match_mode),
-            'is_case_sensitive': self.is_case_sensitive,
+            # Status
             'is_enabled': self.is_enabled,
             'is_active': self.is_active(),
             'is_system_default': self.is_system_default,
@@ -223,117 +188,35 @@ class NoiseRule(db.Model):
             NoiseRule.is_enabled == True
         ).order_by(NoiseRule.priority.asc()).all()
     
-    @staticmethod
-    def get_active_rules_by_type(filter_type):
-        """Get active rules for a specific filter type"""
-        return NoiseRule.query.join(NoiseCategory).filter(
-            NoiseCategory.is_enabled == True,
-            NoiseRule.is_enabled == True,
-            NoiseRule.filter_type == filter_type
-        ).order_by(NoiseRule.priority.asc()).all()
-    
-    def parse_pattern(self):
-        """Parse pattern fields into OR, AND, and NOT pattern lists
+    def get_keywords(self):
+        """Parse keyword fields into OR, AND, and NOT keyword lists
         
-        Pattern fields:
-        - pattern: OR patterns (comma-separated) - match if ANY matches
-        - pattern_and: AND patterns (comma-separated) - must ALSO match ANY of these
-        - pattern_not: NOT patterns (comma-separated) - must NOT match ANY of these
+        Keyword fields:
+        - pattern: OR keywords (comma-separated) - match if ANY keyword found as token
+        - pattern_and: AND keywords (comma-separated) - must ALSO find ANY of these
+        - pattern_not: NOT keywords (comma-separated) - exclude if ANY found
         
-        Returns: (or_patterns: list, and_patterns: list, not_patterns: list)
+        Returns: (or_keywords: list, and_keywords: list, not_keywords: list)
         """
-        # Parse OR patterns from main pattern field
-        or_patterns = [p.strip() for p in self.pattern.split(',') if p.strip()]
+        # Parse OR keywords from main pattern field
+        or_keywords = [k.strip() for k in self.pattern.split(',') if k.strip()]
         
-        # Parse AND patterns (must also contain any of these)
-        and_patterns = []
+        # Parse AND keywords (must also find any of these)
+        and_keywords = []
         if self.pattern_and:
-            and_patterns = [p.strip() for p in self.pattern_and.split(',') if p.strip()]
+            and_keywords = [k.strip() for k in self.pattern_and.split(',') if k.strip()]
         
-        # Parse NOT patterns (must not contain any of these)
-        not_patterns = []
+        # Parse NOT keywords (exclude if any found)
+        not_keywords = []
         if self.pattern_not:
-            not_patterns = [p.strip() for p in self.pattern_not.split(',') if p.strip()]
+            not_keywords = [k.strip() for k in self.pattern_not.split(',') if k.strip()]
         
-        return or_patterns, and_patterns, not_patterns
+        return or_keywords, and_keywords, not_keywords
     
-    def matches(self, value, full_event_text=None):
-        """Check if value matches this rule's pattern
-        
-        Logic: (OR1 or OR2) AND (AND1 or AND2) AND NOT (NOT1 or NOT2)
-        
-        Args:
-            value: The specific field value to check against OR patterns
-            full_event_text: Full event text/data to check AND/NOT conditions against
-                            (if None, uses value for both)
-        
-        Returns: True if matches, False otherwise
-        """
-        import re
-        import fnmatch
-        
-        if not value:
-            return False
-        
-        or_patterns, and_patterns, not_patterns = self.parse_pattern()
-        
-        # Normalize for case-insensitive matching
-        check_value = value if self.is_case_sensitive else value.lower()
-        check_full = (full_event_text or value) if self.is_case_sensitive else (full_event_text or value).lower()
-        
-        # Check OR patterns - at least one must match
-        or_matched = False
-        for pattern in or_patterns:
-            check_pattern = pattern if self.is_case_sensitive else pattern.lower()
-            
-            if self._pattern_matches(check_value, check_pattern):
-                or_matched = True
-                break
-        
-        if not or_matched:
-            return False
-        
-        # Check AND patterns - if any specified, at least one must match in full event
-        if and_patterns:
-            and_matched = False
-            for pattern in and_patterns:
-                check_pattern = pattern if self.is_case_sensitive else pattern.lower()
-                if check_pattern in check_full:
-                    and_matched = True
-                    break
-            if not and_matched:
-                return False
-        
-        # Check NOT patterns - if any match, exclude this event
-        for pattern in not_patterns:
-            check_pattern = pattern if self.is_case_sensitive else pattern.lower()
-            if check_pattern in check_full:
-                return False  # Excluded
-        
-        return True
-    
-    def _pattern_matches(self, value, pattern):
-        """Check if value matches pattern based on match_mode"""
-        import re
-        import fnmatch
-        
-        if self.match_mode == NoiseMatchMode.EXACT:
-            return value == pattern
-        elif self.match_mode == NoiseMatchMode.CONTAINS:
-            return pattern in value
-        elif self.match_mode == NoiseMatchMode.STARTS_WITH:
-            return value.startswith(pattern)
-        elif self.match_mode == NoiseMatchMode.ENDS_WITH:
-            return value.endswith(pattern)
-        elif self.match_mode == NoiseMatchMode.WILDCARD:
-            return fnmatch.fnmatch(value, pattern)
-        elif self.match_mode == NoiseMatchMode.REGEX:
-            try:
-                return bool(re.search(pattern, value))
-            except re.error:
-                return False
-        else:
-            return pattern in value  # Default to contains
+    # Legacy method name for backward compatibility
+    def parse_pattern(self):
+        """Legacy method - use get_keywords() instead"""
+        return self.get_keywords()
 
 
 class NoiseRuleAudit(db.Model):
@@ -425,56 +308,57 @@ DEFAULT_NOISE_CATEGORIES = [
 ]
 
 # Default rules - all start DISABLED so users enable what's relevant to their client
+# Uses keyword-based token matching on raw_json via hasTokenCaseInsensitive()
 DEFAULT_NOISE_RULES = [
-    # RMM Tools
-    {'category': 'RMM Tools', 'name': 'ConnectWise Automate (LabTech)', 'filter_type': 'any_field', 'pattern': 'ltsvc,ltservice,lttray,labtech', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'ConnectWise ScreenConnect', 'filter_type': 'any_field', 'pattern': 'screenconnect', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'Datto RMM', 'filter_type': 'any_field', 'pattern': 'aem,aemagent,datto', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'NinjaRMM', 'filter_type': 'any_field', 'pattern': 'ninjarmm,ninjaone', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'Syncro', 'filter_type': 'any_field', 'pattern': 'syncro,kabuto', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'Atera', 'filter_type': 'any_field', 'pattern': 'atera', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'N-able (SolarWinds)', 'filter_type': 'any_field', 'pattern': 'n-able,n-central,nable,solarwinds', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'Kaseya VSA', 'filter_type': 'any_field', 'pattern': 'kaseya,agentmon', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'Pulseway', 'filter_type': 'any_field', 'pattern': 'pulseway,pcmonitor', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'RMM Tools', 'name': 'Action1', 'filter_type': 'any_field', 'pattern': 'action1', 'match_mode': 'contains', 'is_enabled': False},
+    # RMM Tools - keywords match as whole tokens (ltsvc won't match 'altsvc')
+    {'category': 'RMM Tools', 'name': 'ConnectWise Automate (LabTech)', 'pattern': 'ltsvc,ltservice,lttray,labtech,ltagent', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'ConnectWise ScreenConnect', 'pattern': 'screenconnect', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'Datto RMM', 'pattern': 'aemagent,daboremotemanagement,datto', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'NinjaRMM', 'pattern': 'ninjarmm,ninjaone,ninjarmmagent', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'Syncro', 'pattern': 'syncro,kabuto,syncromsp', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'Atera', 'pattern': 'atera,ateraagent', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'N-able (SolarWinds)', 'pattern': 'nable,solarwinds,advanced_monitoring_agent', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'Kaseya VSA', 'pattern': 'kaseya,agentmon,kaseyaagent', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'Pulseway', 'pattern': 'pulseway,pcmonitor', 'is_enabled': False},
+    {'category': 'RMM Tools', 'name': 'Action1', 'pattern': 'action1', 'is_enabled': False},
     
     # EDR/MDR Platforms
-    {'category': 'EDR/MDR Platforms', 'name': 'Huntress Agent', 'filter_type': 'any_field', 'pattern': 'huntress', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'CrowdStrike Falcon', 'filter_type': 'any_field', 'pattern': 'csfalcon,crowdstrike,csagent', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'SentinelOne', 'filter_type': 'any_field', 'pattern': 'sentinelone,sentinelagent', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'Carbon Black', 'filter_type': 'any_field', 'pattern': 'carbonblack,cbdefense,cbagent', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'Microsoft Defender ATP', 'filter_type': 'any_field', 'pattern': 'mssense,sensecncproxy', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'Cybereason', 'filter_type': 'any_field', 'pattern': 'cybereason', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'Sophos Intercept X', 'filter_type': 'any_field', 'pattern': 'sophoshealth,hmpalert,sophos', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'EDR/MDR Platforms', 'name': 'Trend Micro', 'filter_type': 'any_field', 'pattern': 'trendmicro,coreserviceshell,ntrtscan', 'match_mode': 'contains', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'Huntress Agent', 'pattern': 'huntress,huntressagent,huntressupdater', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'CrowdStrike Falcon', 'pattern': 'csfalconservice,crowdstrike,csagent,csfalconcontainer', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'SentinelOne', 'pattern': 'sentinelone,sentinelagent,sentinelhelper', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'Carbon Black', 'pattern': 'carbonblack,cbdefense,cbagent,cbcomms', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'Microsoft Defender ATP', 'pattern': 'mssense,sensecncproxy,mssensee', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'Cybereason', 'pattern': 'cybereason,activeprobe,crexe', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'Sophos Intercept X', 'pattern': 'sophoshealth,hmpalert,sophosservice,sophosui', 'is_enabled': False},
+    {'category': 'EDR/MDR Platforms', 'name': 'Trend Micro', 'pattern': 'trendmicro,coreserviceshell,ntrtscan,tmbmsrv', 'is_enabled': False},
     
     # Remote Access
-    {'category': 'Remote Access', 'name': 'TeamViewer', 'filter_type': 'any_field', 'pattern': 'teamviewer', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Remote Access', 'name': 'AnyDesk', 'filter_type': 'any_field', 'pattern': 'anydesk', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Remote Access', 'name': 'LogMeIn', 'filter_type': 'any_field', 'pattern': 'logmein', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Remote Access', 'name': 'Splashtop', 'filter_type': 'any_field', 'pattern': 'splashtop,strwinclt', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Remote Access', 'name': 'GoToMyPC', 'filter_type': 'any_field', 'pattern': 'gotomypc,g2maipc', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Remote Access', 'name': 'BeyondTrust (Bomgar)', 'filter_type': 'any_field', 'pattern': 'bomgar,beyondtrust', 'match_mode': 'contains', 'is_enabled': False},
+    {'category': 'Remote Access', 'name': 'TeamViewer', 'pattern': 'teamviewer', 'is_enabled': False},
+    {'category': 'Remote Access', 'name': 'AnyDesk', 'pattern': 'anydesk', 'is_enabled': False},
+    {'category': 'Remote Access', 'name': 'LogMeIn', 'pattern': 'logmein,lmi_rescue,logmeinrescue', 'is_enabled': False},
+    {'category': 'Remote Access', 'name': 'Splashtop', 'pattern': 'splashtop,strwinclt,srsservice', 'is_enabled': False},
+    {'category': 'Remote Access', 'name': 'GoToMyPC', 'pattern': 'gotomypc,g2maipc,gotoresolveit', 'is_enabled': False},
+    {'category': 'Remote Access', 'name': 'BeyondTrust (Bomgar)', 'pattern': 'bomgar,beyondtrust,bomgarjumpclient', 'is_enabled': False},
     
     # Backup Software
-    {'category': 'Backup Software', 'name': 'Veeam', 'filter_type': 'any_field', 'pattern': 'veeam', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Backup Software', 'name': 'Acronis', 'filter_type': 'any_field', 'pattern': 'acronis', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Backup Software', 'name': 'Datto SIRIS/ALTO', 'filter_type': 'any_field', 'pattern': 'datto,shadowsnap', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Backup Software', 'name': 'StorageCraft', 'filter_type': 'any_field', 'pattern': 'storagecraft,sbsvc', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Backup Software', 'name': 'Carbonite', 'filter_type': 'any_field', 'pattern': 'carbonite', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Backup Software', 'name': 'Axcient', 'filter_type': 'any_field', 'pattern': 'axcient,replibit', 'match_mode': 'contains', 'is_enabled': False},
+    {'category': 'Backup Software', 'name': 'Veeam', 'pattern': 'veeam,veeamagent,veeambackup', 'is_enabled': False},
+    {'category': 'Backup Software', 'name': 'Acronis', 'pattern': 'acronis,acronisagent,acronisscheduler', 'is_enabled': False},
+    {'category': 'Backup Software', 'name': 'Datto SIRIS/ALTO', 'pattern': 'shadowsnap,dattoprovider', 'is_enabled': False},
+    {'category': 'Backup Software', 'name': 'StorageCraft', 'pattern': 'storagecraft,sbsvc,imagemanager', 'is_enabled': False},
+    {'category': 'Backup Software', 'name': 'Carbonite', 'pattern': 'carbonite,carboniteservice', 'is_enabled': False},
+    {'category': 'Backup Software', 'name': 'Axcient', 'pattern': 'axcient,replibit', 'is_enabled': False},
     
     # Antivirus/Security
-    {'category': 'Antivirus/Security', 'name': 'Windows Defender', 'filter_type': 'any_field', 'pattern': 'msmpeng,nissrv,mpcmdrun', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Antivirus/Security', 'name': 'Webroot', 'filter_type': 'any_field', 'pattern': 'wrsa,webroot', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Antivirus/Security', 'name': 'Bitdefender', 'filter_type': 'any_field', 'pattern': 'bitdefender,bdagent,vsserv', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Antivirus/Security', 'name': 'ESET', 'filter_type': 'any_field', 'pattern': 'eset,ekrn,egui', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Antivirus/Security', 'name': 'Malwarebytes', 'filter_type': 'any_field', 'pattern': 'malwarebytes,mbam', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'Antivirus/Security', 'name': 'Norton', 'filter_type': 'any_field', 'pattern': 'norton,nsservice,nswscsvc', 'match_mode': 'contains', 'is_enabled': False},
+    {'category': 'Antivirus/Security', 'name': 'Windows Defender', 'pattern': 'msmpeng,nissrv,mpcmdrun,mpdefendercoreservice', 'is_enabled': False},
+    {'category': 'Antivirus/Security', 'name': 'Webroot', 'pattern': 'wrsa,webroot,wrsvc', 'is_enabled': False},
+    {'category': 'Antivirus/Security', 'name': 'Bitdefender', 'pattern': 'bitdefender,bdagent,vsserv,bdservicehost', 'is_enabled': False},
+    {'category': 'Antivirus/Security', 'name': 'ESET', 'pattern': 'eset,ekrn,egui,esets_proxy', 'is_enabled': False},
+    {'category': 'Antivirus/Security', 'name': 'Malwarebytes', 'pattern': 'malwarebytes,mbam,mbamservice', 'is_enabled': False},
+    {'category': 'Antivirus/Security', 'name': 'Norton', 'pattern': 'norton,nsservice,nswscsvc,navapsvc', 'is_enabled': False},
     
-    # System Utilities - these are more specific patterns to avoid false negatives
-    {'category': 'System Utilities', 'name': 'Windows Update', 'filter_type': 'any_field', 'pattern': 'wuauclt,usoclient,musnotification', 'match_mode': 'contains', 'is_enabled': False},
-    {'category': 'System Utilities', 'name': 'Windows Telemetry', 'filter_type': 'any_field', 'pattern': 'compattelrunner,devicecensus', 'match_mode': 'contains', 'is_enabled': False},
+    # System Utilities - common Windows noise
+    {'category': 'System Utilities', 'name': 'Windows Update', 'pattern': 'wuauclt,usoclient,musnotification,wuauserv', 'is_enabled': False},
+    {'category': 'System Utilities', 'name': 'Windows Telemetry', 'pattern': 'compattelrunner,devicecensus,diagtrack', 'is_enabled': False},
 ]
 
 
@@ -503,14 +387,14 @@ def seed_noise_defaults():
         db.session.flush()  # Get ID
         category_map[cat_data['name']] = category.id
     
-    # Create rules
+    # Create rules with keyword-based matching
     for rule_data in DEFAULT_NOISE_RULES:
         rule = NoiseRule(
             category_id=category_map[rule_data['category']],
             name=rule_data['name'],
-            filter_type=rule_data['filter_type'],
-            pattern=rule_data['pattern'],
-            match_mode=rule_data['match_mode'],
+            pattern=rule_data['pattern'],  # OR keywords
+            pattern_and=rule_data.get('pattern_and', ''),  # AND keywords
+            pattern_not=rule_data.get('pattern_not', ''),  # NOT keywords
             is_enabled=rule_data.get('is_enabled', False),
             is_system_default=True,
             created_by='system'

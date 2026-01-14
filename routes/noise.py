@@ -2,6 +2,8 @@
 
 Manages noise filtering rules to hide known-good software/tools from event searches.
 Analysts can add/edit/toggle rules to customize filtering for their client's environment.
+
+Uses keyword-based token matching with hasTokenCaseInsensitive() on raw_json.
 """
 
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
@@ -9,8 +11,7 @@ from flask_login import login_required, current_user
 from functools import wraps
 from models.database import db
 from models.noise import (
-    NoiseCategory, NoiseRule, NoiseRuleAudit,
-    NoiseFilterType, NoiseMatchMode, seed_noise_defaults
+    NoiseCategory, NoiseRule, NoiseRuleAudit, seed_noise_defaults
 )
 import logging
 
@@ -29,6 +30,32 @@ def analyst_required_api(f):
             return jsonify({'success': False, 'error': 'Analyst or Administrator access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
+
+
+def build_keyword_clause(keywords: list, column: str = 'raw_json') -> str:
+    """Build ClickHouse hasTokenCaseInsensitive OR clause for keywords"""
+    if not keywords:
+        return ""
+    
+    clauses = []
+    for keyword in keywords:
+        escaped = keyword.replace("'", "''")
+        clauses.append(f"hasTokenCaseInsensitive({column}, '{escaped}')")
+    
+    return f"({' OR '.join(clauses)})"
+
+
+def build_keyword_not_clause(keywords: list, column: str = 'raw_json') -> str:
+    """Build ClickHouse NOT clause for keywords"""
+    if not keywords:
+        return ""
+    
+    clauses = []
+    for keyword in keywords:
+        escaped = keyword.replace("'", "''")
+        clauses.append(f"NOT hasTokenCaseInsensitive({column}, '{escaped}')")
+    
+    return " AND ".join(clauses)
 
 
 # ============================================================================
@@ -62,7 +89,6 @@ def api_toggle_category(category_id):
         if is_enabled is None:
             return jsonify({'success': False, 'error': 'Missing is_enabled parameter'}), 400
         
-        old_value = category.is_enabled
         category.is_enabled = is_enabled
         db.session.commit()
         
@@ -89,18 +115,19 @@ def api_list_rules():
         search_query = request.args.get('q', '').strip()
         category_filter = request.args.get('category', type=int)
         status_filter = request.args.get('status', '')
-        filter_type = request.args.get('filter_type', '')
         
         # Build query
         query = NoiseRule.query.join(NoiseCategory)
         
-        # Apply search filter
+        # Apply search filter (searches name, description, and keywords)
         if search_query:
             query = query.filter(
                 db.or_(
                     NoiseRule.name.ilike(f'%{search_query}%'),
                     NoiseRule.description.ilike(f'%{search_query}%'),
-                    NoiseRule.pattern.ilike(f'%{search_query}%')
+                    NoiseRule.pattern.ilike(f'%{search_query}%'),
+                    NoiseRule.pattern_and.ilike(f'%{search_query}%'),
+                    NoiseRule.pattern_not.ilike(f'%{search_query}%')
                 )
             )
         
@@ -123,10 +150,6 @@ def api_list_rules():
                 NoiseCategory.is_enabled == True,
                 NoiseRule.is_enabled == True
             )
-        
-        # Apply filter type
-        if filter_type:
-            query = query.filter(NoiseRule.filter_type == filter_type)
         
         # Order by category order, then priority, then name
         query = query.order_by(
@@ -169,41 +192,34 @@ def api_get_rule(rule_id):
 @noise_bp.route('/api/rules/add', methods=['POST'])
 @analyst_required_api
 def api_add_rule():
-    """Add a new custom noise filter rule"""
+    """Add a new custom noise filter rule with keyword-based matching"""
     try:
         data = request.get_json()
         
-        # Validate required fields
-        required_fields = ['category_id', 'name', 'filter_type', 'pattern']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        # Validate required fields (simplified - just need category, name, and keywords)
+        if not data.get('category_id'):
+            return jsonify({'success': False, 'error': 'Missing required field: category_id'}), 400
+        if not data.get('name'):
+            return jsonify({'success': False, 'error': 'Missing required field: name'}), 400
+        
+        # Get keywords - accept either 'keywords' or 'pattern' for backward compat
+        keywords = data.get('keywords') or data.get('pattern', '')
+        if not keywords:
+            return jsonify({'success': False, 'error': 'Missing required field: keywords'}), 400
         
         # Validate category exists
         category = NoiseCategory.query.get(data['category_id'])
         if not category:
             return jsonify({'success': False, 'error': 'Invalid category'}), 400
         
-        # Validate filter_type
-        if data['filter_type'] not in NoiseFilterType.all():
-            return jsonify({'success': False, 'error': f'Invalid filter type: {data["filter_type"]}'}), 400
-        
-        # Validate match_mode
-        match_mode = data.get('match_mode', NoiseMatchMode.CONTAINS)
-        if match_mode not in NoiseMatchMode.all():
-            return jsonify({'success': False, 'error': f'Invalid match mode: {match_mode}'}), 400
-        
-        # Create rule
+        # Create rule with keyword-based matching
         rule = NoiseRule(
             category_id=data['category_id'],
             name=data['name'],
             description=data.get('description', ''),
-            filter_type=data['filter_type'],
-            pattern=data['pattern'],
-            pattern_and=data.get('pattern_and', ''),
-            pattern_not=data.get('pattern_not', ''),
-            match_mode=match_mode,
-            is_case_sensitive=data.get('is_case_sensitive', False),
+            pattern=keywords,  # OR keywords
+            pattern_and=data.get('keywords_and') or data.get('pattern_and', ''),  # AND keywords
+            pattern_not=data.get('keywords_not') or data.get('pattern_not', ''),  # NOT keywords
             is_enabled=data.get('is_enabled', True),
             is_system_default=False,
             priority=data.get('priority', 100),
@@ -251,40 +267,27 @@ def api_edit_rule(rule_id):
             rule.description = data['description']
         
         if 'category_id' in data and data['category_id'] != rule.category_id:
-            # Validate category exists
             new_category = NoiseCategory.query.get(data['category_id'])
             if not new_category:
                 return jsonify({'success': False, 'error': 'Invalid category'}), 400
             changes['category_id'] = {'old': rule.category_id, 'new': data['category_id']}
             rule.category_id = data['category_id']
         
-        if 'filter_type' in data and data['filter_type'] != rule.filter_type:
-            if data['filter_type'] not in NoiseFilterType.all():
-                return jsonify({'success': False, 'error': f'Invalid filter type'}), 400
-            changes['filter_type'] = {'old': rule.filter_type, 'new': data['filter_type']}
-            rule.filter_type = data['filter_type']
+        # Handle keywords (accept both new 'keywords' and legacy 'pattern' names)
+        keywords = data.get('keywords') or data.get('pattern')
+        if keywords is not None and keywords != rule.pattern:
+            changes['keywords'] = {'old': rule.pattern, 'new': keywords}
+            rule.pattern = keywords
         
-        if 'pattern' in data and data['pattern'] != rule.pattern:
-            changes['pattern'] = {'old': rule.pattern, 'new': data['pattern']}
-            rule.pattern = data['pattern']
+        keywords_and = data.get('keywords_and') or data.get('pattern_and')
+        if keywords_and is not None and keywords_and != (rule.pattern_and or ''):
+            changes['keywords_and'] = {'old': rule.pattern_and, 'new': keywords_and}
+            rule.pattern_and = keywords_and
         
-        if 'pattern_and' in data and data.get('pattern_and', '') != (rule.pattern_and or ''):
-            changes['pattern_and'] = {'old': rule.pattern_and, 'new': data['pattern_and']}
-            rule.pattern_and = data['pattern_and']
-        
-        if 'pattern_not' in data and data.get('pattern_not', '') != (rule.pattern_not or ''):
-            changes['pattern_not'] = {'old': rule.pattern_not, 'new': data['pattern_not']}
-            rule.pattern_not = data['pattern_not']
-        
-        if 'match_mode' in data and data['match_mode'] != rule.match_mode:
-            if data['match_mode'] not in NoiseMatchMode.all():
-                return jsonify({'success': False, 'error': f'Invalid match mode'}), 400
-            changes['match_mode'] = {'old': rule.match_mode, 'new': data['match_mode']}
-            rule.match_mode = data['match_mode']
-        
-        if 'is_case_sensitive' in data and data['is_case_sensitive'] != rule.is_case_sensitive:
-            changes['is_case_sensitive'] = {'old': rule.is_case_sensitive, 'new': data['is_case_sensitive']}
-            rule.is_case_sensitive = data['is_case_sensitive']
+        keywords_not = data.get('keywords_not') or data.get('pattern_not')
+        if keywords_not is not None and keywords_not != (rule.pattern_not or ''):
+            changes['keywords_not'] = {'old': rule.pattern_not, 'new': keywords_not}
+            rule.pattern_not = keywords_not
         
         if 'priority' in data and data['priority'] != rule.priority:
             changes['priority'] = {'old': rule.priority, 'new': data['priority']}
@@ -403,18 +406,6 @@ def api_noise_stats():
                 'enabled_rules': cat.rules.filter_by(is_enabled=True).count()
             })
         
-        # Stats by filter type
-        type_stats = []
-        for ftype in NoiseFilterType.all():
-            count = NoiseRule.query.filter_by(filter_type=ftype).count()
-            enabled = NoiseRule.query.filter_by(filter_type=ftype, is_enabled=True).count()
-            type_stats.append({
-                'type': ftype,
-                'label': NoiseFilterType.labels().get(ftype, ftype),
-                'total': count,
-                'enabled': enabled
-            })
-        
         return jsonify({
             'success': True,
             'total_categories': total_categories,
@@ -424,8 +415,7 @@ def api_noise_stats():
             'active_rules': active_rules,
             'system_rules': system_rules,
             'custom_rules': custom_rules,
-            'category_stats': category_stats,
-            'type_stats': type_stats
+            'category_stats': category_stats
         })
     except Exception as e:
         logger.error(f"Error getting noise stats: {e}")
@@ -455,23 +445,12 @@ def api_seed_defaults():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@noise_bp.route('/api/filter-types')
-@login_required
-def api_filter_types():
-    """Get available filter types and match modes"""
-    return jsonify({
-        'success': True,
-        'filter_types': NoiseFilterType.choices(),
-        'match_modes': NoiseMatchMode.choices()
-    })
-
-
 @noise_bp.route('/api/test-matching')
 @login_required
 def api_test_matching():
-    """Test noise rules against ClickHouse events and show match counts
+    """Test noise rules against ClickHouse events using keyword token matching
     
-    This helps analysts see how many events would be filtered by active rules.
+    Uses hasTokenCaseInsensitive() on raw_json for whole-word matching.
     """
     try:
         from utils.clickhouse import get_client
@@ -492,69 +471,44 @@ def api_test_matching():
                 'rules': []
             })
         
-        # Map filter types to ClickHouse columns
-        filter_type_columns = {
-            'process_name': 'process_name',
-            'file_path': 'process_path',
-            'command_line': 'command_line',
-            'hash': 'file_hash_sha256',
-            'service_name': 'process_name',  # Services often appear as process names
-            'network': 'search_blob',  # IP/domain in search blob
-            'registry': 'reg_key'
-        }
-        
         # Get total events
         case_filter = f"WHERE case_id = {case_id}" if case_id else ""
         total_result = client.query(f"SELECT count() FROM events {case_filter}")
         total_events = total_result.result_rows[0][0] if total_result.result_rows else 0
         
-        # Test each active rule
+        # Test each active rule using keyword token matching
         rule_results = []
         total_matches = 0
         
         for rule in active_rules:
-            column = filter_type_columns.get(rule.filter_type, 'search_blob')
-            or_patterns, and_conditions = rule.parse_pattern()
+            or_keywords, and_keywords, not_keywords = rule.get_keywords()
             
-            # Build LIKE conditions for OR patterns
-            or_clauses = []
-            for pattern in or_patterns:
-                # Escape pattern for SQL
-                escaped = pattern.replace("'", "''").replace('%', '%%')
-                if rule.is_case_sensitive:
-                    or_clauses.append(f"{column} LIKE '%{escaped}%'")
-                else:
-                    or_clauses.append(f"lower({column}) LIKE '%{escaped.lower()}%'")
-            
-            if not or_clauses:
+            if not or_keywords:
                 continue
             
-            # Build AND conditions (check against search_blob for full event)
-            and_clauses = []
-            for condition in and_conditions:
-                escaped = condition.replace("'", "''").replace('%', '%%')
-                if rule.is_case_sensitive:
-                    and_clauses.append(f"search_blob LIKE '%{escaped}%'")
-                else:
-                    and_clauses.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
-            
-            # Combine: (OR patterns) AND (all AND conditions)
+            # Build WHERE clause with hasTokenCaseInsensitive on raw_json
             where_parts = []
             if case_id:
                 where_parts.append(f"case_id = {case_id}")
             
-            or_combined = f"({' OR '.join(or_clauses)})"
-            where_parts.append(or_combined)
+            # OR keywords
+            or_clause = build_keyword_clause(or_keywords, 'raw_json')
+            where_parts.append(or_clause)
             
-            if and_clauses:
-                where_parts.extend(and_clauses)
+            # AND keywords
+            if and_keywords:
+                and_clause = build_keyword_clause(and_keywords, 'raw_json')
+                where_parts.append(and_clause)
+            
+            # NOT keywords
+            if not_keywords:
+                not_clause = build_keyword_not_clause(not_keywords, 'raw_json')
+                where_parts.append(f"({not_clause})")
             
             where_clause = " AND ".join(where_parts)
             
-            query = f"SELECT count() FROM events WHERE {where_clause}"
-            
             try:
-                result = client.query(query)
+                result = client.query(f"SELECT count() FROM events WHERE {where_clause}")
                 match_count = result.result_rows[0][0] if result.result_rows else 0
             except Exception as e:
                 logger.error(f"Error testing rule {rule.name}: {e}")
@@ -565,8 +519,7 @@ def api_test_matching():
                 'name': rule.name,
                 'category': rule.category.name if rule.category else None,
                 'category_icon': rule.category.icon if rule.category else None,
-                'filter_type': rule.filter_type,
-                'pattern': rule.pattern,
+                'keywords': rule.pattern,
                 'match_count': match_count,
                 'percentage': round((match_count / total_events * 100), 2) if total_events > 0 and match_count > 0 else 0
             })
@@ -607,57 +560,43 @@ def api_test_single_rule(rule_id):
         case_id = request.args.get('case_id', type=int)
         limit = min(request.args.get('limit', 10, type=int), 50)
         
-        # Map filter types to columns
-        filter_type_columns = {
-            'process_name': 'process_name',
-            'file_path': 'process_path',
-            'command_line': 'command_line',
-            'hash': 'file_hash_sha256',
-            'service_name': 'process_name',
-            'network': 'search_blob',
-            'registry': 'reg_key'
-        }
+        or_keywords, and_keywords, not_keywords = rule.get_keywords()
         
-        column = filter_type_columns.get(rule.filter_type, 'search_blob')
-        or_patterns, and_conditions = rule.parse_pattern()
+        if not or_keywords:
+            return jsonify({
+                'success': True,
+                'rule': rule.to_dict(),
+                'match_count': 0,
+                'sample_count': 0,
+                'samples': [],
+                'message': 'No keywords defined'
+            })
         
-        # Build query
-        or_clauses = []
-        for pattern in or_patterns:
-            escaped = pattern.replace("'", "''").replace('%', '%%')
-            if rule.is_case_sensitive:
-                or_clauses.append(f"{column} LIKE '%{escaped}%'")
-            else:
-                or_clauses.append(f"lower({column}) LIKE '%{escaped.lower()}%'")
-        
-        and_clauses = []
-        for condition in and_conditions:
-            escaped = condition.replace("'", "''").replace('%', '%%')
-            if rule.is_case_sensitive:
-                and_clauses.append(f"search_blob LIKE '%{escaped}%'")
-            else:
-                and_clauses.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
-        
+        # Build WHERE clause with hasTokenCaseInsensitive
         where_parts = []
         if case_id:
             where_parts.append(f"case_id = {case_id}")
         
-        if or_clauses:
-            where_parts.append(f"({' OR '.join(or_clauses)})")
+        or_clause = build_keyword_clause(or_keywords, 'raw_json')
+        where_parts.append(or_clause)
         
-        if and_clauses:
-            where_parts.extend(and_clauses)
+        if and_keywords:
+            and_clause = build_keyword_clause(and_keywords, 'raw_json')
+            where_parts.append(and_clause)
+        
+        if not_keywords:
+            not_clause = build_keyword_not_clause(not_keywords, 'raw_json')
+            where_parts.append(f"({not_clause})")
         
         where_clause = " AND ".join(where_parts) if where_parts else "1=1"
         
         # Get count
-        count_query = f"SELECT count() FROM events WHERE {where_clause}"
-        count_result = client.query(count_query)
+        count_result = client.query(f"SELECT count() FROM events WHERE {where_clause}")
         match_count = count_result.result_rows[0][0] if count_result.result_rows else 0
         
         # Get sample events
         sample_query = f"""
-            SELECT timestamp, source_host, process_name, process_path, command_line, search_blob
+            SELECT timestamp, source_host, process_name, process_path, command_line
             FROM events 
             WHERE {where_clause}
             ORDER BY timestamp DESC
@@ -673,7 +612,7 @@ def api_test_single_rule(rule_id):
                 'source_host': row[1],
                 'process_name': row[2],
                 'process_path': row[3],
-                'command_line': row[4][:500] if row[4] else None  # Truncate long command lines
+                'command_line': row[4][:500] if row[4] else None
             })
         
         return jsonify({

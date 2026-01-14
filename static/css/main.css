@@ -6175,7 +6175,7 @@ input:checked + .slider:before {
   font-size: 24px;
 }
 
-/* Pattern logic box for noise rules */
+/* Pattern logic box for noise rules - Legacy */
 .pattern-logic-box {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -6189,6 +6189,94 @@ input:checked + .slider:before {
 
 .pattern-logic-box strong {
   color: var(--text-primary);
+}
+
+/* Keyword logic box for noise rules */
+.keyword-logic-box {
+  background: linear-gradient(135deg, var(--bg-primary) 0%, rgba(99, 102, 241, 0.05) 100%);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: var(--border-radius);
+  padding: 14px 18px;
+  margin-top: 12px;
+}
+
+.keyword-logic-box .logic-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.keyword-logic-box .logic-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.keyword-logic-box .logic-example {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keyword-logic-box .logic-example code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.keyword-logic-box .example-check {
+  color: var(--accent-success);
+  font-weight: bold;
+}
+
+.keyword-logic-box .example-x {
+  color: var(--accent-danger);
+  font-weight: bold;
+}
+
+.keyword-logic-box .logic-formula {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: var(--text-secondary);
+}
+
+.keyword-logic-box .logic-formula strong {
+  color: var(--text-primary);
+}
+
+/* Rule keywords display in table */
+.rule-keywords {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  word-break: break-word;
+}
+
+.keywords-and {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent-primary);
+  margin-top: 4px;
+}
+
+.keywords-not {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent-warning);
+  margin-top: 2px;
 }
 
 /* Optional label styling */

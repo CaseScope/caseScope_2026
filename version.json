@@ -1,6 +1,17 @@
 {
-  "version": "3.74.01",
+  "version": "3.75.00",
   "changelog": [
+    {
+      "version": "3.75.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Noise Filtering: Simplified to keyword-based token matching on raw_json",
+        "Noise Filtering: Uses hasTokenCaseInsensitive() for whole-word matching",
+        "Noise Filtering: 'ltsvc' matches 'c:\\ltsvc\\agent.exe' but NOT 'altsvc'",
+        "Noise Filtering: Removed filter_type and match_mode (always searches full event)",
+        "Noise Filtering: UI simplified to just Keywords, AND Keywords, NOT Keywords"
+      ]
+    },
     {
       "version": "3.74.01",
       "date": "2026-01-14",

@@ -1701,7 +1701,7 @@
 
             <!-- Filters & Search -->
             <div class="noise-filters">
-                <input type="text" id="ruleSearch" class="noise-search" placeholder="Search rules..." onkeyup="debounceSearch()">
+                <input type="text" id="ruleSearch" class="noise-search" placeholder="Search rules or keywords..." onkeyup="debounceSearch()">
                 <select id="categoryFilter" class="noise-select" onchange="filterRules()">
                     <option value="">All Categories</option>
                 </select>
@@ -1712,16 +1712,6 @@
                     <option value="disabled">Disabled</option>
                     <option value="system">System Defaults</option>
                     <option value="custom">Custom Rules</option>
-                </select>
-                <select id="typeFilter" class="noise-select" onchange="filterRules()">
-                    <option value="">All Types</option>
-                    <option value="process_name">Process Name</option>
-                    <option value="file_path">File Path</option>
-                    <option value="command_line">Command Line</option>
-                    <option value="hash">Hash</option>
-                    <option value="service_name">Service Name</option>
-                    <option value="network">Network</option>
-                    <option value="registry">Registry</option>
                 </select>
             </div>
 
@@ -1734,13 +1724,12 @@
                             <th style="width: 40px;"></th>
                             <th>Rule</th>
                             <th style="width: 140px;">Category</th>
-                            <th style="width: 120px;">Type</th>
-                            <th>Pattern</th>
+                            <th>Keywords</th>
                             <th style="width: 100px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="rulesBody">
-                        <tr><td colspan="7" class="loading-cell">Loading rules...</td></tr>
+                        <tr><td colspan="6" class="loading-cell">Loading rules...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1781,52 +1770,34 @@
                             <textarea id="ruleDescription" class="form-input" rows="2" placeholder="Optional description of what this rule filters"></textarea>
                         </div>
                         
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">Filter Type <span class="required">*</span></label>
-                                <select id="ruleFilterType" class="form-input" required>
-                                    <option value="process_name">Process Name</option>
-                                    <option value="file_path">File Path</option>
-                                    <option value="command_line">Command Line</option>
-                                    <option value="hash">Hash (MD5/SHA256)</option>
-                                    <option value="service_name">Service Name</option>
-                                    <option value="network">Network (IP/Domain)</option>
-                                    <option value="registry">Registry Key/Value</option>
-                                </select>
+                        <div class="form-group">
+                            <label class="form-label">Keywords <span class="required">*</span></label>
+                            <input type="text" id="ruleKeywords" class="form-input" placeholder="e.g., ltsvc, ltservice, lttray, labtech" required>
+                            <span class="form-help">Match if ANY keyword found as a whole word (comma-separated). Matching is case-insensitive.</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">AND Keywords <span class="optional">(optional)</span></label>
+                            <input type="text" id="ruleKeywordsAnd" class="form-input" placeholder="e.g., abc123clientUID, mycompany">
+                            <span class="form-help">Must ALSO contain at least one of these keywords</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">NOT Keywords <span class="optional">(optional)</span></label>
+                            <input type="text" id="ruleKeywordsNot" class="form-input" placeholder="e.g., temp, suspicious">
+                            <span class="form-help">Exclude event if ANY of these keywords found</span>
+                        </div>
+                        
+                        <div class="keyword-logic-box">
+                            <div class="logic-title">🔍 Keyword Token Matching</div>
+                            <div class="logic-desc">Keywords are matched as <strong>whole words</strong> (tokens split by non-alphanumeric chars).</div>
+                            <div class="logic-example">
+                                <span class="example-check">✓</span> <code>ltsvc</code> matches <code>c:\windows\ltsvc\agent.exe</code>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">Match Mode <span class="required">*</span></label>
-                                <select id="ruleMatchMode" class="form-input" required>
-                                    <option value="contains">Contains</option>
-                                    <option value="exact">Exact Match</option>
-                                    <option value="starts_with">Starts With</option>
-                                    <option value="ends_with">Ends With</option>
-                                    <option value="wildcard">Wildcard (* and ?)</option>
-                                    <option value="regex">Regular Expression</option>
-                                </select>
+                            <div class="logic-example">
+                                <span class="example-x">✗</span> <code>ltsvc</code> does NOT match <code>altsvc.exe</code>
                             </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">Pattern (OR) <span class="required">*</span></label>
-                            <input type="text" id="rulePattern" class="form-input" placeholder="e.g., screenconnect,screenconnectservice,control" required>
-                            <span class="form-help">Match if ANY of these are found (comma-separated)</span>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">AND Patterns <span class="optional">(optional)</span></label>
-                            <input type="text" id="rulePatternAnd" class="form-input" placeholder="e.g., abc123clientUID,def456serverID">
-                            <span class="form-help">Must ALSO contain ANY of these (comma-separated)</span>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">NOT Patterns <span class="optional">(optional)</span></label>
-                            <input type="text" id="rulePatternNot" class="form-input" placeholder="e.g., www.example.com,browser">
-                            <span class="form-help">Exclude if ANY of these are found (comma-separated)</span>
-                        </div>
-                        
-                        <div class="pattern-logic-box">
-                            <strong>Logic:</strong> (Pattern1 OR Pattern2) AND (AND1 OR AND2) AND NOT (NOT1 OR NOT2)
+                            <div class="logic-formula"><strong>Logic:</strong> (Keyword1 OR Keyword2) AND (AND1 OR AND2) AND NOT (NOT1 OR NOT2)</div>
                         </div>
                         
                         <div class="form-row">
@@ -1835,13 +1806,9 @@
                                 <input type="number" id="rulePriority" class="form-input" value="100" min="1" max="1000">
                                 <span class="form-help">Lower = higher priority</span>
                             </div>
-                            <div class="form-group" style="flex: 2;">
-                                <label class="form-label">Options</label>
+                            <div class="form-group" style="flex: 1;">
+                                <label class="form-label">Status</label>
                                 <div class="form-checkboxes">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" id="ruleCaseSensitive">
-                                        <span>Case Sensitive</span>
-                                    </label>
                                     <label class="checkbox-label">
                                         <input type="checkbox" id="ruleEnabled" checked>
                                         <span>Enabled</span>
@@ -1945,12 +1912,11 @@
                 per_page: 25,
                 q: document.getElementById('ruleSearch').value,
                 category: document.getElementById('categoryFilter').value,
-                status: document.getElementById('statusFilter').value,
-                filter_type: document.getElementById('typeFilter').value
+                status: document.getElementById('statusFilter').value
             });
             
             const tbody = document.getElementById('rulesBody');
-            tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">Loading...</td></tr>';
             
             fetch(`/settings/noise/api/rules?${params}`)
                 .then(r => r.json())
@@ -1971,7 +1937,7 @@
             const tbody = document.getElementById('rulesBody');
             
             if (rules.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No rules found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No rules found</td></tr>';
                 return;
             }
             
@@ -1979,6 +1945,15 @@
             rules.forEach(rule => {
                 const systemBadge = rule.is_system_default ? '<span class="badge badge-info">System</span>' : '';
                 const inactiveNote = !rule.is_active && rule.is_enabled ? '<span class="inactive-note" title="Category is disabled">⚠️</span>' : '';
+                
+                // Build keywords display - show AND/NOT if present
+                let keywordsDisplay = `<code class="rule-keywords">${escapeHtml(rule.keywords || rule.pattern)}</code>`;
+                if (rule.keywords_and || rule.pattern_and) {
+                    keywordsDisplay += `<br><span class="keywords-and">AND: ${escapeHtml(rule.keywords_and || rule.pattern_and)}</span>`;
+                }
+                if (rule.keywords_not || rule.pattern_not) {
+                    keywordsDisplay += `<br><span class="keywords-not">NOT: ${escapeHtml(rule.keywords_not || rule.pattern_not)}</span>`;
+                }
                 
                 html += `
                     <tr class="${rule.is_enabled ? '' : 'row-inactive'}">
@@ -1995,8 +1970,7 @@
                             ${rule.description ? `<div class="rule-desc">${escapeHtml(rule.description)}</div>` : ''}
                         </td>
                         <td><span class="badge badge-muted">${escapeHtml(rule.category_name)}</span></td>
-                        <td><span class="type-badge">${escapeHtml(rule.filter_type_label)}</span></td>
-                        <td><code class="rule-pattern">${escapeHtml(rule.pattern)}</code></td>
+                        <td>${keywordsDisplay}</td>
                         <td class="actions-cell">
                             <button class="btn-icon-sm" onclick="editRule(${rule.id})" title="Edit">✏️</button>
                             ${!rule.is_system_default ? `<button class="btn-icon-sm btn-danger-icon" onclick="deleteRule(${rule.id}, '${escapeHtml(rule.name)}')" title="Delete">🗑️</button>` : ''}
@@ -2092,8 +2066,9 @@
             document.getElementById('ruleModalTitle').textContent = 'Add Noise Rule';
             document.getElementById('ruleForm').reset();
             document.getElementById('ruleId').value = '';
-            document.getElementById('rulePatternAnd').value = '';
-            document.getElementById('rulePatternNot').value = '';
+            document.getElementById('ruleKeywords').value = '';
+            document.getElementById('ruleKeywordsAnd').value = '';
+            document.getElementById('ruleKeywordsNot').value = '';
             document.getElementById('ruleEnabled').checked = true;
             document.getElementById('rulePriority').value = 100;
             document.getElementById('ruleModal').style.display = 'flex';
@@ -2110,13 +2085,11 @@
                         document.getElementById('ruleCategoryId').value = rule.category_id;
                         document.getElementById('ruleName').value = rule.name;
                         document.getElementById('ruleDescription').value = rule.description || '';
-                        document.getElementById('ruleFilterType').value = rule.filter_type;
-                        document.getElementById('ruleMatchMode').value = rule.match_mode;
-                        document.getElementById('rulePattern').value = rule.pattern;
-                        document.getElementById('rulePatternAnd').value = rule.pattern_and || '';
-                        document.getElementById('rulePatternNot').value = rule.pattern_not || '';
+                        // Use keywords or fall back to pattern for backward compat
+                        document.getElementById('ruleKeywords').value = rule.keywords || rule.pattern || '';
+                        document.getElementById('ruleKeywordsAnd').value = rule.keywords_and || rule.pattern_and || '';
+                        document.getElementById('ruleKeywordsNot').value = rule.keywords_not || rule.pattern_not || '';
                         document.getElementById('rulePriority').value = rule.priority;
-                        document.getElementById('ruleCaseSensitive').checked = rule.is_case_sensitive;
                         document.getElementById('ruleEnabled').checked = rule.is_enabled;
                         document.getElementById('ruleModal').style.display = 'flex';
                     }
@@ -2131,17 +2104,14 @@
                 category_id: parseInt(document.getElementById('ruleCategoryId').value),
                 name: document.getElementById('ruleName').value,
                 description: document.getElementById('ruleDescription').value,
-                filter_type: document.getElementById('ruleFilterType').value,
-                match_mode: document.getElementById('ruleMatchMode').value,
-                pattern: document.getElementById('rulePattern').value,
-                pattern_and: document.getElementById('rulePatternAnd').value,
-                pattern_not: document.getElementById('rulePatternNot').value,
+                keywords: document.getElementById('ruleKeywords').value,
+                keywords_and: document.getElementById('ruleKeywordsAnd').value,
+                keywords_not: document.getElementById('ruleKeywordsNot').value,
                 priority: parseInt(document.getElementById('rulePriority').value),
-                is_case_sensitive: document.getElementById('ruleCaseSensitive').checked,
                 is_enabled: document.getElementById('ruleEnabled').checked
             };
             
-            if (!data.category_id || !data.name || !data.pattern) {
+            if (!data.category_id || !data.name || !data.keywords) {
                 showNotification('Please fill in all required fields', 'error');
                 return;
             }

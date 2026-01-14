@@ -1,9 +1,14 @@
 """Noise Tagging Task for CaseScope
 
 Tags events in ClickHouse as noise based on active noise filter rules.
-Similar to IOC tagging but for known-good software.
+Uses keyword-based token matching with hasTokenCaseInsensitive() on raw_json.
+
+This ensures whole-word matching:
+- 'ltsvc' matches 'c:\\windows\\ltsvc\\agent.exe' 
+- 'ltsvc' does NOT match 'altsvc'
 """
 import logging
+import time
 from datetime import datetime
 
 from tasks.celery_tasks import celery_app, get_flask_app
@@ -11,9 +16,55 @@ from tasks.celery_tasks import celery_app, get_flask_app
 logger = logging.getLogger(__name__)
 
 
+def build_keyword_clause(keywords: list, column: str = 'raw_json') -> str:
+    """Build ClickHouse hasTokenCaseInsensitive OR clause for keywords
+    
+    Args:
+        keywords: List of keywords to match as tokens
+        column: Column to search in (default: raw_json)
+        
+    Returns:
+        SQL clause string like "(hasTokenCaseInsensitive(col, 'kw1') OR hasTokenCaseInsensitive(col, 'kw2'))"
+    """
+    if not keywords:
+        return ""
+    
+    clauses = []
+    for keyword in keywords:
+        # Escape single quotes for SQL
+        escaped = keyword.replace("'", "''")
+        clauses.append(f"hasTokenCaseInsensitive({column}, '{escaped}')")
+    
+    return f"({' OR '.join(clauses)})"
+
+
+def build_keyword_not_clause(keywords: list, column: str = 'raw_json') -> str:
+    """Build ClickHouse NOT clause for keywords (exclude if ANY match)
+    
+    Args:
+        keywords: List of keywords - event excluded if any found
+        column: Column to search in (default: raw_json)
+        
+    Returns:
+        SQL clause string like "NOT hasTokenCaseInsensitive(col, 'kw1') AND NOT hasTokenCaseInsensitive(col, 'kw2')"
+    """
+    if not keywords:
+        return ""
+    
+    clauses = []
+    for keyword in keywords:
+        escaped = keyword.replace("'", "''")
+        clauses.append(f"NOT hasTokenCaseInsensitive({column}, '{escaped}')")
+    
+    return " AND ".join(clauses)
+
+
 @celery_app.task(bind=True, name='tasks.noise_tagger.tag_noise_events')
 def tag_noise_events(self, case_id: int, username: str = 'system'):
-    """Tag events matching noise filter rules
+    """Tag events matching noise filter rules using keyword token matching
+    
+    Uses hasTokenCaseInsensitive() on raw_json for whole-word matching.
+    This ensures 'ltsvc' matches paths like 'c:\\ltsvc\\' but NOT 'altsvc'.
     
     Args:
         case_id: The case ID to process
@@ -26,7 +77,7 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
     
     with app.app_context():
         from utils.clickhouse import get_fresh_client
-        from models.noise import NoiseRule, NoiseFilterType
+        from models.noise import NoiseRule
         
         logger.info(f"Starting noise tagging for case {case_id}")
         
@@ -75,18 +126,6 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             'status': f'Processing {total_events:,} events against {len(active_rules)} rules...'
         })
         
-        # Map filter types to ClickHouse columns
-        filter_type_columns = {
-            'any_field': 'search_blob',
-            'process_name': 'process_name',
-            'file_path': 'process_path',
-            'command_line': 'command_line',
-            'hash': 'file_hash_sha256',
-            'service_name': 'process_name',
-            'network': 'search_blob',
-            'registry': 'reg_key'
-        }
-        
         # First, reset noise flags for this case
         self.update_state(state='PROGRESS', meta={
             'progress': 10,
@@ -98,8 +137,7 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             f"WHERE case_id = {case_id}"
         )
         
-        # Wait for mutations to complete (simplified - in production use mutations system table)
-        import time
+        # Wait for mutations to complete
         time.sleep(2)
         
         rule_matches = []
@@ -115,52 +153,29 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
                 'status': f'Processing rule: {rule.name} ({rules_processed}/{len(active_rules)})'
             })
             
-            column = filter_type_columns.get(rule.filter_type, 'search_blob')
-            or_patterns, and_patterns, not_patterns = rule.parse_pattern()
+            # Get keywords from rule
+            or_keywords, and_keywords, not_keywords = rule.get_keywords()
             
-            if not or_patterns:
+            if not or_keywords:
                 continue
             
-            # Build LIKE conditions for OR patterns (match ANY)
-            or_clauses = []
-            for pattern in or_patterns:
-                escaped = pattern.replace("'", "''").replace("\\", "\\\\")
-                if rule.is_case_sensitive:
-                    or_clauses.append(f"{column} LIKE '%{escaped}%'")
-                else:
-                    or_clauses.append(f"lower({column}) LIKE '%{escaped.lower()}%'")
-            
-            # Build AND conditions (must ALSO match ANY of these in search_blob)
-            and_clauses = []
-            if and_patterns:
-                and_or_parts = []
-                for pattern in and_patterns:
-                    escaped = pattern.replace("'", "''").replace("\\", "\\\\")
-                    if rule.is_case_sensitive:
-                        and_or_parts.append(f"search_blob LIKE '%{escaped}%'")
-                    else:
-                        and_or_parts.append(f"lower(search_blob) LIKE '%{escaped.lower()}%'")
-                if and_or_parts:
-                    and_clauses.append(f"({' OR '.join(and_or_parts)})")
-            
-            # Build NOT conditions (must NOT match ANY of these in search_blob)
-            not_clauses = []
-            for pattern in not_patterns:
-                escaped = pattern.replace("'", "''").replace("\\", "\\\\")
-                if rule.is_case_sensitive:
-                    not_clauses.append(f"search_blob NOT LIKE '%{escaped}%'")
-                else:
-                    not_clauses.append(f"lower(search_blob) NOT LIKE '%{escaped.lower()}%'")
-            
-            # Build WHERE clause: (OR patterns) AND (AND patterns) AND NOT (NOT patterns)
+            # Build WHERE clause using hasTokenCaseInsensitive on raw_json
+            # Logic: (OR keywords) AND (AND keywords) AND NOT (NOT keywords)
             where_parts = [f"case_id = {case_id}"]
-            where_parts.append(f"({' OR '.join(or_clauses)})")
             
-            if and_clauses:
-                where_parts.extend(and_clauses)
+            # OR keywords: match if ANY keyword found as token
+            or_clause = build_keyword_clause(or_keywords, 'raw_json')
+            where_parts.append(or_clause)
             
-            if not_clauses:
-                where_parts.extend(not_clauses)
+            # AND keywords: must ALSO find at least one of these
+            if and_keywords:
+                and_clause = build_keyword_clause(and_keywords, 'raw_json')
+                where_parts.append(and_clause)
+            
+            # NOT keywords: exclude if ANY of these found
+            if not_keywords:
+                not_clause = build_keyword_not_clause(not_keywords, 'raw_json')
+                where_parts.append(f"({not_clause})")
             
             where_clause = " AND ".join(where_parts)
             
