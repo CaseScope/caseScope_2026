@@ -2803,6 +2803,209 @@ def get_user_audit(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/known-users/upload/<case_uuid>', methods=['POST'])
+@login_required
+def upload_known_users_csv(case_uuid):
+    """Upload a CSV file to import known users"""
+    import csv
+    import io
+    from flask_login import current_user
+    from models.known_user import KnownUser, KnownUserAudit
+    
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        if not file.filename.lower().endswith('.csv'):
+            return jsonify({'success': False, 'error': 'File must be a CSV'}), 400
+        
+        # Read and parse CSV
+        content = file.read().decode('utf-8-sig')  # Handle BOM
+        reader = csv.DictReader(io.StringIO(content))
+        
+        # Normalize header names (lowercase, strip whitespace)
+        if reader.fieldnames:
+            reader.fieldnames = [h.lower().strip() for h in reader.fieldnames]
+        
+        # Validate required columns
+        if not reader.fieldnames or 'username' not in reader.fieldnames:
+            return jsonify({'success': False, 'error': 'CSV must have a "username" column'}), 400
+        
+        created_count = 0
+        updated_count = 0
+        error_count = 0
+        
+        for row in reader:
+            try:
+                username = row.get('username', '').strip()
+                if not username:
+                    continue
+                
+                sid = row.get('sid', '').strip() or None
+                email = row.get('email', '').strip() or None
+                notes = row.get('notes', '').strip() or None
+                
+                # Parse compromised (handle various formats)
+                compromised_str = row.get('compromised', '').strip().lower()
+                compromised = compromised_str in ('true', 'yes', '1', 'y')
+                
+                # Try to find existing user
+                existing_user, match_type = KnownUser.find_by_username_sid_alias_or_email(
+                    username=username, sid=sid, email=email
+                )
+                
+                if existing_user:
+                    # Update existing user
+                    updated = False
+                    
+                    if sid and not existing_user.sid:
+                        existing_user.sid = sid
+                        updated = True
+                    
+                    if email and not existing_user.email:
+                        existing_user.email = email
+                        updated = True
+                    
+                    if notes and not existing_user.notes:
+                        existing_user.notes = notes
+                        updated = True
+                    
+                    if compromised and not existing_user.compromised:
+                        existing_user.compromised = True
+                        updated = True
+                    
+                    # Link to case
+                    existing_user.link_to_case(case.id)
+                    existing_user.add_source('csv_import')
+                    
+                    if updated:
+                        updated_count += 1
+                        KnownUserAudit.log_change(
+                            existing_user.id,
+                            current_user.username,
+                            'csv_import',
+                            'update',
+                            None,
+                            f'Updated from CSV upload'
+                        )
+                else:
+                    # Create new user
+                    new_user = KnownUser(
+                        username=username.upper(),
+                        sid=sid,
+                        email=email.lower() if email else None,
+                        notes=notes,
+                        compromised=compromised,
+                        added_by=current_user.username,
+                        sources=['csv_import']
+                    )
+                    db.session.add(new_user)
+                    db.session.flush()  # Get the ID
+                    
+                    new_user.link_to_case(case.id)
+                    
+                    KnownUserAudit.log_change(
+                        new_user.id,
+                        current_user.username,
+                        'user',
+                        'create',
+                        None,
+                        f'Created from CSV upload: {username}'
+                    )
+                    created_count += 1
+                    
+            except Exception as row_err:
+                error_count += 1
+                continue
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'created': created_count,
+            'updated': updated_count,
+            'errors': error_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/download/<case_uuid>')
+@login_required
+def download_known_users_csv(case_uuid):
+    """Download all known users for a case as CSV"""
+    import csv
+    import io
+    from flask import Response
+    from utils.known_users_discovery import get_users_for_case
+    
+    try:
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get users for this case
+        users = get_users_for_case(case.id)
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            'username', 'sid', 'email', 'compromised', 'notes',
+            'aliases', 'sources', 'artifacts_with_user', 'last_seen'
+        ])
+        
+        # Write user rows
+        for user in users:
+            aliases = ';'.join(user.get('aliases', []))
+            sources = ';'.join(user.get('sources', []))
+            
+            writer.writerow([
+                user.get('username', ''),
+                user.get('sid', ''),
+                user.get('email', ''),
+                'true' if user.get('compromised') else 'false',
+                user.get('notes', ''),
+                aliases,
+                sources,
+                user.get('artifacts_with_user', 0),
+                user.get('last_seen', '')
+            ])
+        
+        # Generate response
+        output.seek(0)
+        
+        # Create filename with case name
+        safe_name = ''.join(c for c in case.name if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f'known_users_{safe_name}_{case_uuid[:8]}.csv'
+        
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # IOC Management API Endpoints
 # ============================================

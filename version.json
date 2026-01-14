@@ -1,6 +1,16 @@
 {
-  "version": "3.83.02",
+  "version": "3.84.00",
   "changelog": [
+    {
+      "version": "3.84.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Users: Added CSV import/export functionality with dropdown menu",
+        "Known Users: Upload Users modal for CSV file upload with drag-and-drop",
+        "Known Users: Download Users exports all users to CSV file",
+        "Known Users: Show Help modal with PowerShell scripts for domain and local user export"
+      ]
+    },
     {
       "version": "3.83.02",
       "date": "2026-01-14",

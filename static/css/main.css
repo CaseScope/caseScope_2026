@@ -8571,3 +8571,215 @@ input:checked + .slider:before {
 .pagination-pages .btn {
   min-width: 36px;
 }
+
+/* ========================================
+   Action Dropdown (Known Users Page)
+   ======================================== */
+.action-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.action-select {
+  padding: 8px 12px;
+  font-size: 14px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  min-width: 180px;
+  transition: all var(--transition-fast);
+}
+
+.action-select:hover {
+  border-color: var(--accent-primary);
+}
+
+.action-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.2);
+}
+
+.action-select option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+/* ========================================
+   Upload Modal Styles
+   ======================================== */
+.modal-upload {
+  max-width: 600px;
+}
+
+.upload-instructions {
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.upload-instructions p {
+  margin-bottom: 12px;
+}
+
+.csv-columns-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius);
+  padding: 12px 16px;
+}
+
+.csv-columns-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+}
+
+.csv-columns-list li:last-child {
+  border-bottom: none;
+}
+
+.csv-columns-list strong {
+  color: var(--accent-primary);
+  font-family: monospace;
+  margin-right: 4px;
+}
+
+.upload-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--border-radius-lg);
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: var(--bg-tertiary);
+}
+
+.upload-dropzone:hover,
+.upload-dropzone.dragover {
+  border-color: var(--accent-primary);
+  background: rgba(76, 154, 255, 0.05);
+}
+
+.dropzone-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
+.dropzone-text {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.upload-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: var(--border-radius);
+  background: var(--bg-tertiary);
+}
+
+.upload-status-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.upload-status-icon.status-success {
+  color: var(--accent-success);
+}
+
+.upload-status-icon.status-error {
+  color: var(--accent-danger);
+}
+
+.upload-status-icon.status-pending {
+  color: var(--accent-warning);
+}
+
+.upload-status-text {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+/* ========================================
+   Help Modal Styles
+   ======================================== */
+.modal-help {
+  max-width: 800px;
+}
+
+.help-section {
+  margin-bottom: 24px;
+}
+
+.help-section:last-child {
+  margin-bottom: 0;
+}
+
+.help-section h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.help-description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 0 0 12px 0;
+}
+
+.code-block-container {
+  position: relative;
+  background: #1a1e29;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+}
+
+.code-block {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #e0e0e0;
+  padding: 16px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 280px;
+}
+
+.btn-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-copy:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.btn-copy.copied {
+  background: var(--accent-success);
+  color: white;
+  border-color: var(--accent-success);
+}
