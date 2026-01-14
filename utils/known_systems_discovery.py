@@ -35,11 +35,10 @@ def update_discovery_progress(case_uuid: str, processed: int, created: int, upda
 
 def complete_discovery_progress(case_uuid: str, results: dict):
     """Mark systems discovery as complete"""
-    import redis
-    from config import Config
+    from utils.progress import get_redis_client
     
     try:
-        client = redis.Redis.from_url(Config.REDIS_URL)
+        client = get_redis_client()
         key = f"processing_progress:{case_uuid}"
         client.hset(key, 'status', 'complete')
     except Exception as e:
