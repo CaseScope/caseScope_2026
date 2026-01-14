@@ -1199,7 +1199,8 @@ def save_extracted_iocs(
                         category=category,
                         created_by=username,
                         aliases=aliases,
-                        match_type=match_type
+                        match_type=match_type,
+                        source='ai_extraction'
                     )
                     
                     if created:
@@ -1263,7 +1264,8 @@ def save_extracted_iocs(
                             value=netbios or hostname,
                             ioc_type='Hostname',
                             category=get_category_for_type('Hostname'),
-                            created_by=username
+                            created_by=username,
+                            source='ai_extraction'
                         )
                         hostname_ioc.link_to_case(case_id)
                         if created:
@@ -1296,7 +1298,8 @@ def save_extracted_iocs(
                                 value=system.hostname,
                                 ioc_type='Hostname',
                                 category=get_category_for_type('Hostname'),
-                                created_by=username
+                                created_by=username,
+                                source='ai_extraction'
                             )
                             hostname_ioc.link_to_case(case_id)
                             if created:
@@ -1352,7 +1355,8 @@ def save_extracted_iocs(
                             ioc_type='Username',
                             category=get_category_for_type('Username'),
                             created_by=username,
-                            aliases=user_aliases
+                            aliases=user_aliases,
+                            source='ai_extraction'
                         )
                         user_ioc.link_to_case(case_id)
                         if created:
@@ -1389,7 +1393,8 @@ def save_extracted_iocs(
                                 ioc_type='Username',
                                 category=get_category_for_type('Username'),
                                 created_by=username,
-                                aliases=user_aliases
+                                aliases=user_aliases,
+                                source='ai_extraction'
                             )
                             user_ioc.link_to_case(case_id)
                             if created:

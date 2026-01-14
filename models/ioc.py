@@ -365,6 +365,9 @@ class IOC(db.Model):
     opencti_enrichment = db.Column(db.Text, nullable=True)  # JSON: enriched data from OpenCTI
     opencti_enriched_at = db.Column(db.DateTime, nullable=True)
     
+    # Data sources that contributed to this IOC (manual, ai_extraction, stix_import, etc.)
+    sources = db.Column(db.JSON, nullable=False, default=list)
+    
     # Relationships
     system_sightings = db.relationship('IOCSystemSighting', backref='ioc', 
                                        lazy='dynamic', cascade='all, delete-orphan')
@@ -472,6 +475,7 @@ class IOC(db.Model):
             'active': self.active,
             'opencti_enrichment': opencti_data,
             'opencti_enriched_at': self.opencti_enriched_at.isoformat() if self.opencti_enriched_at else None,
+            'sources': self.sources or [],
             'system_count': self.system_sightings.count(),
             'case_count': self.cases.count(),
             'systems': [s.to_dict() for s in self.system_sightings.limit(10)],
@@ -488,7 +492,7 @@ class IOC(db.Model):
         ).first()
     
     @staticmethod
-    def get_or_create(value, ioc_type, category, created_by, aliases=None, match_type=None):
+    def get_or_create(value, ioc_type, category, created_by, aliases=None, match_type=None, source=None):
         """Get existing IOC or create new one
         
         Args:
@@ -498,6 +502,7 @@ class IOC(db.Model):
             created_by: Username who created this
             aliases: List of contextual aliases (e.g., full command lines)
             match_type: Explicit match type ('token', 'substring', 'regex') or None for auto
+            source: Data source (e.g., 'manual', 'ai_extraction', 'stix_import', 'bulk_import')
         
         Returns: (ioc, created_bool)
         """
@@ -519,6 +524,9 @@ class IOC(db.Model):
             # Update match_type if provided and not already set
             if match_type and not existing.match_type:
                 existing.match_type = match_type
+            # Add source if provided
+            if source:
+                existing.add_source(source)
             return existing, False
         
         # Validate if type has regex
@@ -531,6 +539,9 @@ class IOC(db.Model):
         if aliases:
             normalized_aliases = list(set([a.lower() for a in aliases if a]))
         
+        # Initialize sources list
+        sources_list = [source.lower()] if source else []
+        
         new_ioc = IOC(
             category=category,
             ioc_type=ioc_type,
@@ -538,7 +549,8 @@ class IOC(db.Model):
             value_normalized=normalized,
             created_by=created_by,
             aliases=normalized_aliases if normalized_aliases else None,
-            match_type=match_type  # Can be None - will use auto-detection
+            match_type=match_type,  # Can be None - will use auto-detection
+            sources=sources_list
         )
         
         db.session.add(new_ioc)
@@ -594,6 +606,26 @@ class IOC(db.Model):
                 case_id=case_id
             )
             db.session.add(link)
+            return True
+        return False
+    
+    def add_source(self, source):
+        """Add a data source if not already present
+        
+        Valid sources: manual, ai_extraction, stix_import, bulk_import, tag_artifacts, etc.
+        """
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        if not source:
+            return False
+        
+        source = source.lower()
+        current_sources = list(self.sources or [])  # Create a new list copy
+        
+        if source not in current_sources:
+            current_sources.append(source)
+            self.sources = current_sources
+            flag_modified(self, 'sources')  # Tell SQLAlchemy the column changed
             return True
         return False
     

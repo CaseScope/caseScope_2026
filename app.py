@@ -34,6 +34,18 @@ def _run_schema_migrations():
                 db.session.rollback()
                 # Column may already exist
                 print(f"Migration note: match_type column - {e}")
+        
+        # Migration: Add sources column to iocs table
+        if 'sources' not in columns:
+            try:
+                db.session.execute(text(
+                    "ALTER TABLE iocs ADD COLUMN sources JSON DEFAULT '[]'"
+                ))
+                db.session.commit()
+                print("Migration: Added sources column to iocs table")
+            except Exception as e:
+                db.session.rollback()
+                print(f"Migration note: sources column - {e}")
 
 
 def load_version():

@@ -910,6 +910,32 @@ tbody td {
   color: var(--text-secondary);
 }
 
+/* IOC Source badges */
+.badge-source-manual {
+  background-color: #2d5a27;
+  color: #b8e6b5;
+}
+
+.badge-source-ai_extraction {
+  background-color: #4a2d6e;
+  color: #d4b8f0;
+}
+
+.badge-source-bulk_import {
+  background-color: #2d4a6e;
+  color: #b8d4f0;
+}
+
+.badge-source-stix_import {
+  background-color: #6e4a2d;
+  color: #f0d4b8;
+}
+
+.badge-source-tag_artifacts {
+  background-color: #4a6e2d;
+  color: #d4f0b8;
+}
+
 .sources-cell {
   white-space: nowrap;
 }

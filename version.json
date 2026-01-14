@@ -1,6 +1,16 @@
 {
-  "version": "3.79.01",
+  "version": "3.80.00",
   "changelog": [
+    {
+      "version": "3.80.00",
+      "date": "2026-01-14",
+      "changes": [
+        "IOCs: Added sources column to track where each IOC originated from",
+        "IOCs: Sources tracked include manual, ai_extraction, bulk_import, stix_import",
+        "IOCs: Sources column displayed in IOC table with colored badges",
+        "IOCs: Sources shown in IOC detail modal"
+      ]
+    },
     {
       "version": "3.79.01",
       "date": "2026-01-14",

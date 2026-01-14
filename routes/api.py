@@ -2857,7 +2857,8 @@ def create_ioc(case_uuid):
             ioc_type=ioc_type,
             category=category,
             created_by=current_user.username,
-            match_type=match_type
+            match_type=match_type,
+            source='manual'
         )
         
         # Update fields if provided
@@ -3129,7 +3130,8 @@ def bulk_create_iocs(case_uuid):
                     ioc_type=ioc_type,
                     category=category,
                     created_by=current_user.username,
-                    match_type=match_type
+                    match_type=match_type,
+                    source='bulk_import'
                 )
                 
                 if created:
