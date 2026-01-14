@@ -1,6 +1,16 @@
 {
-  "version": "3.87.00",
+  "version": "3.88.00",
   "changelog": [
+    {
+      "version": "3.88.00",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Management: Added bulk selection with checkbox column",
+        "IOC Management: Bulk Edit to update active, malicious, false positive status",
+        "IOC Management: Bulk Delete to remove multiple IOCs from case",
+        "IOC Management: Select All checkbox in table header"
+      ]
+    },
     {
       "version": "3.87.00",
       "date": "2026-01-14",

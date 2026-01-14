@@ -5143,6 +5143,121 @@ def bulk_enrich_iocs():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/iocs/bulk-update', methods=['POST'])
+@login_required
+def bulk_update_iocs():
+    """Bulk update multiple IOCs - change active, malicious, false_positive status"""
+    try:
+        from models.ioc import IOC, IOCAudit
+        
+        data = request.get_json()
+        ioc_ids = data.get('ioc_ids', [])
+        updates = data.get('updates', {})
+        
+        if not ioc_ids or not isinstance(ioc_ids, list):
+            return jsonify({'success': False, 'error': 'ioc_ids array required'}), 400
+        
+        if not updates or not isinstance(updates, dict):
+            return jsonify({'success': False, 'error': 'updates object required'}), 400
+        
+        # Allowed fields for bulk update
+        allowed_fields = {'active', 'malicious', 'false_positive'}
+        update_fields = {k: v for k, v in updates.items() if k in allowed_fields}
+        
+        if not update_fields:
+            return jsonify({'success': False, 'error': 'No valid update fields provided'}), 400
+        
+        # Get IOCs
+        iocs = IOC.query.filter(IOC.id.in_(ioc_ids)).all()
+        
+        if not iocs:
+            return jsonify({'success': False, 'error': 'No valid IOCs found'}), 404
+        
+        updated_count = 0
+        for ioc in iocs:
+            for field, value in update_fields.items():
+                old_value = getattr(ioc, field)
+                if old_value != value:
+                    setattr(ioc, field, value)
+                    IOCAudit.log_change(
+                        ioc_id=ioc.id,
+                        changed_by=current_user.username,
+                        field_name=field,
+                        action='update',
+                        old_value=str(old_value),
+                        new_value=str(value)
+                    )
+            updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'updated_count': updated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in IOC bulk update: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/bulk-delete/<case_uuid>', methods=['POST'])
+@login_required
+def bulk_delete_iocs(case_uuid):
+    """Bulk delete (remove from case) multiple IOCs"""
+    try:
+        from models.ioc import IOC, IOCCase, IOCAudit
+        
+        # Get the case
+        case = Case.query.filter_by(uuid=case_uuid).first()
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        ioc_ids = data.get('ioc_ids', [])
+        
+        if not ioc_ids or not isinstance(ioc_ids, list):
+            return jsonify({'success': False, 'error': 'ioc_ids array required'}), 400
+        
+        deleted_count = 0
+        
+        for ioc_id in ioc_ids:
+            # Find the IOC-Case link
+            ioc_case = IOCCase.query.filter_by(
+                ioc_id=ioc_id,
+                case_id=case.id
+            ).first()
+            
+            if ioc_case:
+                ioc = IOC.query.get(ioc_id)
+                if ioc:
+                    # Log the removal
+                    IOCAudit.log_change(
+                        ioc_id=ioc_id,
+                        changed_by=current_user.username,
+                        field_name='case',
+                        action='delete',
+                        old_value=case.uuid,
+                        new_value=None
+                    )
+                
+                db.session.delete(ioc_case)
+                deleted_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in IOC bulk delete: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Audit Logs API
 # ============================================

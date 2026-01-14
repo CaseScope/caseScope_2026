@@ -90,6 +90,20 @@
     </div>
 </div>
 
+<!-- Bulk Actions Bar -->
+<div class="bulk-actions-bar" id="bulkActionsBar">
+    <span class="selected-count"><span id="selectedCount">0</span> selected</span>
+    <button class="bulk-btn bulk-btn-edit" onclick="openBulkEditModal()">
+        <span>✏️</span> Bulk Edit
+    </button>
+    <button class="bulk-btn bulk-btn-delete" onclick="confirmBulkDelete()">
+        <span>🗑️</span> Delete Selected
+    </button>
+    <button class="bulk-btn bulk-btn-clear" onclick="clearSelection()">
+        Clear Selection
+    </button>
+</div>
+
 <!-- IOC Table -->
 <div class="tile ioc-tile">
     <div class="tile-header tile-header-ioc">
@@ -111,6 +125,9 @@
             <table class="ioc-table" id="iocTable">
                 <thead>
                     <tr>
+                        <th class="col-checkbox">
+                            <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this)" title="Select All">
+                        </th>
                         <th class="col-active">Active</th>
                         <th class="col-category">Category</th>
                         <th class="col-type">Type</th>
@@ -128,7 +145,7 @@
                 </thead>
                 <tbody id="iocBody">
                     <tr class="loading-row">
-                        <td colspan="13" class="text-center text-muted">Loading IOCs...</td>
+                        <td colspan="14" class="text-center text-muted">Loading IOCs...</td>
                     </tr>
                 </tbody>
             </table>
@@ -478,6 +495,76 @@
     </div>
 </div>
 
+<!-- Bulk Edit Modal -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-bulk-edit">
+        <div class="modal-header">
+            <h3 class="modal-title">✏️ Bulk Edit IOCs</h3>
+            <button class="modal-close" onclick="closeBulkEditModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted" style="margin-bottom: 16px;">
+                Editing <strong id="bulkEditCount">0</strong> selected IOCs
+            </p>
+            
+            <div class="form-group">
+                <label for="bulkActive">Active Status</label>
+                <select class="form-select" id="bulkActive">
+                    <option value="">-- No Change --</option>
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                </select>
+                <p class="help-text">Inactive IOCs are excluded from artifact tagging</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="bulkMalicious">Malicious Status</label>
+                <select class="form-select" id="bulkMalicious">
+                    <option value="">-- No Change --</option>
+                    <option value="true">Yes - Mark as Malicious</option>
+                    <option value="false">No - Not Malicious</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="bulkFalsePositive">False Positive</label>
+                <select class="form-select" id="bulkFalsePositive">
+                    <option value="">-- No Change --</option>
+                    <option value="true">Yes - False Positive</option>
+                    <option value="false">No - Not False Positive</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeBulkEditModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="applyBulkEdit()">Apply Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Delete Confirmation Modal -->
+<div id="bulkDeleteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-bulk-edit">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Confirm Delete</h3>
+            <button class="modal-close" onclick="closeBulkDeleteModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--accent-danger); font-weight: 500; margin-bottom: 12px;">
+                ⚠️ This action cannot be undone!
+            </p>
+            <p class="text-muted">
+                Are you sure you want to delete <strong id="bulkDeleteCount">0</strong> selected IOCs?
+                This will remove them from the current case.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeBulkDeleteModal()">Cancel</button>
+            <button class="btn btn-primary" style="background-color: var(--accent-danger);" onclick="executeBulkDelete()">Delete IOCs</button>
+        </div>
+    </div>
+</div>
+
 <!-- Find in Reports Modal -->
 <div id="findInReportsModal" class="modal-overlay" style="display: none;">
     <div class="modal-container modal-extraction">
@@ -611,6 +698,7 @@ let perPage = 50;
 let currentCategory = '';
 let currentType = '';
 let searchDebounce = null;
+let selectedIOCIds = new Set();
 
 // OpenCTI state
 let openctiEnabled = false;
@@ -730,20 +818,24 @@ function renderIOCs(iocs) {
     if (iocs.length === 0) {
         tbody.innerHTML = `
             <tr class="empty-row">
-                <td colspan="13" class="text-center text-muted">
+                <td colspan="14" class="text-center text-muted">
                     No IOCs found. Click "Add IOC" to create one.
                 </td>
             </tr>
         `;
         countEl.textContent = '0 IOCs';
+        updateBulkActionsBar();
         return;
     }
     
     countEl.textContent = `${iocs.length} IOC${iocs.length !== 1 ? 's' : ''}`;
     
     tbody.innerHTML = iocs.map(ioc => `
-        <tr class="ioc-row ${ioc.malicious ? 'malicious' : ''} ${ioc.false_positive ? 'false-positive' : ''} ${!ioc.active ? 'inactive' : ''}" 
-            onclick="openDetailModal(${ioc.id})">
+        <tr class="ioc-row ${ioc.malicious ? 'malicious' : ''} ${ioc.false_positive ? 'false-positive' : ''} ${!ioc.active ? 'inactive' : ''} ${selectedIOCIds.has(ioc.id) ? 'selected' : ''}" 
+            data-ioc-id="${ioc.id}">
+            <td class="checkbox-cell" onclick="event.stopPropagation()">
+                <input type="checkbox" ${selectedIOCIds.has(ioc.id) ? 'checked' : ''} onchange="toggleIOCSelection(${ioc.id}, this.checked)">
+            </td>
             <td class="active-cell" onclick="event.stopPropagation()">
                 <label class="switch switch-sm">
                     <input type="checkbox" ${ioc.active ? 'checked' : ''} 
@@ -751,23 +843,23 @@ function renderIOCs(iocs) {
                     <span class="slider"></span>
                 </label>
             </td>
-            <td class="category-cell">
+            <td class="category-cell" onclick="openDetailModal(${ioc.id})">
                 <span class="category-badge category-${ioc.category.toLowerCase()}">${getCategoryIcon(ioc.category)} ${ioc.category}</span>
             </td>
-            <td class="type-cell">${escapeHtml(ioc.ioc_type)}</td>
-            <td class="value-cell" title="${escapeHtml(ioc.value)}">${truncateValue(ioc.value, 50)}</td>
-            <td class="sources-cell">${formatSources(ioc.sources)}</td>
-            <td class="created-by-cell">${escapeHtml(ioc.created_by)}</td>
-            <td class="date-cell">${formatDate(ioc.first_seen_in_artifacts)}</td>
-            <td class="date-cell">${formatDate(ioc.last_seen_in_artifacts)}</td>
-            <td class="count-cell">${ioc.artifact_count}</td>
-            <td class="count-cell">${ioc.system_count}</td>
-            <td class="status-cell">
+            <td class="type-cell" onclick="openDetailModal(${ioc.id})">${escapeHtml(ioc.ioc_type)}</td>
+            <td class="value-cell" onclick="openDetailModal(${ioc.id})" title="${escapeHtml(ioc.value)}">${truncateValue(ioc.value, 50)}</td>
+            <td class="sources-cell" onclick="openDetailModal(${ioc.id})">${formatSources(ioc.sources)}</td>
+            <td class="created-by-cell" onclick="openDetailModal(${ioc.id})">${escapeHtml(ioc.created_by)}</td>
+            <td class="date-cell" onclick="openDetailModal(${ioc.id})">${formatDate(ioc.first_seen_in_artifacts)}</td>
+            <td class="date-cell" onclick="openDetailModal(${ioc.id})">${formatDate(ioc.last_seen_in_artifacts)}</td>
+            <td class="count-cell" onclick="openDetailModal(${ioc.id})">${ioc.artifact_count}</td>
+            <td class="count-cell" onclick="openDetailModal(${ioc.id})">${ioc.system_count}</td>
+            <td class="status-cell" onclick="openDetailModal(${ioc.id})">
                 ${ioc.malicious ? '<span class="badge badge-danger">Malicious</span>' : ''}
                 ${ioc.false_positive ? '<span class="badge badge-muted">FP</span>' : ''}
                 ${ioc.active && !ioc.malicious && !ioc.false_positive ? '<span class="badge badge-info">Unknown</span>' : ''}
             </td>
-            <td class="enriched-cell">
+            <td class="enriched-cell" onclick="openDetailModal(${ioc.id})">
                 ${getEnrichmentBadges(ioc)}
             </td>
             <td class="actions-cell">
@@ -775,6 +867,9 @@ function renderIOCs(iocs) {
             </td>
         </tr>
     `).join('');
+    
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
 }
 
 function updateStats(stats) {
@@ -2196,6 +2291,222 @@ function enrichAllIOCs() {
         btn.innerHTML = '<span class="btn-icon">🧠</span> OpenCTI Enrich';
         alert('Error: ' + err.message);
     });
+}
+
+// ============================================
+// Bulk Selection Functions
+// ============================================
+
+function toggleIOCSelection(iocId, isSelected) {
+    if (isSelected) {
+        selectedIOCIds.add(iocId);
+    } else {
+        selectedIOCIds.delete(iocId);
+    }
+    
+    // Update row visual state
+    const row = document.querySelector(`tr[data-ioc-id="${iocId}"]`);
+    if (row) {
+        row.classList.toggle('selected', isSelected);
+    }
+    
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
+}
+
+function toggleSelectAll(checkbox) {
+    const isChecked = checkbox.checked;
+    const visibleIOCIds = getVisibleIOCIds();
+    
+    visibleIOCIds.forEach(iocId => {
+        if (isChecked) {
+            selectedIOCIds.add(iocId);
+        } else {
+            selectedIOCIds.delete(iocId);
+        }
+    });
+    
+    // Update all visible checkboxes
+    document.querySelectorAll('#iocBody input[type="checkbox"]:not(.switch input)').forEach(cb => {
+        if (cb.closest('.checkbox-cell')) {
+            cb.checked = isChecked;
+        }
+    });
+    
+    // Update row states
+    document.querySelectorAll('#iocBody tr.ioc-row').forEach(row => {
+        row.classList.toggle('selected', isChecked);
+    });
+    
+    updateBulkActionsBar();
+}
+
+function getVisibleIOCIds() {
+    const ids = [];
+    document.querySelectorAll('#iocBody tr.ioc-row').forEach(row => {
+        const iocId = parseInt(row.dataset.iocId);
+        if (iocId) ids.push(iocId);
+    });
+    return ids;
+}
+
+function updateSelectAllCheckbox() {
+    const selectAllCb = document.getElementById('selectAllCheckbox');
+    const visibleIOCIds = getVisibleIOCIds();
+    
+    if (visibleIOCIds.length === 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+        return;
+    }
+    
+    const selectedVisible = visibleIOCIds.filter(id => selectedIOCIds.has(id));
+    
+    if (selectedVisible.length === 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+    } else if (selectedVisible.length === visibleIOCIds.length) {
+        selectAllCb.checked = true;
+        selectAllCb.indeterminate = false;
+    } else {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = true;
+    }
+}
+
+function updateBulkActionsBar() {
+    const bar = document.getElementById('bulkActionsBar');
+    const countEl = document.getElementById('selectedCount');
+    
+    countEl.textContent = selectedIOCIds.size;
+    
+    if (selectedIOCIds.size > 0) {
+        bar.classList.add('visible');
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+function clearSelection() {
+    selectedIOCIds.clear();
+    
+    // Uncheck all checkboxes
+    document.querySelectorAll('#iocBody .checkbox-cell input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('selectAllCheckbox').checked = false;
+    document.getElementById('selectAllCheckbox').indeterminate = false;
+    
+    // Remove selected class from rows
+    document.querySelectorAll('#iocBody tr.ioc-row').forEach(row => {
+        row.classList.remove('selected');
+    });
+    
+    updateBulkActionsBar();
+}
+
+// ============================================
+// Bulk Edit Functions
+// ============================================
+
+function openBulkEditModal() {
+    if (selectedIOCIds.size === 0) {
+        showError('No IOCs selected');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedIOCIds.size;
+    document.getElementById('bulkActive').value = '';
+    document.getElementById('bulkMalicious').value = '';
+    document.getElementById('bulkFalsePositive').value = '';
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+function closeBulkEditModal() {
+    document.getElementById('bulkEditModal').style.display = 'none';
+}
+
+function applyBulkEdit() {
+    const activeValue = document.getElementById('bulkActive').value;
+    const maliciousValue = document.getElementById('bulkMalicious').value;
+    const falsePositiveValue = document.getElementById('bulkFalsePositive').value;
+    
+    if (!activeValue && !maliciousValue && !falsePositiveValue) {
+        showError('Please select at least one value to change');
+        return;
+    }
+    
+    const iocIds = Array.from(selectedIOCIds);
+    const updates = {};
+    
+    if (activeValue) {
+        updates.active = activeValue === 'true';
+    }
+    if (maliciousValue) {
+        updates.malicious = maliciousValue === 'true';
+    }
+    if (falsePositiveValue) {
+        updates.false_positive = falsePositiveValue === 'true';
+    }
+    
+    fetch(`/api/iocs/bulk-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            ioc_ids: iocIds,
+            updates: updates
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeBulkEditModal();
+            clearSelection();
+            loadIOCs();
+        } else {
+            showError('Bulk update failed: ' + data.error);
+        }
+    })
+    .catch(err => showError('Bulk update error: ' + err.message));
+}
+
+// ============================================
+// Bulk Delete Functions
+// ============================================
+
+function confirmBulkDelete() {
+    if (selectedIOCIds.size === 0) {
+        showError('No IOCs selected');
+        return;
+    }
+    
+    document.getElementById('bulkDeleteCount').textContent = selectedIOCIds.size;
+    document.getElementById('bulkDeleteModal').style.display = 'flex';
+}
+
+function closeBulkDeleteModal() {
+    document.getElementById('bulkDeleteModal').style.display = 'none';
+}
+
+function executeBulkDelete() {
+    const iocIds = Array.from(selectedIOCIds);
+    
+    fetch(`/api/iocs/bulk-delete/${caseUuid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ioc_ids: iocIds })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeBulkDeleteModal();
+            clearSelection();
+            loadIOCs();
+        } else {
+            showError('Bulk delete failed: ' + data.error);
+        }
+    })
+    .catch(err => showError('Bulk delete error: ' + err.message));
 }
 </script>
 {% endblock %}
