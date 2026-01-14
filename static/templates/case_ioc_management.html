@@ -543,7 +543,12 @@
                         <table class="ioc-results-table">
                             <thead>
                                 <tr>
-                                    <th class="col-select"><input type="checkbox" id="selectAllIOCs" onchange="toggleAllIOCs(this.checked)" checked></th>
+                                    <th class="col-toggle">
+                                        <label class="switch switch-sm">
+                                            <input type="checkbox" id="selectAllIOCs" onchange="toggleAllIOCs(this.checked)" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </th>
                                     <th class="col-type">Type</th>
                                     <th class="col-value">Value</th>
                                     <th class="col-context">Context</th>
@@ -1710,10 +1715,13 @@ function renderIOCResults(iocs) {
         
         return `
             <tr class="ioc-result-row ${ioc.already_linked ? 'already-linked' : ''}">
-                <td class="col-select">
-                    <input type="checkbox" class="ioc-select" data-index="${idx}" 
-                           ${ioc.already_linked ? '' : 'checked'} 
-                           onchange="updateIOCSelection(${idx}, this.checked)">
+                <td class="col-toggle">
+                    <label class="switch switch-sm">
+                        <input type="checkbox" class="ioc-select" data-index="${idx}" 
+                               ${ioc.already_linked ? '' : 'checked'} 
+                               onchange="updateIOCSelection(${idx}, this.checked)">
+                        <span class="slider"></span>
+                    </label>
                 </td>
                 <td class="col-type">
                     <span class="type-badge">${escapeHtml(ioc.ioc_type || '')}</span>
@@ -1752,8 +1760,11 @@ function renderSystemResults(systems) {
         
         return `
             <div class="entity-result-item ${actionClass}">
-                <input type="checkbox" class="system-select" data-index="${idx}" checked
-                       onchange="updateSystemSelection(${idx}, this.checked)">
+                <label class="switch switch-sm">
+                    <input type="checkbox" class="system-select" data-index="${idx}" checked
+                           onchange="updateSystemSelection(${idx}, this.checked)">
+                    <span class="slider"></span>
+                </label>
                 <span class="entity-icon">💻</span>
                 <span class="entity-name">${escapeHtml(sys.hostname || '')}</span>
                 <span class="entity-action">${actionText}</span>
@@ -1786,8 +1797,11 @@ function renderUserResults(users) {
         
         return `
             <div class="entity-result-item ${actionClass}">
-                <input type="checkbox" class="user-select" data-index="${idx}" checked
-                       onchange="updateUserSelection(${idx}, this.checked)">
+                <label class="switch switch-sm">
+                    <input type="checkbox" class="user-select" data-index="${idx}" checked
+                           onchange="updateUserSelection(${idx}, this.checked)">
+                    <span class="slider"></span>
+                </label>
                 <span class="entity-icon">👤</span>
                 <span class="entity-name">${escapeHtml(user.username || '')}</span>
                 ${user.sid ? `<span class="entity-sid">${escapeHtml(user.sid)}</span>` : ''}

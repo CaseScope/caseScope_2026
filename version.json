@@ -1,6 +1,13 @@
 {
-  "version": "3.81.03",
+  "version": "3.81.04",
   "changelog": [
+    {
+      "version": "3.81.04",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Extraction: Added toggle sliders to enable/disable individual IOCs, systems, and users before saving"
+      ]
+    },
     {
       "version": "3.81.03",
       "date": "2026-01-14",
