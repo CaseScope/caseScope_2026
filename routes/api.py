@@ -1882,9 +1882,13 @@ def get_raw_event_data(case_id):
                 # datetime objects
                 raw_data[col_name] = value.isoformat()
             elif isinstance(value, (list, tuple)):
-                raw_data[col_name] = list(value)
+                # Convert list items that might be IP addresses
+                raw_data[col_name] = [str(v) if hasattr(v, 'packed') else v for v in value]
             elif isinstance(value, bytes):
                 raw_data[col_name] = value.decode('utf-8', errors='replace')
+            elif hasattr(value, 'packed'):
+                # IPv4Address/IPv6Address objects have a 'packed' attribute
+                raw_data[col_name] = str(value)
             elif col_name == 'extra_fields' and value:
                 # Parse extra_fields JSON if present
                 try:

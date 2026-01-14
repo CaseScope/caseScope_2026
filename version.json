@@ -1,6 +1,16 @@
 {
-  "version": "3.82.01",
+  "version": "3.82.02",
   "changelog": [
+    {
+      "version": "3.82.02",
+      "date": "2026-01-14",
+      "changes": [
+        "Hunting: EVTX events now show MapDescription as fallback when no enhanced description",
+        "Hunting: EDR events (Huntress, etc.) now show command line as italicized second line",
+        "Hunting: Removed redundant tag badge from severity column (toggle on left is sufficient)",
+        "Hunting: Fixed IPv4Address JSON serialization error for firewall raw data display"
+      ]
+    },
     {
       "version": "3.82.01",
       "date": "2026-01-14",

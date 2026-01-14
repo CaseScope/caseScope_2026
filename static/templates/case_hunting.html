@@ -254,11 +254,29 @@ function applyEvtxDescriptions(events, cache) {
             const key = `${e.event_id}:${e.channel || ''}`;
             const desc = cache[key];
             
-            if (desc && desc.title) {
-                // Find the row and add enhanced description
-                const row = document.querySelector(`#events-tbody tr:nth-child(${index + 1}) .col-description`);
-                if (row && !row.querySelector('.evtx-enhanced-desc')) {
-                    const enhancedHtml = `<div class="evtx-enhanced-desc">${escapeHtml(desc.title)}</div>`;
+            // Find the row
+            const row = document.querySelector(`#events-tbody tr:nth-child(${index + 1}) .col-description`);
+            if (row && !row.querySelector('.evtx-enhanced-desc')) {
+                let enhancedText = null;
+                
+                // First try: use scraped description from cache
+                if (desc && desc.title) {
+                    enhancedText = desc.title;
+                } 
+                // Fallback: use MapDescription from extra_fields
+                else if (e.extra_fields) {
+                    try {
+                        const extra = typeof e.extra_fields === 'string' ? JSON.parse(e.extra_fields) : e.extra_fields;
+                        if (extra && extra.MapDescription) {
+                            enhancedText = extra.MapDescription;
+                        }
+                    } catch (err) {
+                        // Ignore parse errors
+                    }
+                }
+                
+                if (enhancedText) {
+                    const enhancedHtml = `<div class="evtx-enhanced-desc">${escapeHtml(enhancedText)}</div>`;
                     row.insertAdjacentHTML('beforeend', enhancedHtml);
                 }
             }
@@ -543,7 +561,15 @@ function renderEventsTable(events) {
         const severityBadge = getSeverityBadge(e.rule_level);
         const iocBadges = getIOCBadges(e.ioc_types);
         const eventId = e.event_id ? e.event_id : '-';
-        const tagBadge = isTagged ? '<span class="badge badge-analyst" title="Analyst Tagged">🏷️</span>' : '';
+        
+        // Build description with optional secondary line for EDR command line
+        let descHtml = truncateText(e.description, 120);
+        
+        // For EDR events (huntress), show command line as italicized second line
+        if (['huntress', 'crowdstrike', 'sentinel', 'defender'].includes(e.artifact_type) && e.command_line) {
+            const cmdPreview = truncateText(e.command_line, 100);
+            descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(cmdPreview)}</div>`;
+        }
         
         return `
             <tr class="${rowClass}" data-index="${index}">
@@ -557,8 +583,8 @@ function renderEventsTable(events) {
                 <td class="col-parser" onclick="showEventDetail(${index})" style="cursor: pointer;">${e.artifact_type}</td>
                 <td class="col-hostname" onclick="showEventDetail(${index})" style="cursor: pointer;">${e.source_host || '-'}</td>
                 <td class="col-event-id" onclick="showEventDetail(${index})" style="cursor: pointer;">${eventId}</td>
-                <td class="col-description" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(e.description)}">${truncateText(e.description, 120)}</td>
-                <td class="col-severity" onclick="showEventDetail(${index})" style="cursor: pointer;">${tagBadge}${severityBadge}${iocBadges}</td>
+                <td class="col-description" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(e.description)}">${descHtml}</td>
+                <td class="col-severity" onclick="showEventDetail(${index})" style="cursor: pointer;">${severityBadge}${iocBadges}</td>
             </tr>
         `;
     }).join('');
@@ -611,16 +637,6 @@ function toggleAnalystTag(index, isTagged) {
             row.classList.add('analyst-tagged');
         } else {
             row.classList.remove('analyst-tagged');
-        }
-        // Update the badge in severity column
-        const severityCell = row.querySelector('.col-severity');
-        if (severityCell) {
-            const existingBadge = severityCell.querySelector('.badge-analyst');
-            if (isTagged && !existingBadge) {
-                severityCell.insertAdjacentHTML('afterbegin', '<span class="badge badge-analyst" title="Analyst Tagged">🏷️</span>');
-            } else if (!isTagged && existingBadge) {
-                existingBadge.remove();
-            }
         }
     }
     
@@ -700,17 +716,6 @@ function updateModalAnalystTag() {
                 row.classList.add('analyst-tagged');
             } else {
                 row.classList.remove('analyst-tagged');
-            }
-            
-            // Update badge
-            const severityCell = row.querySelector('.col-severity');
-            if (severityCell) {
-                const existingBadge = severityCell.querySelector('.badge-analyst');
-                if (isTagged && !existingBadge) {
-                    severityCell.insertAdjacentHTML('afterbegin', '<span class="badge badge-analyst" title="Analyst Tagged">🏷️</span>');
-                } else if (!isTagged && existingBadge) {
-                    existingBadge.remove();
-                }
             }
         }
     }
