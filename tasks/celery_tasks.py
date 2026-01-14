@@ -918,6 +918,66 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
         }
 
 
+@celery_app.task(bind=True, name='tasks.tag_iocs_for_case')
+def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
+    """Tag all artifacts in a case with matching IOCs.
+    
+    This is a long-running task that:
+    1. Searches all events in the case for IOC matches
+    2. Updates artifact counts on IOCs
+    3. Creates system sightings for matched hosts
+    4. Marks events with IOC type badges
+    
+    Args:
+        case_id: PostgreSQL case.id
+        
+    Returns:
+        Dict with tagging results
+    """
+    from utils.ioc_artifact_tagger import tag_all_iocs_globally
+    
+    logger.info(f"Starting IOC tagging for case {case_id}")
+    
+    self.update_state(state='PROCESSING', meta={
+        'case_id': case_id,
+        'stage': 'tagging',
+    })
+    
+    try:
+        app = get_flask_app()
+        with app.app_context():
+            results = tag_all_iocs_globally(case_id)
+            
+            logger.info(
+                f"IOC tagging complete for case {case_id}: "
+                f"{results.get('iocs_with_matches', 0)} IOCs matched, "
+                f"{results.get('total_artifact_matches', 0)} total matches, "
+                f"{results.get('system_sightings_created', 0)} system sightings"
+            )
+            
+            return {
+                'success': results.get('success', False),
+                'case_id': case_id,
+                'total_iocs': results.get('total_iocs', 0),
+                'iocs_with_matches': results.get('iocs_with_matches', 0),
+                'new_links_created': results.get('new_links_created', 0),
+                'total_artifact_matches': results.get('total_artifact_matches', 0),
+                'events_tagged': results.get('events_tagged', 0),
+                'system_sightings_created': results.get('system_sightings_created', 0),
+                'error': results.get('error')
+            }
+            
+    except Exception as e:
+        logger.error(f"Error tagging IOCs for case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'case_id': case_id,
+            'error': str(e)
+        }
+
+
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
     'update-hayabusa-rules-weekly': {
