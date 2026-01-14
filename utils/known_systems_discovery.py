@@ -34,8 +34,16 @@ def update_discovery_progress(case_uuid: str, processed: int, created: int, upda
 
 
 def complete_discovery_progress(case_uuid: str, results: dict):
-    """Mark systems discovery as complete - transition to next phase handled by caller"""
-    pass  # Phase transition handled by celery task
+    """Mark systems discovery as complete"""
+    import redis
+    from config import Config
+    
+    try:
+        client = redis.Redis.from_url(Config.REDIS_URL)
+        key = f"processing_progress:{case_uuid}"
+        client.hset(key, 'status', 'complete')
+    except Exception as e:
+        logger.warning(f"Failed to set systems discovery complete status: {e}")
 
 
 def get_discovery_progress(case_uuid: str) -> Optional[dict]:
