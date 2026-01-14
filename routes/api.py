@@ -2868,12 +2868,11 @@ def upload_known_users_csv(case_uuid):
                 )
                 
                 if existing_user:
-                    # Update existing user
+                    # Update existing user - always update with CSV data
                     updated = False
                     
-                    # Only update SID if it's not set AND the new SID isn't used elsewhere
-                    if sid and not existing_user.sid:
-                        # Check if SID already exists on another user
+                    # Update SID if provided and not already used by another user
+                    if sid and existing_user.sid != sid:
                         sid_exists = KnownUser.query.filter(
                             KnownUser.sid == sid,
                             KnownUser.id != existing_user.id
@@ -2882,14 +2881,17 @@ def upload_known_users_csv(case_uuid):
                             existing_user.sid = sid
                             updated = True
                     
-                    if email and not existing_user.email:
+                    # Update email if provided
+                    if email and existing_user.email != email.lower():
                         existing_user.email = email.lower()
                         updated = True
                     
-                    if notes and not existing_user.notes:
+                    # Update notes if provided
+                    if notes and existing_user.notes != notes:
                         existing_user.notes = notes
                         updated = True
                     
+                    # Only SET compromised to true - never unflag if already compromised
                     if compromised and not existing_user.compromised:
                         existing_user.compromised = True
                         updated = True
@@ -2915,12 +2917,21 @@ def upload_known_users_csv(case_uuid):
                     if sid:
                         sid_exists = KnownUser.query.filter(KnownUser.sid == sid).first()
                         if sid_exists:
-                            # SID exists but username doesn't match - skip or link
+                            # SID exists - this is the same user with different username
+                            # Add the CSV username as an alias and update other fields
                             sid_exists.add_alias(username)
+                            
+                            if email and sid_exists.email != email.lower():
+                                sid_exists.email = email.lower()
+                            if notes and sid_exists.notes != notes:
+                                sid_exists.notes = notes
+                            if compromised and not sid_exists.compromised:
+                                sid_exists.compromised = True
+                            
                             sid_exists.link_to_case(case.id)
                             sid_exists.add_source('csv_import')
                             db.session.commit()
-                            skipped_count += 1
+                            updated_count += 1
                             continue
                     
                     # Create new user

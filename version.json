@@ -1,6 +1,14 @@
 {
-  "version": "3.84.01",
+  "version": "3.84.02",
   "changelog": [
+    {
+      "version": "3.84.02",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Users: CSV upload now updates existing users with new data",
+        "Known Users: Compromised flag only gets set to true, never unset by CSV"
+      ]
+    },
     {
       "version": "3.84.01",
       "date": "2026-01-14",
