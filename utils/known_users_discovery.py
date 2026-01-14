@@ -277,42 +277,10 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
         # Process each user with their stats
         processed = 0
         for key, stats in user_stats.items():
+            # Use savepoint to isolate each user's transaction
             try:
-                created, updated, alias_added, email_added = _process_user(
-                    username=stats.get('username'),
-                    sid=stats.get('sid'),
-                    domain=stats.get('domain'),
-                    case_id=case_id,
-                    added_by=username,
-                    artifact_count=stats['count'],
-                    last_seen=stats['last_seen'],
-                    alias_formats=stats.get('alias_formats', set()),
-                    sources=list(stats.get('sources', set()))
-                )
-                
-                if created:
-                    results['users_created'] += 1
-                if updated:
-                    results['users_updated'] += 1
-                if alias_added:
-                    results['aliases_added'] += 1
-                if email_added:
-                    results['emails_added'] += 1
-                
-                processed += 1
-                
-                # Update progress atomically
-                if track_progress:
-                    from utils.progress import increment_phase, set_current_item
-                    increment_phase(case_uuid, 'users')
-                    # Update current item every 10 users to reduce Redis calls
-                    if processed % 10 == 0 or processed == total_users:
-                        set_current_item(case_uuid, stats.get('username', stats.get('sid', '')))
-                    
-            except IntegrityError:
-                # Race condition - another process created this user
-                db.session.rollback()
-                try:
+                # Begin nested transaction (savepoint)
+                with db.session.begin_nested():
                     created, updated, alias_added, email_added = _process_user(
                         username=stats.get('username'),
                         sid=stats.get('sid'),
@@ -324,19 +292,36 @@ def discover_known_users(case_id: int, case_uuid: str, username: str = 'system',
                         alias_formats=stats.get('alias_formats', set()),
                         sources=list(stats.get('sources', set()))
                     )
+                    
+                    if created:
+                        results['users_created'] += 1
                     if updated:
                         results['users_updated'] += 1
                     if alias_added:
                         results['aliases_added'] += 1
-                    processed += 1
-                except Exception as e2:
-                    logger.warning(f"Retry failed for user: {e2}")
+                    if email_added:
+                        results['emails_added'] += 1
+                
+                processed += 1
+                
+                # Update progress atomically
+                if track_progress:
+                    from utils.progress import increment_phase, set_current_item
+                    increment_phase(case_uuid, 'users')
+                    # Update current item every 10 users to reduce Redis calls
+                    if processed % 10 == 0 or processed == total_users:
+                        set_current_item(case_uuid, stats.get('username', stats.get('sid', '')))
                     
             except Exception as e:
-                logger.error(f"Error processing user '{stats}': {e}")
-                results['errors'].append(f"Error with user: {str(e)}")
-                db.session.rollback()  # Rollback to allow subsequent users to process
+                # Savepoint automatically rolled back, main transaction still valid
+                logger.warning(f"Error processing user '{stats.get('username', stats.get('sid', ''))}': {e}")
+                results['errors'].append(f"Error with {stats.get('username', 'unknown')}: {str(e)[:100]}")
                 processed += 1
+                
+                # Update progress even for failed users
+                if track_progress:
+                    from utils.progress import increment_phase
+                    increment_phase(case_uuid, 'users')
         
         # Commit all changes
         try:
@@ -543,16 +528,23 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
         user.artifacts_with_user = artifact_count
         
         # Update SID if we have it now but didn't before
+        # Check that SID doesn't already belong to another user
         if sid and not user.sid:
-            user.sid = sid.upper()
-            KnownUserAudit.log_change(
-                user_id=user.id,
-                changed_by=added_by,
-                field_name='sid',
-                action='update',
-                old_value=None,
-                new_value=sid.upper()
-            )
+            sid_upper = sid.upper()
+            existing_sid_user = KnownUser.query.filter(
+                KnownUser.sid == sid_upper,
+                KnownUser.id != user.id
+            ).first()
+            if not existing_sid_user:
+                user.sid = sid_upper
+                KnownUserAudit.log_change(
+                    user_id=user.id,
+                    changed_by=added_by,
+                    field_name='sid',
+                    action='update',
+                    old_value=None,
+                    new_value=sid_upper
+                )
         
         # Update username if we have it now but didn't before
         if normalized_username and not user.username:
