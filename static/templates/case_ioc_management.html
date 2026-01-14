@@ -111,6 +111,7 @@
             <table class="ioc-table" id="iocTable">
                 <thead>
                     <tr>
+                        <th class="col-active">Active</th>
                         <th class="col-category">Category</th>
                         <th class="col-type">Type</th>
                         <th class="col-value">Value</th>
@@ -127,7 +128,7 @@
                 </thead>
                 <tbody id="iocBody">
                     <tr class="loading-row">
-                        <td colspan="12" class="text-center text-muted">Loading IOCs...</td>
+                        <td colspan="13" class="text-center text-muted">Loading IOCs...</td>
                     </tr>
                 </tbody>
             </table>
@@ -729,7 +730,7 @@ function renderIOCs(iocs) {
     if (iocs.length === 0) {
         tbody.innerHTML = `
             <tr class="empty-row">
-                <td colspan="12" class="text-center text-muted">
+                <td colspan="13" class="text-center text-muted">
                     No IOCs found. Click "Add IOC" to create one.
                 </td>
             </tr>
@@ -743,6 +744,13 @@ function renderIOCs(iocs) {
     tbody.innerHTML = iocs.map(ioc => `
         <tr class="ioc-row ${ioc.malicious ? 'malicious' : ''} ${ioc.false_positive ? 'false-positive' : ''} ${!ioc.active ? 'inactive' : ''}" 
             onclick="openDetailModal(${ioc.id})">
+            <td class="active-cell" onclick="event.stopPropagation()">
+                <label class="switch switch-sm">
+                    <input type="checkbox" ${ioc.active ? 'checked' : ''} 
+                           onchange="toggleIOCActive(${ioc.id}, this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </td>
             <td class="category-cell">
                 <span class="category-badge category-${ioc.category.toLowerCase()}">${getCategoryIcon(ioc.category)} ${ioc.category}</span>
             </td>
@@ -755,7 +763,6 @@ function renderIOCs(iocs) {
             <td class="count-cell">${ioc.artifact_count}</td>
             <td class="count-cell">${ioc.system_count}</td>
             <td class="status-cell">
-                ${!ioc.active ? '<span class="badge badge-warning">Inactive</span>' : ''}
                 ${ioc.malicious ? '<span class="badge badge-danger">Malicious</span>' : ''}
                 ${ioc.false_positive ? '<span class="badge badge-muted">FP</span>' : ''}
                 ${ioc.active && !ioc.malicious && !ioc.false_positive ? '<span class="badge badge-info">Unknown</span>' : ''}
@@ -1154,6 +1161,26 @@ function updateIOCField(field, value) {
         }
     })
     .catch(err => alert('Error: ' + err.message));
+}
+
+// Toggle IOC active status from main table
+function toggleIOCActive(iocId, active) {
+    fetch(`/api/iocs/${iocId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: 'active', value: active })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Update failed: ' + data.error);
+            loadIOCs(); // Refresh to reset toggle state
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        loadIOCs();
+    });
 }
 
 // Edit match type inline

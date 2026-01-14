@@ -5083,6 +5083,9 @@ input:checked + .slider:before {
   font-style: italic;
 }
 
+.ioc-table .col-active { width: 60px; text-align: center; }
+.ioc-table .active-cell { text-align: center; }
+.ioc-table .active-cell .switch { margin: 0; }
 .ioc-table .col-category { width: 130px; }
 .ioc-table .col-type { width: 140px; }
 .ioc-table .col-value { min-width: 200px; max-width: 300px; }

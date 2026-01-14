@@ -1,6 +1,13 @@
 {
-  "version": "3.81.04",
+  "version": "3.81.05",
   "changelog": [
+    {
+      "version": "3.81.05",
+      "date": "2026-01-14",
+      "changes": [
+        "IOC Management: Added Active toggle slider column to main IOC table"
+      ]
+    },
     {
       "version": "3.81.04",
       "date": "2026-01-14",
