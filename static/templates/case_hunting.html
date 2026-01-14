@@ -1449,14 +1449,14 @@ function buildProcessNode(proc, level, hostname) {
     const pid = proc.pid || '';
     const pname = proc.name || '';
     
-    // Prepare process data for IOC modal (JSON encode for onclick)
-    const procDataForIOC = JSON.stringify({
+    // Base64 encode process data to avoid escaping issues in onclick
+    const procDataForIOC = btoa(encodeURIComponent(JSON.stringify({
         name: proc.name || '',
         path: proc.path || '',
         cmdline: proc.cmdline || '',
         md5: proc.md5 || '',
         sha256: proc.sha256 || ''
-    }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    })));
     
     const actionsHtml = (pid || pname) ? `
         <div class="process-node-actions">
@@ -1469,7 +1469,7 @@ function buildProcessNode(proc, level, hostname) {
             <button class="btn-xs btn-link" onclick="searchFromProcess('${escapeHtml(hostname)}', ${pid || 0}, '${escapeHtml(pname)}', '')" title="Search events for this process">
                 <span class="process-action-icon">🔍</span> Search
             </button>
-            <button class="btn-xs btn-link" onclick="openProcessAddIOCModal(JSON.parse('${procDataForIOC}'))" title="Add as IOC">
+            <button class="btn-xs btn-link" onclick="openProcessAddIOCModalFromB64('${procDataForIOC}')" title="Add as IOC">
                 <span class="process-action-icon">➕</span> Add IOC
             </button>
         </div>
@@ -1650,14 +1650,14 @@ function buildInteractiveTreeNode(proc, hostname, depth) {
     const nodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
     const hasChildren = proc.child_count && proc.child_count > 0;
     
-    // Prepare process data for IOC modal (JSON encode for onclick)
-    const procDataForIOC = JSON.stringify({
+    // Base64 encode process data to avoid escaping issues in onclick
+    const procDataForIOC = btoa(encodeURIComponent(JSON.stringify({
         name: proc.process_name || '',
         path: proc.process_path || '',
         cmdline: proc.command_line || '',
         md5: proc.md5 || proc.file_hash_md5 || '',
         sha256: proc.sha256 || proc.file_hash_sha256 || ''
-    }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    })));
     
     return `
         <div class="tree-node-interactive" id="${nodeId}" style="margin-left: ${indent}px;">
@@ -1671,7 +1671,7 @@ function buildInteractiveTreeNode(proc, hostname, depth) {
                     <button class="btn-xs" onclick="findChildrenOf('${escapeHtml(hostname)}', ${proc.pid}, '${escapeHtml(proc.process_name)}')" title="Find children">🔽</button>
                     <button class="btn-xs" onclick="findParentOf('${escapeHtml(hostname)}', ${proc.parent_pid || 0}, '${escapeHtml(proc.parent_process || '')}')" title="Find parent">🔼</button>
                     <button class="btn-xs" onclick="searchFromProcess('${escapeHtml(hostname)}', ${proc.pid || 0}, '${escapeHtml(proc.process_name || '')}', '')" title="Search events">🔍</button>
-                    <button class="btn-xs" onclick="openProcessAddIOCModal(JSON.parse('${procDataForIOC}'))" title="Add as IOC">➕</button>
+                    <button class="btn-xs" onclick="openProcessAddIOCModalFromB64('${procDataForIOC}')" title="Add as IOC">➕</button>
                 </div>
             </div>
             ${proc.command_line ? `<div class="tree-node-cmdline">${escapeHtml(proc.command_line.length > 200 ? proc.command_line.substring(0, 200) + '...' : proc.command_line)}</div>` : ''}
@@ -1836,6 +1836,17 @@ function updateProcessIOCTypeOptions() {
         for (const type of processIOCTypesByCategory[category]) {
             typeSelect.innerHTML += `<option value="${type}">${type}</option>`;
         }
+    }
+}
+
+// Open Add IOC modal from base64 encoded data (avoids escaping issues)
+function openProcessAddIOCModalFromB64(b64Data) {
+    try {
+        const procData = JSON.parse(decodeURIComponent(atob(b64Data)));
+        openProcessAddIOCModal(procData);
+    } catch (e) {
+        console.error('Error parsing process data:', e);
+        openProcessAddIOCModal(null);
     }
 }
 
