@@ -2818,6 +2818,142 @@ def download_known_systems_csv(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/known-systems/bulk-update', methods=['POST'])
+@login_required
+def bulk_update_known_systems():
+    """Bulk update multiple known systems"""
+    from flask_login import current_user
+    from models.known_system import KnownSystem, KnownSystemAudit
+    
+    try:
+        data = request.get_json()
+        system_ids = data.get('system_ids', [])
+        updates = data.get('updates', {})
+        
+        if not system_ids:
+            return jsonify({'success': False, 'error': 'No system IDs provided'}), 400
+        
+        if not updates:
+            return jsonify({'success': False, 'error': 'No updates provided'}), 400
+        
+        updated_count = 0
+        
+        for system_id in system_ids:
+            system = KnownSystem.query.get(system_id)
+            if not system:
+                continue
+            
+            changed = False
+            
+            # Update system_type
+            if 'system_type' in updates:
+                old_value = system.system_type
+                new_value = updates['system_type']
+                if old_value != new_value:
+                    system.system_type = new_value
+                    KnownSystemAudit.log_change(
+                        system_id=system.id,
+                        changed_by=current_user.username,
+                        field_name='system_type',
+                        action='update',
+                        old_value=old_value,
+                        new_value=new_value
+                    )
+                    changed = True
+            
+            # Update os_type
+            if 'os_type' in updates:
+                old_value = system.os_type
+                new_value = updates['os_type']
+                if old_value != new_value:
+                    system.os_type = new_value
+                    KnownSystemAudit.log_change(
+                        system_id=system.id,
+                        changed_by=current_user.username,
+                        field_name='os_type',
+                        action='update',
+                        old_value=old_value,
+                        new_value=new_value
+                    )
+                    changed = True
+            
+            # Update compromised status
+            if 'compromised' in updates:
+                old_value = system.compromised
+                new_value = updates['compromised']
+                if old_value != new_value:
+                    system.compromised = new_value
+                    KnownSystemAudit.log_change(
+                        system_id=system.id,
+                        changed_by=current_user.username,
+                        field_name='compromised',
+                        action='update',
+                        old_value=str(old_value),
+                        new_value=str(new_value)
+                    )
+                    changed = True
+            
+            if changed:
+                updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'updated': updated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-systems/bulk-delete', methods=['POST'])
+@login_required
+def bulk_delete_known_systems():
+    """Bulk delete multiple known systems"""
+    from flask_login import current_user
+    from models.known_system import KnownSystem, KnownSystemAudit
+    
+    try:
+        data = request.get_json()
+        system_ids = data.get('system_ids', [])
+        
+        if not system_ids:
+            return jsonify({'success': False, 'error': 'No system IDs provided'}), 400
+        
+        deleted_count = 0
+        
+        for system_id in system_ids:
+            system = KnownSystem.query.get(system_id)
+            if not system:
+                continue
+            
+            # Log the deletion
+            KnownSystemAudit.log_change(
+                system_id=system.id,
+                changed_by=current_user.username,
+                field_name='system',
+                action='delete',
+                old_value=system.hostname,
+                new_value=None
+            )
+            
+            db.session.delete(system)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'deleted': deleted_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Known Users API Endpoints
 # ============================================

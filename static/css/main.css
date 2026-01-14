@@ -4435,6 +4435,32 @@ tbody td {
   padding: 60px 20px;
 }
 
+/* Systems Table Bulk Selection Styles */
+.systems-table .checkbox-cell {
+  width: 40px;
+  text-align: center;
+  padding: 10px 8px;
+}
+
+.systems-table .checkbox-cell input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.systems-table tbody tr.selected {
+  background-color: rgba(99, 102, 241, 0.15);
+}
+
+.systems-table tbody tr.selected:hover {
+  background-color: rgba(99, 102, 241, 0.2);
+}
+
+.systems-table tbody tr.selected.compromised {
+  background-color: rgba(255, 86, 48, 0.2);
+}
+
 /* Discovery Results Banner */
 .discovery-results {
   background-color: rgba(54, 179, 126, 0.15);
