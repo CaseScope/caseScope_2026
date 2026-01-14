@@ -1390,3 +1390,215 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
         db.session.add(new_pattern)
         db.session.commit()
         return True
+
+
+# ============================================================================
+# NON-AI PATTERN DETECTION
+# ============================================================================
+
+@celery_app.task(bind=True, name='tasks.detect_attack_patterns')
+def detect_attack_patterns(
+    self,
+    case_id: int,
+    case_uuid: str,
+    categories: List[str] = None
+) -> Dict[str, Any]:
+    """
+    Detect attack patterns using rule-based ClickHouse queries (no AI/ML).
+    
+    Runs predefined pattern detection queries against case events to identify
+    common attack techniques like credential attacks, lateral movement,
+    persistence, privilege escalation, defense evasion, discovery, and exfiltration.
+    
+    Args:
+        case_id: PostgreSQL case.id
+        case_uuid: Case UUID
+        categories: Optional list of categories to scan (None = all)
+        
+    Returns:
+        Dict with detection results
+    """
+    from utils.clickhouse import get_fresh_client
+    from models.database import db
+    from models.pattern_rules import ALL_PATTERN_RULES, PATTERN_CATEGORIES
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        from models.rag import PatternRuleMatch
+        
+        client = get_fresh_client()
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 5,
+            'status': 'Initializing pattern detection...'
+        })
+        
+        # Clear existing matches for this case
+        PatternRuleMatch.query.filter_by(case_id=case_id).delete()
+        db.session.commit()
+        
+        # Filter patterns by category if specified
+        if categories:
+            patterns_to_check = [
+                p for p in ALL_PATTERN_RULES 
+                if p.get('category') in categories
+            ]
+        else:
+            patterns_to_check = ALL_PATTERN_RULES
+        
+        total_patterns = len(patterns_to_check)
+        matches_found = []
+        errors = []
+        
+        # Noise filter to exclude events marked as noise
+        noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        
+        for idx, pattern in enumerate(patterns_to_check):
+            try:
+                progress = int(((idx + 1) / total_patterns) * 90) + 5
+                self.update_state(state='PROGRESS', meta={
+                    'progress': progress,
+                    'status': f'Checking: {pattern["name"]}...',
+                    'matches_found': len(matches_found)
+                })
+                
+                if not pattern.get('detection_query'):
+                    continue
+                
+                # Inject noise filter into query
+                import re
+                query_with_noise = pattern['detection_query']
+                for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
+                    match = re.search(keyword, query_with_noise, re.IGNORECASE)
+                    if match:
+                        pos = match.start()
+                        query_with_noise = query_with_noise[:pos] + noise_filter + ' ' + query_with_noise[pos:]
+                        break
+                else:
+                    query_with_noise = query_with_noise.rstrip() + noise_filter
+                
+                # Run detection query
+                result = client.query(
+                    query_with_noise,
+                    parameters={'case_id': case_id}
+                )
+                
+                if result.result_rows:
+                    for row in result.result_rows:
+                        # Convert row to dict
+                        row_dict = {}
+                        if result.column_names:
+                            for i, col in enumerate(result.column_names):
+                                if i < len(row):
+                                    row_dict[col] = row[i]
+                        
+                        # Extract common fields
+                        source_host = (
+                            row_dict.get('source_host') or 
+                            (row_dict.get('source_hosts', [None])[0] if row_dict.get('source_hosts') else None)
+                        )
+                        username = (
+                            row_dict.get('username') or
+                            (row_dict.get('usernames', [None])[0] if row_dict.get('usernames') else None)
+                        )
+                        affected_users = (
+                            list(row_dict['usernames']) if row_dict.get('usernames') else
+                            ([row_dict['username']] if row_dict.get('username') else None)
+                        )
+                        
+                        # Extract timestamps
+                        first_seen = None
+                        for ts_field in ['first_fail', 'first_seen', 'first_access', 'first_activity']:
+                            if row_dict.get(ts_field):
+                                first_seen = row_dict[ts_field]
+                                break
+                        
+                        last_seen = None
+                        for ts_field in ['last_fail', 'last_seen', 'last_access', 'last_activity']:
+                            if row_dict.get(ts_field):
+                                last_seen = row_dict[ts_field]
+                                break
+                        
+                        # Extract event count
+                        event_count = 1
+                        for count_field in ['total_failures', 'fail_count', 'logon_count', 'event_count',
+                                           'tgs_requests', 'tgt_requests', 'dump_events', 'service_events',
+                                           'wmi_events', 'task_events', 'registry_events', 'enum_events',
+                                           'ad_events', 'bloodhound_events', 'staging_events', 'dns_events',
+                                           'cloud_events', 'clear_events', 'stomp_events', 'injection_events',
+                                           'amsi_events', 'token_events', 'pipe_events', 'uac_bypass_events',
+                                           'wmi_persistence_events', 'unique_users', 'hosts_accessed']:
+                            if row_dict.get(count_field):
+                                event_count = int(row_dict[count_field])
+                                break
+                        
+                        # Calculate duration
+                        duration_seconds = None
+                        if row_dict.get('duration_secs'):
+                            duration_seconds = int(row_dict['duration_secs'])
+                        elif first_seen and last_seen:
+                            try:
+                                duration_seconds = int((last_seen - first_seen).total_seconds())
+                            except:
+                                pass
+                        
+                        # Create match record
+                        match = PatternRuleMatch(
+                            case_id=case_id,
+                            pattern_id=pattern['id'],
+                            pattern_name=pattern['name'],
+                            category=pattern['category'],
+                            description=pattern.get('description'),
+                            severity=pattern.get('severity', 'medium'),
+                            mitre_tactics=pattern.get('mitre_tactics'),
+                            mitre_techniques=pattern.get('mitre_techniques'),
+                            source_host=source_host,
+                            username=username,
+                            affected_users=affected_users[:20] if affected_users else None,
+                            event_count=event_count,
+                            first_seen=first_seen if isinstance(first_seen, datetime) else None,
+                            last_seen=last_seen if isinstance(last_seen, datetime) else None,
+                            duration_seconds=duration_seconds,
+                            match_data={k: str(v)[:500] for k, v in row_dict.items()},
+                            indicators=pattern.get('indicators', [])
+                        )
+                        db.session.add(match)
+                        
+                        matches_found.append({
+                            'pattern_id': pattern['id'],
+                            'pattern_name': pattern['name'],
+                            'category': pattern['category'],
+                            'severity': pattern['severity'],
+                            'source_host': source_host,
+                            'event_count': event_count
+                        })
+                        
+            except Exception as e:
+                logger.warning(f"[PatternRules] Pattern {pattern['name']} failed: {e}")
+                errors.append(f"{pattern['name']}: {str(e)[:100]}")
+        
+        db.session.commit()
+        
+        # Calculate category summary
+        category_counts = {}
+        for match in matches_found:
+            cat = match['category']
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 100,
+            'status': 'Complete',
+            'matches_found': len(matches_found)
+        })
+        
+        return {
+            'success': True,
+            'case_id': case_id,
+            'case_uuid': case_uuid,
+            'patterns_checked': len(patterns_to_check),
+            'matches_found': len(matches_found),
+            'categories_matched': category_counts,
+            'matches': matches_found[:50],  # Limit response size
+            'errors': errors[:10] if errors else None
+        }

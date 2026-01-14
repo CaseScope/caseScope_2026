@@ -1989,6 +1989,9 @@ function loadAIStats() {
     // Load pattern matches (secondary/aggregated)
     refreshPatternMatches();
     
+    // Load non-AI pattern rules results
+    refreshPatternRulesResults();
+    
     // Load OpenCTI stats (only if enabled)
     if (document.getElementById('btnSyncOpenCTI')) {
         loadOpenCTIStats();
@@ -2266,6 +2269,330 @@ function reviewCampaign(verdict) {
     .catch(err => {
         alert('Error: ' + err.message);
     });
+}
+
+// ========================================
+// NON-AI PATTERN MATCHING FUNCTIONS
+// ========================================
+
+let currentPatternRulesTaskId = null;
+let patternRulesResults = [];
+
+function startPatternRulesDetection() {
+    const btn = document.getElementById('btnDetectPatternRules');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
+    
+    document.getElementById('patternRulesProgress').style.display = 'block';
+    document.getElementById('patternRulesResults').style.display = 'none';
+    document.getElementById('patternRulesStatus').textContent = 'Running';
+    document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-warning';
+    
+    fetch('/api/rag/pattern-rules/detect', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({case_id: CASE_ID})
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            currentPatternRulesTaskId = data.task_id;
+            pollPatternRulesStatus();
+        } else {
+            showPatternRulesError(data.error || 'Failed to start pattern detection');
+        }
+    })
+    .catch(err => {
+        showPatternRulesError('Error: ' + err.message);
+    });
+}
+
+function pollPatternRulesStatus() {
+    if (!currentPatternRulesTaskId) return;
+    
+    fetch(`/api/rag/status/${currentPatternRulesTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                updatePatternRulesProgress(data.progress || 0, data.status || 'Processing...');
+                setTimeout(pollPatternRulesStatus, 1000);
+            } else if (data.state === 'completed') {
+                showPatternRulesComplete(data.result);
+            } else if (data.state === 'failed') {
+                showPatternRulesError(data.error || 'Task failed');
+            } else if (data.state === 'pending') {
+                updatePatternRulesProgress(0, 'Queued...');
+                setTimeout(pollPatternRulesStatus, 1000);
+            } else {
+                setTimeout(pollPatternRulesStatus, 1000);
+            }
+        })
+        .catch(err => {
+            console.error('Error polling pattern rules status:', err);
+            setTimeout(pollPatternRulesStatus, 2000);
+        });
+}
+
+function updatePatternRulesProgress(percent, status) {
+    document.getElementById('patternRulesProgressPercent').textContent = `${percent}%`;
+    document.getElementById('patternRulesProgressFill').style.width = `${percent}%`;
+    document.getElementById('patternRulesProgressStatus').textContent = status;
+}
+
+function showPatternRulesComplete(result) {
+    document.getElementById('patternRulesProgress').style.display = 'none';
+    resetPatternRulesButton();
+    
+    // Update stats
+    document.getElementById('patternRulesChecked').textContent = result.patterns_checked || 0;
+    document.getElementById('patternRulesMatches').textContent = result.matches_found || 0;
+    document.getElementById('patternRulesCategories').textContent = Object.keys(result.categories_matched || {}).length;
+    
+    document.getElementById('patternRulesStatus').textContent = result.matches_found > 0 ? `${result.matches_found} Found` : 'Complete';
+    document.getElementById('patternRulesStatus').className = result.matches_found > 0 ? 
+        'ai-section-badge ai-badge-danger' : 'ai-section-badge ai-badge-success';
+    
+    // Refresh results
+    refreshPatternRulesResults();
+    
+    currentPatternRulesTaskId = null;
+}
+
+function showPatternRulesError(message) {
+    document.getElementById('patternRulesProgress').style.display = 'none';
+    resetPatternRulesButton();
+    document.getElementById('patternRulesStatus').textContent = 'Error';
+    document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-danger';
+    alert('Pattern Detection Error: ' + message);
+    currentPatternRulesTaskId = null;
+}
+
+function resetPatternRulesButton() {
+    const btn = document.getElementById('btnDetectPatternRules');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Detect Attack Patterns';
+}
+
+function refreshPatternRulesResults() {
+    fetch(`/api/rag/pattern-rules/results/${CASE_ID}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                patternRulesResults = data.patterns || [];
+                
+                // Update stats
+                document.getElementById('patternRulesMatches').textContent = data.total_matches || 0;
+                document.getElementById('patternRulesCategories').textContent = Object.keys(data.categories || {}).length;
+                document.getElementById('patternRulesChecked').textContent = patternRulesResults.length || '-';
+                
+                if (data.total_matches > 0) {
+                    document.getElementById('patternRulesStatus').textContent = `${data.total_matches} Found`;
+                    document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-danger';
+                }
+                
+                renderPatternRulesCategories(data.categories || {});
+                renderPatternRulesResults();
+                
+                if (patternRulesResults.length > 0) {
+                    document.getElementById('patternRulesResults').style.display = 'block';
+                }
+            }
+        })
+        .catch(err => console.error('Error loading pattern rules results:', err));
+}
+
+function renderPatternRulesCategories(categories) {
+    const container = document.getElementById('patternRulesCategoriesContainer');
+    
+    if (Object.keys(categories).length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    const categoryIcons = {
+        'Credential Attacks': '🔑',
+        'Lateral Movement': '🔀',
+        'Persistence': '📌',
+        'Privilege Escalation': '⬆️',
+        'Defense Evasion': '🛡️',
+        'Discovery': '🔎',
+        'Exfiltration': '📤'
+    };
+    
+    let html = '';
+    for (const [category, count] of Object.entries(categories)) {
+        const icon = categoryIcons[category] || '📋';
+        html += `
+            <div class="pattern-category-card">
+                <span class="pattern-category-icon">${icon}</span>
+                <span class="pattern-category-name">${escapeHtml(category)}</span>
+                <span class="pattern-category-count">${count}</span>
+            </div>
+        `;
+    }
+    
+    container.innerHTML = html;
+}
+
+function renderPatternRulesResults() {
+    const tbody = document.getElementById('patternRulesResultsBody');
+    
+    if (patternRulesResults.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No attack patterns detected. Click "Detect Attack Patterns" to scan.</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    for (const pattern of patternRulesResults) {
+        const severityClass = pattern.severity === 'critical' ? 'critical' : 
+                             (pattern.severity === 'high' ? 'high' : 
+                              (pattern.severity === 'medium' ? 'medium' : 'low'));
+        
+        const techniques = (pattern.mitre_techniques || []).slice(0, 2).join(', ');
+        
+        // Format timeframe
+        let timeframe = '-';
+        if (pattern.first_seen && pattern.last_seen) {
+            const first = new Date(pattern.first_seen);
+            const last = new Date(pattern.last_seen);
+            timeframe = first.toLocaleDateString() === last.toLocaleDateString() 
+                ? first.toLocaleDateString()
+                : `${first.toLocaleDateString()} - ${last.toLocaleDateString()}`;
+        } else if (pattern.first_seen) {
+            timeframe = new Date(pattern.first_seen).toLocaleDateString();
+        }
+        
+        html += `
+            <tr class="pattern-match-row" onclick="showPatternRuleDetails('${escapeHtml(pattern.pattern_id)}')">
+                <td><strong>${escapeHtml(pattern.pattern_name || '-')}</strong></td>
+                <td>${escapeHtml(pattern.category || '-')}</td>
+                <td><span class="severity-badge severity-${severityClass}">${pattern.severity || '-'}</span></td>
+                <td>${techniques ? `<span class="mitre-badge">${escapeHtml(techniques)}</span>` : '-'}</td>
+                <td>${pattern.host_count || 1}</td>
+                <td><strong>${pattern.match_count}</strong></td>
+                <td>${timeframe}</td>
+            </tr>
+        `;
+    }
+    
+    tbody.innerHTML = html;
+}
+
+function showPatternRuleDetails(patternId) {
+    fetch(`/api/rag/pattern-rules/details/${CASE_ID}/${patternId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.matches && data.matches.length > 0) {
+                const match = data.matches[0];
+                
+                document.getElementById('pattern-modal-title').textContent = match.pattern_name || 'Pattern Details';
+                
+                const content = document.getElementById('pattern-match-content');
+                
+                // Format timeframe
+                let timeframe = '-';
+                if (match.first_seen && match.last_seen) {
+                    const first = new Date(match.first_seen);
+                    const last = new Date(match.last_seen);
+                    timeframe = `${first.toLocaleString()} to ${last.toLocaleString()}`;
+                } else if (match.first_seen) {
+                    timeframe = new Date(match.first_seen).toLocaleString();
+                }
+                
+                // Duration
+                let duration = '-';
+                if (match.duration_seconds) {
+                    if (match.duration_seconds < 60) duration = `${match.duration_seconds} seconds`;
+                    else if (match.duration_seconds < 3600) duration = `${Math.round(match.duration_seconds / 60)} minutes`;
+                    else duration = `${(match.duration_seconds / 3600).toFixed(1)} hours`;
+                }
+                
+                content.innerHTML = `
+                    <div class="detail-row">
+                        <span class="detail-label">Category:</span>
+                        <span class="detail-value">${escapeHtml(match.category || '-')}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Severity:</span>
+                        <span class="detail-value severity-${match.severity}">${(match.severity || '-').toUpperCase()}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Description:</span>
+                        <span class="detail-value">${escapeHtml(match.description || 'No description')}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">MITRE Tactics:</span>
+                        <span class="detail-value">${(match.mitre_tactics || []).join(', ') || '-'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">MITRE Techniques:</span>
+                        <span class="detail-value">${(match.mitre_techniques || []).map(t => `<span class="mitre-badge">${t}</span>`).join(' ') || '-'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Source Host:</span>
+                        <span class="detail-value">${escapeHtml(match.source_host || '-')}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Username:</span>
+                        <span class="detail-value">${escapeHtml(match.username || '-')}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Event Count:</span>
+                        <span class="detail-value">${match.event_count || 1}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Timeframe:</span>
+                        <span class="detail-value">${timeframe}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Duration:</span>
+                        <span class="detail-value">${duration}</span>
+                    </div>
+                    ${match.indicators && match.indicators.length > 0 ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Indicators to Look For:</span>
+                        <ul class="indicator-list">${match.indicators.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>
+                    </div>
+                    ` : ''}
+                    ${data.count > 1 ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Total Matches:</span>
+                        <span class="detail-value">${data.count} matches across different hosts/users</span>
+                    </div>
+                    ` : ''}
+                `;
+                
+                currentMatchId = match.id;
+                document.getElementById('pattern-match-modal').style.display = 'flex';
+            } else {
+                alert('No details available for this pattern');
+            }
+        })
+        .catch(err => {
+            console.error('Error loading pattern rule details:', err);
+            alert('Error loading pattern details');
+        });
+}
+
+function clearPatternRulesResults() {
+    if (!confirm('Clear all pattern detection results for this case?')) return;
+    
+    fetch(`/api/rag/pattern-rules/clear/${CASE_ID}`, {
+        method: 'DELETE'
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            patternRulesResults = [];
+            document.getElementById('patternRulesResults').style.display = 'none';
+            document.getElementById('patternRulesMatches').textContent = '-';
+            document.getElementById('patternRulesCategories').textContent = '-';
+            document.getElementById('patternRulesChecked').textContent = '-';
+            document.getElementById('patternRulesStatus').textContent = 'Ready';
+            document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-info';
+        }
+    })
+    .catch(err => console.error('Error clearing results:', err));
 }
 
 function loadOpenCTIStats() {

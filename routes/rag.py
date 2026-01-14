@@ -707,3 +707,174 @@ def init_rag():
     except Exception as e:
         logger.error(f"[RAG API] Init error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# NON-AI PATTERN MATCHING
+# ============================================================================
+
+@rag_bp.route('/pattern-rules/detect', methods=['POST'])
+@login_required
+def detect_pattern_rules():
+    """Start non-AI pattern rule detection task for a case"""
+    from tasks.rag_tasks import detect_attack_patterns
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    categories = data.get('categories')  # Optional: filter by category
+    
+    if not case_id:
+        return jsonify({'success': False, 'error': 'case_id required'}), 400
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    task = detect_attack_patterns.delay(
+        case_id=case_id,
+        case_uuid=case.uuid,
+        categories=categories
+    )
+    
+    return jsonify({
+        'success': True,
+        'task_id': task.id,
+        'case_id': case_id
+    })
+
+
+@rag_bp.route('/pattern-rules/results/<int:case_id>')
+@login_required
+def get_pattern_rule_results(case_id):
+    """Get non-AI pattern matching results for a case"""
+    from models.rag import PatternRuleMatch
+    
+    # Get aggregated results by pattern
+    results = db.session.query(
+        PatternRuleMatch.pattern_id,
+        PatternRuleMatch.pattern_name,
+        PatternRuleMatch.category,
+        PatternRuleMatch.severity,
+        PatternRuleMatch.mitre_techniques,
+        db.func.count(PatternRuleMatch.id).label('match_count'),
+        db.func.count(db.distinct(PatternRuleMatch.source_host)).label('host_count'),
+        db.func.min(PatternRuleMatch.first_seen).label('first_seen'),
+        db.func.max(PatternRuleMatch.last_seen).label('last_seen')
+    ).filter(
+        PatternRuleMatch.case_id == case_id
+    ).group_by(
+        PatternRuleMatch.pattern_id,
+        PatternRuleMatch.pattern_name,
+        PatternRuleMatch.category,
+        PatternRuleMatch.severity,
+        PatternRuleMatch.mitre_techniques
+    ).order_by(
+        db.case(
+            (PatternRuleMatch.severity == 'critical', 1),
+            (PatternRuleMatch.severity == 'high', 2),
+            (PatternRuleMatch.severity == 'medium', 3),
+            (PatternRuleMatch.severity == 'low', 4),
+            else_=5
+        ),
+        db.desc('match_count')
+    ).all()
+    
+    # Format results
+    formatted = []
+    for row in results:
+        formatted.append({
+            'pattern_id': row.pattern_id,
+            'pattern_name': row.pattern_name,
+            'category': row.category,
+            'severity': row.severity,
+            'mitre_techniques': row.mitre_techniques,
+            'match_count': row.match_count,
+            'host_count': row.host_count,
+            'first_seen': row.first_seen.isoformat() if row.first_seen else None,
+            'last_seen': row.last_seen.isoformat() if row.last_seen else None
+        })
+    
+    # Get total matches
+    total = PatternRuleMatch.query.filter_by(case_id=case_id).count()
+    
+    # Get category summary
+    category_summary = db.session.query(
+        PatternRuleMatch.category,
+        db.func.count(PatternRuleMatch.id).label('count')
+    ).filter(
+        PatternRuleMatch.case_id == case_id
+    ).group_by(
+        PatternRuleMatch.category
+    ).all()
+    
+    return jsonify({
+        'success': True,
+        'total_matches': total,
+        'pattern_count': len(formatted),
+        'patterns': formatted,
+        'categories': {row.category: row.count for row in category_summary}
+    })
+
+
+@rag_bp.route('/pattern-rules/details/<int:case_id>/<pattern_id>')
+@login_required
+def get_pattern_rule_details(case_id, pattern_id):
+    """Get detailed matches for a specific pattern rule"""
+    from models.rag import PatternRuleMatch
+    
+    matches = PatternRuleMatch.query.filter_by(
+        case_id=case_id,
+        pattern_id=pattern_id
+    ).order_by(PatternRuleMatch.first_seen).all()
+    
+    return jsonify({
+        'success': True,
+        'count': len(matches),
+        'matches': [m.to_dict() for m in matches]
+    })
+
+
+@rag_bp.route('/pattern-rules/review/<int:match_id>', methods=['POST'])
+@login_required
+def review_pattern_rule_match(match_id):
+    """Review a pattern rule match (analyst verdict)"""
+    from models.rag import PatternRuleMatch
+    
+    match = PatternRuleMatch.query.get(match_id)
+    if not match:
+        return jsonify({'success': False, 'error': 'Match not found'}), 404
+    
+    data = request.json or {}
+    verdict = data.get('verdict')
+    notes = data.get('notes', '')
+    
+    if verdict not in ['confirmed', 'false_positive', 'needs_review']:
+        return jsonify({'success': False, 'error': 'Invalid verdict'}), 400
+    
+    match.analyst_reviewed = True
+    match.analyst_verdict = verdict
+    match.analyst_notes = notes
+    match.reviewed_by = current_user.username
+    match.reviewed_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'match_id': match_id,
+        'verdict': verdict
+    })
+
+
+@rag_bp.route('/pattern-rules/clear/<int:case_id>', methods=['DELETE'])
+@login_required
+def clear_pattern_rule_results(case_id):
+    """Clear all pattern rule results for a case"""
+    from models.rag import PatternRuleMatch
+    
+    deleted = PatternRuleMatch.query.filter_by(case_id=case_id).delete()
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'deleted': deleted
+    })

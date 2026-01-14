@@ -1,6 +1,23 @@
 {
-  "version": "3.76.01",
+  "version": "3.77.00",
   "changelog": [
+    {
+      "version": "3.77.00",
+      "date": "2026-01-14",
+      "changes": [
+        "AI Hunting: Added Non-AI Pattern Matching feature for rule-based attack detection",
+        "Non-AI Patterns: Detects credential attacks (Pass-the-Hash, Kerberoasting, Password Spray, etc.)",
+        "Non-AI Patterns: Detects lateral movement (PsExec, WMI, RDP chains, WinRM, DCOM)",
+        "Non-AI Patterns: Detects persistence (Registry Run Keys, Scheduled Tasks, Services, WMI Subscriptions)",
+        "Non-AI Patterns: Detects privilege escalation (Token Manipulation, Named Pipe, UAC Bypass)",
+        "Non-AI Patterns: Detects defense evasion (Log Clearing, Timestomping, Process Injection, AMSI Bypass)",
+        "Non-AI Patterns: Detects discovery (Network/AD Enumeration, BloodHound/SharpHound)",
+        "Non-AI Patterns: Detects exfiltration (Data Staging, DNS Exfiltration, Cloud Storage)",
+        "Non-AI Patterns: 28 attack patterns with MITRE ATT&CK mapping and ClickHouse queries",
+        "New PatternRuleMatch model for storing detection results",
+        "Category-based result grouping with severity indicators"
+      ]
+    },
     {
       "version": "3.76.01",
       "date": "2026-01-14",

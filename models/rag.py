@@ -344,6 +344,87 @@ class AttackCampaign(db.Model):
         self.reviewed_at = datetime.utcnow()
 
 
+class PatternRuleMatch(db.Model):
+    """Non-AI pattern rule detection results
+    
+    Stores matches from rule-based pattern detection (not AI/ML).
+    Uses predefined detection patterns from models/pattern_rules.py
+    """
+    __tablename__ = 'pattern_rule_matches'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    
+    # Pattern reference (from pattern_rules.py)
+    pattern_id = db.Column(db.String(100), nullable=False, index=True)
+    pattern_name = db.Column(db.String(255), nullable=False)
+    category = db.Column(db.String(100), nullable=False, index=True)
+    description = db.Column(db.Text, nullable=True)
+    
+    # Severity and MITRE mapping
+    severity = db.Column(db.String(20), default='medium')  # low, medium, high, critical
+    mitre_tactics = db.Column(db.ARRAY(db.String), nullable=True)
+    mitre_techniques = db.Column(db.ARRAY(db.String), nullable=True)
+    
+    # Match details
+    source_host = db.Column(db.String(255), nullable=True, index=True)
+    username = db.Column(db.String(255), nullable=True)
+    affected_users = db.Column(db.ARRAY(db.String), nullable=True)
+    event_count = db.Column(db.Integer, default=1)
+    
+    # Timing
+    first_seen = db.Column(db.DateTime, nullable=True)
+    last_seen = db.Column(db.DateTime, nullable=True)
+    duration_seconds = db.Column(db.Integer, nullable=True)
+    
+    # Raw match data from query
+    match_data = db.Column(db.JSON, nullable=True)
+    
+    # Indicators that matched
+    indicators = db.Column(db.ARRAY(db.String), nullable=True)
+    
+    # Analyst review
+    analyst_reviewed = db.Column(db.Boolean, default=False)
+    analyst_verdict = db.Column(db.String(50), nullable=True)  # confirmed, false_positive, needs_review
+    analyst_notes = db.Column(db.Text, nullable=True)
+    reviewed_by = db.Column(db.String(80), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Timestamps
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    case = db.relationship('Case', backref=db.backref('pattern_rule_matches', lazy='dynamic'))
+    
+    def __repr__(self):
+        return f'<PatternRuleMatch {self.id}: {self.pattern_name} case={self.case_id}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'pattern_id': self.pattern_id,
+            'pattern_name': self.pattern_name,
+            'category': self.category,
+            'description': self.description,
+            'severity': self.severity,
+            'mitre_tactics': self.mitre_tactics or [],
+            'mitre_techniques': self.mitre_techniques or [],
+            'source_host': self.source_host,
+            'username': self.username,
+            'affected_users': self.affected_users or [],
+            'event_count': self.event_count,
+            'first_seen': self.first_seen.isoformat() if self.first_seen else None,
+            'last_seen': self.last_seen.isoformat() if self.last_seen else None,
+            'duration_seconds': self.duration_seconds,
+            'indicators': self.indicators or [],
+            'match_data': self.match_data,
+            'analyst_reviewed': self.analyst_reviewed,
+            'analyst_verdict': self.analyst_verdict,
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None
+        }
+
+
 # Campaign detection templates
 CAMPAIGN_TEMPLATES = [
     {

@@ -7272,6 +7272,80 @@ input:checked + .slider:before {
   border-radius: var(--border-radius);
 }
 
+/* Pattern Rules Category Cards */
+.pattern-rules-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.pattern-category-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  cursor: default;
+  transition: background var(--transition-fast);
+}
+
+.pattern-category-card:hover {
+  background: var(--bg-hover);
+}
+
+.pattern-category-icon {
+  font-size: 1.25rem;
+}
+
+.pattern-category-name {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.pattern-category-count {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent-danger);
+  background: rgba(255, 86, 48, 0.15);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.indicator-list {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.indicator-list li {
+  margin-bottom: 4px;
+}
+
+/* Badge variants for pattern rules */
+.ai-badge-info {
+  background: var(--accent-info);
+}
+
+.ai-badge-warning {
+  background: var(--accent-warning);
+}
+
+.ai-badge-danger {
+  background: var(--accent-danger);
+}
+
+.ai-badge-success {
+  background: var(--accent-success);
+}
+
+.ai-badge-primary {
+  background: var(--accent-primary);
+}
+
 /* Pattern Match Row */
 .pattern-match-row {
   cursor: pointer;

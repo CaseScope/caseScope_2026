@@ -194,7 +194,7 @@ def create_app():
         from models.evidence_file import EvidenceFile
         from models.rag import (
             AttackPattern, PatternPiece, PatternMatch, 
-            AttackCampaign, RAGSyncLog
+            AttackCampaign, RAGSyncLog, PatternRuleMatch
         )
         from models.file_audit_log import FileAuditLog
         db.create_all()

@@ -1,5 +1,108 @@
 <!-- AI Hunting Tab Content -->
 
+<!-- Non-AI Pattern Matching Section (TOP) -->
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">🔍 Non-AI Pattern Matching</h3>
+        <span class="ai-section-badge ai-badge-info" id="patternRulesStatus">Ready</span>
+    </div>
+    <p class="ai-section-desc">Rule-based detection of common attack patterns: credential attacks, lateral movement, persistence, privilege escalation, defense evasion, discovery, and exfiltration.</p>
+    
+    <!-- Help Panel -->
+    <div class="ai-help-panel">
+        <div class="ai-help-toggle" onclick="toggleHelp(this)">
+            <span class="ai-help-icon">❓</span> What does this detect?
+        </div>
+        <div class="ai-help-content" style="display: none;">
+            <p><strong>Non-AI Pattern Matching</strong> uses predefined detection rules to identify attack techniques:</p>
+            <ul>
+                <li><strong>Credential Attacks:</strong> Pass-the-Hash, Pass-the-Ticket, Password Spraying, Brute Force, Kerberoasting, AS-REP Roasting, Golden/Silver Ticket, LSASS dumping</li>
+                <li><strong>Lateral Movement:</strong> PsExec, WMI, Remote Scheduled Tasks, DCOM, WinRM/PowerShell Remoting, RDP chains</li>
+                <li><strong>Persistence:</strong> Registry Run Keys, Scheduled Tasks, Services, DLL Hijacking, WMI Subscriptions</li>
+                <li><strong>Privilege Escalation:</strong> Token Manipulation, Named Pipe Impersonation, UAC Bypass</li>
+                <li><strong>Defense Evasion:</strong> Log Clearing, Timestomping, Process Injection, AMSI Bypass</li>
+                <li><strong>Discovery:</strong> Network/AD Enumeration, BloodHound/SharpHound</li>
+                <li><strong>Exfiltration:</strong> Data Staging, DNS Exfiltration, Cloud Storage</li>
+            </ul>
+            <p class="ai-help-note">💡 These rules look for specific Event IDs and patterns without requiring AI/ML models.</p>
+        </div>
+    </div>
+    
+    <div class="ai-action-card">
+        <div class="ai-action-stats" id="patternRulesStats">
+            <div class="ai-stat">
+                <span class="ai-stat-label">Patterns Checked:</span>
+                <span class="ai-stat-value" id="patternRulesChecked">-</span>
+            </div>
+            <div class="ai-stat ai-stat-critical">
+                <span class="ai-stat-label">Matches Found:</span>
+                <span class="ai-stat-value" id="patternRulesMatches">-</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Categories:</span>
+                <span class="ai-stat-value" id="patternRulesCategories">-</span>
+            </div>
+        </div>
+        <div class="ai-action-buttons">
+            <button class="btn btn-primary btn-lg" id="btnDetectPatternRules" onclick="startPatternRulesDetection()" title="Run rule-based pattern detection">
+                <span class="btn-icon">🔍</span> Detect Attack Patterns
+            </button>
+            <button class="btn btn-secondary" onclick="clearPatternRulesResults()" title="Clear previous results">
+                <span class="btn-icon">🗑️</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Progress -->
+    <div class="ai-progress" id="patternRulesProgress" style="display: none;">
+        <div class="ai-progress-header">
+            <span class="ai-progress-title">Scanning for attack patterns...</span>
+            <span class="ai-progress-percent" id="patternRulesProgressPercent">0%</span>
+        </div>
+        <div class="ai-progress-bar">
+            <div class="ai-progress-fill" id="patternRulesProgressFill" style="width: 0%"></div>
+        </div>
+        <div class="ai-progress-status" id="patternRulesProgressStatus">Initializing...</div>
+    </div>
+    
+    <!-- Results -->
+    <div class="ai-results" id="patternRulesResults" style="display: none;">
+        <div class="ai-results-header">
+            <h4>Detected Attack Patterns</h4>
+            <div class="ai-results-actions">
+                <button class="btn btn-sm btn-secondary" onclick="refreshPatternRulesResults()">
+                    <span class="btn-icon">🔄</span> Refresh
+                </button>
+            </div>
+        </div>
+        
+        <!-- Category Summary Cards -->
+        <div class="pattern-rules-categories" id="patternRulesCategoriesContainer">
+            <!-- Populated by JS -->
+        </div>
+        
+        <!-- Results Table -->
+        <div class="ai-results-table">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Pattern</th>
+                        <th>Category</th>
+                        <th>Severity</th>
+                        <th>MITRE</th>
+                        <th>Hosts</th>
+                        <th>Events</th>
+                        <th>Timeframe</th>
+                    </tr>
+                </thead>
+                <tbody id="patternRulesResultsBody">
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
 <!-- Campaign Details Modal -->
 <div class="modal-overlay" id="campaign-modal" style="display: none;" onclick="closeCampaignModal(event)">
     <div class="modal-container modal-campaign" onclick="event.stopPropagation()">
