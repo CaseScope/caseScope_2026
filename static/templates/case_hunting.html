@@ -570,12 +570,14 @@ function renderEventsTable(events) {
             const cmdPreview = truncateText(e.command_line, 100);
             descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(cmdPreview)}</div>`;
         }
-        // For firewall events, show Event field as italicized second line
+        // For firewall events, show event field as italicized second line
         else if (['firewall', 'sonicwall'].includes(e.artifact_type) && e.extra_fields) {
             try {
                 const extra = typeof e.extra_fields === 'string' ? JSON.parse(e.extra_fields) : e.extra_fields;
-                if (extra && extra.Event) {
-                    descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(extra.Event)}</div>`;
+                // Check both lowercase and capitalized versions
+                const eventVal = extra?.event || extra?.Event;
+                if (eventVal) {
+                    descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(eventVal)}</div>`;
                 }
             } catch (err) {
                 // Ignore parse errors
