@@ -3299,6 +3299,105 @@ def download_known_users_csv(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/known-users/bulk-update', methods=['POST'])
+@login_required
+def bulk_update_known_users():
+    """Bulk update multiple known users"""
+    from flask_login import current_user
+    from models.known_user import KnownUser, KnownUserAudit
+    
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        updates = data.get('updates', {})
+        
+        if not user_ids:
+            return jsonify({'success': False, 'error': 'No user IDs provided'}), 400
+        
+        if not updates:
+            return jsonify({'success': False, 'error': 'No updates provided'}), 400
+        
+        updated_count = 0
+        
+        for user_id in user_ids:
+            user = KnownUser.query.get(user_id)
+            if not user:
+                continue
+            
+            # Update compromised status
+            if 'compromised' in updates:
+                old_value = user.compromised
+                new_value = updates['compromised']
+                if old_value != new_value:
+                    user.compromised = new_value
+                    KnownUserAudit.log_change(
+                        user_id=user.id,
+                        changed_by=current_user.username,
+                        field_name='compromised',
+                        action='update',
+                        old_value=str(old_value),
+                        new_value=str(new_value)
+                    )
+                    updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'updated': updated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/known-users/bulk-delete', methods=['POST'])
+@login_required
+def bulk_delete_known_users():
+    """Bulk delete multiple known users"""
+    from flask_login import current_user
+    from models.known_user import KnownUser, KnownUserAudit
+    
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        
+        if not user_ids:
+            return jsonify({'success': False, 'error': 'No user IDs provided'}), 400
+        
+        deleted_count = 0
+        
+        for user_id in user_ids:
+            user = KnownUser.query.get(user_id)
+            if not user:
+                continue
+            
+            # Log the deletion
+            KnownUserAudit.log_change(
+                user_id=user.id,
+                changed_by=current_user.username,
+                field_name='user',
+                action='delete',
+                old_value=user.username or user.sid or f'ID:{user.id}',
+                new_value=None
+            )
+            
+            db.session.delete(user)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'deleted': deleted_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # IOC Management API Endpoints
 # ============================================

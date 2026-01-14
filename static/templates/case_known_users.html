@@ -48,6 +48,20 @@
     </div>
 </div>
 
+<!-- Bulk Actions Bar -->
+<div class="bulk-actions-bar" id="bulkActionsBar">
+    <span class="selected-count"><span id="selectedCount">0</span> selected</span>
+    <button class="bulk-btn bulk-btn-edit" onclick="openBulkEditModal()">
+        <span>✏️</span> Bulk Edit
+    </button>
+    <button class="bulk-btn bulk-btn-delete" onclick="confirmBulkDelete()">
+        <span>🗑️</span> Delete Selected
+    </button>
+    <button class="bulk-btn bulk-btn-clear" onclick="clearSelection()">
+        Clear Selection
+    </button>
+</div>
+
 <!-- Users Table -->
 <div class="tile users-tile">
     <div class="tile-header">
@@ -62,6 +76,9 @@
             <table class="users-table" id="usersTable">
                 <thead>
                     <tr>
+                        <th class="checkbox-cell">
+                            <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this)" title="Select All">
+                        </th>
                         <th>Username</th>
                         <th>SID</th>
                         <th>Sources</th>
@@ -75,7 +92,7 @@
                 </thead>
                 <tbody id="usersBody">
                     <tr class="loading-row">
-                        <td colspan="9" class="text-center text-muted">Loading users...</td>
+                        <td colspan="10" class="text-center text-muted">Loading users...</td>
                     </tr>
                 </tbody>
             </table>
@@ -280,6 +297,58 @@
     </div>
 </div>
 
+<!-- Bulk Edit Modal -->
+<div id="bulkEditModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-bulk-edit">
+        <div class="modal-header">
+            <h3 class="modal-title">✏️ Bulk Edit Users</h3>
+            <button class="modal-close" onclick="closeBulkEditModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted" style="margin-bottom: 16px;">
+                Editing <strong id="bulkEditCount">0</strong> selected users
+            </p>
+            
+            <div class="form-group">
+                <label for="bulkCompromised">Compromised Status</label>
+                <select class="form-select" id="bulkCompromised">
+                    <option value="">-- No Change --</option>
+                    <option value="true">Yes - Mark as Compromised</option>
+                    <option value="false">No - Mark as Not Compromised</option>
+                </select>
+                <p class="help-text">Set the compromised status for all selected users</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeBulkEditModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="applyBulkEdit()">Apply Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Delete Confirmation Modal -->
+<div id="bulkDeleteModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-bulk-edit">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Confirm Delete</h3>
+            <button class="modal-close" onclick="closeBulkDeleteModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--accent-danger); font-weight: 500; margin-bottom: 12px;">
+                ⚠️ This action cannot be undone!
+            </p>
+            <p class="text-muted">
+                Are you sure you want to delete <strong id="bulkDeleteCount">0</strong> selected users?
+                This will permanently remove them from all cases.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeBulkDeleteModal()">Cancel</button>
+            <button class="btn btn-primary" style="background-color: var(--accent-danger);" onclick="executeBulkDelete()">Delete Users</button>
+        </div>
+    </div>
+</div>
+
 <!-- Help Modal - PowerShell Scripts -->
 <div id="helpModal" class="modal-overlay" style="display: none;">
     <div class="modal-container modal-help">
@@ -347,6 +416,7 @@ const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
 let usersData = [];
 let currentUserId = null;
+let selectedUserIds = new Set();
 
 // Load users on page load
 document.addEventListener('DOMContentLoaded', loadUsers);
@@ -387,29 +457,36 @@ function renderUsers(users) {
     if (users.length === 0) {
         tbody.innerHTML = `
             <tr class="empty-row">
-                <td colspan="9" class="text-center text-muted">
+                <td colspan="10" class="text-center text-muted">
                     No known users found. Click "Find in Artifacts" to discover users.
                 </td>
             </tr>
         `;
+        updateBulkActionsBar();
         return;
     }
     
     tbody.innerHTML = users.map(u => `
-        <tr class="user-row ${u.compromised ? 'compromised' : ''}" onclick="openUserModal(${u.id})">
-            <td class="username-cell">${escapeHtml(u.username || '-')}</td>
-            <td class="sid-cell">${formatSID(u.sid)}</td>
-            <td class="sources-cell">${formatSourceBadges(u.sources)}</td>
-            <td class="email-cell">${escapeHtml(u.email || '-')}</td>
-            <td class="alias-cell">${formatList(u.aliases, 2)}</td>
-            <td class="artifacts-cell">${u.artifacts_with_user}</td>
-            <td>${formatDate(u.last_seen)}</td>
-            <td class="compromised-cell">${u.compromised ? '<span class="badge badge-danger">YES</span>' : '<span class="badge badge-muted">No</span>'}</td>
+        <tr class="user-row ${u.compromised ? 'compromised' : ''} ${selectedUserIds.has(u.id) ? 'selected' : ''}" data-user-id="${u.id}">
+            <td class="checkbox-cell" onclick="event.stopPropagation();">
+                <input type="checkbox" ${selectedUserIds.has(u.id) ? 'checked' : ''} onchange="toggleUserSelection(${u.id}, this.checked)">
+            </td>
+            <td class="username-cell" onclick="openUserModal(${u.id})">${escapeHtml(u.username || '-')}</td>
+            <td class="sid-cell" onclick="openUserModal(${u.id})">${formatSID(u.sid)}</td>
+            <td class="sources-cell" onclick="openUserModal(${u.id})">${formatSourceBadges(u.sources)}</td>
+            <td class="email-cell" onclick="openUserModal(${u.id})">${escapeHtml(u.email || '-')}</td>
+            <td class="alias-cell" onclick="openUserModal(${u.id})">${formatList(u.aliases, 2)}</td>
+            <td class="artifacts-cell" onclick="openUserModal(${u.id})">${u.artifacts_with_user}</td>
+            <td onclick="openUserModal(${u.id})">${formatDate(u.last_seen)}</td>
+            <td class="compromised-cell" onclick="openUserModal(${u.id})">${u.compromised ? '<span class="badge badge-danger">YES</span>' : '<span class="badge badge-muted">No</span>'}</td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openUserModal(${u.id})">Edit</button>
             </td>
         </tr>
     `).join('');
+    
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
 }
 
 function filterUsers() {
@@ -947,6 +1024,210 @@ function copyScript(scriptId) {
     }).catch(err => {
         showError('Failed to copy: ' + err.message);
     });
+}
+
+// ============================================
+// Bulk Selection Functions
+// ============================================
+
+function toggleUserSelection(userId, isSelected) {
+    if (isSelected) {
+        selectedUserIds.add(userId);
+    } else {
+        selectedUserIds.delete(userId);
+    }
+    
+    // Update row visual state
+    const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+    if (row) {
+        row.classList.toggle('selected', isSelected);
+    }
+    
+    updateSelectAllCheckbox();
+    updateBulkActionsBar();
+}
+
+function toggleSelectAll(checkbox) {
+    const isChecked = checkbox.checked;
+    const visibleUserIds = getVisibleUserIds();
+    
+    visibleUserIds.forEach(userId => {
+        if (isChecked) {
+            selectedUserIds.add(userId);
+        } else {
+            selectedUserIds.delete(userId);
+        }
+    });
+    
+    // Update all visible checkboxes
+    document.querySelectorAll('#usersBody input[type="checkbox"]').forEach(cb => {
+        cb.checked = isChecked;
+    });
+    
+    // Update row states
+    document.querySelectorAll('#usersBody tr.user-row').forEach(row => {
+        row.classList.toggle('selected', isChecked);
+    });
+    
+    updateBulkActionsBar();
+}
+
+function getVisibleUserIds() {
+    const ids = [];
+    document.querySelectorAll('#usersBody tr.user-row').forEach(row => {
+        const userId = parseInt(row.dataset.userId);
+        if (userId) ids.push(userId);
+    });
+    return ids;
+}
+
+function updateSelectAllCheckbox() {
+    const selectAllCb = document.getElementById('selectAllCheckbox');
+    const visibleUserIds = getVisibleUserIds();
+    
+    if (visibleUserIds.length === 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+        return;
+    }
+    
+    const selectedVisible = visibleUserIds.filter(id => selectedUserIds.has(id));
+    
+    if (selectedVisible.length === 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+    } else if (selectedVisible.length === visibleUserIds.length) {
+        selectAllCb.checked = true;
+        selectAllCb.indeterminate = false;
+    } else {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = true;
+    }
+}
+
+function updateBulkActionsBar() {
+    const bar = document.getElementById('bulkActionsBar');
+    const countEl = document.getElementById('selectedCount');
+    
+    countEl.textContent = selectedUserIds.size;
+    
+    if (selectedUserIds.size > 0) {
+        bar.classList.add('visible');
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+function clearSelection() {
+    selectedUserIds.clear();
+    
+    // Uncheck all checkboxes
+    document.querySelectorAll('#usersBody input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('selectAllCheckbox').checked = false;
+    document.getElementById('selectAllCheckbox').indeterminate = false;
+    
+    // Remove selected class from rows
+    document.querySelectorAll('#usersBody tr.user-row').forEach(row => {
+        row.classList.remove('selected');
+    });
+    
+    updateBulkActionsBar();
+}
+
+// ============================================
+// Bulk Edit Functions
+// ============================================
+
+function openBulkEditModal() {
+    if (selectedUserIds.size === 0) {
+        showError('No users selected');
+        return;
+    }
+    
+    document.getElementById('bulkEditCount').textContent = selectedUserIds.size;
+    document.getElementById('bulkCompromised').value = '';
+    document.getElementById('bulkEditModal').style.display = 'flex';
+}
+
+function closeBulkEditModal() {
+    document.getElementById('bulkEditModal').style.display = 'none';
+}
+
+function applyBulkEdit() {
+    const compromisedValue = document.getElementById('bulkCompromised').value;
+    
+    if (!compromisedValue) {
+        showError('Please select a value to change');
+        return;
+    }
+    
+    const userIds = Array.from(selectedUserIds);
+    const updates = {};
+    
+    if (compromisedValue) {
+        updates.compromised = compromisedValue === 'true';
+    }
+    
+    fetch(`/api/known-users/bulk-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            user_ids: userIds,
+            updates: updates
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeBulkEditModal();
+            clearSelection();
+            loadUsers();
+        } else {
+            showError('Bulk update failed: ' + data.error);
+        }
+    })
+    .catch(err => showError('Bulk update error: ' + err.message));
+}
+
+// ============================================
+// Bulk Delete Functions
+// ============================================
+
+function confirmBulkDelete() {
+    if (selectedUserIds.size === 0) {
+        showError('No users selected');
+        return;
+    }
+    
+    document.getElementById('bulkDeleteCount').textContent = selectedUserIds.size;
+    document.getElementById('bulkDeleteModal').style.display = 'flex';
+}
+
+function closeBulkDeleteModal() {
+    document.getElementById('bulkDeleteModal').style.display = 'none';
+}
+
+function executeBulkDelete() {
+    const userIds = Array.from(selectedUserIds);
+    
+    fetch(`/api/known-users/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ids: userIds })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeBulkDeleteModal();
+            clearSelection();
+            loadUsers();
+        } else {
+            showError('Bulk delete failed: ' + data.error);
+        }
+    })
+    .catch(err => showError('Bulk delete error: ' + err.message));
 }
 </script>
 {% endblock %}

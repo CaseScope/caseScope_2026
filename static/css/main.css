@@ -4896,6 +4896,133 @@ input:checked + .slider:before {
   padding: 60px 20px;
 }
 
+/* Bulk Selection Styles */
+.users-table .checkbox-cell {
+  width: 40px;
+  text-align: center;
+  padding: 10px 8px;
+}
+
+.users-table .checkbox-cell input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.users-table tbody tr.selected {
+  background-color: rgba(99, 102, 241, 0.15);
+}
+
+.users-table tbody tr.selected:hover {
+  background-color: rgba(99, 102, 241, 0.2);
+}
+
+.users-table tbody tr.selected.compromised {
+  background-color: rgba(255, 86, 48, 0.2);
+}
+
+/* Bulk Actions Toolbar */
+.bulk-actions-bar {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--border-radius);
+  margin-bottom: 16px;
+}
+
+.bulk-actions-bar.visible {
+  display: flex;
+}
+
+.bulk-actions-bar .selected-count {
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-right: 8px;
+}
+
+.bulk-actions-bar .bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.bulk-actions-bar .bulk-btn-edit {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+.bulk-actions-bar .bulk-btn-edit:hover {
+  background-color: var(--accent-primary-hover);
+}
+
+.bulk-actions-bar .bulk-btn-delete {
+  background-color: var(--accent-danger);
+  color: white;
+}
+
+.bulk-actions-bar .bulk-btn-delete:hover {
+  background-color: #d32f2f;
+}
+
+.bulk-actions-bar .bulk-btn-clear {
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.bulk-actions-bar .bulk-btn-clear:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Bulk Edit Modal */
+.modal-bulk-edit {
+  max-width: 500px;
+}
+
+.modal-bulk-edit .form-group {
+  margin-bottom: 20px;
+}
+
+.modal-bulk-edit .form-group label {
+  display: block;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.modal-bulk-edit .form-select {
+  width: 100%;
+  padding: 10px 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.modal-bulk-edit .form-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.modal-bulk-edit .help-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 /* User Detail Modal */
 .modal-user-detail {
   max-width: 800px;

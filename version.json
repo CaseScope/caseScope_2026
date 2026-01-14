@@ -1,6 +1,16 @@
 {
-  "version": "3.85.02",
+  "version": "3.86.00",
   "changelog": [
+    {
+      "version": "3.86.00",
+      "date": "2026-01-14",
+      "changes": [
+        "Known Users: Added bulk selection with checkbox column",
+        "Known Users: Bulk Edit to update compromised status for multiple users",
+        "Known Users: Bulk Delete to remove multiple users at once",
+        "Known Users: Select All checkbox in table header"
+      ]
+    },
     {
       "version": "3.85.02",
       "date": "2026-01-14",
