@@ -4337,6 +4337,17 @@ tbody td {
   margin-right: 12px;
 }
 
+.btn-export-tagged {
+  font-size: 12px;
+  padding: 6px 12px;
+  margin-right: 8px;
+}
+
+.btn-export-tagged:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .loading-row {
   padding: 60px 20px !important;
 }

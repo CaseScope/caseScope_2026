@@ -2236,6 +2236,86 @@ def update_analyst_tag(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/hunting/events/export-tagged/<int:case_id>')
+@login_required
+def export_tagged_events(case_id):
+    """Export all analyst-tagged events with full data (no truncation)
+    
+    Returns JSON with all columns for tagged events.
+    """
+    try:
+        from utils.clickhouse import get_client
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        client = get_client()
+        
+        # Get all tagged events with ALL columns
+        query = """
+            SELECT *
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+            AND analyst_tagged = true
+            ORDER BY timestamp DESC
+        """
+        
+        result = client.query(query, parameters={'case_id': case_id})
+        
+        events = []
+        column_names = result.column_names
+        
+        for row in result.result_rows:
+            event_data = {}
+            for i, col_name in enumerate(column_names):
+                value = row[i]
+                
+                # Convert special types to JSON-serializable format
+                if value is None:
+                    event_data[col_name] = None
+                elif hasattr(value, 'isoformat'):
+                    # datetime objects
+                    event_data[col_name] = value.isoformat()
+                elif isinstance(value, (list, tuple)):
+                    # Convert list items that might be IP addresses
+                    event_data[col_name] = [str(v) if hasattr(v, 'packed') else v for v in value]
+                elif isinstance(value, bytes):
+                    event_data[col_name] = value.decode('utf-8', errors='replace')
+                elif hasattr(value, 'packed'):
+                    # IPv4Address/IPv6Address objects
+                    event_data[col_name] = str(value)
+                elif col_name == 'raw_json' and value:
+                    # Parse raw_json to include as object, not string
+                    try:
+                        event_data[col_name] = json.loads(value) if isinstance(value, str) else value
+                    except json.JSONDecodeError:
+                        event_data[col_name] = value
+                elif col_name == 'extra_fields' and value:
+                    # Parse extra_fields JSON
+                    try:
+                        event_data[col_name] = json.loads(value) if isinstance(value, str) else value
+                    except json.JSONDecodeError:
+                        event_data[col_name] = value
+                else:
+                    event_data[col_name] = value
+            
+            events.append(event_data)
+        
+        return jsonify({
+            'success': True,
+            'case_id': case_id,
+            'case_name': case.name,
+            'export_timestamp': datetime.utcnow().isoformat(),
+            'total_count': len(events),
+            'events': events
+        })
+        
+    except Exception as e:
+        logger.error(f"Error exporting tagged events: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Process Tree API Endpoints
 # ============================================

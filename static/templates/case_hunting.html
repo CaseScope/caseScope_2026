@@ -914,6 +914,66 @@ function changeEventsPageSize() {
     loadEvents();
 }
 
+// Export all tagged events to JSON file
+function exportTaggedEvents() {
+    const caseId = {{ case.id }};
+    const btn = document.getElementById('btn-export-tagged');
+    const originalText = btn.textContent;
+    
+    // Show loading state
+    btn.disabled = true;
+    btn.textContent = 'Exporting...';
+    
+    fetch(`/api/hunting/events/export-tagged/${caseId}`)
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.error || 'Export failed');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.error || 'Export failed');
+            }
+            
+            if (data.events.length === 0) {
+                alert('No tagged events to export.');
+                return;
+            }
+            
+            // Create JSON blob and download
+            const jsonStr = JSON.stringify(data.events, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            // Create download link
+            const a = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            a.href = url;
+            a.download = `tagged_events_case${caseId}_${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            // Show success message
+            btn.textContent = `Exported ${data.events.length}`;
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        })
+        .catch(error => {
+            console.error('Export error:', error);
+            alert('Export failed: ' + error.message);
+            btn.textContent = originalText;
+        })
+        .finally(() => {
+            btn.disabled = false;
+        });
+}
+
 // Helper functions
 function escapeHtml(text) {
     if (!text) return '';

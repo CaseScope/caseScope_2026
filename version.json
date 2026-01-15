@@ -1,6 +1,13 @@
 {
-  "version": "3.92.02",
+  "version": "3.92.03",
   "changelog": [
+    {
+      "version": "3.92.03",
+      "date": "2026-01-15",
+      "changes": [
+        "Added: Export Tagged button on Hunting Events page to export all analyst-tagged events as JSON with full data (no truncation)"
+      ]
+    },
     {
       "version": "3.92.02",
       "date": "2026-01-15",
