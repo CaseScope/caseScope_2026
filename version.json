@@ -1,6 +1,14 @@
 {
-  "version": "3.92.00",
+  "version": "3.92.01",
   "changelog": [
+    {
+      "version": "3.92.01",
+      "date": "2026-01-15",
+      "changes": [
+        "Fixed: IOC artifact hunting now only searches case-specific IOCs",
+        "Fixed: System sightings now filter by case_id"
+      ]
+    },
     {
       "version": "3.92.00",
       "date": "2026-01-15",

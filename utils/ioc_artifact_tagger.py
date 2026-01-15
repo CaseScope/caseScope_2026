@@ -604,10 +604,9 @@ def get_matching_systems_for_ioc(
 
 
 def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
-    """Tag ALL IOCs in the database against a specific case's artifacts.
+    """Tag all IOCs for this case against the case's artifacts.
     
-    This searches every IOC (not just case-linked ones) against
-    the case's artifacts to find new matches.
+    Searches case-specific IOCs against the case's artifacts to find matches.
     
     Also marks matching events with IOC types for visual highlighting
     and populates system sightings.
@@ -616,12 +615,13 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     
     Returns summary of updates and new links created.
     """
-    from models.ioc import IOC, IOCCase
+    from models.ioc import IOC
     from models.known_system import KnownSystem
     from models.database import db
     
-    # Get all IOCs that are active and NOT marked as false positives
+    # Get IOCs for THIS case that are active and NOT marked as false positives
     iocs = IOC.query.filter(
+        IOC.case_id == case_id,
         IOC.false_positive == False,
         IOC.active == True
     ).all()
@@ -634,7 +634,6 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
             'success': True,
             'total_iocs': 0,
             'iocs_with_matches': 0,
-            'new_links_created': 0,
             'total_artifact_matches': 0,
             'events_tagged': 0,
             'system_sightings_created': 0,
@@ -645,7 +644,6 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         'success': True,
         'total_iocs': total_iocs,
         'iocs_with_matches': 0,
-        'new_links_created': 0,
         'total_artifact_matches': 0,
         'events_tagged': 0,
         'system_sightings_created': 0,
@@ -702,8 +700,9 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                 )
                 
                 for hostname in matching_hosts:
-                    # Look up KnownSystem by hostname (case-insensitive)
+                    # Look up KnownSystem by hostname within this case (case-insensitive)
                     system = KnownSystem.query.filter(
+                        KnownSystem.case_id == case_id,
                         db.func.lower(KnownSystem.hostname) == hostname.lower()
                     ).first()
                     
@@ -711,21 +710,6 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                         # Add system sighting (returns True if new sighting created)
                         if ioc.add_system_sighting(system.id, case_id):
                             results['system_sightings_created'] += 1
-                
-                # Check if already linked to case
-                existing_link = IOCCase.query.filter_by(
-                    ioc_id=ioc.id,
-                    case_id=case_id
-                ).first()
-                
-                if not existing_link:
-                    # Create new link
-                    new_link = IOCCase(
-                        ioc_id=ioc.id,
-                        case_id=case_id
-                    )
-                    db.session.add(new_link)
-                    results['new_links_created'] += 1
                 
                 # Update artifact stats
                 ioc.artifact_count = search_result['match_count']
@@ -754,8 +738,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                     'short_type': get_short_ioc_type(ioc.ioc_type),
                     'value': ioc.value[:50] + ('...' if len(ioc.value) > 50 else ''),
                     'match_count': search_result['match_count'],
-                    'artifact_types': search_result['artifact_types'],
-                    'was_linked': existing_link is not None
+                    'artifact_types': search_result['artifact_types']
                 })
                 
         except Exception as e:
