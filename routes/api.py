@@ -907,6 +907,137 @@ def get_file_stats(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/case/statistics/<case_uuid>')
+@login_required
+def get_case_statistics(case_uuid):
+    """Get comprehensive statistics for a case dashboard
+    
+    Returns file statistics, artifact statistics, and entity counts.
+    """
+    try:
+        from models.case_file import CaseFile
+        from models.ioc import IOC
+        from models.known_system import KnownSystem
+        from models.known_user import KnownUser
+        from utils.clickhouse import get_client
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # === FILE STATISTICS ===
+        file_stats = CaseFile.get_stats(case_uuid)
+        
+        # Get file type breakdown
+        file_type_counts = db.session.query(
+            CaseFile.file_type, db.func.count(CaseFile.id)
+        ).filter(
+            CaseFile.case_uuid == case_uuid,
+            CaseFile.is_archive == False,
+            CaseFile.status != 'duplicate'
+        ).group_by(CaseFile.file_type).all()
+        
+        file_types = {ft or 'Unknown': count for ft, count in file_type_counts}
+        
+        # === ARTIFACT STATISTICS (from ClickHouse) ===
+        artifact_stats = {
+            'total': 0,
+            'by_type': {},
+            'analyst_tagged': 0,
+            'ioc_tagged': 0,
+            'sigma_tagged': 0,
+            'noise_matched': 0
+        }
+        
+        try:
+            client = get_client()
+            
+            # Total artifacts
+            result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+                parameters={'case_id': case.id}
+            )
+            artifact_stats['total'] = result.result_rows[0][0] if result.result_rows else 0
+            
+            # Artifacts by type
+            result = client.query(
+                """SELECT artifact_type, count() as cnt 
+                   FROM events 
+                   WHERE case_id = {case_id:UInt32}
+                   GROUP BY artifact_type 
+                   ORDER BY cnt DESC""",
+                parameters={'case_id': case.id}
+            )
+            for row in result.result_rows:
+                artifact_stats['by_type'][row[0] or 'unknown'] = row[1]
+            
+            # Analyst tagged count
+            result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND analyst_tagged = true",
+                parameters={'case_id': case.id}
+            )
+            artifact_stats['analyst_tagged'] = result.result_rows[0][0] if result.result_rows else 0
+            
+            # IOC tagged count (events with at least one IOC type)
+            result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND length(ioc_types) > 0",
+                parameters={'case_id': case.id}
+            )
+            artifact_stats['ioc_tagged'] = result.result_rows[0][0] if result.result_rows else 0
+            
+            # Sigma tagged count (events with rule_title)
+            result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND rule_title IS NOT NULL AND rule_title != ''",
+                parameters={'case_id': case.id}
+            )
+            artifact_stats['sigma_tagged'] = result.result_rows[0][0] if result.result_rows else 0
+            
+            # Noise matched count
+            result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND noise_matched = true",
+                parameters={'case_id': case.id}
+            )
+            artifact_stats['noise_matched'] = result.result_rows[0][0] if result.result_rows else 0
+            
+        except Exception as ch_error:
+            # ClickHouse may not be available, continue with zeros
+            pass
+        
+        # === ENTITY COUNTS ===
+        ioc_count = IOC.query.filter(
+            IOC.case_id == case.id,
+            IOC.false_positive == False
+        ).count()
+        
+        system_count = KnownSystem.query.filter_by(case_id=case.id).count()
+        user_count = KnownUser.query.filter_by(case_id=case.id).count()
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'file_stats': {
+                'total': file_stats['total'],
+                'fully_indexed': file_stats['fully_indexed'],
+                'partially_indexed': file_stats['partially_indexed'],
+                'no_parser': file_stats['no_parser'],
+                'parse_error': file_stats['parse_error'],
+                'error': file_stats['error'],
+                'pending': file_stats['pending'],
+                'by_type': file_types
+            },
+            'artifact_stats': artifact_stats,
+            'entity_counts': {
+                'iocs': ioc_count,
+                'systems': system_count,
+                'users': user_count
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/files/list/<case_uuid>')
 @login_required
 def get_file_list(case_uuid):
