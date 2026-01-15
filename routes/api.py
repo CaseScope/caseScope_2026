@@ -2016,19 +2016,21 @@ def update_analyst_tag(case_id):
             conditions.append("event_id = {event_id:String}")
             has_unique_id = True
         
-        # record_id + source_file is unique for EVTX events (record_id alone is NOT unique across files)
+        # record_id + source_file + source_host is unique for EVTX events
+        # (same filename like Security.evtx exists on multiple hosts)
         if record_id and str(record_id) != '0':
             try:
                 rid = int(record_id)
                 if rid > 0:
                     params['record_id'] = rid
                     conditions.append("record_id = {record_id:UInt64}")
-                    # CRITICAL: source_file is required for EVTX - record_id is only unique within a file
-                    if source_file:
+                    # CRITICAL: Need source_file AND source_host - same filename exists on multiple hosts
+                    if source_file and source_host and source_host != '-':
                         params['source_file'] = source_file
+                        params['source_host'] = source_host
                         conditions.append("source_file = {source_file:String}")
+                        conditions.append("source_host = {source_host:String}")
                         has_unique_id = True
-                    # Without source_file, record_id alone is not unique enough
             except (ValueError, TypeError):
                 pass
         

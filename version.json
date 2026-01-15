@@ -1,6 +1,14 @@
 {
-  "version": "3.91.03",
+  "version": "3.91.04",
   "changelog": [
+    {
+      "version": "3.91.04",
+      "date": "2026-01-15",
+      "changes": [
+        "Fixed: EVTX tagging now uses record_id + source_file + source_host",
+        "Fixed: Same filename (Security.evtx) exists on multiple hosts"
+      ]
+    },
     {
       "version": "3.91.03",
       "date": "2026-01-15",
