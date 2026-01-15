@@ -108,142 +108,150 @@
         <span class="card-icon">📊</span>
         <span class="card-title">Case Statistics</span>
     </div>
-    <div class="card-body" style="padding: 20px;">
+    <div class="card-body" style="padding: 24px;">
         <div id="stats-loading" class="text-center" style="padding: 40px;">
             <div class="loading-spinner"></div>
             <p class="text-muted" style="margin-top: 10px;">Loading statistics...</p>
         </div>
         <div id="stats-content" style="display: none;">
-            <div class="grid grid-2" style="gap: 30px;">
-                <!-- File Statistics Column -->
-                <div>
-                    <h4 style="margin-bottom: 15px; color: var(--text-primary); border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-                        📁 File Statistics
-                    </h4>
-                    <div class="info-list">
-                        <div class="info-row">
-                            <span class="info-label">Total Files:</span>
-                            <span class="info-value" id="stat-total-files">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                Fully Indexed:
-                                <span class="help-tooltip" title="Files that were completely parsed and all events were indexed">?</span>
-                            </span>
-                            <span class="info-value text-success" id="stat-fully-indexed">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                Partially Indexed:
-                                <span class="help-tooltip" title="Files where some events were indexed but parsing was incomplete">?</span>
-                            </span>
-                            <span class="info-value text-warning" id="stat-partially-indexed">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                No Parser:
-                                <span class="help-tooltip" title="Files with no compatible parser available - may need manual review">?</span>
-                            </span>
-                            <span class="info-value text-muted" id="stat-no-parser">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                Parse Errors:
-                                <span class="help-tooltip" title="Files where the parser encountered errors during processing">?</span>
-                            </span>
-                            <span class="info-value text-danger" id="stat-parse-error">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                Errors:
-                                <span class="help-tooltip" title="Files that could not be read or processed at all">?</span>
-                            </span>
-                            <span class="info-value text-danger" id="stat-error">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Pending:</span>
-                            <span class="info-value" id="stat-pending">-</span>
-                        </div>
+            <!-- 4-Column Stats Grid -->
+            <div class="stats-grid">
+                <!-- Column 1: File Processing -->
+                <div class="stats-column">
+                    <div class="stats-column-header">
+                        <span class="stats-icon">📁</span> File Processing
                     </div>
-                    
-                    <!-- File Types Breakdown -->
-                    <h5 style="margin-top: 20px; margin-bottom: 10px; color: var(--text-secondary); font-size: 0.9em;">
-                        Files by Type
-                    </h5>
-                    <div class="info-list" id="file-types-list">
-                        <p class="text-muted">No files uploaded</p>
+                    <div class="stats-list">
+                        <div class="stat-item">
+                            <span class="stat-label">Total Files</span>
+                            <span class="stat-value" id="stat-total-files">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Fully Indexed
+                                <span class="help-tooltip" title="Files completely parsed with all events indexed">?</span>
+                            </span>
+                            <span class="stat-value stat-success" id="stat-fully-indexed">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Partially Indexed
+                                <span class="help-tooltip" title="Files with some events indexed but incomplete parsing">?</span>
+                            </span>
+                            <span class="stat-value stat-warning" id="stat-partially-indexed">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                No Parser
+                                <span class="help-tooltip" title="Files without a compatible parser available">?</span>
+                            </span>
+                            <span class="stat-value stat-muted" id="stat-no-parser">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Parse Errors
+                                <span class="help-tooltip" title="Files where parser encountered errors">?</span>
+                            </span>
+                            <span class="stat-value stat-danger" id="stat-parse-error">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Errors
+                                <span class="help-tooltip" title="Files that could not be read or processed">?</span>
+                            </span>
+                            <span class="stat-value stat-danger" id="stat-error">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Pending</span>
+                            <span class="stat-value" id="stat-pending">-</span>
+                        </div>
                     </div>
                 </div>
                 
-                <!-- Artifact Statistics Column -->
-                <div>
-                    <h4 style="margin-bottom: 15px; color: var(--text-primary); border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-                        🔍 Artifact Statistics
-                    </h4>
-                    <div class="info-list">
-                        <div class="info-row">
-                            <span class="info-label">Total Artifacts:</span>
-                            <span class="info-value" id="stat-total-artifacts">-</span>
+                <!-- Column 2: Case Entities -->
+                <div class="stats-column">
+                    <div class="stats-column-header">
+                        <span class="stats-icon">🔍</span> Case Entities
+                    </div>
+                    <div class="stats-list">
+                        <div class="stat-item stat-item-large">
+                            <span class="stat-label">Total Artifacts</span>
+                            <span class="stat-value stat-highlight" id="stat-total-artifacts">-</span>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">IOCs Tracked:</span>
-                            <span class="info-value" id="stat-iocs">-</span>
+                        <div class="stat-item">
+                            <span class="stat-label">IOCs Tracked</span>
+                            <span class="stat-value" id="stat-iocs">-</span>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">Known Systems:</span>
-                            <span class="info-value" id="stat-systems">-</span>
+                        <div class="stat-item">
+                            <span class="stat-label">Known Systems</span>
+                            <span class="stat-value" id="stat-systems">-</span>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">Known Users:</span>
-                            <span class="info-value" id="stat-users">-</span>
+                        <div class="stat-item">
+                            <span class="stat-label">Known Users</span>
+                            <span class="stat-value" id="stat-users">-</span>
                         </div>
                     </div>
-                    
-                    <h5 style="margin-top: 20px; margin-bottom: 10px; color: var(--text-secondary); font-size: 0.9em;">
-                        Tagged Events
-                    </h5>
-                    <div class="info-list">
-                        <div class="info-row">
-                            <span class="info-label">
-                                Analyst Tagged:
-                                <span class="help-tooltip" title="Events manually tagged by analysts for follow-up or notes">?</span>
+                </div>
+                
+                <!-- Column 3: Tagged Events -->
+                <div class="stats-column">
+                    <div class="stats-column-header">
+                        <span class="stats-icon">🏷️</span> Tagged Events
+                    </div>
+                    <div class="stats-list">
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Analyst Tagged
+                                <span class="help-tooltip" title="Events manually tagged by analysts">?</span>
                             </span>
-                            <span class="info-value" id="stat-analyst-tagged">-</span>
+                            <span class="stat-value" id="stat-analyst-tagged">-</span>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                IOC Tagged:
-                                <span class="help-tooltip" title="Events matching one or more IOC indicators">?</span>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                IOC Matched
+                                <span class="help-tooltip" title="Events matching IOC indicators">?</span>
                             </span>
-                            <span class="info-value" id="stat-ioc-tagged">-</span>
+                            <span class="stat-value" id="stat-ioc-tagged">-</span>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                Sigma Tagged:
-                                <span class="help-tooltip" title="Events matching Sigma detection rules">?</span>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Sigma Detections
+                                <span class="help-tooltip" title="Events matching Sigma rules">?</span>
                             </span>
-                            <span class="info-value" id="stat-sigma-tagged">-</span>
+                            <span class="stat-value" id="stat-sigma-tagged">-</span>
                         </div>
-                        <div class="info-row">
-                            <span class="info-label">
-                                Noise Filtered:
-                                <span class="help-tooltip" title="Events matched by noise rules and hidden from default view">?</span>
+                        <div class="stat-item">
+                            <span class="stat-label">
+                                Noise Filtered
+                                <span class="help-tooltip" title="Events hidden by noise rules">?</span>
                             </span>
-                            <span class="info-value text-muted" id="stat-noise-matched">-</span>
+                            <span class="stat-value stat-muted" id="stat-noise-matched">-</span>
                         </div>
                     </div>
-                    
-                    <!-- Artifact Types Breakdown -->
-                    <h5 style="margin-top: 20px; margin-bottom: 10px; color: var(--text-secondary); font-size: 0.9em;">
-                        Artifacts by Type
-                    </h5>
-                    <div class="info-list" id="artifact-types-list">
-                        <p class="text-muted">No artifacts ingested</p>
+                </div>
+                
+                <!-- Column 4: File Types -->
+                <div class="stats-column">
+                    <div class="stats-column-header">
+                        <span class="stats-icon">📂</span> Files by Type
+                    </div>
+                    <div class="stats-list" id="file-types-list">
+                        <span class="stat-muted">No files</span>
                     </div>
                 </div>
             </div>
+            
+            <!-- Artifact Types - Horizontal Multi-Column Layout -->
+            <div class="artifact-types-section">
+                <div class="artifact-types-header">
+                    <span class="stats-icon">📋</span> Artifacts by Type
+                </div>
+                <div class="artifact-types-grid" id="artifact-types-list">
+                    <span class="stat-muted">No artifacts ingested</span>
+                </div>
+            </div>
         </div>
-        <div id="stats-error" style="display: none;" class="text-danger text-center" style="padding: 20px;">
+        <div id="stats-error" style="display: none; padding: 20px;" class="text-danger text-center">
             Failed to load statistics
         </div>
     </div>
@@ -313,9 +321,9 @@ function displayStatistics(data) {
         fileTypesContainer.innerHTML = '';
         for (const [type, count] of Object.entries(fs.by_type).sort((a, b) => b[1] - a[1])) {
             fileTypesContainer.innerHTML += `
-                <div class="info-row">
-                    <span class="info-label">${type}:</span>
-                    <span class="info-value">${formatNumber(count)}</span>
+                <div class="stat-item">
+                    <span class="stat-label">${type}</span>
+                    <span class="stat-value">${formatNumber(count)}</span>
                 </div>
             `;
         }
@@ -329,15 +337,16 @@ function displayStatistics(data) {
     document.getElementById('stat-sigma-tagged').textContent = formatNumber(as.sigma_tagged);
     document.getElementById('stat-noise-matched').textContent = formatNumber(as.noise_matched);
     
-    // Artifact Types
+    // Artifact Types - render in multi-column grid
     const artifactTypesContainer = document.getElementById('artifact-types-list');
     if (as.by_type && Object.keys(as.by_type).length > 0) {
         artifactTypesContainer.innerHTML = '';
-        for (const [type, count] of Object.entries(as.by_type).sort((a, b) => b[1] - a[1])) {
+        const sortedTypes = Object.entries(as.by_type).sort((a, b) => b[1] - a[1]);
+        for (const [type, count] of sortedTypes) {
             artifactTypesContainer.innerHTML += `
-                <div class="info-row">
-                    <span class="info-label">${type}:</span>
-                    <span class="info-value">${formatNumber(count)}</span>
+                <div class="artifact-type-item">
+                    <span class="artifact-type-name">${type}</span>
+                    <span class="artifact-type-count">${formatNumber(count)}</span>
                 </div>
             `;
         }
@@ -352,16 +361,147 @@ function displayStatistics(data) {
 </script>
 
 <style>
+/* Stats Grid - 4 columns */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+@media (max-width: 1200px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.stats-column {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+}
+
+.stats-column-header {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stats-icon {
+    margin-right: 6px;
+}
+
+.stats-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.stat-item-large {
+    padding: 8px 0;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stat-label {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.stat-value {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-highlight {
+    font-size: 1.1em;
+    color: var(--accent-primary);
+}
+
+.stat-success { color: #28a745 !important; }
+.stat-warning { color: #ffc107 !important; }
+.stat-danger { color: #dc3545 !important; }
+.stat-muted { color: var(--text-muted) !important; }
+
+/* Artifact Types Section */
+.artifact-types-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+}
+
+.artifact-types-header {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.artifact-types-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px 24px;
+}
+
+.artifact-type-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color-light, rgba(255,255,255,0.05));
+}
+
+.artifact-type-item:last-child {
+    border-bottom: none;
+}
+
+.artifact-type-name {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.artifact-type-count {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Help Tooltip */
 .help-tooltip {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: 50%;
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-muted);
     cursor: help;
     margin-left: 4px;
@@ -374,30 +514,7 @@ function displayStatistics(data) {
     border-color: var(--accent-primary);
 }
 
-.text-success {
-    color: var(--success-color, #28a745) !important;
-}
-
-.text-warning {
-    color: var(--warning-color, #ffc107) !important;
-}
-
-.text-danger {
-    color: var(--danger-color, #dc3545) !important;
-}
-
-.text-muted {
-    color: var(--text-muted) !important;
-}
-
-#stats-content .info-list {
-    margin-bottom: 0;
-}
-
-#stats-content h5 {
-    font-weight: 500;
-}
-
+/* Loading Spinner */
 .loading-spinner {
     width: 30px;
     height: 30px;
@@ -410,6 +527,10 @@ function displayStatistics(data) {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
 }
 </style>
 {% endblock %}
