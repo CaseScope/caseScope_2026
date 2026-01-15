@@ -287,7 +287,8 @@ class ParserRegistry:
         logger.debug(f"Registered parser: {mapping.artifact_type} -> {mapping.parser_class.__name__}")
     
     # Files that should never be parsed (transaction logs, temp files, etc.)
-    EXCLUDED_EXTENSIONS = {'.log', '.log1', '.log2', '.blf', '.regtrans-ms', '.tmp', '.bak'}
+    # Note: .log is NOT excluded - IIS logs use .log extension and need to be parsed
+    EXCLUDED_EXTENSIONS = {'.log1', '.log2', '.blf', '.regtrans-ms', '.tmp', '.bak'}
     
     # Specific filenames to exclude (not registry hives despite magic/extension)
     EXCLUDED_FILENAMES = {'sa.dat'}  # Scheduled Tasks state file
