@@ -2672,8 +2672,8 @@ def upload_known_systems_csv(case_uuid):
                 ip_addresses = [ip.strip() for ip in ip_addresses_str.split(';') if ip.strip()]
             
             try:
-                # Try to find existing system
-                existing_system = KnownSystem.find_by_hostname_or_alias(netbios_name)
+                # Try to find existing system within this case
+                existing_system, _ = KnownSystem.find_by_hostname_or_alias(netbios_name, case_id=case.id)
                 
                 if existing_system:
                     # Update existing system with new data
@@ -2725,8 +2725,9 @@ def upload_known_systems_csv(case_uuid):
                     
                     db.session.commit()
                 else:
-                    # Create new system
+                    # Create new system with case_id
                     new_system = KnownSystem(
+                        case_id=case.id,
                         hostname=netbios_name,
                         system_type=system_type,
                         os_type=os_type,
@@ -2745,8 +2746,6 @@ def upload_known_systems_csv(case_uuid):
                     # Add full hostname as alias if different
                     if full_hostname and full_hostname != netbios_name:
                         new_system.add_alias(full_hostname)
-                    
-                    new_system.link_to_case(case.id)
                     
                     KnownSystemAudit.log_change(
                         new_system.id,
@@ -3281,9 +3280,9 @@ def upload_known_users_csv(case_uuid):
             compromised = compromised_str in ('true', 'yes', '1', 'y')
             
             try:
-                # Try to find existing user by username, sid, or email
+                # Try to find existing user by username, sid, or email within this case
                 existing_user, match_type = KnownUser.find_by_username_sid_alias_or_email(
-                    username=username, sid=sid, email=email
+                    username=username, sid=sid, email=email, case_id=case.id
                 )
                 
                 if existing_user:
@@ -3332,9 +3331,12 @@ def upload_known_users_csv(case_uuid):
                     
                     db.session.commit()
                 else:
-                    # Check if SID already exists before creating
+                    # Check if SID already exists in this case before creating
                     if sid:
-                        sid_exists = KnownUser.query.filter(KnownUser.sid == sid).first()
+                        sid_exists = KnownUser.query.filter(
+                            KnownUser.sid == sid,
+                            KnownUser.case_id == case.id
+                        ).first()
                         if sid_exists:
                             # SID exists - this is the same user with different username
                             # Add the CSV username as an alias and update other fields
@@ -3347,14 +3349,14 @@ def upload_known_users_csv(case_uuid):
                             if compromised and not sid_exists.compromised:
                                 sid_exists.compromised = True
                             
-                            sid_exists.link_to_case(case.id)
                             sid_exists.add_source('csv_import')
                             db.session.commit()
                             updated_count += 1
                             continue
                     
-                    # Create new user
+                    # Create new user with case_id
                     new_user = KnownUser(
+                        case_id=case.id,
                         username=username.upper(),
                         sid=sid,
                         email=email.lower() if email else None,
@@ -3365,8 +3367,6 @@ def upload_known_users_csv(case_uuid):
                     )
                     db.session.add(new_user)
                     db.session.commit()
-                    
-                    new_user.link_to_case(case.id)
                     
                     KnownUserAudit.log_change(
                         new_user.id,
@@ -3651,8 +3651,8 @@ def get_iocs_for_case(case_uuid):
         
         per_page = min(max(per_page, 10), 200)
         
-        # Build query - IOCs linked to this case
-        query = db.session.query(IOC).join(IOCCase).filter(IOCCase.case_id == case.id)
+        # Build query - IOCs for this case (now directly associated via case_id)
+        query = IOC.query.filter(IOC.case_id == case.id)
         
         # Apply filters
         if search:
@@ -3687,8 +3687,8 @@ def get_iocs_for_case(case_uuid):
         }
         
         for cat in IOCCategory.all():
-            cat_count = db.session.query(IOC).join(IOCCase).filter(
-                IOCCase.case_id == case.id,
+            cat_count = IOC.query.filter(
+                IOC.case_id == case.id,
                 IOC.category == cat,
                 IOC.false_positive == False
             ).count()
@@ -3802,12 +3802,13 @@ def create_ioc(case_uuid):
         if match_type and match_type not in IOCMatchType.all():
             return jsonify({'success': False, 'error': f'Invalid match type: {match_type}'}), 400
         
-        # Get or create IOC
+        # Get or create IOC for this case
         ioc, created = IOC.get_or_create(
             value=value,
             ioc_type=ioc_type,
             category=category,
             created_by=current_user.username,
+            case_id=case.id,
             match_type=match_type,
             source='manual'
         )
@@ -3817,9 +3818,6 @@ def create_ioc(case_uuid):
             ioc.notes = notes
         if malicious:
             ioc.malicious = malicious
-        
-        # Link to case
-        ioc.link_to_case(case.id)
         
         # Log creation
         if created:
@@ -4081,12 +4079,14 @@ def bulk_create_iocs(case_uuid):
                     ioc_type=ioc_type,
                     category=category,
                     created_by=current_user.username,
+                    case_id=case.id,
                     match_type=match_type,
                     source='bulk_import'
                 )
                 
                 if created:
                     created_count += 1
+                    linked_count += 1
                     IOCAudit.log_change(
                         ioc_id=ioc.id,
                         changed_by=current_user.username,
@@ -4094,9 +4094,6 @@ def bulk_create_iocs(case_uuid):
                         action='create',
                         new_value=f'{ioc_type}: {value} (match: {ioc.get_effective_match_type()})'
                     )
-                
-                if ioc.link_to_case(case.id):
-                    linked_count += 1
                     
             except ValueError as e:
                 errors.append(f'{ioc_type}: {value} - {str(e)}')

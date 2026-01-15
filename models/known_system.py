@@ -58,14 +58,17 @@ class KnownSystem(db.Model):
     """Known System model for tracking discovered systems
     
     Stores normalized NETBIOS hostname with related tables for
-    IPs, aliases, shares, and case associations.
+    IPs, aliases, shares. Each system is case-specific.
     """
     __tablename__ = 'known_systems'
     
     id = db.Column(db.Integer, primary_key=True)
     
+    # Case-specific - each case has its own set of systems
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    
     # Hostname - NETBIOS name only (e.g., ATN12345, not ATN12345.domain.local)
-    hostname = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    hostname = db.Column(db.String(255), nullable=False, index=True)
     
     # OS Information
     os_type = db.Column(db.String(50), nullable=True)  # Windows, Linux, Mac, Other
@@ -91,11 +94,16 @@ class KnownSystem(db.Model):
     sources = db.Column(db.JSON, nullable=False, default=list)
     
     # Relationships
+    case = db.relationship('Case', backref=db.backref('known_systems', lazy='dynamic'))
     ip_addresses = db.relationship('KnownSystemIP', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     mac_addresses = db.relationship('KnownSystemMAC', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     aliases = db.relationship('KnownSystemAlias', backref='system', lazy='dynamic', cascade='all, delete-orphan')
     shares = db.relationship('KnownSystemShare', backref='system', lazy='dynamic', cascade='all, delete-orphan')
-    cases = db.relationship('KnownSystemCase', backref='system', lazy='dynamic', cascade='all, delete-orphan')
+    
+    # Unique constraint: hostname must be unique within a case
+    __table_args__ = (
+        db.UniqueConstraint('case_id', 'hostname', name='uq_system_case_hostname'),
+    )
     
     def __repr__(self):
         return f'<KnownSystem {self.id}: {self.hostname}>'
@@ -104,6 +112,7 @@ class KnownSystem(db.Model):
         """Convert to dictionary for API responses"""
         return {
             'id': self.id,
+            'case_id': self.case_id,
             'hostname': self.hostname,
             'os_type': self.os_type,
             'os_version': self.os_version,
@@ -117,8 +126,7 @@ class KnownSystem(db.Model):
             'ip_addresses': [ip.ip_address for ip in self.ip_addresses],
             'mac_addresses': [mac.mac_address for mac in self.mac_addresses],
             'aliases': [alias.alias for alias in self.aliases],
-            'shares': [share.to_dict() for share in self.shares],
-            'case_count': self.cases.count()
+            'shares': [share.to_dict() for share in self.shares]
         }
     
     @staticmethod
@@ -143,13 +151,17 @@ class KnownSystem(db.Model):
         return hostname, None
     
     @staticmethod
-    def find_by_hostname_or_alias(hostname):
-        """Find a system by hostname or any of its aliases
+    def find_by_hostname_or_alias(hostname, case_id=None):
+        """Find a system by hostname or any of its aliases within a case
         
         Implements the deduplication workflow:
         1. Check if exists as hostname
         2. Check if exists in aliases
         3. Strip to NETBIOS and check again
+        
+        Args:
+            hostname: The hostname to search for
+            case_id: Required - the case to search within
         
         Returns: (KnownSystem or None, match_type)
         match_type: 'hostname', 'alias', 'netbios_hostname', 'netbios_alias', None
@@ -160,32 +172,49 @@ class KnownSystem(db.Model):
         hostname_upper = hostname.strip().upper()
         netbios, fqdn = KnownSystem.extract_netbios_name(hostname_upper)
         
+        # Build base query with case filter
+        base_filter = []
+        if case_id:
+            base_filter.append(KnownSystem.case_id == case_id)
+        
         # 1. Check exact hostname match
-        system = KnownSystem.query.filter(
+        query = KnownSystem.query.filter(
             db.func.upper(KnownSystem.hostname) == hostname_upper
-        ).first()
+        )
+        if case_id:
+            query = query.filter(KnownSystem.case_id == case_id)
+        system = query.first()
         if system:
             return system, 'hostname'
         
         # 2. Check aliases for exact match
-        alias_match = KnownSystemAlias.query.filter(
+        alias_query = KnownSystemAlias.query.filter(
             db.func.upper(KnownSystemAlias.alias) == hostname_upper
-        ).first()
+        )
+        if case_id:
+            alias_query = alias_query.join(KnownSystem).filter(KnownSystem.case_id == case_id)
+        alias_match = alias_query.first()
         if alias_match:
             return alias_match.system, 'alias'
         
         # 3. Strip to NETBIOS and check hostname
         if netbios and netbios != hostname_upper:
-            system = KnownSystem.query.filter(
+            query = KnownSystem.query.filter(
                 db.func.upper(KnownSystem.hostname) == netbios
-            ).first()
+            )
+            if case_id:
+                query = query.filter(KnownSystem.case_id == case_id)
+            system = query.first()
             if system:
                 return system, 'netbios_hostname'
             
             # 4. Check aliases for NETBIOS match
-            alias_match = KnownSystemAlias.query.filter(
+            alias_query = KnownSystemAlias.query.filter(
                 db.func.upper(KnownSystemAlias.alias) == netbios
-            ).first()
+            )
+            if case_id:
+                alias_query = alias_query.join(KnownSystem).filter(KnownSystem.case_id == case_id)
+            alias_match = alias_query.first()
             if alias_match:
                 return alias_match.system, 'netbios_alias'
         
@@ -295,21 +324,14 @@ class KnownSystem(db.Model):
         return False
     
     def link_to_case(self, case_id):
-        """Link this system to a case"""
-        existing = KnownSystemCase.query.filter_by(
-            system_id=self.id,
-            case_id=case_id
-        ).first()
+        """Link this system to a case - DEPRECATED
         
-        if not existing:
-            new_link = KnownSystemCase(
-                system_id=self.id,
-                case_id=case_id,
-                first_seen_in_case=datetime.utcnow()
-            )
-            db.session.add(new_link)
-            return True
-        return False
+        Systems are now case-specific via the case_id column.
+        This method is kept for backward compatibility but does nothing.
+        """
+        # Systems are now directly associated with a case via case_id column
+        # No junction table needed
+        return True
     
     def add_source(self, source):
         """Add a data source if not already present

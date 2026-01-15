@@ -12,17 +12,20 @@ class KnownUser(db.Model):
     """Known User model for tracking discovered users
     
     Stores normalized username with related tables for
-    aliases, emails, and case associations.
+    aliases and emails. Each user is case-specific.
     """
     __tablename__ = 'known_users'
     
     id = db.Column(db.Integer, primary_key=True)
     
+    # Case-specific - each case has its own set of users
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    
     # Username - Primary identifier (e.g., jsmith, administrator)
     username = db.Column(db.String(255), nullable=True, index=True)
     
     # SID - Windows Security Identifier (e.g., S-1-5-21-xxx-xxx-xxx-1001)
-    sid = db.Column(db.String(255), nullable=True, unique=True, index=True)
+    sid = db.Column(db.String(255), nullable=True, index=True)
     
     # Email - Primary email address
     email = db.Column(db.String(255), nullable=True, index=True)
@@ -45,9 +48,14 @@ class KnownUser(db.Model):
     sources = db.Column(db.JSON, nullable=False, default=list)
     
     # Relationships
+    case = db.relationship('Case', backref=db.backref('known_users', lazy='dynamic'))
     aliases = db.relationship('KnownUserAlias', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     emails = db.relationship('KnownUserEmail', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    cases = db.relationship('KnownUserCase', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    
+    # Unique constraint: username or SID must be unique within a case
+    __table_args__ = (
+        db.UniqueConstraint('case_id', 'sid', name='uq_user_case_sid'),
+    )
     
     def __repr__(self):
         return f'<KnownUser {self.id}: {self.username or self.sid}>'
@@ -56,6 +64,7 @@ class KnownUser(db.Model):
         """Convert to dictionary for API responses"""
         return {
             'id': self.id,
+            'case_id': self.case_id,
             'username': self.username,
             'sid': self.sid,
             'email': self.email,
@@ -67,8 +76,7 @@ class KnownUser(db.Model):
             'compromised': self.compromised,
             'sources': self.sources or [],
             'aliases': [alias.alias for alias in self.aliases],
-            'emails': [email.email for email in self.emails],
-            'case_count': self.cases.count()
+            'emails': [email.email for email in self.emails]
         }
     
     @staticmethod
@@ -115,14 +123,20 @@ class KnownUser(db.Model):
         return prefix.strip().upper() if prefix else None
     
     @staticmethod
-    def find_by_username_sid_alias_or_email(username=None, sid=None, email=None):
-        """Find a user by username, SID, alias, or email prefix
+    def find_by_username_sid_alias_or_email(username=None, sid=None, email=None, case_id=None):
+        """Find a user by username, SID, alias, or email prefix within a case
         
         Implements the deduplication workflow:
         1. Check if username exists
         2. Check if SID matches another known user
         3. Check if username exists in aliases
         4. If email, check if prefix matches username or alias
+        
+        Args:
+            username: Username to search for
+            sid: SID to search for
+            email: Email to search for
+            case_id: Required - the case to search within
         
         Returns: (KnownUser or None, match_type)
         match_type: 'username', 'sid', 'alias', 'email_prefix_username', 'email_prefix_alias', None
@@ -131,18 +145,24 @@ class KnownUser(db.Model):
         if username:
             normalized, _ = KnownUser.normalize_username(username)
             if normalized:
-                user = KnownUser.query.filter(
+                query = KnownUser.query.filter(
                     db.func.upper(KnownUser.username) == normalized
-                ).first()
+                )
+                if case_id:
+                    query = query.filter(KnownUser.case_id == case_id)
+                user = query.first()
                 if user:
                     return user, 'username'
         
         # 2. Check SID match
         if sid:
             sid_upper = sid.strip().upper()
-            user = KnownUser.query.filter(
+            query = KnownUser.query.filter(
                 db.func.upper(KnownUser.sid) == sid_upper
-            ).first()
+            )
+            if case_id:
+                query = query.filter(KnownUser.case_id == case_id)
+            user = query.first()
             if user:
                 return user, 'sid'
         
@@ -150,9 +170,12 @@ class KnownUser(db.Model):
         if username:
             normalized, _ = KnownUser.normalize_username(username)
             if normalized:
-                alias_match = KnownUserAlias.query.filter(
+                alias_query = KnownUserAlias.query.filter(
                     db.func.upper(KnownUserAlias.alias) == normalized
-                ).first()
+                )
+                if case_id:
+                    alias_query = alias_query.join(KnownUser).filter(KnownUser.case_id == case_id)
+                alias_match = alias_query.first()
                 if alias_match:
                     return alias_match.user, 'alias'
         
@@ -161,16 +184,22 @@ class KnownUser(db.Model):
             prefix = KnownUser.extract_email_prefix(email)
             if prefix:
                 # Check if prefix matches a username
-                user = KnownUser.query.filter(
+                query = KnownUser.query.filter(
                     db.func.upper(KnownUser.username) == prefix
-                ).first()
+                )
+                if case_id:
+                    query = query.filter(KnownUser.case_id == case_id)
+                user = query.first()
                 if user:
                     return user, 'email_prefix_username'
                 
                 # Check if prefix matches an alias
-                alias_match = KnownUserAlias.query.filter(
+                alias_query = KnownUserAlias.query.filter(
                     db.func.upper(KnownUserAlias.alias) == prefix
-                ).first()
+                )
+                if case_id:
+                    alias_query = alias_query.join(KnownUser).filter(KnownUser.case_id == case_id)
+                alias_match = alias_query.first()
                 if alias_match:
                     return alias_match.user, 'email_prefix_alias'
         
@@ -239,21 +268,14 @@ class KnownUser(db.Model):
         return False
     
     def link_to_case(self, case_id):
-        """Link this user to a case"""
-        existing = KnownUserCase.query.filter_by(
-            user_id=self.id,
-            case_id=case_id
-        ).first()
+        """Link this user to a case - DEPRECATED
         
-        if not existing:
-            new_link = KnownUserCase(
-                user_id=self.id,
-                case_id=case_id,
-                first_seen_in_case=datetime.utcnow()
-            )
-            db.session.add(new_link)
-            return True
-        return False
+        Users are now case-specific via the case_id column.
+        This method is kept for backward compatibility but does nothing.
+        """
+        # Users are now directly associated with a case via case_id column
+        # No junction table needed
+        return True
     
     def add_source(self, source):
         """Add a data source if not already present

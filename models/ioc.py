@@ -330,8 +330,8 @@ IOC_TYPE_DEFINITIONS = {
 class IOC(db.Model):
     """Indicator of Compromise model
     
-    Central table for tracking all IOCs with metadata about
-    creation, artifact sightings, and system associations.
+    Case-specific IOCs with metadata about creation, artifact sightings,
+    and system associations. Each IOC belongs to a single case.
     
     Match Types:
         - token: hasTokenCaseInsensitive() - whole-word matching for hashes, IPs
@@ -341,6 +341,9 @@ class IOC(db.Model):
     __tablename__ = 'iocs'
     
     id = db.Column(db.Integer, primary_key=True)
+    
+    # Case-specific - each case has its own set of IOCs
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
     
     # Public UUID for external references
     uuid = db.Column(db.String(36), unique=True, nullable=False, 
@@ -389,14 +392,13 @@ class IOC(db.Model):
     sources = db.Column(db.JSON, nullable=False, default=list)
     
     # Relationships
+    case = db.relationship('Case', backref=db.backref('iocs_direct', lazy='dynamic'))
     system_sightings = db.relationship('IOCSystemSighting', backref='ioc', 
                                        lazy='dynamic', cascade='all, delete-orphan')
-    cases = db.relationship('IOCCase', backref='ioc', 
-                           lazy='dynamic', cascade='all, delete-orphan')
     
-    # Unique constraint: same IOC type + normalized value should be unique
+    # Unique constraint: same IOC type + normalized value should be unique WITHIN a case
     __table_args__ = (
-        db.UniqueConstraint('ioc_type', 'value_normalized', name='uq_ioc_type_value'),
+        db.UniqueConstraint('case_id', 'ioc_type', 'value_normalized', name='uq_ioc_case_type_value'),
     )
     
     def __repr__(self):
@@ -476,6 +478,7 @@ class IOC(db.Model):
         
         return {
             'id': self.id,
+            'case_id': self.case_id,
             'uuid': self.uuid,
             'category': self.category,
             'ioc_type': self.ioc_type,
@@ -497,38 +500,50 @@ class IOC(db.Model):
             'opencti_enriched_at': self.opencti_enriched_at.isoformat() if self.opencti_enriched_at else None,
             'sources': self.sources or [],
             'system_count': self.system_sightings.count(),
-            'case_count': self.cases.count(),
-            'systems': [s.to_dict() for s in self.system_sightings.limit(10)],
-            'case_uuids': [c.case.uuid for c in self.cases.limit(10) if c.case]
+            'systems': [s.to_dict() for s in self.system_sightings.limit(10)]
         }
     
     @staticmethod
-    def find_by_value(value, ioc_type):
-        """Find an IOC by its normalized value and type"""
+    def find_by_value(value, ioc_type, case_id=None):
+        """Find an IOC by its normalized value and type within a case
+        
+        Args:
+            value: The IOC value to search for
+            ioc_type: Type of IOC
+            case_id: Required - the case to search within
+        """
         normalized = IOC.normalize_value(value, ioc_type)
-        return IOC.query.filter_by(
+        query = IOC.query.filter_by(
             ioc_type=ioc_type,
             value_normalized=normalized
-        ).first()
+        )
+        if case_id:
+            query = query.filter_by(case_id=case_id)
+        return query.first()
     
     @staticmethod
-    def get_or_create(value, ioc_type, category, created_by, aliases=None, match_type=None, source=None):
-        """Get existing IOC or create new one
+    def get_or_create(value, ioc_type, category, created_by, case_id, aliases=None, match_type=None, source=None):
+        """Get existing IOC or create new one within a case
         
         Args:
             value: Primary IOC value (e.g., 'cmd.exe')
             ioc_type: Type of IOC (e.g., 'File Name', 'Command Line')
             category: Category (e.g., 'File', 'Process')
             created_by: Username who created this
+            case_id: Required - the case this IOC belongs to
             aliases: List of contextual aliases (e.g., full command lines)
             match_type: Explicit match type ('token', 'substring', 'regex') or None for auto
             source: Data source (e.g., 'manual', 'ai_extraction', 'stix_import', 'bulk_import')
         
         Returns: (ioc, created_bool)
         """
+        if not case_id:
+            raise ValueError("case_id is required")
+        
         normalized = IOC.normalize_value(value, ioc_type)
         
         existing = IOC.query.filter_by(
+            case_id=case_id,
             ioc_type=ioc_type,
             value_normalized=normalized
         ).first()
@@ -563,6 +578,7 @@ class IOC(db.Model):
         sources_list = [source.lower()] if source else []
         
         new_ioc = IOC(
+            case_id=case_id,
             category=category,
             ioc_type=ioc_type,
             value=value,
@@ -614,20 +630,14 @@ class IOC(db.Model):
         return False
     
     def link_to_case(self, case_id):
-        """Link this IOC to a case if not already linked"""
-        existing = IOCCase.query.filter_by(
-            ioc_id=self.id,
-            case_id=case_id
-        ).first()
+        """Link this IOC to a case - DEPRECATED
         
-        if not existing:
-            link = IOCCase(
-                ioc_id=self.id,
-                case_id=case_id
-            )
-            db.session.add(link)
-            return True
-        return False
+        IOCs are now case-specific via the case_id column.
+        This method is kept for backward compatibility but does nothing.
+        """
+        # IOCs are now directly associated with a case via case_id column
+        # No junction table needed
+        return True
     
     def add_source(self, source):
         """Add a data source if not already present

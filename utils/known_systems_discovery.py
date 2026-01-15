@@ -752,8 +752,8 @@ def _process_hostname(hostname: str, case_id: int, username: str,
     # Get additional details from ClickHouse events
     details = _get_system_details_from_events(case_id, hostname)
     
-    # Find existing system
-    system, match_type = KnownSystem.find_by_hostname_or_alias(hostname)
+    # Find existing system within this case
+    system, match_type = KnownSystem.find_by_hostname_or_alias(hostname, case_id=case_id)
     
     if system:
         # Update existing system
@@ -890,6 +890,7 @@ def _process_hostname(hostname: str, case_id: int, username: str,
         created = True
         
         system = KnownSystem(
+            case_id=case_id,
             hostname=netbios,
             artifacts_with_hostname=artifact_count,
             added_on=datetime.utcnow(),
@@ -1058,17 +1059,14 @@ def update_system_field(system_id: int, field_name: str, new_value, username: st
 
 
 def get_systems_for_case(case_id: int) -> List[Dict]:
-    """Get all known systems linked to a case"""
+    """Get all known systems for a case"""
     systems = []
     
-    links = KnownSystemCase.query.filter_by(case_id=case_id).all()
-    
-    for link in links:
-        system = KnownSystem.query.get(link.system_id)
-        if system:
-            system_dict = system.to_dict()
-            system_dict['first_seen_in_case'] = link.first_seen_in_case.isoformat() if link.first_seen_in_case else None
-            systems.append(system_dict)
+    # Systems are now directly associated with cases via case_id column
+    for system in KnownSystem.query.filter_by(case_id=case_id).all():
+        system_dict = system.to_dict()
+        system_dict['first_seen_in_case'] = system.added_on.isoformat() if system.added_on else None
+        systems.append(system_dict)
     
     return systems
 

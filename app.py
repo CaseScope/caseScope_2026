@@ -46,6 +46,163 @@ def _run_schema_migrations():
             except Exception as e:
                 db.session.rollback()
                 print(f"Migration note: sources column - {e}")
+        
+        # Migration: Add case_id column to iocs table (case-specific IOCs)
+        if 'case_id' not in columns:
+            try:
+                # First, get the first case_id from ioc_cases junction table for each IOC
+                # If no case link exists, we'll need to delete the orphan IOC
+                db.session.execute(text("""
+                    ALTER TABLE iocs ADD COLUMN case_id INTEGER REFERENCES cases(id)
+                """))
+                db.session.commit()
+                print("Migration: Added case_id column to iocs table")
+                
+                # Populate case_id from ioc_cases junction table
+                db.session.execute(text("""
+                    UPDATE iocs SET case_id = (
+                        SELECT case_id FROM ioc_cases WHERE ioc_id = iocs.id ORDER BY first_seen_in_case LIMIT 1
+                    )
+                """))
+                db.session.commit()
+                print("Migration: Populated case_id from ioc_cases junction table")
+                
+                # Delete IOCs without case assignment (orphans)
+                db.session.execute(text("DELETE FROM iocs WHERE case_id IS NULL"))
+                db.session.commit()
+                print("Migration: Removed orphan IOCs without case assignment")
+                
+                # Make case_id NOT NULL
+                db.session.execute(text("ALTER TABLE iocs ALTER COLUMN case_id SET NOT NULL"))
+                db.session.commit()
+                
+                # Drop old unique constraint and add new one including case_id
+                try:
+                    db.session.execute(text("ALTER TABLE iocs DROP CONSTRAINT IF EXISTS uq_ioc_type_value"))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE iocs ADD CONSTRAINT uq_ioc_case_type_value 
+                        UNIQUE (case_id, ioc_type, value_normalized)
+                    """))
+                    db.session.commit()
+                    print("Migration: Added case-specific unique constraint to iocs")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: iocs unique constraint - {e}")
+                    
+            except Exception as e:
+                db.session.rollback()
+                print(f"Migration note: iocs case_id column - {e}")
+    
+    # Migration: Add case_id to known_systems table
+    if 'known_systems' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('known_systems')]
+        if 'case_id' not in columns:
+            try:
+                db.session.execute(text("""
+                    ALTER TABLE known_systems ADD COLUMN case_id INTEGER REFERENCES cases(id)
+                """))
+                db.session.commit()
+                print("Migration: Added case_id column to known_systems table")
+                
+                # Populate case_id from known_system_cases junction table
+                db.session.execute(text("""
+                    UPDATE known_systems SET case_id = (
+                        SELECT case_id FROM known_system_cases 
+                        WHERE system_id = known_systems.id 
+                        ORDER BY first_seen_in_case LIMIT 1
+                    )
+                """))
+                db.session.commit()
+                print("Migration: Populated case_id from known_system_cases junction table")
+                
+                # Delete systems without case assignment (orphans)
+                db.session.execute(text("DELETE FROM known_systems WHERE case_id IS NULL"))
+                db.session.commit()
+                print("Migration: Removed orphan systems without case assignment")
+                
+                # Make case_id NOT NULL
+                db.session.execute(text("ALTER TABLE known_systems ALTER COLUMN case_id SET NOT NULL"))
+                db.session.commit()
+                
+                # Drop old unique constraint on hostname and add new one including case_id
+                try:
+                    db.session.execute(text("ALTER TABLE known_systems DROP CONSTRAINT IF EXISTS known_systems_hostname_key"))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE known_systems ADD CONSTRAINT uq_system_case_hostname 
+                        UNIQUE (case_id, hostname)
+                    """))
+                    db.session.commit()
+                    print("Migration: Added case-specific unique constraint to known_systems")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: known_systems unique constraint - {e}")
+                    
+            except Exception as e:
+                db.session.rollback()
+                print(f"Migration note: known_systems case_id column - {e}")
+    
+    # Migration: Add case_id to known_users table
+    if 'known_users' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('known_users')]
+        if 'case_id' not in columns:
+            try:
+                db.session.execute(text("""
+                    ALTER TABLE known_users ADD COLUMN case_id INTEGER REFERENCES cases(id)
+                """))
+                db.session.commit()
+                print("Migration: Added case_id column to known_users table")
+                
+                # Populate case_id from known_user_cases junction table
+                db.session.execute(text("""
+                    UPDATE known_users SET case_id = (
+                        SELECT case_id FROM known_user_cases 
+                        WHERE user_id = known_users.id 
+                        ORDER BY first_seen_in_case LIMIT 1
+                    )
+                """))
+                db.session.commit()
+                print("Migration: Populated case_id from known_user_cases junction table")
+                
+                # Delete users without case assignment (orphans)
+                db.session.execute(text("DELETE FROM known_users WHERE case_id IS NULL"))
+                db.session.commit()
+                print("Migration: Removed orphan users without case assignment")
+                
+                # Make case_id NOT NULL
+                db.session.execute(text("ALTER TABLE known_users ALTER COLUMN case_id SET NOT NULL"))
+                db.session.commit()
+                
+                # Drop old unique constraint on sid and add new one including case_id
+                try:
+                    db.session.execute(text("ALTER TABLE known_users DROP CONSTRAINT IF EXISTS known_users_sid_key"))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE known_users ADD CONSTRAINT uq_user_case_sid 
+                        UNIQUE (case_id, sid)
+                    """))
+                    db.session.commit()
+                    print("Migration: Added case-specific unique constraint to known_users")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: known_users unique constraint - {e}")
+                    
+            except Exception as e:
+                db.session.rollback()
+                print(f"Migration note: known_users case_id column - {e}")
 
 
 def load_version():

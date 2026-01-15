@@ -1,6 +1,16 @@
 {
-  "version": "3.91.04",
+  "version": "3.92.00",
   "changelog": [
+    {
+      "version": "3.92.00",
+      "date": "2026-01-15",
+      "changes": [
+        "BREAKING: IOCs, Systems, Users are now case-specific (no cross-case bleed)",
+        "Added: case_id column to iocs, known_systems, known_users tables",
+        "Changed: Unique constraints now include case_id for proper isolation",
+        "Migration: Existing data is migrated from junction tables to direct case association"
+      ]
+    },
     {
       "version": "3.91.04",
       "date": "2026-01-15",

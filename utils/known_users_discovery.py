@@ -501,11 +501,12 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
     if username:
         normalized_username, _ = KnownUser.normalize_username(username)
     
-    # Find existing user
+    # Find existing user within this case
     user, match_type = KnownUser.find_by_username_sid_alias_or_email(
         username=username,
         sid=sid,
-        email=None  # We don't have email from events directly
+        email=None,  # We don't have email from events directly
+        case_id=case_id
     )
     
     if user:
@@ -600,6 +601,7 @@ def _process_user(username: str, sid: str, domain: str, case_id: int, added_by: 
         created = True
         
         user = KnownUser(
+            case_id=case_id,
             username=normalized_username,
             sid=sid.upper() if sid else None,
             artifacts_with_user=artifact_count,
@@ -734,17 +736,14 @@ def update_user_field(user_id: int, field_name: str, new_value, changed_by: str)
 
 
 def get_users_for_case(case_id: int) -> List[Dict]:
-    """Get all known users linked to a case"""
+    """Get all known users for a case"""
     users = []
     
-    links = KnownUserCase.query.filter_by(case_id=case_id).all()
-    
-    for link in links:
-        user = KnownUser.query.get(link.user_id)
-        if user:
-            user_dict = user.to_dict()
-            user_dict['first_seen_in_case'] = link.first_seen_in_case.isoformat() if link.first_seen_in_case else None
-            users.append(user_dict)
+    # Users are now directly associated with cases via case_id column
+    for user in KnownUser.query.filter_by(case_id=case_id).all():
+        user_dict = user.to_dict()
+        user_dict['first_seen_in_case'] = user.added_on.isoformat() if user.added_on else None
+        users.append(user_dict)
     
     return users
 
