@@ -1986,13 +1986,11 @@ def update_analyst_tag(case_id):
         if not data:
             return jsonify({'success': False, 'error': 'No data provided'}), 400
         
-        timestamp = data.get('timestamp', '').strip()
-        if not timestamp:
-            return jsonify({'success': False, 'error': 'Timestamp is required'}), 400
-        
-        source_host = data.get('source_host', '').strip()
-        record_id = data.get('record_id', '')
+        # Get identifiers from request
         event_id = data.get('event_id', '').strip() if data.get('event_id') else ''
+        record_id = data.get('record_id', '')
+        timestamp = data.get('timestamp', '').strip()
+        source_host = data.get('source_host', '').strip()
         artifact_type = data.get('artifact_type', '').strip()
         
         # Tag values
@@ -2000,18 +1998,24 @@ def update_analyst_tag(case_id):
         analyst_tags = data.get('analyst_tags', [])
         analyst_notes = data.get('analyst_notes', '')
         
-        # Build update conditions
+        # Build update conditions - case_id is always required
         conditions = ["case_id = {case_id:UInt32}"]
         params = {'case_id': case_id}
         
-        # event_id is the most unique identifier for non-EVTX events (e.g., Huntress UUIDs)
+        # Use the most precise identifier available:
+        # 1. event_id (UUID) - unique for Huntress/EDR events
+        # 2. record_id - unique for EVTX events within a file
+        # 3. Fall back to timestamp only if neither available
+        
         has_unique_id = False
+        
+        # event_id is unique for Huntress/EDR events (UUID format)
         if event_id and event_id != '-':
             params['event_id'] = event_id
             conditions.append("event_id = {event_id:String}")
             has_unique_id = True
         
-        # record_id is the most reliable identifier for EVTX events
+        # record_id is unique for EVTX events
         if record_id and str(record_id) != '0':
             try:
                 rid = int(record_id)
@@ -2022,26 +2026,28 @@ def update_analyst_tag(case_id):
             except (ValueError, TypeError):
                 pass
         
-        # Parse timestamp - use smaller window if we have unique ID, larger window otherwise
-        try:
-            ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
-            ts = ts.replace(tzinfo=timezone.utc)
-            # Use 1-second window if we have unique ID, 2-second otherwise
-            window_seconds = 1 if has_unique_id else 2
-            ts_end = ts + timedelta(seconds=window_seconds)
-            params['ts_start'] = ts
-            params['ts_end'] = ts_end
-            conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
-        except ValueError:
-            return jsonify({'success': False, 'error': 'Invalid timestamp format'}), 400
-        
-        if source_host and source_host != '-':
-            params['source_host'] = source_host
-            conditions.append("source_host = {source_host:String}")
-        
-        if artifact_type and artifact_type != '-':
-            params['artifact_type'] = artifact_type
-            conditions.append("artifact_type = {artifact_type:String}")
+        # Only use timestamp window if we don't have a unique ID
+        if not has_unique_id:
+            if not timestamp:
+                return jsonify({'success': False, 'error': 'No unique identifier available'}), 400
+            try:
+                ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                ts = ts.replace(tzinfo=timezone.utc)
+                ts_end = ts + timedelta(seconds=2)
+                params['ts_start'] = ts
+                params['ts_end'] = ts_end
+                conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
+                
+                # Need additional fields to narrow down when using timestamp
+                if source_host and source_host != '-':
+                    params['source_host'] = source_host
+                    conditions.append("source_host = {source_host:String}")
+                
+                if artifact_type and artifact_type != '-':
+                    params['artifact_type'] = artifact_type
+                    conditions.append("artifact_type = {artifact_type:String}")
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Invalid timestamp format'}), 400
         
         where_clause = " AND ".join(conditions)
         

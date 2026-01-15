@@ -1,6 +1,14 @@
 {
-  "version": "3.91.01",
+  "version": "3.91.02",
   "changelog": [
+    {
+      "version": "3.91.02",
+      "date": "2026-01-15",
+      "changes": [
+        "Fixed: Analyst tagging now uses unique IDs (event_id/record_id) instead of timestamp windows",
+        "Fixed: Timestamp fallback only used when no unique identifier exists"
+      ]
+    },
     {
       "version": "3.91.01",
       "date": "2026-01-15",
