@@ -209,6 +209,7 @@ def create_app():
             AttackCampaign, RAGSyncLog, PatternRuleMatch
         )
         from models.file_audit_log import FileAuditLog
+        from models.audit_log import AuditLog
         db.create_all()
         
         # Run schema migrations for new columns

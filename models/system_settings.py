@@ -105,6 +105,13 @@ class SettingKeys:
     OPENCTI_SSL_VERIFY = 'opencti_ssl_verify'
     OPENCTI_AUTO_ENRICH = 'opencti_auto_enrich'  # Auto-enrich IOCs on creation
     OPENCTI_RAG_SYNC = 'opencti_rag_sync'  # Sync attack patterns to RAG system
+    
+    # Logging settings
+    LOG_LEVEL = 'log_level'                      # DEBUG, INFO, WARNING, ERROR
+    LOG_PATH = 'log_path'                        # Base directory for logs
+    LOG_RETENTION_DAYS = 'log_retention_days'    # Auto-cleanup logs older than X days
+    LOG_MAX_SIZE_MB = 'log_max_size_mb'          # Max size per log file before rotation
+    AUDIT_VIEW_PERMISSION = 'audit_view_permission'  # Who can view audit logs
 
 
 # AI Model Configuration based on GPU VRAM

@@ -54,6 +54,20 @@
                 <span class="tab-icon">🔇</span>
                 <span class="tab-text">Noise</span>
             </a>
+            {% if is_admin %}
+            <a href="{{ url_for('main.settings', tab='logging') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'logging' else '' }}">
+                <span class="tab-icon">📝</span>
+                <span class="tab-text">Logging</span>
+            </a>
+            {% endif %}
+            {% if can_view_audit %}
+            <a href="{{ url_for('main.settings', tab='audit') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'audit' else '' }}">
+                <span class="tab-icon">🔍</span>
+                <span class="tab-text">Audit</span>
+            </a>
+            {% endif %}
         </div>
     </div>
     <div class="card-body" style="padding: 24px;">
@@ -2722,6 +2736,497 @@
         .inactive-note {
             font-size: 14px;
             cursor: help;
+        }
+        </style>
+        {% endif %}
+
+        <!-- Logging Tab -->
+        {% if active_tab == 'logging' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Logging Configuration</h3>
+            <p class="text-muted">Configure application logging and audit trail settings.</p>
+            
+            <div class="settings-section" style="margin-top: 24px;">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">📝</span>
+                        Log Settings
+                    </h4>
+                </div>
+                
+                <div id="loggingSettingsContainer">
+                    <div class="info-loading">Loading logging settings...</div>
+                </div>
+                
+                <div id="loggingSettingsForm" style="display: none;">
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                        <div class="form-group">
+                            <label class="form-label">Log Level</label>
+                            <select id="logLevel" class="form-input">
+                                <option value="DEBUG">Debug</option>
+                                <option value="INFO">Info</option>
+                                <option value="WARNING">Warning</option>
+                                <option value="ERROR">Error</option>
+                            </select>
+                            <span class="form-help">Minimum severity level to log</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Audit Log Viewer Access</label>
+                            <select id="auditViewPermission" class="form-input">
+                                <option value="administrator">Administrators Only</option>
+                                <option value="analyst">Analysts and Above</option>
+                            </select>
+                            <span class="form-help">Who can view the forensic audit log</span>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row" style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px;">
+                        <div class="form-group">
+                            <label class="form-label">Log Location</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="logPath" class="form-input" style="flex: 1;">
+                                <button type="button" class="btn btn-secondary" onclick="testLogPath()">
+                                    Test Path
+                                </button>
+                            </div>
+                            <span class="form-help">Directory where log files are stored</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Retention (Days)</label>
+                            <input type="number" id="logRetentionDays" class="form-input" min="1" max="365">
+                            <span class="form-help">Auto-delete logs older than this</span>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                        <div class="form-group">
+                            <label class="form-label">Max Log File Size (MB)</label>
+                            <input type="number" id="logMaxSizeMb" class="form-input" min="1" max="1000">
+                            <span class="form-help">Files rotate when exceeding this size</span>
+                        </div>
+                    </div>
+                    
+                    <div class="worker-actions" style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="saveLoggingSettings()">
+                            <span class="btn-icon">💾</span> Save Settings
+                        </button>
+                    </div>
+                    
+                    <div id="loggingStatus" class="worker-status" style="display: none; margin-top: 16px;"></div>
+                </div>
+            </div>
+            
+            <!-- Log Files Section -->
+            <div class="settings-section" style="margin-top: 32px;">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">📁</span>
+                        Log Files
+                    </h4>
+                </div>
+                
+                <div id="logFilesContainer">
+                    <div class="info-loading">Loading log files...</div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        // Logging settings state
+        let loggingSettings = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadLoggingSettings();
+        });
+        
+        function loadLoggingSettings() {
+            fetch('/api/settings/logging')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        loggingSettings = data.settings;
+                        renderLoggingSettings();
+                        renderLogFiles(data.log_info);
+                    } else {
+                        document.getElementById('loggingSettingsContainer').innerHTML = 
+                            '<div class="flash-message flash-error">Failed to load settings: ' + data.error + '</div>';
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('loggingSettingsContainer').innerHTML = 
+                        '<div class="flash-message flash-error">Failed to load settings</div>';
+                });
+        }
+        
+        function renderLoggingSettings() {
+            document.getElementById('loggingSettingsContainer').style.display = 'none';
+            document.getElementById('loggingSettingsForm').style.display = 'block';
+            
+            document.getElementById('logLevel').value = loggingSettings.log_level;
+            document.getElementById('logPath').value = loggingSettings.log_path;
+            document.getElementById('logRetentionDays').value = loggingSettings.log_retention_days;
+            document.getElementById('logMaxSizeMb').value = loggingSettings.log_max_size_mb;
+            document.getElementById('auditViewPermission').value = loggingSettings.audit_view_permission;
+        }
+        
+        function renderLogFiles(logInfo) {
+            const container = document.getElementById('logFilesContainer');
+            
+            if (!logInfo || !logInfo.files || logInfo.files.length === 0) {
+                container.innerHTML = '<p class="text-muted">No log files found.</p>';
+                return;
+            }
+            
+            let html = '<div class="log-files-list">';
+            html += '<table class="data-table" style="width: 100%;">';
+            html += '<thead><tr><th>File</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>';
+            html += '<tbody>';
+            
+            logInfo.files.forEach(file => {
+                const size = file.size < 1024 ? file.size + ' B' :
+                             file.size < 1024*1024 ? (file.size/1024).toFixed(1) + ' KB' :
+                             (file.size/1024/1024).toFixed(2) + ' MB';
+                const modified = new Date(file.modified).toLocaleString();
+                
+                html += `<tr>
+                    <td><code>${file.relative_path}</code></td>
+                    <td>${size}</td>
+                    <td>${modified}</td>
+                    <td>
+                        <button class="btn btn-small btn-secondary" onclick="viewLogFile('${file.relative_path}')">
+                            View
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+        }
+        
+        function testLogPath() {
+            const path = document.getElementById('logPath').value;
+            const status = document.getElementById('loggingStatus');
+            
+            status.style.display = 'block';
+            status.className = 'worker-status status-info';
+            status.textContent = 'Testing path...';
+            
+            fetch('/api/settings/logging/test-path', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: path})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    status.className = 'worker-status status-success';
+                    status.textContent = '✓ Path is valid and writable';
+                } else {
+                    status.className = 'worker-status status-error';
+                    status.textContent = '✕ ' + data.error;
+                }
+            })
+            .catch(err => {
+                status.className = 'worker-status status-error';
+                status.textContent = '✕ Failed to test path';
+            });
+        }
+        
+        function saveLoggingSettings() {
+            const status = document.getElementById('loggingStatus');
+            
+            const settings = {
+                log_level: document.getElementById('logLevel').value,
+                log_path: document.getElementById('logPath').value,
+                log_retention_days: parseInt(document.getElementById('logRetentionDays').value),
+                log_max_size_mb: parseInt(document.getElementById('logMaxSizeMb').value),
+                audit_view_permission: document.getElementById('auditViewPermission').value
+            };
+            
+            status.style.display = 'block';
+            status.className = 'worker-status status-info';
+            status.textContent = 'Saving settings...';
+            
+            fetch('/api/settings/logging', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    status.className = 'worker-status status-success';
+                    status.textContent = '✓ Settings saved successfully';
+                    setTimeout(() => { status.style.display = 'none'; }, 3000);
+                } else {
+                    status.className = 'worker-status status-error';
+                    status.textContent = '✕ ' + data.error;
+                }
+            })
+            .catch(err => {
+                status.className = 'worker-status status-error';
+                status.textContent = '✕ Failed to save settings';
+            });
+        }
+        
+        function viewLogFile(relativePath) {
+            // Open modal with log content
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 900px; max-height: 80vh;">
+                    <div class="modal-header">
+                        <h3>Log Viewer: ${relativePath}</h3>
+                        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
+                    </div>
+                    <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                        <div id="logContent" style="font-family: monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg-tertiary); padding: 16px; border-radius: 8px;">
+                            Loading...
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <select id="logLines" onchange="refreshLogView('${relativePath}')" style="margin-right: 8px;">
+                            <option value="50">Last 50 lines</option>
+                            <option value="100" selected>Last 100 lines</option>
+                            <option value="500">Last 500 lines</option>
+                            <option value="1000">Last 1000 lines</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="refreshLogView('${relativePath}')">Refresh</button>
+                        <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            refreshLogView(relativePath);
+        }
+        
+        function refreshLogView(relativePath) {
+            const lines = document.getElementById('logLines')?.value || 100;
+            const content = document.getElementById('logContent');
+            
+            fetch(`/api/logs/view/${relativePath}?lines=${lines}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        content.textContent = data.lines.join('\n') || '(empty)';
+                    } else {
+                        content.textContent = 'Error: ' + data.error;
+                    }
+                })
+                .catch(err => {
+                    content.textContent = 'Failed to load log file';
+                });
+        }
+        </script>
+        {% endif %}
+
+        <!-- Audit Tab -->
+        {% if active_tab == 'audit' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Forensic Audit Log</h3>
+            <p class="text-muted">Immutable record of all system changes for compliance and accountability.</p>
+            
+            <div class="settings-section" style="margin-top: 24px;">
+                <!-- Filters -->
+                <div class="audit-filters" style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;">
+                    <div class="form-group" style="min-width: 150px;">
+                        <label class="form-label">Entity Type</label>
+                        <select id="auditEntityType" class="form-input" onchange="loadAuditLog()">
+                            <option value="">All Types</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="min-width: 150px;">
+                        <label class="form-label">Action</label>
+                        <select id="auditAction" class="form-input" onchange="loadAuditLog()">
+                            <option value="">All Actions</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="min-width: 150px;">
+                        <label class="form-label">Time Range</label>
+                        <select id="auditDays" class="form-input" onchange="loadAuditLog()">
+                            <option value="">All Time</option>
+                            <option value="1">Last 24 Hours</option>
+                            <option value="7" selected>Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label class="form-label">Search</label>
+                        <input type="text" id="auditSearch" class="form-input" placeholder="Search..." onkeyup="debounceAuditSearch()">
+                    </div>
+                </div>
+                
+                <!-- Audit Log Table -->
+                <div id="auditLogContainer">
+                    <div class="info-loading">Loading audit log...</div>
+                </div>
+                
+                <!-- Pagination -->
+                <div id="auditPagination" style="display: none; margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                    <span id="auditPageInfo" class="text-muted"></span>
+                    <div>
+                        <button id="auditPrevBtn" class="btn btn-secondary btn-small" onclick="auditPage(-1)">← Previous</button>
+                        <button id="auditNextBtn" class="btn btn-secondary btn-small" onclick="auditPage(1)">Next →</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        let auditCurrentPage = 1;
+        let auditTotalPages = 1;
+        let auditSearchTimeout = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAuditLog();
+        });
+        
+        function debounceAuditSearch() {
+            clearTimeout(auditSearchTimeout);
+            auditSearchTimeout = setTimeout(() => {
+                auditCurrentPage = 1;
+                loadAuditLog();
+            }, 300);
+        }
+        
+        function auditPage(delta) {
+            auditCurrentPage += delta;
+            if (auditCurrentPage < 1) auditCurrentPage = 1;
+            if (auditCurrentPage > auditTotalPages) auditCurrentPage = auditTotalPages;
+            loadAuditLog();
+        }
+        
+        function loadAuditLog() {
+            const container = document.getElementById('auditLogContainer');
+            
+            const params = new URLSearchParams({
+                page: auditCurrentPage,
+                per_page: 50
+            });
+            
+            const entityType = document.getElementById('auditEntityType').value;
+            const action = document.getElementById('auditAction').value;
+            const days = document.getElementById('auditDays').value;
+            const search = document.getElementById('auditSearch').value;
+            
+            if (entityType) params.append('entity_type', entityType);
+            if (action) params.append('action', action);
+            if (days) params.append('days', days);
+            if (search) params.append('search', search);
+            
+            fetch('/api/audit-log?' + params.toString())
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        renderAuditLog(data);
+                        populateAuditFilters(data.filters);
+                    } else {
+                        container.innerHTML = '<div class="flash-message flash-error">Failed to load: ' + data.error + '</div>';
+                    }
+                })
+                .catch(err => {
+                    container.innerHTML = '<div class="flash-message flash-error">Failed to load audit log</div>';
+                });
+        }
+        
+        function populateAuditFilters(filters) {
+            const entitySelect = document.getElementById('auditEntityType');
+            const actionSelect = document.getElementById('auditAction');
+            
+            // Only populate if empty
+            if (entitySelect.options.length <= 1 && filters.entity_types) {
+                filters.entity_types.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    entitySelect.appendChild(opt);
+                });
+            }
+            
+            if (actionSelect.options.length <= 1 && filters.actions) {
+                filters.actions.forEach(a => {
+                    const opt = document.createElement('option');
+                    opt.value = a;
+                    opt.textContent = a.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    actionSelect.appendChild(opt);
+                });
+            }
+        }
+        
+        function renderAuditLog(data) {
+            const container = document.getElementById('auditLogContainer');
+            
+            auditTotalPages = data.pages;
+            
+            if (!data.entries || data.entries.length === 0) {
+                container.innerHTML = '<p class="text-muted">No audit entries found.</p>';
+                document.getElementById('auditPagination').style.display = 'none';
+                return;
+            }
+            
+            let html = '<table class="data-table" style="width: 100%;">';
+            html += '<thead><tr><th>Timestamp</th><th>User</th><th>IP</th><th>Entity</th><th>Action</th><th>Details</th></tr></thead>';
+            html += '<tbody>';
+            
+            data.entries.forEach(entry => {
+                const ts = new Date(entry.timestamp).toLocaleString();
+                const entity = entry.entity_name || entry.entity_id || '-';
+                const entityType = entry.entity_type.replace(/_/g, ' ');
+                
+                let details = '';
+                if (entry.field_name) {
+                    const oldVal = entry.old_value ? (entry.old_value.length > 30 ? entry.old_value.substring(0, 30) + '...' : entry.old_value) : '(empty)';
+                    const newVal = entry.new_value ? (entry.new_value.length > 30 ? entry.new_value.substring(0, 30) + '...' : entry.new_value) : '(empty)';
+                    details = `<code>${entry.field_name}</code>: ${oldVal} → ${newVal}`;
+                } else if (entry.details) {
+                    details = '<code>...</code>';
+                }
+                
+                const actionClass = {
+                    'created': 'text-success',
+                    'deleted': 'text-error',
+                    'login_failed': 'text-error',
+                    'updated': 'text-warning'
+                }[entry.action] || '';
+                
+                html += `<tr>
+                    <td style="white-space: nowrap;">${ts}</td>
+                    <td>${entry.username}</td>
+                    <td><code>${entry.remote_ip || '-'}</code></td>
+                    <td><span class="badge">${entityType}</span> ${entity}</td>
+                    <td><span class="${actionClass}">${entry.action}</span></td>
+                    <td>${details}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+            
+            // Update pagination
+            document.getElementById('auditPagination').style.display = 'flex';
+            document.getElementById('auditPageInfo').textContent = `Page ${data.page} of ${data.pages} (${data.total} entries)`;
+            document.getElementById('auditPrevBtn').disabled = data.page <= 1;
+            document.getElementById('auditNextBtn').disabled = data.page >= data.pages;
+        }
+        </script>
+        
+        <style>
+        .text-success { color: var(--accent-success); }
+        .text-error { color: var(--accent-error); }
+        .text-warning { color: var(--accent-warning); }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            text-transform: uppercase;
         }
         </style>
         {% endif %}

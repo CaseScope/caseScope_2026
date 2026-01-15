@@ -1,6 +1,13 @@
 {
-  "version": "3.90.00",
+  "version": "3.90.01",
   "changelog": [
+    {
+      "version": "3.90.01",
+      "date": "2026-01-15",
+      "changes": [
+        "Fixed: Process tree Add IOC button not working (missing openProcessAddIOCModalFromB64 function)"
+      ]
+    },
     {
       "version": "3.90.00",
       "date": "2026-01-14",

@@ -1855,6 +1855,17 @@ function openProcessAddIOCFromElement(btn) {
     openProcessAddIOCModal(procData);
 }
 
+// Open Add IOC modal from Base64-encoded data (used in process tree)
+function openProcessAddIOCModalFromB64(b64Data) {
+    try {
+        const procData = JSON.parse(decodeURIComponent(atob(b64Data)));
+        openProcessAddIOCModal(procData);
+    } catch (e) {
+        console.error('Failed to decode process data:', e);
+        showToast('Error opening IOC modal', 'error');
+    }
+}
+
 // Open Add IOC modal with pre-filled data from process tree
 function openProcessAddIOCModal(procData) {
     // Ensure IOC types are loaded
