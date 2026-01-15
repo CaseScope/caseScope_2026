@@ -1,6 +1,13 @@
 {
-  "version": "3.90.01",
+  "version": "3.90.02",
   "changelog": [
+    {
+      "version": "3.90.02",
+      "date": "2026-01-15",
+      "changes": [
+        "Fixed: IOC creation failing when notes field is null"
+      ]
+    },
     {
       "version": "3.90.01",
       "date": "2026-01-15",

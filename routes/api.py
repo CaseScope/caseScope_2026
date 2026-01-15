@@ -3742,11 +3742,11 @@ def create_ioc(case_uuid):
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
         data = request.get_json()
-        ioc_type = data.get('ioc_type', '').strip()
-        value = data.get('value', '').strip()
-        notes = data.get('notes', '').strip()
+        ioc_type = (data.get('ioc_type') or '').strip()
+        value = (data.get('value') or '').strip()
+        notes = (data.get('notes') or '').strip()
         malicious = data.get('malicious', False)
-        match_type = data.get('match_type', '').strip() or None  # Explicit match type
+        match_type = (data.get('match_type') or '').strip() or None  # Explicit match type
         
         if not value:
             return jsonify({'success': False, 'error': 'IOC value required'}), 400
