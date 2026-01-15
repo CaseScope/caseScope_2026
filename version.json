@@ -1,6 +1,14 @@
 {
-  "version": "3.91.00",
+  "version": "3.91.01",
   "changelog": [
+    {
+      "version": "3.91.01",
+      "date": "2026-01-15",
+      "changes": [
+        "Fixed: Analyst tagging incorrectly tagging multiple events due to timestamp window collision",
+        "Fixed: Now uses event_id for unique identification of non-EVTX events (e.g., Huntress)"
+      ]
+    },
     {
       "version": "3.91.00",
       "date": "2026-01-15",

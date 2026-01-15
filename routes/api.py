@@ -1992,6 +1992,7 @@ def update_analyst_tag(case_id):
         
         source_host = data.get('source_host', '').strip()
         record_id = data.get('record_id', '')
+        event_id = data.get('event_id', '').strip() if data.get('event_id') else ''
         artifact_type = data.get('artifact_type', '').strip()
         
         # Tag values
@@ -2003,11 +2004,31 @@ def update_analyst_tag(case_id):
         conditions = ["case_id = {case_id:UInt32}"]
         params = {'case_id': case_id}
         
-        # Parse timestamp with 2-second window
+        # event_id is the most unique identifier for non-EVTX events (e.g., Huntress UUIDs)
+        has_unique_id = False
+        if event_id and event_id != '-':
+            params['event_id'] = event_id
+            conditions.append("event_id = {event_id:String}")
+            has_unique_id = True
+        
+        # record_id is the most reliable identifier for EVTX events
+        if record_id and str(record_id) != '0':
+            try:
+                rid = int(record_id)
+                if rid > 0:
+                    params['record_id'] = rid
+                    conditions.append("record_id = {record_id:UInt64}")
+                    has_unique_id = True
+            except (ValueError, TypeError):
+                pass
+        
+        # Parse timestamp - use smaller window if we have unique ID, larger window otherwise
         try:
             ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
             ts = ts.replace(tzinfo=timezone.utc)
-            ts_end = ts + timedelta(seconds=2)
+            # Use 1-second window if we have unique ID, 2-second otherwise
+            window_seconds = 1 if has_unique_id else 2
+            ts_end = ts + timedelta(seconds=window_seconds)
             params['ts_start'] = ts
             params['ts_end'] = ts_end
             conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
@@ -2017,16 +2038,6 @@ def update_analyst_tag(case_id):
         if source_host and source_host != '-':
             params['source_host'] = source_host
             conditions.append("source_host = {source_host:String}")
-        
-        # record_id is the most reliable identifier
-        if record_id and str(record_id) != '0':
-            try:
-                rid = int(record_id)
-                if rid > 0:
-                    params['record_id'] = rid
-                    conditions.append("record_id = {record_id:UInt64}")
-            except (ValueError, TypeError):
-                pass
         
         if artifact_type and artifact_type != '-':
             params['artifact_type'] = artifact_type
