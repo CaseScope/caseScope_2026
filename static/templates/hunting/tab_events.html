@@ -268,9 +268,12 @@
             Showing <span id="events-showing-start">0</span> - <span id="events-showing-end">0</span> of <span id="events-total">0</span> events
         </div>
         <div class="pagination-controls">
+            <button class="btn btn-secondary btn-sm" id="events-btn-first" onclick="goToEventsPage(1)" disabled>« First</button>
             <button class="btn btn-secondary btn-sm" id="events-btn-prev" onclick="prevEventsPage()" disabled>← Prev</button>
-            <span class="page-indicator">Page <span id="events-current-page">1</span> of <span id="events-total-pages">1</span></span>
+            <span class="page-numbers" id="events-page-numbers"></span>
             <button class="btn btn-secondary btn-sm" id="events-btn-next" onclick="nextEventsPage()" disabled>Next →</button>
+            <button class="btn btn-secondary btn-sm" id="events-btn-last" onclick="goToEventsPage(eventsTotalPages)" disabled>Last »</button>
+            <span class="page-indicator-compact">(<span id="events-current-page">1</span>/<span id="events-total-pages">1</span>)</span>
         </div>
     </div>
 </div>

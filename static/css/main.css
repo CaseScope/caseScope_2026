@@ -3874,6 +3874,26 @@ tbody td {
   color: var(--text-secondary);
 }
 
+.page-indicator-compact {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.page-numbers {
+  display: flex;
+  gap: 4px;
+}
+
+.page-numbers .page-num {
+  min-width: 32px;
+  padding: 4px 8px;
+}
+
+.page-numbers .page-num.active {
+  pointer-events: none;
+}
+
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;

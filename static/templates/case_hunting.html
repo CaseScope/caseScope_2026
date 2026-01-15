@@ -130,6 +130,7 @@ const CASE_ID = caseId;
 const caseUuid = '{{ case.uuid }}';
 let eventsPage = 1;
 let eventsPerPage = 50;
+let eventsTotalPages = 1;
 let eventsSearch = '';
 let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
 let currentEventsData = []; // Store current page's event data for modal display
@@ -766,6 +767,7 @@ function updateModalAnalystTag() {
 
 // Update pagination controls
 function updateEventsPagination(data) {
+    eventsTotalPages = data.total_pages;
     document.getElementById('events-current-page').textContent = data.page;
     document.getElementById('events-total-pages').textContent = data.total_pages;
     document.getElementById('events-total').textContent = data.total.toLocaleString();
@@ -776,8 +778,46 @@ function updateEventsPagination(data) {
     document.getElementById('events-showing-start').textContent = start.toLocaleString();
     document.getElementById('events-showing-end').textContent = end.toLocaleString();
     
+    // Update button states
+    document.getElementById('events-btn-first').disabled = data.page <= 1;
     document.getElementById('events-btn-prev').disabled = data.page <= 1;
     document.getElementById('events-btn-next').disabled = data.page >= data.total_pages;
+    document.getElementById('events-btn-last').disabled = data.page >= data.total_pages;
+    
+    // Generate page number buttons
+    renderPageNumbers(data.page, data.total_pages);
+}
+
+// Render page number buttons (2 before and 2 after current)
+function renderPageNumbers(current, total) {
+    const container = document.getElementById('events-page-numbers');
+    if (total <= 1) {
+        container.innerHTML = '<button class="btn btn-primary btn-sm page-num active">1</button>';
+        return;
+    }
+    
+    let html = '';
+    const range = 2; // Pages before and after current
+    let start = Math.max(1, current - range);
+    let end = Math.min(total, current + range);
+    
+    // Adjust range if at edges
+    if (current <= range) {
+        end = Math.min(total, range * 2 + 1);
+    }
+    if (current > total - range) {
+        start = Math.max(1, total - range * 2);
+    }
+    
+    for (let i = start; i <= end; i++) {
+        if (i === current) {
+            html += `<button class="btn btn-primary btn-sm page-num active">${i}</button>`;
+        } else {
+            html += `<button class="btn btn-secondary btn-sm page-num" onclick="goToEventsPage(${i})">${i}</button>`;
+        }
+    }
+    
+    container.innerHTML = html;
 }
 
 // Show error message
@@ -851,8 +891,17 @@ function prevEventsPage() {
 }
 
 function nextEventsPage() {
-    eventsPage++;
-    loadEvents();
+    if (eventsPage < eventsTotalPages) {
+        eventsPage++;
+        loadEvents();
+    }
+}
+
+function goToEventsPage(page) {
+    if (page >= 1 && page <= eventsTotalPages && page !== eventsPage) {
+        eventsPage = page;
+        loadEvents();
+    }
 }
 
 function changeEventsPageSize() {

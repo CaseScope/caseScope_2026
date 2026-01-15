@@ -1,6 +1,14 @@
 {
-  "version": "3.90.02",
+  "version": "3.91.00",
   "changelog": [
+    {
+      "version": "3.91.00",
+      "date": "2026-01-15",
+      "changes": [
+        "Hunting: Enhanced pagination with First/Last buttons and page number navigation",
+        "Hunting: Shows 2 pages before and after current page for quick navigation"
+      ]
+    },
     {
       "version": "3.90.02",
       "date": "2026-01-15",
