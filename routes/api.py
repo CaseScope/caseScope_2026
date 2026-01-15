@@ -1989,6 +1989,7 @@ def update_analyst_tag(case_id):
         # Get identifiers from request
         event_id = data.get('event_id', '').strip() if data.get('event_id') else ''
         record_id = data.get('record_id', '')
+        source_file = data.get('source_file', '').strip() if data.get('source_file') else ''
         timestamp = data.get('timestamp', '').strip()
         source_host = data.get('source_host', '').strip()
         artifact_type = data.get('artifact_type', '').strip()
@@ -2004,7 +2005,7 @@ def update_analyst_tag(case_id):
         
         # Use the most precise identifier available:
         # 1. event_id (UUID) - unique for Huntress/EDR events
-        # 2. record_id - unique for EVTX events within a file
+        # 2. record_id + source_file - unique for EVTX events (record_id is per-file)
         # 3. Fall back to timestamp only if neither available
         
         has_unique_id = False
@@ -2015,14 +2016,19 @@ def update_analyst_tag(case_id):
             conditions.append("event_id = {event_id:String}")
             has_unique_id = True
         
-        # record_id is unique for EVTX events
+        # record_id + source_file is unique for EVTX events (record_id alone is NOT unique across files)
         if record_id and str(record_id) != '0':
             try:
                 rid = int(record_id)
                 if rid > 0:
                     params['record_id'] = rid
                     conditions.append("record_id = {record_id:UInt64}")
-                    has_unique_id = True
+                    # CRITICAL: source_file is required for EVTX - record_id is only unique within a file
+                    if source_file:
+                        params['source_file'] = source_file
+                        conditions.append("source_file = {source_file:String}")
+                        has_unique_id = True
+                    # Without source_file, record_id alone is not unique enough
             except (ValueError, TypeError):
                 pass
         

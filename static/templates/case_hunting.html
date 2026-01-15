@@ -664,6 +664,7 @@ function toggleAnalystTag(index, isTagged) {
         body: JSON.stringify({
             timestamp: event.timestamp,
             source_host: event.source_host,
+            source_file: event.source_file,
             record_id: event.record_id,
             event_id: event.event_id,
             artifact_type: event.artifact_type,
@@ -747,6 +748,7 @@ function updateModalAnalystTag() {
             body: JSON.stringify({
                 timestamp: currentModalEvent.timestamp,
                 source_host: currentModalEvent.source_host,
+                source_file: currentModalEvent.source_file,
                 record_id: currentModalEvent.record_id,
                 event_id: currentModalEvent.event_id,
                 artifact_type: currentModalEvent.artifact_type,
