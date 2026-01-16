@@ -1,6 +1,17 @@
 {
-  "version": "3.102.00",
+  "version": "3.103.00",
   "changelog": [
+    {
+      "version": "3.103.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Feature: Universal field:value search syntax for all artifact types",
+        "Added: 100+ field aliases mapped to columns (eventid, host, user, process, cmd, path, ip, etc.)",
+        "Added: Column-based searches use indexes for faster queries",
+        "Added: EventData fields searchable as FieldName:Value (KeyLength:0, LogonType:3, etc.)",
+        "Added: OR support within field values (eventid:4624|4625, logontype:3|10)"
+      ]
+    },
     {
       "version": "3.102.00",
       "date": "2026-01-16",

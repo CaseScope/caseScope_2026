@@ -20,6 +20,120 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
+# =============================================================================
+# FIELD:VALUE SEARCH MAPPING
+# =============================================================================
+# Maps search field aliases to (column_name, match_type)
+# match_type: 'eq' = exact match, 'like' = ILIKE substring, 'blob' = search in search_blob
+# If value is None, searches search_blob for "Field:value" pattern
+SEARCH_FIELD_MAP = {
+    # Event identification
+    'eventid': ('event_id', 'eq'),
+    'event_id': ('event_id', 'eq'),
+    'id': ('event_id', 'eq'),
+    'channel': ('channel', 'like'),
+    'provider': ('provider', 'like'),
+    'level': ('level', 'eq'),
+    'recordid': ('record_id', 'eq'),
+    
+    # Source/Host
+    'host': ('source_host', 'like'),
+    'hostname': ('source_host', 'like'),
+    'source_host': ('source_host', 'like'),
+    'computer': ('source_host', 'like'),
+    'artifact': ('artifact_type', 'eq'),
+    'parser': ('artifact_type', 'eq'),
+    'type': ('artifact_type', 'eq'),
+    
+    # User/Identity
+    'user': ('username', 'like'),
+    'username': ('username', 'like'),
+    'domain': ('domain', 'like'),
+    'sid': ('sid', 'like'),
+    'logontype': ('logon_type', 'eq'),
+    'logon_type': ('logon_type', 'eq'),
+    
+    # Process
+    'process': ('process_name', 'like'),
+    'process_name': ('process_name', 'like'),
+    'proc': ('process_name', 'like'),
+    'cmd': ('command_line', 'like'),
+    'commandline': ('command_line', 'like'),
+    'command_line': ('command_line', 'like'),
+    'parent': ('parent_process', 'like'),
+    'parent_process': ('parent_process', 'like'),
+    'pid': ('process_id', 'eq'),
+    'ppid': ('parent_pid', 'eq'),
+    
+    # File/Path
+    'path': ('target_path', 'like'),
+    'file': ('target_path', 'like'),
+    'target_path': ('target_path', 'like'),
+    'filename': ('target_path', 'like'),
+    
+    # Hashes
+    'md5': ('file_hash_md5', 'eq'),
+    'sha1': ('file_hash_sha1', 'eq'),
+    'sha256': ('file_hash_sha256', 'eq'),
+    'hash': ('file_hash_sha256', 'like'),  # partial match any hash
+    
+    # Network
+    'ip': ('src_ip', 'eq'),  # Default to src_ip
+    'srcip': ('src_ip', 'eq'),
+    'src_ip': ('src_ip', 'eq'),
+    'dstip': ('dst_ip', 'eq'),
+    'dst_ip': ('dst_ip', 'eq'),
+    'port': ('dst_port', 'eq'),
+    'srcport': ('src_port', 'eq'),
+    'dstport': ('dst_port', 'eq'),
+    
+    # Registry
+    'regkey': ('reg_key', 'like'),
+    'reg_key': ('reg_key', 'like'),
+    'registry': ('reg_key', 'like'),
+    'regvalue': ('reg_value', 'like'),
+    'regdata': ('reg_data', 'like'),
+    
+    # Detection/Rules
+    'rule': ('rule_title', 'like'),
+    'rule_title': ('rule_title', 'like'),
+    'severity': ('rule_level', 'eq'),
+    'rule_level': ('rule_level', 'eq'),
+    
+    # EventData fields (search in search_blob as FieldName:Value)
+    # These are the fields we backfilled from EVTX EventData
+    'keylength': None,
+    'authpackage': None,
+    'authenticationpackagename': None,
+    'logonprocess': None,
+    'logonprocessname': None,
+    'workstationname': None,
+    'ipaddress': None,
+    'ipport': None,
+    'targetusername': None,
+    'subjectusername': None,
+    'targetdomainname': None,
+    'targetusersid': None,
+    'subjectusersid': None,
+    'targetlogonid': None,
+    'subjectlogonid': None,
+    'status': None,
+    'substatus': None,
+    'failurereason': None,
+    'elevatedtoken': None,
+    'servicename': None,
+    'servicefilename': None,
+    'taskname': None,
+    'objectname': None,
+    'objecttype': None,
+    'accessmask': None,
+    'privilegelist': None,
+    'newprocessname': None,
+    'parentprocessname': None,
+    'targetfilename': None,
+    'hashes': None,
+}
+
 
 def _move_to_storage(file_path: str, case_uuid: str) -> str:
     """Move a file from staging to storage, preserving path structure.
@@ -1719,6 +1833,42 @@ def get_hunting_events(case_id):
             # Pattern to find exclusions: -"quoted" or -unquoted
             exclude_pattern = re.compile(r'-"([^"]+)"|-([^\s|()]+)')
             
+            def parse_field_value(field, value, param_prefix):
+                """Parse a field:value pair and return SQL condition"""
+                field_lower = field.lower()
+                mapping = SEARCH_FIELD_MAP.get(field_lower)
+                
+                if mapping is None and field_lower in SEARCH_FIELD_MAP:
+                    # Field maps to search_blob with original case preserved
+                    # Search for "FieldName:value" pattern in search_blob
+                    param_name = f'{param_prefix}_blob'
+                    # Use the original field name with proper casing for common fields
+                    field_cased = field  # Keep user's casing
+                    params[param_name] = f'%{field_cased}:{value}%'
+                    return f"search_blob ilike {{{param_name}:String}}"
+                elif mapping:
+                    column, match_type = mapping
+                    param_name = f'{param_prefix}_fld'
+                    
+                    if match_type == 'eq':
+                        params[param_name] = value
+                        # Handle numeric columns
+                        if column in ('logon_type', 'process_id', 'parent_pid', 'record_id', 
+                                      'src_port', 'dst_port', 'file_size'):
+                            return f"{column} = {{{param_name}:String}}"
+                        elif column in ('src_ip', 'dst_ip'):
+                            return f"toString({column}) = {{{param_name}:String}}"
+                        else:
+                            return f"{column} = {{{param_name}:String}}"
+                    else:  # like
+                        params[param_name] = f'%{value}%'
+                        return f"{column} ilike {{{param_name}:String}}"
+                else:
+                    # Unknown field - search in search_blob as "field:value"
+                    param_name = f'{param_prefix}_blob'
+                    params[param_name] = f'%{field}:{value}%'
+                    return f"search_blob ilike {{{param_name}:String}}"
+            
             def parse_term(term, prefix):
                 """Parse a single term (may contain | for OR). Returns (conditions_list, is_exclusion)"""
                 conditions = []
@@ -1734,6 +1884,29 @@ def get_hunting_events(case_id):
                             return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
                     return ([], False)
                 
+                # Check for field:value syntax (but not URLs with ://)
+                field_value_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', term)
+                if field_value_match and '://' not in term:
+                    field = field_value_match.group(1)
+                    value = field_value_match.group(2)
+                    
+                    # Handle OR within value (field:val1|val2)
+                    if '|' in value:
+                        or_parts = [p.strip() for p in value.split('|') if p.strip()]
+                        if or_parts:
+                            or_conds = []
+                            for k, part in enumerate(or_parts):
+                                cond = parse_field_value(field, part, f'{prefix}_or{k}')
+                                if cond:
+                                    or_conds.append(cond)
+                            if or_conds:
+                                conditions.append(f"({' OR '.join(or_conds)})")
+                    else:
+                        cond = parse_field_value(field, value, prefix)
+                        if cond:
+                            conditions.append(cond)
+                    return (conditions, False)
+                
                 # Handle OR within term (pipe-separated, no spaces)
                 if '|' in term:
                     or_parts = [p.strip() for p in term.split('|') if p.strip()]
@@ -1741,7 +1914,13 @@ def get_hunting_events(case_id):
                         or_conds = []
                         for k, part in enumerate(or_parts):
                             or_param = f'{prefix}_or{k}'
-                            if part.isdigit():
+                            # Check if part is field:value
+                            fv_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', part)
+                            if fv_match and '://' not in part:
+                                cond = parse_field_value(fv_match.group(1), fv_match.group(2), f'{prefix}_or{k}')
+                                if cond:
+                                    or_conds.append(cond)
+                            elif part.isdigit():
                                 params[or_param] = part
                                 or_conds.append(f"event_id = {{{or_param}:String}}")
                             else:
@@ -2482,6 +2661,37 @@ def export_view_events(case_id):
         if search:
             exclude_pattern = re.compile(r'-"([^"]+)"|-([^\s|()]+)')
             
+            def parse_field_value(field, value, param_prefix):
+                """Parse a field:value pair and return SQL condition"""
+                field_lower = field.lower()
+                mapping = SEARCH_FIELD_MAP.get(field_lower)
+                
+                if mapping is None and field_lower in SEARCH_FIELD_MAP:
+                    param_name = f'{param_prefix}_blob'
+                    field_cased = field
+                    params[param_name] = f'%{field_cased}:{value}%'
+                    return f"search_blob ilike {{{param_name}:String}}"
+                elif mapping:
+                    column, match_type = mapping
+                    param_name = f'{param_prefix}_fld'
+                    
+                    if match_type == 'eq':
+                        params[param_name] = value
+                        if column in ('logon_type', 'process_id', 'parent_pid', 'record_id', 
+                                      'src_port', 'dst_port', 'file_size'):
+                            return f"{column} = {{{param_name}:String}}"
+                        elif column in ('src_ip', 'dst_ip'):
+                            return f"toString({column}) = {{{param_name}:String}}"
+                        else:
+                            return f"{column} = {{{param_name}:String}}"
+                    else:
+                        params[param_name] = f'%{value}%'
+                        return f"{column} ilike {{{param_name}:String}}"
+                else:
+                    param_name = f'{param_prefix}_blob'
+                    params[param_name] = f'%{field}:{value}%'
+                    return f"search_blob ilike {{{param_name}:String}}"
+            
             def parse_term(term, prefix):
                 conditions = []
                 if term.startswith('-'):
@@ -2494,13 +2704,40 @@ def export_view_events(case_id):
                             return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
                     return ([], False)
                 
+                # Check for field:value syntax (but not URLs with ://)
+                field_value_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', term)
+                if field_value_match and '://' not in term:
+                    field = field_value_match.group(1)
+                    value = field_value_match.group(2)
+                    
+                    if '|' in value:
+                        or_parts = [p.strip() for p in value.split('|') if p.strip()]
+                        if or_parts:
+                            or_conds = []
+                            for k, part in enumerate(or_parts):
+                                cond = parse_field_value(field, part, f'{prefix}_or{k}')
+                                if cond:
+                                    or_conds.append(cond)
+                            if or_conds:
+                                conditions.append(f"({' OR '.join(or_conds)})")
+                    else:
+                        cond = parse_field_value(field, value, prefix)
+                        if cond:
+                            conditions.append(cond)
+                    return (conditions, False)
+                
                 if '|' in term:
                     or_parts = [p.strip() for p in term.split('|') if p.strip()]
                     if or_parts:
                         or_conds = []
                         for k, part in enumerate(or_parts):
                             or_param = f'{prefix}_or{k}'
-                            if part.isdigit():
+                            fv_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', part)
+                            if fv_match and '://' not in part:
+                                cond = parse_field_value(fv_match.group(1), fv_match.group(2), f'{prefix}_or{k}')
+                                if cond:
+                                    or_conds.append(cond)
+                            elif part.isdigit():
                                 params[or_param] = part
                                 or_conds.append(f"event_id = {{{or_param}:String}}")
                             else:
