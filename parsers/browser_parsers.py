@@ -274,10 +274,14 @@ class BrowserSQLiteParser(BaseParser):
             # Parse based on type
             if db_type == 'firefox_history':
                 yield from self._parse_firefox_history(temp_path, source_file, hostname)
+                # Also parse download annotations from moz_annos in places.sqlite
+                yield from self._parse_firefox_downloads(temp_path, source_file, hostname)
             elif db_type == 'firefox_cookies':
                 yield from self._parse_firefox_cookies(temp_path, source_file, hostname)
             elif db_type == 'firefox_forms':
                 yield from self._parse_firefox_forms(temp_path, source_file, hostname)
+            elif db_type == 'firefox_downloads':
+                yield from self._parse_firefox_downloads(temp_path, source_file, hostname)
             elif db_type == 'chrome_history':
                 yield from self._parse_chrome_history(temp_path, source_file, hostname)
                 # Also parse downloads table from Chrome History database
@@ -469,6 +473,143 @@ class BrowserSQLiteParser(BaseParser):
             
         except Exception as e:
             self.errors.append(f"Firefox forms parse error: {e}")
+    
+    def _parse_firefox_downloads(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox downloads.sqlite or moz_annos from places.sqlite"""
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Check for moz_downloads table (older Firefox versions)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='moz_downloads'")
+            if cursor.fetchone():
+                query = """
+                    SELECT 
+                        id, name, source, target, startTime, endTime,
+                        state, currBytes, maxBytes, mimeType
+                    FROM moz_downloads
+                    ORDER BY startTime DESC
+                """
+                cursor.execute(query)
+                
+                for row in cursor:
+                    # Firefox download times are in microseconds since Unix epoch
+                    start_time = mozilla_to_datetime(row['startTime'])
+                    end_time = mozilla_to_datetime(row['endTime'])
+                    
+                    if not start_time:
+                        start_time = datetime.now()
+                    
+                    file_path = row['target'] or ''
+                    # Firefox stores file:// URIs, clean them up
+                    if file_path.startswith('file:///'):
+                        file_path = file_path[8:]  # Remove file:///
+                    
+                    filename = row['name'] or (file_path.split('/')[-1] if file_path else '')
+                    source_url = row['source'] or ''
+                    
+                    raw_data = {
+                        'file_path': file_path,
+                        'filename': filename,
+                        'url': source_url,
+                        'start_time': str(start_time),
+                        'end_time': str(end_time) if end_time else None,
+                        'received_bytes': row['currBytes'],
+                        'total_bytes': row['maxBytes'],
+                        'state': row['state'],
+                        'mime_type': row['mimeType'],
+                    }
+                    
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type='browser_download',
+                        timestamp=start_time,
+                        source_file=source_file,
+                        source_path=db_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        target_path=file_path,
+                        raw_json=json.dumps(raw_data, default=str),
+                        search_blob=f"{filename} {source_url} {file_path} firefox download",
+                        extra_fields=json.dumps({'browser': 'firefox', 'artifact': 'download'}),
+                        parser_version=self.parser_version,
+                    )
+            
+            # Also check moz_annos for download annotations in places.sqlite
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='moz_annos'")
+            if cursor.fetchone():
+                # Download annotations in places.sqlite
+                query = """
+                    SELECT 
+                        p.url,
+                        a.content,
+                        a.dateAdded,
+                        n.name as anno_name
+                    FROM moz_annos a
+                    JOIN moz_places p ON a.place_id = p.id
+                    JOIN moz_anno_attributes n ON a.anno_attribute_id = n.id
+                    WHERE n.name LIKE '%download%'
+                    ORDER BY a.dateAdded DESC
+                """
+                try:
+                    cursor.execute(query)
+                    
+                    for row in cursor:
+                        timestamp = mozilla_to_datetime(row['dateAdded'])
+                        if not timestamp:
+                            timestamp = datetime.now()
+                        
+                        source_url = row['url'] or ''
+                        content = row['content'] or ''
+                        
+                        # Try to extract file path from content
+                        file_path = ''
+                        filename = ''
+                        if content:
+                            # Content might be JSON or a file path
+                            try:
+                                content_data = json.loads(content)
+                                file_path = content_data.get('fileURL', content_data.get('target', ''))
+                                filename = content_data.get('fileName', '')
+                            except:
+                                if '/' in content or '\\' in content:
+                                    file_path = content
+                        
+                        if not filename and file_path:
+                            filename = file_path.split('/')[-1].split('\\')[-1]
+                        if not filename and source_url:
+                            filename = source_url.split('/')[-1].split('?')[0]
+                        
+                        raw_data = {
+                            'file_path': file_path,
+                            'filename': filename,
+                            'url': source_url,
+                            'annotation': row['anno_name'],
+                            'content': content[:500] if content else '',
+                        }
+                        
+                        yield ParsedEvent(
+                            case_id=self.case_id,
+                            artifact_type='browser_download',
+                            timestamp=timestamp,
+                            source_file=source_file,
+                            source_path=db_path,
+                            source_host=hostname,
+                            case_file_id=self.case_file_id,
+                            target_path=file_path or source_url,
+                            raw_json=json.dumps(raw_data, default=str),
+                            search_blob=f"{filename} {source_url} {file_path} firefox download",
+                            extra_fields=json.dumps({'browser': 'firefox', 'artifact': 'download'}),
+                            parser_version=self.parser_version,
+                        )
+                except sqlite3.OperationalError:
+                    pass  # Tables might not exist or have different schema
+            
+            conn.close()
+            
+        except Exception as e:
+            self.errors.append(f"Firefox downloads parse error: {e}")
     
     def _parse_chrome_history(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge History database"""

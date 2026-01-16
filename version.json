@@ -1,6 +1,15 @@
 {
-  "version": "3.94.01",
+  "version": "3.94.02",
   "changelog": [
+    {
+      "version": "3.94.02",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Firefox downloads parser (downloads.sqlite and moz_annos annotations)",
+        "Added: Firefox download extraction from places.sqlite during history parsing",
+        "Note: Edge/IE downloads already supported via WebCache parser (webcache_downloads)"
+      ]
+    },
     {
       "version": "3.94.01",
       "date": "2026-01-16",
