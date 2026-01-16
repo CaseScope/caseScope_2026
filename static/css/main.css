@@ -4242,6 +4242,19 @@ tbody td {
   color: var(--accent-color);
 }
 
+.tile-helper-text .help-link {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--accent-primary);
+  text-decoration: none;
+  margin-left: 4px;
+}
+
+.tile-helper-text .help-link:hover {
+  text-decoration: underline;
+  color: var(--accent-info);
+}
+
 .events-tile .tile-body {
   padding: 16px;
 }

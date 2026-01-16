@@ -221,6 +221,13 @@ def case_ioc_management():
     return render_template('case_ioc_management.html', page_title='IOC Management', case=case)
 
 
+@main_bp.route('/help/search')
+@login_required
+def search_help():
+    """Search Help - comprehensive search syntax documentation"""
+    return render_template('search_help.html', page_title='Search Help')
+
+
 @main_bp.route('/case/known-systems')
 @login_required
 @case_required

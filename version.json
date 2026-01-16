@@ -1,6 +1,16 @@
 {
-  "version": "3.99.01",
+  "version": "3.99.02",
   "changelog": [
+    {
+      "version": "3.99.02",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Search Help page with comprehensive search syntax documentation",
+        "Added: 'More Help' link on Hunting page next to search syntax helper",
+        "Added: Keyword searching, AND/OR logic, exclusions, grouping, Event ID examples",
+        "Added: DFIR investigation patterns (authentication, lateral movement, credential access, persistence)"
+      ]
+    },
     {
       "version": "3.99.01",
       "date": "2026-01-16",
