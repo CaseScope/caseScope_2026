@@ -1,6 +1,14 @@
 {
-  "version": "3.100.00",
+  "version": "3.100.01",
   "changelog": [
+    {
+      "version": "3.100.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Common Patterns category in preconfigured searches",
+        "Added: Pass the Hash detection search (4648, 4634, 4023, NTLM logon type 3)"
+      ]
+    },
     {
       "version": "3.100.00",
       "date": "2026-01-16",
