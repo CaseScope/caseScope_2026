@@ -1,6 +1,15 @@
 {
-  "version": "3.99.04",
+  "version": "3.99.05",
   "changelog": [
+    {
+      "version": "3.99.05",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Preconfigured search columns now correctly extract values from raw_json",
+        "Fixed: Column value extraction fallback to raw_json when extra_fields doesn't contain field",
+        "Restored: Auto-add columns for Windows Logon preconfigured searches"
+      ]
+    },
     {
       "version": "3.99.04",
       "date": "2026-01-16",

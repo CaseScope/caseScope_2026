@@ -409,13 +409,13 @@ const preconfiguredSearches = {
         'Windows Logons': [
             { 
                 label: 'Allowed Logons', 
-                search: '4624 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@'
-                // Note: Add columns manually via + button in Raw Data - paths vary by parser
+                search: '4624 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType']
             },
             { 
                 label: 'Failed Logons', 
-                search: '4625 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@'
-                // Note: Add columns manually via + button in Raw Data - paths vary by parser
+                search: '4625 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType']
             }
         ]
     },
@@ -1228,9 +1228,17 @@ function renderEventsTable(events) {
             if (e.raw_json) {
                 try {
                     rawJsonData = typeof e.raw_json === 'string' ? JSON.parse(e.raw_json) : e.raw_json;
+                    // Debug: log first event's raw_json structure
+                    if (idx === 0 && customColumns.length > 0) {
+                        console.log('DEBUG raw_json parsed:', rawJsonData);
+                        console.log('DEBUG EventData:', rawJsonData?.EventData);
+                        console.log('DEBUG TargetUserName:', rawJsonData?.EventData?.TargetUserName);
+                    }
                 } catch (err) {
-                    // Ignore parse errors
+                    console.error('DEBUG raw_json parse error:', err, 'raw:', e.raw_json?.substring(0, 200));
                 }
+            } else if (idx === 0 && customColumns.length > 0) {
+                console.log('DEBUG: e.raw_json is empty or missing');
             }
             
             customColsHtml = customColumns.map(fieldPath => {
@@ -1243,9 +1251,14 @@ function renderEventsTable(events) {
                         value = getNestedValue(rawJsonData, innerPath);
                     }
                 } else {
-                    // Try to get value from extra_fields directly
+                    // Try to get value from extra_fields first
                     if (extraData) {
                         value = getNestedValue(extraData, fieldPath);
+                    }
+                    // Fallback: also try raw_json if not found in extra_fields
+                    // This handles columns added from "all fields" view which don't have raw_json. prefix
+                    if ((value === null || value === undefined) && rawJsonData) {
+                        value = getNestedValue(rawJsonData, fieldPath);
                     }
                 }
                 
