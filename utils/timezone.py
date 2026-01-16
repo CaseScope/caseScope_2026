@@ -207,6 +207,7 @@ UTC_SOURCE_ARTIFACTS = {
     'mft',            # MFT (FILETIME is UTC)
     'srum',           # SRUM (OLE dates as UTC)
     'activities_cache',  # Windows Timeline (FILETIME is UTC)
+    'activity_operation',  # Windows Timeline operations (FILETIME is UTC)
     'browser_history',   # Browser (WebKit/Mozilla timestamps are UTC)
     'browser_cookies',
     'browser_forms',
@@ -219,6 +220,11 @@ UTC_SOURCE_ARTIFACTS = {
     'firefox_handler',
     'huntress',       # Huntress EDR (ISO8601 UTC)
     'json_log',       # Usually UTC if ISO8601
+    'webcache',       # WebCache ESE (FILETIME is UTC)
+    'webcache_history',  # WebCache containers use FILETIME (UTC)
+    'webcache_cache',
+    'webcache_cookies',
+    'webcache_downloads',
 }
 
 # Ambiguous source artifacts (may be local time, use case TZ)
@@ -228,10 +234,6 @@ AMBIGUOUS_SOURCE_ARTIFACTS = {
     'sonicwall',      # SonicWall CSV (usually local)
     'csv_log',        # Generic CSV (unknown)
     'scheduled_task', # XML registration date (local)
-    'webcache_history',
-    'webcache_cache',
-    'webcache_cookies',
-    'webcache_downloads',
 }
 
 

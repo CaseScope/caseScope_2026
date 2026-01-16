@@ -162,6 +162,7 @@ class IISLogParser(BaseParser):
                             case_id=self.case_id,
                             artifact_type=self.artifact_type,
                             timestamp=timestamp,
+                            timestamp_source_tz=self.get_source_tz(),  # IIS uses case TZ (ambiguous source)
                             source_file=source_file,
                             source_path=file_path,
                             source_host=hostname,
@@ -312,6 +313,7 @@ class FirewallLogParser(BaseParser):
                             case_id=self.case_id,
                             artifact_type=self.artifact_type,
                             timestamp=timestamp,
+                            timestamp_source_tz=self.get_source_tz(),  # Firewall uses case TZ (ambiguous source)
                             source_file=source_file,
                             source_path=file_path,
                             source_host=event.get('host') or hostname,
@@ -1182,6 +1184,7 @@ class CSVLogParser(BaseParser):
                             case_id=self.case_id,
                             artifact_type=self.artifact_type,
                             timestamp=timestamp,
+                            timestamp_source_tz=self.get_source_tz(),  # CSV uses case TZ (ambiguous source)
                             source_file=source_file,
                             source_path=file_path,
                             source_host=hostname,
@@ -1430,6 +1433,7 @@ class SonicWallCSVParser(BaseParser):
             case_id=self.case_id,
             artifact_type=self.artifact_type,
             timestamp=timestamp,
+            timestamp_source_tz=self.get_source_tz(),  # Sonicwall uses case TZ (ambiguous source)
             source_file=source_file,
             source_path=file_path,
             source_host=hostname,

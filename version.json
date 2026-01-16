@@ -1,6 +1,16 @@
 {
-  "version": "3.97.01",
+  "version": "3.97.02",
   "changelog": [
+    {
+      "version": "3.97.02",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Parsers now properly set timestamp_source_tz for timezone conversion",
+        "Fixed: Sonicwall, IIS, Firewall, CSV parsers convert local timestamps to UTC",
+        "Fixed: WebCache artifacts moved to UTC category (uses FILETIME which is UTC)",
+        "Note: Re-index cases with ambiguous sources (Sonicwall, IIS, etc.) for correct timestamps"
+      ]
+    },
     {
       "version": "3.97.01",
       "date": "2026-01-16",
