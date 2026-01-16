@@ -1,6 +1,13 @@
 {
-  "version": "3.99.05",
+  "version": "3.99.06",
   "changelog": [
+    {
+      "version": "3.99.06",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: FailureReason column to Failed Logons preconfigured search"
+      ]
+    },
     {
       "version": "3.99.05",
       "date": "2026-01-16",
