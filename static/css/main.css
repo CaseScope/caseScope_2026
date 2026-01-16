@@ -2171,9 +2171,8 @@ tbody td {
   margin-bottom: 12px;
 }
 
-.downloads-search-bar input {
+.downloads-search-bar .search-input {
   flex: 1;
-  max-width: 500px;
 }
 
 .downloads-search-bar #downloads-filtered-count {
