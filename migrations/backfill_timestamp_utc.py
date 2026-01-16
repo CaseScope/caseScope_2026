@@ -22,6 +22,7 @@ Options:
 import os
 import sys
 import argparse
+import time
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,6 +37,26 @@ AMBIGUOUS_ARTIFACTS = [
     'csv_log',
     'scheduled_task',
 ]
+
+# UTC offset in hours to ADD to convert local time → UTC
+# For US timezones that are behind UTC, we add hours
+# For timezones ahead of UTC, we subtract (negative offset)
+TIMEZONE_OFFSETS = {
+    'UTC': 0,
+    'America/New_York': 5,      # EST: UTC-5 → add 5 hours
+    'America/Chicago': 6,        # CST: UTC-6 → add 6 hours
+    'America/Denver': 7,         # MST: UTC-7 → add 7 hours
+    'America/Los_Angeles': 8,    # PST: UTC-8 → add 8 hours
+    'America/Phoenix': 7,        # MST (no DST)
+    'America/Anchorage': 9,      # AKST: UTC-9
+    'Pacific/Honolulu': 10,      # HST: UTC-10
+    'Europe/London': 0,          # GMT: UTC+0
+    'Europe/Paris': -1,          # CET: UTC+1 → subtract 1 hour
+    'Europe/Berlin': -1,
+    'Asia/Tokyo': -9,            # JST: UTC+9 → subtract 9 hours
+    'Asia/Shanghai': -8,         # CST: UTC+8
+    'Australia/Sydney': -11,     # AEDT: UTC+11
+}
 
 
 def get_clickhouse_client():
@@ -61,6 +82,22 @@ def get_cases_with_timezone():
         return {c.id: c.timezone or 'UTC' for c in cases}
 
 
+def wait_for_mutation(client, timeout_seconds=60):
+    """Wait for the latest mutation to complete"""
+    for _ in range(timeout_seconds):
+        time.sleep(1)
+        result = client.query('''
+            SELECT is_done, parts_to_do
+            FROM system.mutations
+            WHERE table = 'events'
+            ORDER BY create_time DESC
+            LIMIT 1
+        ''')
+        if result.result_rows and result.result_rows[0][0]:
+            return True
+    return False
+
+
 def backfill_case(client, case_id: int, case_tz: str, dry_run: bool = False):
     """Backfill timestamp_utc for a single case
     
@@ -81,7 +118,6 @@ def backfill_case(client, case_id: int, case_tz: str, dry_run: bool = False):
         SELECT count() FROM events 
         WHERE case_id = {{case_id:UInt32}}
         AND artifact_type IN ('{artifact_list}')
-        AND timestamp_source_tz = 'UTC'
     """
     
     result = client.query(count_query, parameters={'case_id': case_id})
@@ -90,45 +126,42 @@ def backfill_case(client, case_id: int, case_tz: str, dry_run: bool = False):
     if count == 0:
         return 0
     
-    print(f"  Case {case_id} ({case_tz}): {count} events to update")
+    # Get UTC offset for this timezone
+    offset_hours = TIMEZONE_OFFSETS.get(case_tz, 0)
+    
+    print(f"  Case {case_id} ({case_tz}, offset {'+' if offset_hours >= 0 else ''}{offset_hours}h): {count} events")
     
     if dry_run:
         return count
     
-    # ClickHouse timezone conversion:
-    # toDateTime(timestamp, 'source_tz') interprets timestamp as being in source_tz
-    # then convert to UTC by removing timezone
-    # 
-    # For a timestamp that's actually in EST (stored as if UTC):
-    # We need to "subtract" the EST offset to get true UTC
-    # This is: toTimezone(timestamp, 'UTC') after treating it as case_tz
-    
-    # The trick: assume timestamp is in case_tz, convert to UTC
-    # parseDateTimeBestEffort won't work here, we need direct conversion
-    #
-    # ClickHouse approach:
-    # 1. Treat timestamp as if it's in case_tz: toDateTime(timestamp, case_tz)
-    # 2. Convert to UTC: toTimezone(..., 'UTC')
-    # 3. Store as DateTime64(3) without timezone
-    
-    update_query = f"""
-        ALTER TABLE events UPDATE 
-            timestamp_utc = toDateTime64(
-                toTimezone(
-                    toDateTime(timestamp, '{case_tz}'),
-                    'UTC'
-                ),
-                3
-            ),
-            timestamp_source_tz = '{case_tz}'
-        WHERE case_id = {{case_id:UInt32}}
-        AND artifact_type IN ('{artifact_list}')
-        AND timestamp_source_tz = 'UTC'
-    """
+    if offset_hours == 0:
+        # Timezone is UTC or unknown, just mark timestamp_source_tz
+        update_query = f"""
+            ALTER TABLE events UPDATE 
+                timestamp_source_tz = '{case_tz}'
+            WHERE case_id = {{case_id:UInt32}}
+            AND artifact_type IN ('{artifact_list}')
+        """
+    else:
+        # Use addHours to convert local time to UTC
+        # For EST (UTC-5): local 09:36 + 5 hours = 14:36 UTC
+        update_query = f"""
+            ALTER TABLE events UPDATE 
+                timestamp_utc = addHours(timestamp, {offset_hours}),
+                timestamp_source_tz = '{case_tz}'
+            WHERE case_id = {{case_id:UInt32}}
+            AND artifact_type IN ('{artifact_list}')
+        """
     
     try:
         client.command(update_query, parameters={'case_id': case_id})
-        print(f"    ✓ Updated {count} events")
+        
+        # Wait for mutation to complete
+        if wait_for_mutation(client):
+            print(f"    ✓ Updated {count} events")
+        else:
+            print(f"    ⚠ Update submitted (mutation may still be running)")
+        
         return count
     except Exception as e:
         print(f"    ✗ Error updating case {case_id}: {e}")
@@ -183,6 +216,9 @@ def main():
     else:
         print(f"Backfill complete: {total_updated} events updated")
     print("=" * 60)
+    print()
+    print("Note: DST is not handled. For events during DST, timestamps")
+    print("may be off by 1 hour. Re-indexing provides full DST support.")
 
 
 if __name__ == '__main__':

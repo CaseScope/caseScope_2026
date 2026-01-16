@@ -1,6 +1,15 @@
 {
-  "version": "3.97.02",
+  "version": "3.97.03",
   "changelog": [
+    {
+      "version": "3.97.03",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Backfill script now uses addHours() for reliable UTC conversion",
+        "Fixed: Verified all parsers correctly handle UTC vs ambiguous sources",
+        "Added: Backfill script supports common timezone offsets for local→UTC conversion"
+      ]
+    },
     {
       "version": "3.97.02",
       "date": "2026-01-16",
