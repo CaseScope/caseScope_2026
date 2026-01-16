@@ -1,6 +1,15 @@
 {
-  "version": "3.98.00",
+  "version": "3.98.01",
   "changelog": [
+    {
+      "version": "3.98.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: UTC source artifacts (EVTX, Prefetch, etc.) now correctly load raw event details",
+        "Fixed: Raw event lookup and analyst tagging now query timestamp_utc for accurate matching",
+        "Fixed: Frontend uses raw UTC timestamp for event lookups instead of display-formatted timestamp"
+      ]
+    },
     {
       "version": "3.98.00",
       "date": "2026-01-16",

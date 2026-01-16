@@ -1120,14 +1120,14 @@ function toggleAnalystTag(index, isTagged) {
         }
     }
     
-    // Send to API
+    // Send to API - use timestamp_utc_raw for accurate UTC lookup
     fetch(`/api/hunting/event/tag/${caseId}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            timestamp: event.timestamp,
+            timestamp: event.timestamp_utc_raw || event.timestamp,
             source_host: event.source_host,
             source_file: event.source_file,
             record_id: event.record_id,
@@ -1202,7 +1202,7 @@ function updateModalAnalystTag() {
         }
     }
     
-    // Debounce API call
+    // Debounce API call - use timestamp_utc_raw for accurate UTC lookup
     clearTimeout(window._analystTagDebounce);
     window._analystTagDebounce = setTimeout(() => {
         fetch(`/api/hunting/event/tag/${caseId}`, {
@@ -1211,7 +1211,7 @@ function updateModalAnalystTag() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                timestamp: currentModalEvent.timestamp,
+                timestamp: currentModalEvent.timestamp_utc_raw || currentModalEvent.timestamp,
                 source_host: currentModalEvent.source_host,
                 source_file: currentModalEvent.source_file,
                 record_id: currentModalEvent.record_id,
@@ -1534,12 +1534,13 @@ function switchEventModalTab(tabId) {
 function loadRawEventData() {
     if (!currentModalEvent) return;
     
-    // Use timestamp, source_host, and record_id to identify the event
+    // Use timestamp_utc_raw (raw UTC timestamp) for lookups - this is the actual UTC value stored in DB
+    // Falls back to display timestamp for backwards compatibility
     // Handle record_id carefully - it might be 0, null, or a valid number
     const recordId = currentModalEvent.record_id != null ? String(currentModalEvent.record_id) : '';
     
     const params = new URLSearchParams({
-        timestamp: currentModalEvent.timestamp,
+        timestamp: currentModalEvent.timestamp_utc_raw || currentModalEvent.timestamp,
         source_host: currentModalEvent.source_host || '',
         record_id: recordId,
         artifact_type: currentModalEvent.artifact_type || '',

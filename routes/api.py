@@ -1871,6 +1871,8 @@ def get_hunting_events(case_id):
             events.append({
                 # Display fields (for table) - convert UTC to case timezone
                 'timestamp': format_for_display(display_ts, case_tz) if display_ts else '-',
+                # Raw UTC timestamp for lookups (ISO format) - used by raw event fetch
+                'timestamp_utc_raw': display_ts.strftime('%Y-%m-%d %H:%M:%S') if display_ts else '',
                 'artifact_type': artifact_type or '-',
                 'source_host': source_host or '-',
                 'description': description,
@@ -2004,14 +2006,16 @@ def get_raw_event_data(case_id):
         
         # Parse timestamp - use a 2-second window to handle sub-second precision
         # ClickHouse stores DateTime64 with microseconds, we only have seconds
+        # Query against timestamp_utc (normalized UTC) since that's what frontend uses for display
         try:
             ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
-            # Make timezone-aware (UTC)
+            # Make timezone-aware (UTC) - the timestamp should be in UTC already
             ts = ts.replace(tzinfo=timezone.utc)
             ts_end = ts + timedelta(seconds=2)
             params['ts_start'] = ts
             params['ts_end'] = ts_end
-            conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
+            # Use COALESCE to handle events where timestamp_utc might be NULL (pre-migration)
+            conditions.append("COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}")
         except ValueError:
             return jsonify({'success': False, 'error': 'Invalid timestamp format'}), 400
         
@@ -2184,7 +2188,8 @@ def update_analyst_tag(case_id):
                 ts_end = ts + timedelta(seconds=2)
                 params['ts_start'] = ts
                 params['ts_end'] = ts_end
-                conditions.append("timestamp >= {ts_start:DateTime64} AND timestamp < {ts_end:DateTime64}")
+                # Use COALESCE to handle events where timestamp_utc might be NULL (pre-migration)
+                conditions.append("COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}")
                 
                 # Need additional fields to narrow down when using timestamp
                 if source_host and source_host != '-':
