@@ -2370,6 +2370,279 @@ def export_tagged_events(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/hunting/events/export-view/<int:case_id>')
+@login_required
+def export_view_events(case_id):
+    """Export all events matching current view filters with full data (no truncation)
+    
+    Accepts the same filter parameters as get_hunting_events but exports ALL matching
+    events (no pagination limit) with all fields intact.
+    """
+    try:
+        from utils.clickhouse import get_client
+        from utils.timezone import to_utc
+        import re
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        case_tz = case.timezone or 'UTC'
+        client = get_client()
+        
+        # Get all filter parameters (same as get_hunting_events)
+        search = request.args.get('search', '', type=str).strip()
+        artifact_types = request.args.get('types', '', type=str).strip()
+        alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
+        sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
+        ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
+        analyst_filter_param = request.args.get('analyst_filter', '', type=str).strip()
+        severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
+        show_noise = request.args.get('show_noise', 'false', type=str).strip().lower() == 'true'
+        time_range = request.args.get('time_range', 'none', type=str).strip()
+        time_start = request.args.get('time_start', '', type=str).strip()
+        time_end = request.args.get('time_end', '', type=str).strip()
+        
+        # Build artifact type filter
+        type_filter = ""
+        if artifact_types:
+            types_list = [t.strip() for t in artifact_types.split(',') if t.strip()]
+            if types_list:
+                quoted_types = "', '".join(types_list)
+                type_filter = f" AND artifact_type IN ('{quoted_types}')"
+        
+        # Build alert type filters
+        sigma_filter = ""
+        ioc_filter = ""
+        analyst_filter = ""
+        alert_type_filter = ""
+        
+        if alert_mode == 'only':
+            or_conditions = []
+            if sigma_filter_param == 'only':
+                or_conditions.append("(rule_level IS NOT NULL AND rule_level != '')")
+            if ioc_filter_param == 'only':
+                or_conditions.append("(length(ioc_types) > 0)")
+            if analyst_filter_param == 'only':
+                or_conditions.append("(analyst_tagged = true)")
+            if or_conditions:
+                alert_type_filter = f" AND ({' OR '.join(or_conditions)})"
+            else:
+                alert_type_filter = " AND 1=0"
+        else:
+            if sigma_filter_param == 'exclude':
+                sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
+            if ioc_filter_param == 'exclude':
+                ioc_filter = " AND length(ioc_types) = 0"
+            if analyst_filter_param == 'exclude':
+                analyst_filter = " AND analyst_tagged = false"
+        
+        # Build severity level filter
+        severity_filter = ""
+        if severity_levels_param:
+            levels_list = [l.strip().lower() for l in severity_levels_param.split(',') if l.strip()]
+            if levels_list:
+                quoted_levels = "', '".join(levels_list)
+                severity_filter = f" AND (rule_level IS NULL OR rule_level = '' OR lower(rule_level) IN ('{quoted_levels}'))"
+        
+        # Build noise filter
+        noise_filter = ""
+        if not show_noise:
+            noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        
+        # Build time range filter
+        time_filter = ""
+        if time_range and time_range != 'none':
+            from datetime import timedelta
+            
+            if time_range in ('1d', '3d', '7d', '30d'):
+                max_ts_query = "SELECT max(timestamp_utc) FROM events WHERE case_id = {case_id:UInt32}"
+                max_ts_result = client.query(max_ts_query, parameters={'case_id': case_id})
+                max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
+                
+                if max_timestamp:
+                    days_map = {'1d': 1, '3d': 3, '7d': 7, '30d': 30}
+                    days = days_map.get(time_range, 1)
+                    start_utc = max_timestamp - timedelta(days=days)
+                    time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+            elif time_range == 'custom' and time_start and time_end:
+                try:
+                    start_local = datetime.strptime(time_start, '%Y-%m-%dT%H:%M')
+                    end_local = datetime.strptime(time_end, '%Y-%m-%dT%H:%M')
+                    start_utc = to_utc(start_local, case_tz)
+                    end_utc = to_utc(end_local, case_tz)
+                    time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}' AND timestamp_utc <= '{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+                except (ValueError, Exception) as e:
+                    logger.warning(f"Invalid time range format: {e}")
+        
+        params = {'case_id': case_id}
+        
+        # Build search filter (same logic as get_hunting_events)
+        search_clause = ""
+        if search:
+            exclude_pattern = re.compile(r'-"([^"]+)"|-([^\s|()]+)')
+            
+            def parse_term(term, prefix):
+                conditions = []
+                if term.startswith('-'):
+                    excl_match = exclude_pattern.match(term)
+                    if excl_match:
+                        excl_term = excl_match.group(1) or excl_match.group(2)
+                        if excl_term:
+                            param_name = f'{prefix}_excl'
+                            params[param_name] = f'%{excl_term}%'
+                            return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
+                    return ([], False)
+                
+                if '|' in term:
+                    or_parts = [p.strip() for p in term.split('|') if p.strip()]
+                    if or_parts:
+                        or_conds = []
+                        for k, part in enumerate(or_parts):
+                            or_param = f'{prefix}_or{k}'
+                            if part.isdigit():
+                                params[or_param] = part
+                                or_conds.append(f"event_id = {{{or_param}:String}}")
+                            else:
+                                params[or_param] = f'%{part}%'
+                                or_conds.append(f"search_blob ilike {{{or_param}:String}}")
+                        if or_conds:
+                            conditions.append(f"({' OR '.join(or_conds)})")
+                elif term.isdigit():
+                    param_name = f'{prefix}_id'
+                    params[param_name] = term
+                    conditions.append(f"event_id = {{{param_name}:String}}")
+                else:
+                    param_name = f'{prefix}_txt'
+                    params[param_name] = f'%{term}%'
+                    conditions.append(f"search_blob ilike {{{param_name}:String}}")
+                
+                return (conditions, False)
+            
+            def parse_group(group_str, prefix):
+                positive_conds = []
+                exclusion_conds = []
+                token_pattern = re.compile(r'-"[^"]+"|-[^\s|()]+|"[^"]+"|[^\s()]+')
+                tokens = token_pattern.findall(group_str)
+                
+                for j, token in enumerate(tokens):
+                    if token == '|':
+                        continue
+                    if token.startswith('"') and token.endswith('"'):
+                        token = token[1:-1]
+                    term_conds, is_exclusion = parse_term(token, f'{prefix}_{j}')
+                    if is_exclusion:
+                        exclusion_conds.extend(term_conds)
+                    else:
+                        positive_conds.extend(term_conds)
+                
+                return (positive_conds, exclusion_conds)
+            
+            def build_group_sql(positive_conds, exclusion_conds):
+                all_conds = positive_conds + exclusion_conds
+                if all_conds:
+                    return f"({' AND '.join(all_conds)})"
+                return None
+            
+            paren_pattern = re.compile(r'\(([^)]+)\)')
+            paren_groups = paren_pattern.findall(search)
+            outside_content = paren_pattern.sub(' ', search).strip()
+            
+            global_positive = []
+            global_exclusions = []
+            if outside_content:
+                outside_clean = re.sub(r'\s*\|\s*', ' ', outside_content).strip()
+                if outside_clean:
+                    gp, ge = parse_group(outside_clean, 'global')
+                    global_positive = gp
+                    global_exclusions = ge
+            
+            search_conditions = []
+            
+            if paren_groups:
+                has_group_or = bool(re.search(r'\)\s*\|\s*\(', search))
+                group_sqls = []
+                for i, group_content in enumerate(paren_groups):
+                    pos_conds, excl_conds = parse_group(group_content.strip(), f'g{i}')
+                    group_sql = build_group_sql(pos_conds, excl_conds)
+                    if group_sql:
+                        group_sqls.append(group_sql)
+                
+                if group_sqls:
+                    if has_group_or or len(group_sqls) > 1:
+                        search_conditions.append(f"({' OR '.join(group_sqls)})")
+                    else:
+                        search_conditions.append(group_sqls[0])
+                
+                search_conditions.extend(global_positive)
+                search_conditions.extend(global_exclusions)
+            else:
+                pos_conds, excl_conds = parse_group(search, 'simple')
+                search_conditions.extend(pos_conds)
+                search_conditions.extend(excl_conds)
+            
+            if search_conditions:
+                search_filter = " AND ".join(search_conditions)
+                search_clause = f" AND {search_filter}"
+        
+        # Query all matching events with ALL columns
+        query = f"""
+            SELECT *
+            FROM events
+            WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
+            ORDER BY timestamp DESC
+        """
+        
+        result = client.query(query, parameters=params)
+        
+        events = []
+        column_names = result.column_names
+        
+        for row in result.result_rows:
+            event_data = {}
+            for i, col_name in enumerate(column_names):
+                value = row[i]
+                
+                # Convert special types to JSON-serializable format
+                if value is None:
+                    event_data[col_name] = None
+                elif hasattr(value, 'isoformat'):
+                    event_data[col_name] = value.isoformat()
+                elif isinstance(value, (list, tuple)):
+                    event_data[col_name] = [str(v) if hasattr(v, 'packed') else v for v in value]
+                elif isinstance(value, bytes):
+                    event_data[col_name] = value.decode('utf-8', errors='replace')
+                elif hasattr(value, 'packed'):
+                    event_data[col_name] = str(value)
+                elif col_name == 'raw_json' and value:
+                    try:
+                        event_data[col_name] = json.loads(value) if isinstance(value, str) else value
+                    except json.JSONDecodeError:
+                        event_data[col_name] = value
+                elif col_name == 'extra_fields' and value:
+                    try:
+                        event_data[col_name] = json.loads(value) if isinstance(value, str) else value
+                    except json.JSONDecodeError:
+                        event_data[col_name] = value
+                else:
+                    event_data[col_name] = value
+            
+            events.append(event_data)
+        
+        return jsonify({
+            'success': True,
+            'case_id': case_id,
+            'case_name': case.name,
+            'export_timestamp': datetime.utcnow().isoformat(),
+            'total_count': len(events),
+            'events': events
+        })
+        
+    except Exception as e:
+        logger.error(f"Error exporting view events: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Process Tree API Endpoints
 # ============================================

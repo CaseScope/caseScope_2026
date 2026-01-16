@@ -4701,13 +4701,15 @@ tbody td {
   margin-right: 12px;
 }
 
-.btn-export-tagged {
+.btn-export-tagged,
+.btn-export-view {
   font-size: 12px;
   padding: 6px 12px;
   margin-right: 8px;
 }
 
-.btn-export-tagged:disabled {
+.btn-export-tagged:disabled,
+.btn-export-view:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

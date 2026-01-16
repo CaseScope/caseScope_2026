@@ -1,6 +1,15 @@
 {
-  "version": "3.100.01",
+  "version": "3.101.00",
   "changelog": [
+    {
+      "version": "3.101.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Feature: Export View button on Hunting Events page",
+        "Added: Export all events matching current view filters (all pages, all fields, no truncation)",
+        "Added: Exports respect search, artifact type, alert type, severity, noise, and time filters"
+      ]
+    },
     {
       "version": "3.100.01",
       "date": "2026-01-16",

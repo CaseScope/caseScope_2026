@@ -255,6 +255,9 @@
             <button class="btn btn-secondary btn-sm btn-export-tagged" id="btn-export-tagged" onclick="exportTaggedEvents()" title="Export all analyst-tagged events to JSON">
                 Export Tagged
             </button>
+            <button class="btn btn-secondary btn-sm btn-export-view" id="btn-export-view" onclick="exportViewEvents()" title="Export all events in current view (all pages, all fields, no truncation)">
+                Export View
+            </button>
             <span class="events-count" id="events-count">Loading...</span>
             <select class="page-size-select" id="events-page-size" onchange="changeEventsPageSize()">
                 <option value="50" selected>50 per page</option>
