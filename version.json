@@ -1,6 +1,14 @@
 {
-  "version": "3.94.04",
+  "version": "3.95.00",
   "changelog": [
+    {
+      "version": "3.95.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Downloaded Files modal - IOC filename matching with bold red highlighting",
+        "Added: Downloaded Files modal - Search filter by hostname, username, filename, or URL"
+      ]
+    },
     {
       "version": "3.94.04",
       "date": "2026-01-16",

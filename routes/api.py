@@ -5037,13 +5037,25 @@ def get_browser_downloads(case_id):
     Excludes web cache entries and browsing history.
     
     Returns: timestamp, source_host (user/machine), filename, file path, source URL
+    Also returns list of IOC filenames for highlighting.
     """
     try:
         from utils.clickhouse import get_client
+        from models.ioc import IOC
         
         case = Case.query.get(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get filename IOCs for this case to highlight malicious downloads
+        ioc_filenames = set()
+        filename_iocs = IOC.query.filter_by(case_id=case_id, ioc_type='File Name').all()
+        for ioc in filename_iocs:
+            ioc_filenames.add(ioc.value.lower())
+            # Also add aliases
+            if ioc.aliases:
+                for alias in ioc.aliases:
+                    ioc_filenames.add(alias.lower())
         
         client = get_client()
         
@@ -5129,6 +5141,9 @@ def get_browser_downloads(case_id):
             if not display_username and case_file_id:
                 display_username = case_file_usernames.get(case_file_id, '')
             
+            # Check if filename matches an IOC
+            is_ioc_match = filename.lower() in ioc_filenames if filename else False
+            
             downloads.append({
                 'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
                 'source_host': source_host or '',
@@ -5136,14 +5151,16 @@ def get_browser_downloads(case_id):
                 'filename': filename or '(unknown)',
                 'file_path': file_path or '',
                 'source_url': source_url or '',
-                'source_file': source_file or ''
+                'source_file': source_file or '',
+                'is_ioc': is_ioc_match
             })
         
         return jsonify({
             'success': True,
             'case_id': case_id,
             'downloads': downloads,
-            'total': len(downloads)
+            'total': len(downloads),
+            'ioc_filenames': list(ioc_filenames)
         })
         
     except Exception as e:

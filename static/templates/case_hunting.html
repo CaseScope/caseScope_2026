@@ -137,8 +137,17 @@
                 No download events found in browser artifacts.
             </div>
             <div id="downloads-content" style="display: none;">
-                <div class="downloads-summary" style="margin-bottom: 1rem;">
+                <div class="downloads-search-bar">
+                    <input type="text" id="downloads-search" class="form-control" 
+                           placeholder="Search by hostname, username, filename, or URL..." 
+                           oninput="filterDownloads()">
+                    <span id="downloads-filtered-count"></span>
+                </div>
+                <div class="downloads-summary">
                     <span id="downloads-count">0</span> downloads found
+                    <span class="downloads-legend">
+                        <span class="ioc-indicator"></span> = IOC match
+                    </span>
                 </div>
                 <div class="table-responsive">
                     <table class="events-table" id="downloads-table">
@@ -262,11 +271,17 @@ function renderTabQuickButtons(tabName) {
 // Browser Downloads Modal
 // ============================================
 
+let allDownloadsData = []; // Store all downloads for filtering
+
 function showBrowserDownloads() {
     const modal = document.getElementById('browser-downloads-modal');
     const loading = document.getElementById('downloads-loading');
     const empty = document.getElementById('downloads-empty');
     const content = document.getElementById('downloads-content');
+    const searchInput = document.getElementById('downloads-search');
+    
+    // Reset search
+    if (searchInput) searchInput.value = '';
     
     // Show modal with loading state
     modal.style.display = 'flex';
@@ -291,20 +306,14 @@ function showBrowserDownloads() {
                 return;
             }
             
-            // Populate table
-            const tbody = document.getElementById('downloads-tbody');
-            tbody.innerHTML = data.downloads.map(dl => `
-                <tr>
-                    <td class="col-timestamp">${escapeHtml(dl.timestamp)}</td>
-                    <td>${escapeHtml(dl.source_host)}</td>
-                    <td>${escapeHtml(dl.username)}</td>
-                    <td title="${escapeHtml(dl.filename)}">${escapeHtml(truncateText(dl.filename, 40))}</td>
-                    <td title="${escapeHtml(dl.file_path)}">${escapeHtml(truncateText(dl.file_path, 50))}</td>
-                    <td title="${escapeHtml(dl.source_url)}">${escapeHtml(truncateText(dl.source_url, 60))}</td>
-                </tr>
-            `).join('');
+            // Store downloads for filtering
+            allDownloadsData = data.downloads;
+            
+            // Render all downloads
+            renderDownloadsTable(allDownloadsData);
             
             document.getElementById('downloads-count').textContent = data.total;
+            document.getElementById('downloads-filtered-count').textContent = '';
             content.style.display = 'block';
         })
         .catch(error => {
@@ -312,6 +321,51 @@ function showBrowserDownloads() {
             empty.textContent = 'Error loading downloads: ' + error.message;
             empty.style.display = 'block';
         });
+}
+
+function renderDownloadsTable(downloads) {
+    const tbody = document.getElementById('downloads-tbody');
+    tbody.innerHTML = downloads.map(dl => {
+        const iocClass = dl.is_ioc ? 'ioc-match' : '';
+        const filenameHtml = dl.is_ioc 
+            ? `<strong class="ioc-filename">${escapeHtml(truncateText(dl.filename, 40))}</strong>`
+            : escapeHtml(truncateText(dl.filename, 40));
+        return `
+            <tr class="${iocClass}">
+                <td class="col-timestamp">${escapeHtml(dl.timestamp)}</td>
+                <td>${escapeHtml(dl.source_host)}</td>
+                <td>${escapeHtml(dl.username)}</td>
+                <td title="${escapeHtml(dl.filename)}">${filenameHtml}</td>
+                <td title="${escapeHtml(dl.file_path)}">${escapeHtml(truncateText(dl.file_path, 50))}</td>
+                <td title="${escapeHtml(dl.source_url)}">${escapeHtml(truncateText(dl.source_url, 60))}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function filterDownloads() {
+    const searchInput = document.getElementById('downloads-search');
+    const query = (searchInput.value || '').toLowerCase().trim();
+    
+    if (!query) {
+        // Show all downloads
+        renderDownloadsTable(allDownloadsData);
+        document.getElementById('downloads-filtered-count').textContent = '';
+        return;
+    }
+    
+    // Filter downloads by hostname, username, filename, or URL
+    const filtered = allDownloadsData.filter(dl => {
+        return (dl.source_host && dl.source_host.toLowerCase().includes(query)) ||
+               (dl.username && dl.username.toLowerCase().includes(query)) ||
+               (dl.filename && dl.filename.toLowerCase().includes(query)) ||
+               (dl.file_path && dl.file_path.toLowerCase().includes(query)) ||
+               (dl.source_url && dl.source_url.toLowerCase().includes(query));
+    });
+    
+    renderDownloadsTable(filtered);
+    document.getElementById('downloads-filtered-count').textContent = 
+        `(showing ${filtered.length} of ${allDownloadsData.length})`;
 }
 
 function closeBrowserDownloadsModal(event) {

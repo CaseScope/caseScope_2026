@@ -2164,11 +2164,61 @@ tbody td {
   cursor: help;
 }
 
+.downloads-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.downloads-search-bar input {
+  flex: 1;
+  max-width: 500px;
+}
+
+.downloads-search-bar #downloads-filtered-count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .downloads-summary {
   font-size: 14px;
   color: var(--text-secondary);
   padding: 8px 0;
   border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.downloads-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.downloads-legend .ioc-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: var(--danger);
+  border-radius: 2px;
+}
+
+/* IOC filename highlighting */
+.ioc-filename {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+#downloads-table tr.ioc-match {
+  background-color: rgba(220, 53, 69, 0.1);
+}
+
+#downloads-table tr.ioc-match:hover {
+  background-color: rgba(220, 53, 69, 0.15);
 }
 
 /* ========================================
