@@ -1,6 +1,13 @@
 {
-  "version": "3.96.02",
+  "version": "3.97.00",
   "changelog": [
+    {
+      "version": "3.97.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Changed: Case Statistics layout to horizontal flow grid format (matching Artifacts by Type style)"
+      ]
+    },
     {
       "version": "3.96.02",
       "date": "2026-01-16",
