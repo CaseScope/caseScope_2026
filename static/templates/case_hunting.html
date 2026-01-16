@@ -409,13 +409,13 @@ const preconfiguredSearches = {
         'Windows Logons': [
             { 
                 label: 'Allowed Logons', 
-                search: '"EventID 4624" Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
-                columns: ['raw_json.Event.EventData.TargetUserName', 'raw_json.Event.EventData.LogonType']
+                search: '4624 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType']
             },
             { 
                 label: 'Failed Logons', 
-                search: '"EventID 4625" Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
-                columns: ['raw_json.Event.EventData.TargetUserName', 'raw_json.Event.EventData.LogonType']
+                search: '4625 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType']
             }
         ]
     },
