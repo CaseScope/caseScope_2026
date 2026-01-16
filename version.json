@@ -1,6 +1,16 @@
 {
-  "version": "3.97.04",
+  "version": "3.98.00",
   "changelog": [
+    {
+      "version": "3.98.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Feature: Elastic columns - add custom columns to hunting tables from raw data fields",
+        "Feature: Click + button next to any field in Raw Data tab to add it as a table column",
+        "Feature: Custom columns persist per case/tab in localStorage",
+        "Feature: Remove custom columns via × button in column header"
+      ]
+    },
     {
       "version": "3.97.04",
       "date": "2026-01-16",

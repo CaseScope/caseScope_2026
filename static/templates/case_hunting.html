@@ -218,6 +218,168 @@ const EDR_TYPES = ['huntress'];
 let currentTab = 'events';
 
 // ============================================
+// Custom Column Management (Elastic Columns)
+// ============================================
+const CUSTOM_COLUMNS_KEY = 'casescope_custom_columns';
+
+// Get custom columns for the current case and tab
+function getCustomColumns() {
+    try {
+        const stored = localStorage.getItem(`${CUSTOM_COLUMNS_KEY}_${caseId}`);
+        if (stored) {
+            const data = JSON.parse(stored);
+            return data[currentTab] || [];
+        }
+    } catch (e) {
+        console.error('Error reading custom columns:', e);
+    }
+    return [];
+}
+
+// Save custom columns for the current case and tab
+function saveCustomColumns(columns) {
+    try {
+        const key = `${CUSTOM_COLUMNS_KEY}_${caseId}`;
+        let data = {};
+        const stored = localStorage.getItem(key);
+        if (stored) {
+            data = JSON.parse(stored);
+        }
+        data[currentTab] = columns;
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+        console.error('Error saving custom columns:', e);
+    }
+}
+
+// Check if a field path is already an active custom column
+function isCustomColumnActive(fieldPath) {
+    const columns = getCustomColumns();
+    return columns.includes(fieldPath);
+}
+
+// Add a custom column from the raw data view
+function addCustomColumn(fieldPath, event) {
+    if (event) event.stopPropagation();
+    
+    const columns = getCustomColumns();
+    if (!columns.includes(fieldPath)) {
+        columns.push(fieldPath);
+        saveCustomColumns(columns);
+        
+        // Refresh the table to show new column
+        updateTableHeader();
+        renderEventsTable(currentEventsData);
+        
+        // Update the raw data view to show checkmark instead of +
+        const rawDataTree = document.getElementById('raw-data-tree');
+        if (rawDataTree && window._rawDataForCopy) {
+            renderRawDataTree(window._rawDataAllFields || window._rawDataOriginal || window._rawDataForCopy);
+        }
+        
+        showToast(`Column "${getColumnLabel(fieldPath)}" added`);
+    }
+}
+
+// Remove a custom column
+function removeCustomColumn(fieldPath, event) {
+    if (event) event.stopPropagation();
+    
+    let columns = getCustomColumns();
+    columns = columns.filter(c => c !== fieldPath);
+    saveCustomColumns(columns);
+    
+    // Refresh the table
+    updateTableHeader();
+    renderEventsTable(currentEventsData);
+    
+    // Update the raw data view if open
+    const rawDataTree = document.getElementById('raw-data-tree');
+    if (rawDataTree && window._rawDataForCopy) {
+        renderRawDataTree(window._rawDataAllFields || window._rawDataOriginal || window._rawDataForCopy);
+    }
+    
+    showToast(`Column "${getColumnLabel(fieldPath)}" removed`);
+}
+
+// Get a short display label for a field path
+function getColumnLabel(fieldPath) {
+    // Get last segment of the path for display
+    const parts = fieldPath.split('.');
+    return parts[parts.length - 1];
+}
+
+// Get nested value from object using dot notation path
+function getNestedValue(obj, path) {
+    if (!obj || !path) return null;
+    
+    // Handle array notation like path[0].field
+    const normalizedPath = path.replace(/\[(\d+)\]/g, '.$1');
+    const parts = normalizedPath.split('.');
+    
+    let current = obj;
+    for (const part of parts) {
+        if (current === null || current === undefined) return null;
+        current = current[part];
+    }
+    return current;
+}
+
+// Update table header to include custom columns
+function updateTableHeader() {
+    const thead = document.querySelector('#events-table thead tr');
+    if (!thead) return;
+    
+    // Remove existing custom column headers
+    thead.querySelectorAll('.custom-column-header').forEach(th => th.remove());
+    
+    // Get custom columns for current tab
+    const columns = getCustomColumns();
+    
+    // Find the severity column (last static column) to insert before
+    const severityCol = thead.querySelector('.col-severity');
+    
+    // Add custom column headers
+    columns.forEach(fieldPath => {
+        const th = document.createElement('th');
+        th.className = 'col-custom custom-column-header';
+        th.title = fieldPath;
+        th.innerHTML = `
+            <span class="custom-col-label">${escapeHtml(getColumnLabel(fieldPath))}</span>
+            <button class="btn-remove-column" onclick="removeCustomColumn('${escapeHtml(fieldPath)}', event)" title="Remove column">×</button>
+        `;
+        thead.insertBefore(th, severityCol);
+    });
+    
+    // Update colspan for loading/empty rows
+    const totalCols = 7 + columns.length;
+    document.querySelectorAll('#events-tbody td[colspan]').forEach(td => {
+        td.setAttribute('colspan', totalCols);
+    });
+}
+
+// Simple toast notification
+function showToast(message) {
+    // Remove existing toast
+    const existing = document.querySelector('.custom-col-toast');
+    if (existing) existing.remove();
+    
+    const toast = document.createElement('div');
+    toast.className = 'custom-col-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    // Animate in
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // Remove after delay
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
+// ============================================
 // Tab-Specific Quick Search Buttons
 // ============================================
 const tabQuickButtons = {
@@ -761,10 +923,17 @@ function renderEventsTable(events) {
     // Store events data for modal access
     currentEventsData = events;
     
+    // Update table header with custom columns
+    updateTableHeader();
+    
+    // Get custom columns for this tab
+    const customColumns = getCustomColumns();
+    const totalCols = 7 + customColumns.length;
+    
     if (events.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="${totalCols}" class="text-center text-muted" style="padding: 40px;">
                     ${eventsSearch ? 'No events match your search' : 'No events found for this category.'}
                 </td>
             </tr>
@@ -809,6 +978,55 @@ function renderEventsTable(events) {
             }
         }
         
+        // Build custom column cells
+        let customColsHtml = '';
+        if (customColumns.length > 0) {
+            // Parse extra_fields if it's a string
+            let extraData = null;
+            if (e.extra_fields) {
+                try {
+                    extraData = typeof e.extra_fields === 'string' ? JSON.parse(e.extra_fields) : e.extra_fields;
+                } catch (err) {
+                    // Ignore parse errors
+                }
+            }
+            
+            customColsHtml = customColumns.map(fieldPath => {
+                let value = null;
+                
+                // Try to get value from extra_fields first
+                if (extraData) {
+                    value = getNestedValue(extraData, fieldPath);
+                }
+                
+                // If not found and we have raw_json in extra_fields, try there
+                if (value === null && extraData?.raw_json) {
+                    try {
+                        const rawJson = typeof extraData.raw_json === 'string' ? JSON.parse(extraData.raw_json) : extraData.raw_json;
+                        value = getNestedValue(rawJson, fieldPath);
+                    } catch (err) {
+                        // Ignore
+                    }
+                }
+                
+                // Format the display value
+                let displayValue = '-';
+                if (value !== null && value !== undefined) {
+                    if (typeof value === 'object') {
+                        displayValue = JSON.stringify(value);
+                    } else {
+                        displayValue = String(value);
+                    }
+                    // Truncate long values
+                    if (displayValue.length > 50) {
+                        displayValue = displayValue.substring(0, 47) + '...';
+                    }
+                }
+                
+                return `<td class="col-custom" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(String(value || ''))}">${escapeHtml(displayValue)}</td>`;
+            }).join('');
+        }
+        
         return `
             <tr class="${rowClass}" data-index="${index}">
                 <td class="col-tag" onclick="event.stopPropagation();">
@@ -822,6 +1040,7 @@ function renderEventsTable(events) {
                 <td class="col-hostname" onclick="showEventDetail(${index})" style="cursor: pointer;">${e.source_host || '-'}</td>
                 <td class="col-event-id" onclick="showEventDetail(${index})" style="cursor: pointer;">${eventId}</td>
                 <td class="col-description" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(e.description)}">${descHtml}</td>
+                ${customColsHtml}
                 <td class="col-severity" onclick="showEventDetail(${index})" style="cursor: pointer;">${severityBadge}${iocBadges}</td>
             </tr>
         `;
@@ -1419,7 +1638,8 @@ function toggleRawDataView() {
 }
 
 // Build tree node HTML recursively
-function buildTreeNode(data, key, isRoot = false) {
+// path parameter tracks the full dot-notation path for custom column support
+function buildTreeNode(data, key, isRoot = false, path = '') {
     if (data === null || data === undefined) {
         return `<span class="tree-value tree-null">null</span>`;
     }
@@ -1443,10 +1663,11 @@ function buildTreeNode(data, key, isRoot = false) {
         `;
         
         data.forEach((item, index) => {
+            const itemPath = path ? `${path}[${index}]` : `[${index}]`;
             html += `
                 <div class="tree-child">
                     <span class="tree-index">[${index}]</span>
-                    ${buildTreeNode(item, `${key}_${index}`)}
+                    ${buildTreeNode(item, `${key}_${index}`, false, itemPath)}
                 </div>
             `;
         });
@@ -1477,18 +1698,25 @@ function buildTreeNode(data, key, isRoot = false) {
         keys.forEach(k => {
             const value = data[k];
             const isComplex = typeof value === 'object' && value !== null;
+            const fieldPath = path ? `${path}.${k}` : k;
             
             if (isComplex) {
                 html += `
                     <div class="tree-child">
-                        ${buildTreeNode(value, k)}
+                        ${buildTreeNode(value, k, false, fieldPath)}
                     </div>
                 `;
             } else {
+                // Leaf node - add "+" button for custom column
+                const isAlreadyColumn = isCustomColumnActive(fieldPath);
+                const addBtnHtml = isAlreadyColumn 
+                    ? `<span class="btn-add-column-active" title="Already added as column">✓</span>`
+                    : `<button class="btn-add-column" onclick="addCustomColumn('${escapeHtml(fieldPath)}', event)" title="Add as table column">+</button>`;
                 html += `
                     <div class="tree-child tree-leaf">
+                        ${addBtnHtml}
                         <span class="tree-key">${escapeHtml(k)}:</span>
-                        ${buildTreeNode(value, k)}
+                        ${buildTreeNode(value, k, false, fieldPath)}
                     </div>
                 `;
             }
