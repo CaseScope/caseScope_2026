@@ -2141,6 +2141,36 @@ tbody td {
   border-top: 1px solid var(--border-color);
 }
 
+/* Large modal variant */
+.modal-container.modal-lg {
+  max-width: 1000px;
+}
+
+/* Downloads table styling */
+#downloads-table {
+  font-size: 13px;
+}
+
+#downloads-table th,
+#downloads-table td {
+  padding: 8px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+#downloads-table td[title] {
+  cursor: help;
+}
+
+.downloads-summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
 /* ========================================
    Password Requirements
    ======================================== */

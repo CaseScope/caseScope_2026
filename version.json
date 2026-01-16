@@ -1,6 +1,13 @@
 {
-  "version": "3.93.00",
+  "version": "3.94.00",
   "changelog": [
+    {
+      "version": "3.94.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Downloaded Files button on Browsers tab - displays modal with all browser download events (timestamp, host, user, filename, path, source URL)"
+      ]
+    },
     {
       "version": "3.93.00",
       "date": "2026-01-16",

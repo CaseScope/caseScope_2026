@@ -5025,6 +5025,133 @@ def get_tag_artifacts_progress(case_uuid):
 
 
 # ============================================================================
+# Browser Downloads API
+# ============================================================================
+
+@api_bp.route('/hunting/browser/downloads/<int:case_id>')
+@login_required
+def get_browser_downloads(case_id):
+    """Get all browser download events for a case
+    
+    Queries browser-related events and extracts download information.
+    Returns: timestamp, source_host (user/machine), filename, file path, source URL
+    """
+    try:
+        from utils.clickhouse import get_client
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        client = get_client()
+        
+        # Query browser events that could contain downloads
+        # Firefox: browser_history with visit_type='download'
+        # Chrome/Edge: browser_history with transition containing 'download', or dedicated download artifact types
+        # Also check target_path for common download indicators
+        query = """
+            SELECT 
+                timestamp,
+                source_host,
+                target_path,
+                username,
+                raw_json,
+                extra_fields,
+                artifact_type,
+                source_file
+            FROM events 
+            WHERE case_id = {case_id:UInt32}
+            AND artifact_type IN ('browser_history', 'browser', 'webcache_downloads', 'webcache_history')
+            ORDER BY timestamp DESC
+            LIMIT 10000
+        """
+        
+        result = client.query(query, parameters={'case_id': case_id})
+        
+        downloads = []
+        
+        for row in result.result_rows:
+            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, artifact_type, source_file = row
+            
+            # Parse JSON fields
+            try:
+                raw_json = json.loads(raw_json_str) if raw_json_str else {}
+            except:
+                raw_json = {}
+            
+            try:
+                extra_fields = json.loads(extra_fields_str) if extra_fields_str else {}
+            except:
+                extra_fields = {}
+            
+            # Determine if this is a download event
+            is_download = False
+            filename = ''
+            file_path = ''
+            source_url = ''
+            
+            # Check visit_type (Firefox)
+            visit_type = raw_json.get('visit_type', '')
+            if visit_type == 'download' or visit_type == 7:  # 7 is Firefox download type
+                is_download = True
+                source_url = raw_json.get('url', target_path or '')
+            
+            # Check transition type (Chrome) 
+            transition = raw_json.get('transition', '')
+            if 'download' in str(transition).lower():
+                is_download = True
+                source_url = raw_json.get('url', target_path or '')
+            
+            # Check for webcache_downloads artifact type
+            if artifact_type == 'webcache_downloads':
+                is_download = True
+                source_url = raw_json.get('url', raw_json.get('source_url', target_path or ''))
+                file_path = raw_json.get('target_path', raw_json.get('file_path', raw_json.get('local_path', '')))
+                filename = raw_json.get('filename', '')
+            
+            # Check raw_json for download-related fields
+            if raw_json.get('download_path') or raw_json.get('target_path') or raw_json.get('local_path'):
+                is_download = True
+                file_path = raw_json.get('download_path', raw_json.get('target_path', raw_json.get('local_path', '')))
+                source_url = raw_json.get('url', raw_json.get('source_url', target_path or ''))
+            
+            # Skip non-download events
+            if not is_download:
+                continue
+            
+            # Extract filename from path or URL
+            if not filename:
+                if file_path:
+                    filename = file_path.split('\\')[-1].split('/')[-1]
+                elif source_url:
+                    # Try to extract filename from URL
+                    url_path = source_url.split('?')[0]
+                    filename = url_path.split('/')[-1] if '/' in url_path else ''
+            
+            downloads.append({
+                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
+                'source_host': source_host or '',
+                'username': username or '',
+                'filename': filename or '(unknown)',
+                'file_path': file_path or '',
+                'source_url': source_url or '',
+                'artifact_type': artifact_type or '',
+                'source_file': source_file or ''
+            })
+        
+        return jsonify({
+            'success': True,
+            'case_id': case_id,
+            'downloads': downloads,
+            'total': len(downloads)
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting browser downloads: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # Noise Tagging API
 # ============================================================================
 

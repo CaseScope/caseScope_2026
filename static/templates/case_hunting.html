@@ -121,6 +121,45 @@
         </div>
     </div>
 </div>
+
+<!-- Browser Downloads Modal -->
+<div class="modal-overlay" id="browser-downloads-modal" style="display: none;" onclick="closeBrowserDownloadsModal(event)">
+    <div class="modal-container modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">📥 Downloaded Files</h3>
+            <button class="modal-close" onclick="closeBrowserDownloadsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="downloads-loading" class="text-center" style="padding: 2rem;">
+                <span class="spinner-border spinner-border-sm"></span> Loading downloads...
+            </div>
+            <div id="downloads-empty" style="display: none; padding: 2rem; text-align: center; color: var(--text-muted);">
+                No download events found in browser artifacts.
+            </div>
+            <div id="downloads-content" style="display: none;">
+                <div class="downloads-summary" style="margin-bottom: 1rem;">
+                    <span id="downloads-count">0</span> downloads found
+                </div>
+                <div class="table-responsive">
+                    <table class="events-table" id="downloads-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Host</th>
+                                <th>User</th>
+                                <th>Filename</th>
+                                <th>File Path</th>
+                                <th>Source URL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="downloads-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -183,7 +222,7 @@ const tabQuickButtons = {
         { label: 'Console Sessions', search: null, placeholder: true }
     ],
     browsers: [
-        { label: 'Downloaded Files', search: null, placeholder: true }
+        { label: 'Downloaded Files', action: 'showBrowserDownloads' }
     ],
     filesystem: [],
     registry: [],
@@ -211,9 +250,86 @@ function renderTabQuickButtons(tabName) {
         if (btn.placeholder) {
             return `<button class="btn btn-secondary" disabled title="Coming soon">${btn.label}</button>`;
         }
+        if (btn.action) {
+            return `<button class="btn btn-secondary" onclick="${btn.action}()">${btn.label}</button>`;
+        }
         const escapedSearch = btn.search.replace(/"/g, '&quot;');
         return `<button class="btn btn-secondary" onclick="document.getElementById('events-search').value='${escapedSearch}'; searchEvents();">${btn.label}</button>`;
     }).join('');
+}
+
+// ============================================
+// Browser Downloads Modal
+// ============================================
+
+function showBrowserDownloads() {
+    const modal = document.getElementById('browser-downloads-modal');
+    const loading = document.getElementById('downloads-loading');
+    const empty = document.getElementById('downloads-empty');
+    const content = document.getElementById('downloads-content');
+    
+    // Show modal with loading state
+    modal.style.display = 'flex';
+    loading.style.display = 'block';
+    empty.style.display = 'none';
+    content.style.display = 'none';
+    
+    // Fetch downloads
+    fetch(`/api/hunting/browser/downloads/${caseId}`)
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            
+            if (!data.success) {
+                empty.textContent = 'Error loading downloads: ' + (data.error || 'Unknown error');
+                empty.style.display = 'block';
+                return;
+            }
+            
+            if (!data.downloads || data.downloads.length === 0) {
+                empty.style.display = 'block';
+                return;
+            }
+            
+            // Populate table
+            const tbody = document.getElementById('downloads-tbody');
+            tbody.innerHTML = data.downloads.map(dl => `
+                <tr>
+                    <td class="col-timestamp">${escapeHtml(dl.timestamp)}</td>
+                    <td>${escapeHtml(dl.source_host)}</td>
+                    <td>${escapeHtml(dl.username)}</td>
+                    <td title="${escapeHtml(dl.filename)}">${escapeHtml(truncateText(dl.filename, 40))}</td>
+                    <td title="${escapeHtml(dl.file_path)}">${escapeHtml(truncateText(dl.file_path, 50))}</td>
+                    <td title="${escapeHtml(dl.source_url)}">${escapeHtml(truncateText(dl.source_url, 60))}</td>
+                </tr>
+            `).join('');
+            
+            document.getElementById('downloads-count').textContent = data.total;
+            content.style.display = 'block';
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            empty.textContent = 'Error loading downloads: ' + error.message;
+            empty.style.display = 'block';
+        });
+}
+
+function closeBrowserDownloadsModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('browser-downloads-modal').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function truncateText(text, maxLen) {
+    if (!text) return '';
+    if (text.length <= maxLen) return text;
+    return text.substring(0, maxLen - 3) + '...';
 }
 
 // ============================================
