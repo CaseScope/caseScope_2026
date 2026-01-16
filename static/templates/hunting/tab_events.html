@@ -113,14 +113,8 @@
                 Reset
             </button>
         </div>
-        <div class="auto-search-row">
-            <button class="btn btn-secondary" id="btn-find-logins" onclick="document.getElementById('events-search').value='4624 Security -&quot;NT AUTHORITY&quot; -&quot;ANONYMOUS LOGON&quot; -$@'; searchEvents();">Find Logins</button>
-            <button class="btn btn-secondary" id="btn-find-failed-logins" onclick="document.getElementById('events-search').value='4625 Security -&quot;NT AUTHORITY&quot; -&quot;ANONYMOUS LOGON&quot; -$@'; searchEvents();">Find Failed Logins</button>
-            <button class="btn btn-secondary" id="btn-find-av-alerts">Find AV Alerts</button>
-            <button class="btn btn-secondary" id="btn-find-vpn-sessions">Find VPN Sessions</button>
-            <button class="btn btn-secondary" id="btn-find-vpn-failed">Find VPN Failed</button>
-            <button class="btn btn-secondary" id="btn-find-rdp-sessions">RDP Sessions</button>
-            <button class="btn btn-secondary" id="btn-find-console-sessions">Console Sessions</button>
+        <div class="auto-search-row" id="tab-quick-buttons">
+            <!-- Buttons dynamically rendered based on active tab -->
         </div>
     </div>
 </div>

@@ -1,6 +1,13 @@
 {
-  "version": "3.92.04",
+  "version": "3.93.00",
   "changelog": [
+    {
+      "version": "3.93.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Dynamic tab-specific quick search buttons on Hunting page (each tab can have unique buttons)"
+      ]
+    },
     {
       "version": "3.92.04",
       "date": "2026-01-15",

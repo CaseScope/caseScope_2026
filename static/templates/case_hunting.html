@@ -170,6 +170,53 @@ const EDR_TYPES = ['huntress'];
 let currentTab = 'events';
 
 // ============================================
+// Tab-Specific Quick Search Buttons
+// ============================================
+const tabQuickButtons = {
+    events: [
+        { label: 'Find Logins', search: '4624 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@' },
+        { label: 'Find Failed Logins', search: '4625 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@' },
+        { label: 'Find AV Alerts', search: null, placeholder: true },
+        { label: 'Find VPN Sessions', search: null, placeholder: true },
+        { label: 'Find VPN Failed', search: null, placeholder: true },
+        { label: 'RDP Sessions', search: null, placeholder: true },
+        { label: 'Console Sessions', search: null, placeholder: true }
+    ],
+    browsers: [
+        { label: 'Downloaded Files', search: null, placeholder: true }
+    ],
+    filesystem: [],
+    registry: [],
+    iis: [
+        { label: 'Show ECP Gets', search: null, placeholder: true }
+    ],
+    tasks: [],
+    activity: []
+};
+
+function renderTabQuickButtons(tabName) {
+    const container = document.getElementById('tab-quick-buttons');
+    if (!container) return;
+    
+    const buttons = tabQuickButtons[tabName] || [];
+    
+    if (buttons.length === 0) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+    }
+    
+    container.style.display = '';
+    container.innerHTML = buttons.map(btn => {
+        if (btn.placeholder) {
+            return `<button class="btn btn-secondary" disabled title="Coming soon">${btn.label}</button>`;
+        }
+        const escapedSearch = btn.search.replace(/"/g, '&quot;');
+        return `<button class="btn btn-secondary" onclick="document.getElementById('events-search').value='${escapedSearch}'; searchEvents();">${btn.label}</button>`;
+    }).join('');
+}
+
+// ============================================
 // EVTX Event Description Enhancement
 // ============================================
 const EVTX_DESC_CACHE_KEY = 'casescope_evtx_descriptions';
@@ -357,11 +404,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('events-search').value = '';
                 }
                 
+                // Render tab-specific quick buttons
+                renderTabQuickButtons(currentTab);
+                
                 // Reload events with new filter
                 loadEvents();
             }
         });
     });
+    
+    // Render initial quick buttons for Events tab
+    renderTabQuickButtons('events');
     
     // Load events on page load
     loadEvents();
