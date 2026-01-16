@@ -1572,6 +1572,11 @@ def get_hunting_events(case_id):
         severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
         show_noise = request.args.get('show_noise', 'false', type=str).strip().lower() == 'true'
         
+        # Time range filter parameters
+        time_range = request.args.get('time_range', 'none', type=str).strip()
+        time_start = request.args.get('time_start', '', type=str).strip()
+        time_end = request.args.get('time_end', '', type=str).strip()
+        
         # Limit per_page to reasonable values
         per_page = min(max(per_page, 10), 500)
         offset = (page - 1) * per_page
@@ -1641,6 +1646,42 @@ def get_hunting_events(case_id):
         noise_filter = ""
         if not show_noise:
             noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        
+        # Build time range filter
+        # Time values come in case timezone, need to convert to UTC for query
+        time_filter = ""
+        if time_range and time_range != 'none':
+            from utils.timezone import to_utc
+            from datetime import timedelta
+            
+            now_utc = datetime.utcnow()
+            
+            if time_range == '1d':
+                start_utc = now_utc - timedelta(days=1)
+                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+            elif time_range == '3d':
+                start_utc = now_utc - timedelta(days=3)
+                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+            elif time_range == '7d':
+                start_utc = now_utc - timedelta(days=7)
+                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+            elif time_range == '30d':
+                start_utc = now_utc - timedelta(days=30)
+                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+            elif time_range == 'custom' and time_start and time_end:
+                # Convert user's case timezone input to UTC
+                try:
+                    # Parse the datetime-local format (YYYY-MM-DDTHH:MM)
+                    start_local = datetime.strptime(time_start, '%Y-%m-%dT%H:%M')
+                    end_local = datetime.strptime(time_end, '%Y-%m-%dT%H:%M')
+                    
+                    # Convert from case timezone to UTC using to_utc
+                    start_utc = to_utc(start_local, case_tz)
+                    end_utc = to_utc(end_local, case_tz)
+                    
+                    time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}' AND timestamp_utc <= '{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+                except (ValueError, Exception) as e:
+                    logger.warning(f"Invalid time range format: {e}")
         
         # Build query with optional search and type filter
         # All columns to fetch for event details modal
@@ -1815,21 +1856,21 @@ def get_hunting_events(case_id):
             
             count_query = f"""
                 SELECT count() FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}"
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """

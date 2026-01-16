@@ -217,6 +217,11 @@ const EDR_TYPES = ['huntress'];
 // Track current tab
 let currentTab = 'events';
 
+// Time filter state
+let timeRangeFilter = 'none';  // 'none', '1d', '3d', '7d', '30d', 'custom'
+let timeStartCustom = '';       // Custom start datetime (case timezone)
+let timeEndCustom = '';         // Custom end datetime (case timezone)
+
 // ============================================
 // Custom Column Management (Elastic Columns)
 // ============================================
@@ -754,14 +759,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Render tab-specific quick buttons
                 renderTabQuickButtons(currentTab);
                 
+                // Update time filter visibility
+                updateTimeFilterVisibility();
+                
                 // Reload events with new filter
                 loadEvents();
             }
+            
+            // Update time filter visibility for other/ai tabs too
+            updateTimeFilterVisibility();
         });
     });
     
     // Render initial quick buttons for Events tab
     renderTabQuickButtons('events');
+    
+    // Initialize time filter visibility
+    updateTimeFilterVisibility();
     
     // Load events on page load
     loadEvents();
@@ -854,6 +868,115 @@ function getSeverityLevels() {
     return levels.join(',');
 }
 
+// ============================================
+// Time Range Filtering
+// ============================================
+
+// Handle time range dropdown change
+function handleTimeRangeChange() {
+    const select = document.getElementById('time-range-select');
+    const customDiv = document.getElementById('time-filter-custom');
+    const infoSpan = document.getElementById('time-filter-info');
+    
+    timeRangeFilter = select.value;
+    
+    if (timeRangeFilter === 'custom') {
+        customDiv.style.display = 'flex';
+        infoSpan.textContent = timeStartCustom && timeEndCustom ? '' : 'Select date range';
+    } else {
+        customDiv.style.display = 'none';
+        updateTimeFilterInfo();
+    }
+    
+    // Don't reload if custom is selected but no dates yet
+    if (timeRangeFilter === 'custom' && (!timeStartCustom || !timeEndCustom)) {
+        return;
+    }
+    
+    // Reset to page 1 and reload
+    eventsPage = 1;
+    loadEvents();
+}
+
+// Apply custom time range
+function applyCustomTimeRange() {
+    const startInput = document.getElementById('time-start');
+    const endInput = document.getElementById('time-end');
+    
+    timeStartCustom = startInput.value;
+    timeEndCustom = endInput.value;
+    
+    // Only reload if both dates are set
+    if (timeStartCustom && timeEndCustom) {
+        updateTimeFilterInfo();
+        eventsPage = 1;
+        loadEvents();
+    }
+}
+
+// Clear custom time range
+function clearCustomTimeRange() {
+    const startInput = document.getElementById('time-start');
+    const endInput = document.getElementById('time-end');
+    const select = document.getElementById('time-range-select');
+    
+    startInput.value = '';
+    endInput.value = '';
+    timeStartCustom = '';
+    timeEndCustom = '';
+    timeRangeFilter = 'none';
+    select.value = 'none';
+    
+    document.getElementById('time-filter-custom').style.display = 'none';
+    updateTimeFilterInfo();
+    
+    eventsPage = 1;
+    loadEvents();
+}
+
+// Update time filter info display
+function updateTimeFilterInfo() {
+    const infoSpan = document.getElementById('time-filter-info');
+    
+    switch (timeRangeFilter) {
+        case 'none':
+            infoSpan.textContent = '';
+            break;
+        case '1d':
+            infoSpan.textContent = 'Showing events from the last 24 hours';
+            break;
+        case '3d':
+            infoSpan.textContent = 'Showing events from the last 3 days';
+            break;
+        case '7d':
+            infoSpan.textContent = 'Showing events from the last 7 days';
+            break;
+        case '30d':
+            infoSpan.textContent = 'Showing events from the last 30 days';
+            break;
+        case 'custom':
+            if (timeStartCustom && timeEndCustom) {
+                const start = new Date(timeStartCustom);
+                const end = new Date(timeEndCustom);
+                infoSpan.textContent = `Showing events from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
+            } else {
+                infoSpan.textContent = 'Select date range';
+            }
+            break;
+    }
+}
+
+// Show/hide time filter row based on current tab
+function updateTimeFilterVisibility() {
+    const timeFilterRow = document.getElementById('time-filter-row');
+    // Hide for 'other' and 'ai' tabs
+    if (currentTab === 'other' || currentTab === 'ai') {
+        timeFilterRow.style.display = 'none';
+    } else {
+        timeFilterRow.style.display = 'flex';
+    }
+}
+
 // Load events from API
 function loadEvents() {
     // Build types based on filters
@@ -901,8 +1024,20 @@ function loadEvents() {
         ioc_filter: iocFilter,
         analyst_filter: analystFilter,
         severity_levels: severityLevels,
-        show_noise: showNoise
+        show_noise: showNoise,
+        time_range: timeRangeFilter
     });
+    
+    // Add custom time range if applicable (exclude for 'other' and 'ai' tabs)
+    if (currentTab !== 'other' && currentTab !== 'ai') {
+        if (timeRangeFilter === 'custom' && timeStartCustom && timeEndCustom) {
+            params.set('time_start', timeStartCustom);
+            params.set('time_end', timeEndCustom);
+        }
+    } else {
+        // Don't apply time filter to excluded tabs
+        params.set('time_range', 'none');
+    }
     
     // Show loading state
     document.getElementById('events-tbody').innerHTML = `

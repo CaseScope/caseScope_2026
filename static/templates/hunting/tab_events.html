@@ -116,6 +116,32 @@
         <div class="auto-search-row" id="tab-quick-buttons">
             <!-- Buttons dynamically rendered based on active tab -->
         </div>
+        <!-- Time Range Filter Row -->
+        <div class="time-filter-row" id="time-filter-row">
+            <div class="time-filter-group">
+                <label class="time-filter-label">Time Range:</label>
+                <select id="time-range-select" class="time-range-select" onchange="handleTimeRangeChange()">
+                    <option value="none" selected>No Limit</option>
+                    <option value="1d">Last 1 Day</option>
+                    <option value="3d">Last 3 Days</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </div>
+            <div class="time-filter-custom" id="time-filter-custom" style="display: none;">
+                <div class="time-filter-field">
+                    <label class="time-filter-label">Start:</label>
+                    <input type="datetime-local" id="time-start" class="time-filter-input" onchange="applyCustomTimeRange()">
+                </div>
+                <div class="time-filter-field">
+                    <label class="time-filter-label">End:</label>
+                    <input type="datetime-local" id="time-end" class="time-filter-input" onchange="applyCustomTimeRange()">
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="clearCustomTimeRange()" title="Clear custom range">Clear</button>
+            </div>
+            <span class="time-filter-info" id="time-filter-info"></span>
+        </div>
     </div>
 </div>
 

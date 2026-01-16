@@ -1,6 +1,16 @@
 {
-  "version": "3.98.01",
+  "version": "3.99.00",
   "changelog": [
+    {
+      "version": "3.99.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Feature: Time-based filtering for hunting pages (Events, Browsers, File System, Registry, IIS, Tasks, Apps & Network)",
+        "Feature: Dropdown with presets: Last 1 day, Last 3 days, Last 7 days, Last 30 days, No Limit (default)",
+        "Feature: Custom date range selection with start/end datetime pickers",
+        "Feature: Time filter persists across pagination and respects case timezone"
+      ]
+    },
     {
       "version": "3.98.01",
       "date": "2026-01-16",
