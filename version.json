@@ -1,6 +1,15 @@
 {
-  "version": "3.101.00",
+  "version": "3.102.00",
   "changelog": [
+    {
+      "version": "3.102.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Feature: Enhanced search_blob with key:value pairs for easy field-based searching",
+        "Added: EVTX EventData fields now searchable as FieldName:Value (e.g., KeyLength:0, LogonType:3)",
+        "Added: Backfill migration script for existing events (migrations/backfill_search_blob_keyvalue.py)"
+      ]
+    },
     {
       "version": "3.101.00",
       "date": "2026-01-16",

@@ -629,6 +629,16 @@ class EvtxECmdParser(BaseParser):
             ]
             search_blob = ' '.join(str(p) for p in search_parts if p)
             
+            # Add EventData key:value pairs for easy field-based searching
+            # Enables searches like "KeyLength:0" or "LogonType:3"
+            if event_data:
+                kv_parts = []
+                for key, value in event_data.items():
+                    if value is not None and str(value).strip():
+                        kv_parts.append(f"{key}:{value}")
+                if kv_parts:
+                    search_blob += ' ' + ' '.join(kv_parts)
+            
             # Add Payload content for full-text search (truncated)
             if payload_str and len(payload_str) < 3000:
                 search_blob += f" {payload_str}"
@@ -800,7 +810,20 @@ class EvtxFallbackParser(BaseParser):
                     data = json.loads(record['data'])
                     event = data.get('Event', {})
                     system = event.get('System', {})
-                    event_data = event.get('EventData', {})
+                    event_data_raw = event.get('EventData', {})
+                    
+                    # Flatten EventData - handle @Name/#text structure
+                    event_data = {}
+                    data_items = event_data_raw.get('Data', [])
+                    if isinstance(data_items, list):
+                        for item in data_items:
+                            if isinstance(item, dict) and '@Name' in item:
+                                event_data[item['@Name']] = item.get('#text', '')
+                    elif isinstance(event_data_raw, dict):
+                        # Simple key-value structure
+                        for k, v in event_data_raw.items():
+                            if k != 'Data' and v is not None:
+                                event_data[k] = v
                     
                     # Get timestamp
                     time_created = system.get('TimeCreated', {})
@@ -821,8 +844,20 @@ class EvtxFallbackParser(BaseParser):
                     else:
                         event_id = str(event_id_raw)
                     
-                    # Build search blob
-                    search_blob = self.build_search_blob(event_data)
+                    # Build search blob with key:value pairs for easy searching
+                    search_parts = [
+                        computer, system.get('Channel', ''), event_id,
+                    ]
+                    search_blob = ' '.join(str(p) for p in search_parts if p)
+                    
+                    # Add EventData key:value pairs for field-based searching
+                    if event_data:
+                        kv_parts = []
+                        for key, value in event_data.items():
+                            if value is not None and str(value).strip():
+                                kv_parts.append(f"{key}:{value}")
+                        if kv_parts:
+                            search_blob += ' ' + ' '.join(kv_parts)
                     
                     yield ParsedEvent(
                         case_id=self.case_id,
