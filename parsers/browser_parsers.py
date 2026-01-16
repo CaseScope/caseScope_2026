@@ -343,7 +343,8 @@ class BrowserSQLiteParser(BaseParser):
             for row in cursor:
                 timestamp = mozilla_to_datetime(row['visit_date'])
                 if not timestamp:
-                    timestamp = datetime.now()
+                    # Skip entries with no valid timestamp
+                    continue
                 
                 raw_data = {
                     'url': row['url'],
@@ -396,7 +397,8 @@ class BrowserSQLiteParser(BaseParser):
             for row in cursor:
                 timestamp = mozilla_to_datetime(row['creationTime'])
                 if not timestamp:
-                    timestamp = datetime.now()
+                    # Skip entries with no valid timestamp
+                    continue
                 
                 raw_data = {
                     'name': row['name'],
@@ -446,7 +448,8 @@ class BrowserSQLiteParser(BaseParser):
             for row in cursor:
                 timestamp = mozilla_to_datetime(row['lastUsed'])
                 if not timestamp:
-                    timestamp = datetime.now()
+                    # Skip entries with no valid timestamp
+                    continue
                 
                 raw_data = {
                     'field_name': row['fieldname'],
@@ -500,7 +503,8 @@ class BrowserSQLiteParser(BaseParser):
                     end_time = mozilla_to_datetime(row['endTime'])
                     
                     if not start_time:
-                        start_time = datetime.now()
+                        # Skip entries with no valid timestamp
+                        continue
                     
                     file_path = row['target'] or ''
                     # Firefox stores file:// URIs, clean them up
@@ -559,7 +563,8 @@ class BrowserSQLiteParser(BaseParser):
                     for row in cursor:
                         timestamp = mozilla_to_datetime(row['dateAdded'])
                         if not timestamp:
-                            timestamp = datetime.now()
+                            # Skip entries with no valid timestamp
+                            continue
                         
                         source_url = row['url'] or ''
                         content = row['content'] or ''
@@ -634,7 +639,8 @@ class BrowserSQLiteParser(BaseParser):
             for row in cursor:
                 timestamp = webkit_to_datetime(row['visit_time'] or row['last_visit_time'])
                 if not timestamp:
-                    timestamp = datetime.now()
+                    # Skip entries with no valid timestamp (e.g., URLs with no visits)
+                    continue
                 
                 # Decode transition type
                 transition = row['transition'] & 0xFF if row['transition'] else 0
@@ -725,7 +731,8 @@ class BrowserSQLiteParser(BaseParser):
                 end_time = webkit_to_datetime(row['end_time'])
                 
                 if not start_time:
-                    start_time = datetime.now()
+                    # Skip entries with no valid timestamp
+                    continue
                 
                 file_path = row['target_path'] or row['current_path'] or ''
                 filename = file_path.split('\\')[-1].split('/')[-1] if file_path else ''
@@ -795,7 +802,8 @@ class BrowserSQLiteParser(BaseParser):
             for row in cursor:
                 timestamp = webkit_to_datetime(row['creation_utc'])
                 if not timestamp:
-                    timestamp = datetime.now()
+                    # Skip entries with no valid timestamp
+                    continue
                 
                 raw_data = {
                     'host': row['host_key'],
@@ -846,7 +854,8 @@ class BrowserSQLiteParser(BaseParser):
             for row in cursor:
                 timestamp = webkit_to_datetime(row['date_created'])
                 if not timestamp:
-                    timestamp = datetime.now()
+                    # Skip entries with no valid timestamp
+                    continue
                 
                 raw_data = {
                     'origin_url': row['origin_url'],
@@ -900,7 +909,8 @@ class BrowserSQLiteParser(BaseParser):
                 for row in cursor:
                     timestamp = webkit_to_datetime(row['date_created'])
                     if not timestamp:
-                        timestamp = datetime.now()
+                        # Skip entries with no valid timestamp
+                        continue
                     
                     raw_data = {
                         'field_name': row['name'],
@@ -953,8 +963,8 @@ class BrowserSQLiteParser(BaseParser):
                     for row in cursor:
                         row_dict = dict(zip(columns, row))
                         
-                        # Try to find timestamp
-                        timestamp = datetime.now()
+                        # Try to find timestamp from common column names
+                        timestamp = None
                         for col in ['timestamp', 'time', 'date', 'created', 'modified', 'last_access']:
                             for key in row_dict:
                                 if col in key.lower() and row_dict[key]:
@@ -962,6 +972,12 @@ class BrowserSQLiteParser(BaseParser):
                                     if ts:
                                         timestamp = ts
                                         break
+                            if timestamp:
+                                break
+                        
+                        # Skip entries with no valid timestamp
+                        if not timestamp:
+                            continue
                         
                         yield ParsedEvent(
                             case_id=self.case_id,
@@ -1139,7 +1155,7 @@ class FirefoxJSONLZ4Parser(BaseParser):
         
         # Get session timestamp
         session_time = data.get('session', {}).get('lastUpdate')
-        base_timestamp = mozilla_to_datetime(session_time) if session_time else datetime.now()
+        base_timestamp = mozilla_to_datetime(session_time) if session_time else None
         
         # Parse windows and tabs
         windows = data.get('windows', [])
@@ -1161,6 +1177,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
                     # Get last accessed time if available
                     last_accessed = tab.get('lastAccessed')
                     timestamp = mozilla_to_datetime(last_accessed) if last_accessed else base_timestamp
+                    
+                    # Skip entries with no valid timestamp
+                    if not timestamp:
+                        continue
                     
                     raw_data = {
                         'url': url,
@@ -1271,11 +1291,18 @@ class FirefoxJSONLZ4Parser(BaseParser):
             # Get install/update time
             install_date = addon.get('installDate')
             update_date = addon.get('updateDate')
-            timestamp = datetime.now()
-            if update_date:
-                timestamp = datetime.utcfromtimestamp(update_date / 1000) if update_date > 1e10 else datetime.utcfromtimestamp(update_date)
-            elif install_date:
-                timestamp = datetime.utcfromtimestamp(install_date / 1000) if install_date > 1e10 else datetime.utcfromtimestamp(install_date)
+            timestamp = None
+            try:
+                if update_date:
+                    timestamp = datetime.utcfromtimestamp(update_date / 1000) if update_date > 1e10 else datetime.utcfromtimestamp(update_date)
+                elif install_date:
+                    timestamp = datetime.utcfromtimestamp(install_date / 1000) if install_date > 1e10 else datetime.utcfromtimestamp(install_date)
+            except (ValueError, OSError, OverflowError):
+                pass
+            
+            # Skip addons with no valid timestamp
+            if not timestamp:
+                continue
             
             raw_data = {
                 'id': addon_id,

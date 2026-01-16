@@ -1,6 +1,15 @@
 {
-  "version": "3.97.03",
+  "version": "3.97.04",
   "changelog": [
+    {
+      "version": "3.97.04",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Browser parsers now skip entries with no valid timestamp instead of using datetime.now()",
+        "Fixed: Chrome/Firefox history, cookies, downloads, logins, autofill entries without timestamps are skipped",
+        "Fixed: Generic SQLite parser skips entries without identifiable timestamps"
+      ]
+    },
     {
       "version": "3.97.03",
       "date": "2026-01-16",
