@@ -943,16 +943,16 @@ function updateTimeFilterInfo() {
             infoSpan.textContent = '';
             break;
         case '1d':
-            infoSpan.textContent = 'Showing events from the last 24 hours';
+            infoSpan.textContent = 'Last 1 day (relative to most recent artifact)';
             break;
         case '3d':
-            infoSpan.textContent = 'Showing events from the last 3 days';
+            infoSpan.textContent = 'Last 3 days (relative to most recent artifact)';
             break;
         case '7d':
-            infoSpan.textContent = 'Showing events from the last 7 days';
+            infoSpan.textContent = 'Last 7 days (relative to most recent artifact)';
             break;
         case '30d':
-            infoSpan.textContent = 'Showing events from the last 30 days';
+            infoSpan.textContent = 'Last 30 days (relative to most recent artifact)';
             break;
         case 'custom':
             if (timeStartCustom && timeEndCustom) {

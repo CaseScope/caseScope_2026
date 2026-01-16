@@ -1,6 +1,13 @@
 {
-  "version": "3.99.00",
+  "version": "3.99.01",
   "changelog": [
+    {
+      "version": "3.99.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Time range presets (Last 1/3/7/30 days) now relative to most recent artifact, not current date"
+      ]
+    },
     {
       "version": "3.99.00",
       "date": "2026-01-16",

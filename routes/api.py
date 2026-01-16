@@ -1649,25 +1649,24 @@ def get_hunting_events(case_id):
         
         # Build time range filter
         # Time values come in case timezone, need to convert to UTC for query
+        # Preset ranges (1d, 3d, etc.) are relative to the MOST RECENT artifact, not today
         time_filter = ""
         if time_range and time_range != 'none':
             from utils.timezone import to_utc
             from datetime import timedelta
             
-            now_utc = datetime.utcnow()
-            
-            if time_range == '1d':
-                start_utc = now_utc - timedelta(days=1)
-                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-            elif time_range == '3d':
-                start_utc = now_utc - timedelta(days=3)
-                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-            elif time_range == '7d':
-                start_utc = now_utc - timedelta(days=7)
-                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-            elif time_range == '30d':
-                start_utc = now_utc - timedelta(days=30)
-                time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+            if time_range in ('1d', '3d', '7d', '30d'):
+                # Get the most recent timestamp for this case to use as reference
+                max_ts_query = "SELECT max(timestamp_utc) FROM events WHERE case_id = {case_id:UInt32}"
+                max_ts_result = client.query(max_ts_query, parameters={'case_id': case_id})
+                max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
+                
+                if max_timestamp:
+                    # Calculate range based on most recent artifact
+                    days_map = {'1d': 1, '3d': 3, '7d': 7, '30d': 30}
+                    days = days_map.get(time_range, 1)
+                    start_utc = max_timestamp - timedelta(days=days)
+                    time_filter = f" AND timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
             elif time_range == 'custom' and time_start and time_end:
                 # Convert user's case timezone input to UTC
                 try:
