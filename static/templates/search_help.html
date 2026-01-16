@@ -13,15 +13,15 @@
         <div class="quickref-grid">
             <div class="quickref-item">
                 <code>term1 term2</code>
-                <span>AND - both must match anywhere</span>
+                <span>AND - both must match</span>
             </div>
             <div class="quickref-item">
                 <code>term1|term2</code>
                 <span>OR - either can match</span>
             </div>
             <div class="quickref-item">
-                <code>"field value"</code>
-                <span>Field:Value pairing</span>
+                <code>field:value</code>
+                <span>Field-specific search</span>
             </div>
             <div class="quickref-item">
                 <code>-term</code>
@@ -32,8 +32,8 @@
                 <span>OR between groups</span>
             </div>
             <div class="quickref-item">
-                <code>4624</code>
-                <span>Event ID (exact match)</span>
+                <code>eventid:4624</code>
+                <span>Event ID search</span>
             </div>
         </div>
     </div>
@@ -141,47 +141,93 @@
         </div>
     </div>
 
-    <!-- Quoted Phrases & Field:Value Pairing -->
+    <!-- Field:Value Search Syntax -->
     <div class="help-section">
-        <h2 class="help-section-title">🎯 Quoted Phrases &amp; Field:Value Pairing</h2>
-        <p class="help-text">Use quotes to search for exact phrases including spaces. This is especially powerful for field-specific searches because indexed data is stored in <code>FieldName:Value</code> format.</p>
+        <h2 class="help-section-title">🎯 Field:Value Search Syntax</h2>
+        <p class="help-text">Use <code>field:value</code> syntax for precise field-specific searches. Column-based fields use indexed queries for fast results. EventData fields search the indexed blob.</p>
         
         <div class="help-example-block">
-            <h3 class="help-example-title">Field-Specific Search Examples</h3>
+            <h3 class="help-example-title">Column Fields (Fast, Indexed)</h3>
             <div class="help-example">
-                <code class="help-query">"LogonType 3"</code>
-                <p class="help-description">Finds events where LogonType is 3 (Network logon). The quoted phrase matches "LogonType:3" in the indexed data.</p>
+                <code class="help-query">eventid:4624</code>
+                <p class="help-description">Finds events with Event ID 4624. Uses exact column match for speed.</p>
             </div>
             <div class="help-example">
-                <code class="help-query">"username bob"</code>
-                <p class="help-description">Finds events where the username field contains "bob". Matches "username:bob" or "TargetUserName:bob" in indexed data.</p>
+                <code class="help-query">host:DC01</code>
+                <p class="help-description">Finds events from hosts containing "DC01" (e.g., DC01, DC01.domain.local).</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4624 "LogonType 10"</code>
-                <p class="help-description">Finds Event ID 4624 with LogonType 10 (RDP/RemoteInteractive). The field pairing ensures you're matching the logon type, not just "10" anywhere.</p>
+                <code class="help-query">user:admin</code>
+                <p class="help-description">Finds events where username contains "admin".</p>
             </div>
             <div class="help-example">
-                <code class="help-query">"TargetUserName admin"</code>
-                <p class="help-description">Finds events where the TargetUserName field contains "admin" - more precise than just searching "admin" which could match anywhere.</p>
+                <code class="help-query">process:powershell</code>
+                <p class="help-description">Finds events where process name contains "powershell".</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">cmd:encodedcommand</code>
+                <p class="help-description">Finds events where command line contains "encodedcommand".</p>
+            </div>
+        </div>
+
+        <div class="help-example-block">
+            <h3 class="help-example-title">EventData Fields (EVTX-specific)</h3>
+            <div class="help-example">
+                <code class="help-query">LogonType:3</code>
+                <p class="help-description">Network logons. Searches "LogonType:3" in indexed EventData.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">KeyLength:0</code>
+                <p class="help-description">Pass-the-hash indicator - null session or NTLM without encryption.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">AuthenticationPackageName:NTLM</code>
+                <p class="help-description">NTLM authentication events.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">TargetUserName:administrator</code>
+                <p class="help-description">Events targeting the administrator account.</p>
+            </div>
+        </div>
+
+        <div class="help-example-block">
+            <h3 class="help-example-title">OR Within Field Values</h3>
+            <div class="help-example">
+                <code class="help-query">eventid:4624|4625</code>
+                <p class="help-description">Successful OR failed logon events.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">logontype:3|10</code>
+                <p class="help-description">Network (3) OR RDP (10) logon types.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">artifact:evtx|huntress</code>
+                <p class="help-description">EVTX files OR Huntress EDR logs.</p>
             </div>
         </div>
 
         <div class="help-tip">
-            <span class="tip-icon">⚠️</span>
-            <span class="tip-text"><strong>Important:</strong> Without quotes, <code>4624 10</code> would find events containing both "4624" AND "10" anywhere in any field - not specifically logon type 10. Use <code>4624 "LogonType 10"</code> for precision.</span>
+            <span class="tip-icon">💡</span>
+            <span class="tip-text"><strong>Tip:</strong> Column fields (eventid, host, user, etc.) are case-insensitive. EventData fields preserve case for precision.</span>
         </div>
         
         <div class="help-example-block">
-            <h3 class="help-example-title">Common Field Names for Pairing</h3>
+            <h3 class="help-example-title">Available Field Aliases</h3>
             <div class="field-pair-grid">
-                <div class="field-pair"><code>LogonType</code> - Logon type (2=Interactive, 3=Network, 10=RDP)</div>
-                <div class="field-pair"><code>TargetUserName</code> - Target user in logon events</div>
-                <div class="field-pair"><code>SubjectUserName</code> - Subject user performing action</div>
-                <div class="field-pair"><code>IpAddress</code> - Source IP address</div>
-                <div class="field-pair"><code>WorkstationName</code> - Source workstation</div>
-                <div class="field-pair"><code>ProcessName</code> - Process executable name</div>
-                <div class="field-pair"><code>CommandLine</code> - Full command line</div>
-                <div class="field-pair"><code>TargetFilename</code> - File operation target</div>
+                <div class="field-pair"><code>eventid</code>, <code>id</code> - Event ID (exact match)</div>
+                <div class="field-pair"><code>host</code>, <code>hostname</code>, <code>computer</code> - Source host</div>
+                <div class="field-pair"><code>user</code>, <code>username</code> - Username</div>
+                <div class="field-pair"><code>process</code>, <code>proc</code> - Process name</div>
+                <div class="field-pair"><code>cmd</code>, <code>commandline</code> - Command line</div>
+                <div class="field-pair"><code>path</code>, <code>file</code> - Target path/filename</div>
+                <div class="field-pair"><code>ip</code>, <code>srcip</code>, <code>dstip</code> - IP addresses</div>
+                <div class="field-pair"><code>regkey</code>, <code>registry</code> - Registry key</div>
+                <div class="field-pair"><code>channel</code> - Log channel (Security, System, etc.)</div>
+                <div class="field-pair"><code>artifact</code>, <code>parser</code>, <code>type</code> - Artifact type</div>
+                <div class="field-pair"><code>logontype</code> - Logon type (2, 3, 10, etc.)</div>
+                <div class="field-pair"><code>rule</code>, <code>severity</code> - Detection rule/level</div>
+                <div class="field-pair"><code>md5</code>, <code>sha1</code>, <code>sha256</code> - File hashes</div>
+                <div class="field-pair"><code>KeyLength</code>, <code>AuthPackage</code>, etc. - EventData fields</div>
             </div>
         </div>
     </div>
@@ -189,47 +235,47 @@
     <!-- Event ID Search -->
     <div class="help-section">
         <h2 class="help-section-title">🔢 Event ID Search</h2>
-        <p class="help-text">Pure numeric searches are treated as Event ID lookups, providing exact matches on the event_id field. This is faster and more precise than text searching.</p>
+        <p class="help-text">Use <code>eventid:XXXX</code> for explicit Event ID searches, or just type a number for quick lookup. Both use indexed column queries for speed.</p>
         
         <div class="help-example-block">
             <h3 class="help-example-title">Common Security Event IDs</h3>
             <div class="help-example">
-                <code class="help-query">4624</code>
+                <code class="help-query">eventid:4624</code>
                 <p class="help-description">Successful logon events</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4625</code>
+                <code class="help-query">eventid:4625</code>
                 <p class="help-description">Failed logon attempts</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4648</code>
+                <code class="help-query">eventid:4648</code>
                 <p class="help-description">Explicit credential logon (RunAs, network share with different creds)</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4672</code>
+                <code class="help-query">eventid:4672</code>
                 <p class="help-description">Special privileges assigned - admin logons</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4688</code>
+                <code class="help-query">eventid:4688</code>
                 <p class="help-description">Process creation events</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4720</code>
+                <code class="help-query">eventid:4720</code>
                 <p class="help-description">User account created</p>
             </div>
             <div class="help-example">
-                <code class="help-query">4732</code>
+                <code class="help-query">eventid:4732</code>
                 <p class="help-description">Member added to security group</p>
             </div>
             <div class="help-example">
-                <code class="help-query">1102</code>
+                <code class="help-query">eventid:1102</code>
                 <p class="help-description">Audit log cleared - potential anti-forensics</p>
             </div>
         </div>
 
         <div class="help-tip">
             <span class="tip-icon">💡</span>
-            <span class="tip-text"><strong>Tip:</strong> Combine Event ID with field pairings for precision: <code>4688 "CommandLine powershell"</code> finds process creation events where the command line contains PowerShell.</span>
+            <span class="tip-text"><strong>Tip:</strong> Combine Event ID with field searches: <code>eventid:4688 cmd:powershell</code> finds process creation events where the command line contains PowerShell.</span>
         </div>
     </div>
 
@@ -278,24 +324,24 @@
             <h3 class="help-category-title">🔐 Authentication & Access</h3>
             <div class="help-example-block">
                 <div class="help-example">
-                    <code class="help-query">4624 "LogonType 10"</code>
-                    <p class="help-description">RDP logons (Logon Type 10 = RemoteInteractive). Quoted field pairing ensures we match the logon type field.</p>
+                    <code class="help-query">eventid:4624 LogonType:10</code>
+                    <p class="help-description">RDP logons (Logon Type 10 = RemoteInteractive).</p>
                 </div>
                 <div class="help-example">
-                    <code class="help-query">4624 "LogonType 3" -SYSTEM -$</code>
-                    <p class="help-description">Network logons (Type 3) excluding SYSTEM and computer accounts ($ suffix).</p>
+                    <code class="help-query">eventid:4624 LogonType:3 -SYSTEM -$</code>
+                    <p class="help-description">Network logons (Type 3) excluding SYSTEM and computer accounts.</p>
                 </div>
                 <div class="help-example">
-                    <code class="help-query">4625 "Status 0xc0000064"</code>
+                    <code class="help-query">eventid:4625 Status:0xc0000064</code>
                     <p class="help-description">Failed logon: user does not exist (user enumeration attack indicator).</p>
                 </div>
                 <div class="help-example">
-                    <code class="help-query">4648</code>
-                    <p class="help-description">Explicit credential use - RunAs, pass-the-hash candidates</p>
+                    <code class="help-query">eventid:4624 KeyLength:0</code>
+                    <p class="help-description">Pass-the-hash candidates - null encryption key length.</p>
                 </div>
                 <div class="help-example">
-                    <code class="help-query">4624 "LogonType 2"</code>
-                    <p class="help-description">Interactive (console) logons - physical access to the system.</p>
+                    <code class="help-query">eventid:4624 logontype:2|10</code>
+                    <p class="help-description">Interactive (2) OR RDP (10) logons - direct user access.</p>
                 </div>
             </div>
         </div>
@@ -436,49 +482,57 @@
     <!-- Search Field Coverage -->
     <div class="help-section">
         <h2 class="help-section-title">📋 Searchable Fields</h2>
-        <p class="help-text">Keyword searches match against a combined "search blob" that includes all of the following fields:</p>
+        <p class="help-text">Use <code>field:value</code> syntax for precise searches. Column fields use indexed queries; plain text searches the full blob.</p>
         
         <div class="field-grid">
             <div class="field-category">
                 <h4>Source Information</h4>
                 <ul>
-                    <li>source_file, source_path, source_host</li>
-                    <li>artifact_type, channel, provider</li>
+                    <li><code>host:</code> hostname, computer</li>
+                    <li><code>artifact:</code> parser, type</li>
+                    <li><code>channel:</code> log channel</li>
+                </ul>
+            </div>
+            <div class="field-category">
+                <h4>Event Identity</h4>
+                <ul>
+                    <li><code>eventid:</code> id</li>
+                    <li><code>level:</code> event level</li>
+                    <li><code>recordid:</code> record number</li>
                 </ul>
             </div>
             <div class="field-category">
                 <h4>User Context</h4>
                 <ul>
-                    <li>username, domain, sid</li>
-                    <li>logon_type</li>
+                    <li><code>user:</code> username</li>
+                    <li><code>domain:</code> domain name</li>
+                    <li><code>logontype:</code> logon type</li>
                 </ul>
             </div>
             <div class="field-category">
                 <h4>Process Data</h4>
                 <ul>
-                    <li>process_name, process_path, process_id</li>
-                    <li>parent_process, parent_pid</li>
-                    <li>command_line</li>
+                    <li><code>process:</code> proc</li>
+                    <li><code>cmd:</code> commandline</li>
+                    <li><code>parent:</code> parent process</li>
+                    <li><code>pid:</code> ppid</li>
                 </ul>
             </div>
             <div class="field-category">
                 <h4>File & Network</h4>
                 <ul>
-                    <li>target_path, file_hash_*</li>
-                    <li>src_ip, dst_ip, src_port, dst_port</li>
+                    <li><code>path:</code> file, filename</li>
+                    <li><code>ip:</code> srcip, dstip</li>
+                    <li><code>port:</code> srcport, dstport</li>
+                    <li><code>md5:</code> sha1, sha256</li>
                 </ul>
             </div>
             <div class="field-category">
-                <h4>Registry</h4>
+                <h4>Registry & Detection</h4>
                 <ul>
-                    <li>reg_key, reg_value, reg_data</li>
-                </ul>
-            </div>
-            <div class="field-category">
-                <h4>Detection</h4>
-                <ul>
-                    <li>rule_title, rule_level</li>
-                    <li>mitre_tactics, mitre_tags</li>
+                    <li><code>regkey:</code> registry</li>
+                    <li><code>rule:</code> rule_title</li>
+                    <li><code>severity:</code> rule_level</li>
                 </ul>
             </div>
         </div>
@@ -492,7 +546,7 @@
                 <div class="tip-card-icon">1️⃣</div>
                 <div class="tip-card-content">
                     <h4>Start Broad, Then Narrow</h4>
-                    <p>Begin with simple searches, then add exclusions to filter noise. Example: Start with <code>4624</code>, then add <code>-SYSTEM -$</code>.</p>
+                    <p>Begin with simple searches, then add field filters. Example: Start with <code>eventid:4624</code>, then add <code>LogonType:3 -SYSTEM</code>.</p>
                 </div>
             </div>
             <div class="tip-card">
@@ -506,7 +560,7 @@
                 <div class="tip-card-icon">3️⃣</div>
                 <div class="tip-card-content">
                     <h4>Cross-Source Hunting</h4>
-                    <p>Use groups to search across different log sources: <code>(4625 security)|(vpn failed firewall)</code></p>
+                    <p>Use artifact filter with searches: <code>artifact:evtx eventid:4625</code> or <code>artifact:huntress process:mimikatz</code></p>
                 </div>
             </div>
             <div class="tip-card">

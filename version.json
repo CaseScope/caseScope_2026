@@ -1,6 +1,15 @@
 {
-  "version": "3.103.00",
+  "version": "3.103.01",
   "changelog": [
+    {
+      "version": "3.103.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Updated: Search Help page rewritten for field:value syntax",
+        "Added: Field syntax hint bar on Events search (eventid:, host:, user:, etc.)",
+        "Updated: DFIR patterns in help use new field:value format"
+      ]
+    },
     {
       "version": "3.103.00",
       "date": "2026-01-16",
