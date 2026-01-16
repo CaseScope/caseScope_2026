@@ -1,6 +1,17 @@
 {
-  "version": "3.99.03",
+  "version": "3.99.04",
   "changelog": [
+    {
+      "version": "3.99.04",
+      "date": "2026-01-16",
+      "changes": [
+        "Changed: Hunting Events quick buttons replaced with Preconfigured Searches dropdown",
+        "Added: Hierarchical dropdown with category headings and nested search options",
+        "Added: Windows Logons category with Allowed Logons (4624) and Failed Logons (4625)",
+        "Added: Auto-add columns when selecting preconfigured search (username, logon type)",
+        "Feature: Time filter preserved when executing preconfigured searches"
+      ]
+    },
     {
       "version": "3.99.03",
       "date": "2026-01-16",

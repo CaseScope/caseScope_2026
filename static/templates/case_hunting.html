@@ -400,53 +400,135 @@ function showToast(message) {
 }
 
 // ============================================
-// Tab-Specific Quick Search Buttons
+// Preconfigured Searches Configuration
 // ============================================
-const tabQuickButtons = {
-    events: [
-        { label: 'Find Logins', search: '4624 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@' },
-        { label: 'Find Failed Logins', search: '4625 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@' },
-        { label: 'Find AV Alerts', search: null, placeholder: true },
-        { label: 'Find VPN Sessions', search: null, placeholder: true },
-        { label: 'Find VPN Failed', search: null, placeholder: true },
-        { label: 'RDP Sessions', search: null, placeholder: true },
-        { label: 'Console Sessions', search: null, placeholder: true }
-    ],
-    browsers: [
-        { label: 'Downloaded Files', action: 'showBrowserDownloads' }
-    ],
-    filesystem: [],
-    registry: [],
-    iis: [
-        { label: 'Show ECP Gets', search: null, placeholder: true }
-    ],
-    tasks: [],
-    activity: []
+// Hierarchical structure: category -> searches
+// Each search can specify columns to auto-add (uses same mechanism as clicking + in raw data)
+const preconfiguredSearches = {
+    events: {
+        'Windows Logons': [
+            { 
+                label: 'Allowed Logons', 
+                search: 'eventid:4624',
+                columns: ['raw_json.Event.EventData.TargetUserName', 'raw_json.Event.EventData.LogonType']
+            },
+            { 
+                label: 'Failed Logons', 
+                search: 'eventid:4625',
+                columns: ['raw_json.Event.EventData.TargetUserName', 'raw_json.Event.EventData.LogonType']
+            }
+        ]
+    },
+    browsers: {
+        'Browser Actions': [
+            { label: 'Downloaded Files', action: 'showBrowserDownloads' }
+        ]
+    },
+    filesystem: {},
+    registry: {},
+    iis: {},
+    tasks: {},
+    activity: {}
 };
 
+// Execute a preconfigured search
+// Preserves time filter, auto-adds columns, fills search bar, and executes
+function executePreconfiguredSearch(searchConfig) {
+    if (!searchConfig) return;
+    
+    // If it's an action (like showBrowserDownloads), execute it
+    if (searchConfig.action) {
+        window[searchConfig.action]();
+        return;
+    }
+    
+    // Add columns if specified (uses same mechanism as clicking + in raw data)
+    if (searchConfig.columns && searchConfig.columns.length > 0) {
+        const currentColumns = getCustomColumns();
+        let columnsAdded = false;
+        
+        searchConfig.columns.forEach(colPath => {
+            if (!currentColumns.includes(colPath)) {
+                currentColumns.push(colPath);
+                columnsAdded = true;
+            }
+        });
+        
+        if (columnsAdded) {
+            saveCustomColumns(currentColumns);
+            updateTableHeader();
+        }
+    }
+    
+    // Fill search bar with the search query
+    const searchInput = document.getElementById('events-search');
+    if (searchInput) {
+        searchInput.value = searchConfig.search;
+    }
+    
+    // Execute the search (this preserves time filter settings)
+    searchEvents();
+}
+
+// Render the preconfigured searches dropdown for a given tab
 function renderTabQuickButtons(tabName) {
     const container = document.getElementById('tab-quick-buttons');
     if (!container) return;
     
-    const buttons = tabQuickButtons[tabName] || [];
+    const categories = preconfiguredSearches[tabName] || {};
+    const categoryKeys = Object.keys(categories);
     
-    if (buttons.length === 0) {
+    // Hide container if no searches for this tab
+    if (categoryKeys.length === 0 || categoryKeys.every(k => categories[k].length === 0)) {
         container.innerHTML = '';
         container.style.display = 'none';
         return;
     }
     
     container.style.display = '';
-    container.innerHTML = buttons.map(btn => {
-        if (btn.placeholder) {
-            return `<button class="btn btn-secondary" disabled title="Coming soon">${btn.label}</button>`;
+    
+    // Build the dropdown HTML
+    let optionsHtml = '<option value="">-- Select --</option>';
+    
+    categoryKeys.forEach(category => {
+        const searches = categories[category];
+        if (searches && searches.length > 0) {
+            optionsHtml += `<optgroup label="${escapeHtml(category)}">`;
+            searches.forEach((search, idx) => {
+                const dataValue = JSON.stringify(search).replace(/"/g, '&quot;');
+                optionsHtml += `<option value="${category}_${idx}" data-search="${dataValue}">${escapeHtml(search.label)}</option>`;
+            });
+            optionsHtml += '</optgroup>';
         }
-        if (btn.action) {
-            return `<button class="btn btn-secondary" onclick="${btn.action}()">${btn.label}</button>`;
-        }
-        const escapedSearch = btn.search.replace(/"/g, '&quot;');
-        return `<button class="btn btn-secondary" onclick="document.getElementById('events-search').value='${escapedSearch}'; searchEvents();">${btn.label}</button>`;
-    }).join('');
+    });
+    
+    container.innerHTML = `
+        <div class="preconfigured-searches-container">
+            <span class="preconfigured-searches-label">Preconfigured Searches:</span>
+            <select class="preconfigured-searches-select" id="preconfigured-search-select" onchange="handlePreconfiguredSearchSelect(this)">
+                ${optionsHtml}
+            </select>
+        </div>
+    `;
+}
+
+// Handle selection from the preconfigured searches dropdown
+function handlePreconfiguredSearchSelect(selectEl) {
+    const selectedOption = selectEl.options[selectEl.selectedIndex];
+    if (!selectedOption || !selectedOption.value) return;
+    
+    const searchDataStr = selectedOption.getAttribute('data-search');
+    if (!searchDataStr) return;
+    
+    try {
+        const searchConfig = JSON.parse(searchDataStr);
+        executePreconfiguredSearch(searchConfig);
+    } catch (e) {
+        console.error('Failed to parse preconfigured search config:', e);
+    }
+    
+    // Reset dropdown to placeholder after selection
+    selectEl.selectedIndex = 0;
 }
 
 // ============================================

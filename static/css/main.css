@@ -4295,6 +4295,58 @@ tbody td {
   gap: 10px;
   margin-top: 12px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Preconfigured Searches Dropdown */
+.preconfigured-searches-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preconfigured-searches-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.preconfigured-searches-select {
+  padding: 8px 12px;
+  font-size: 13px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  min-width: 180px;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.preconfigured-searches-select:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.preconfigured-searches-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.preconfigured-searches-select optgroup {
+  font-weight: 600;
+  font-style: normal;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  padding: 4px 0;
+}
+
+.preconfigured-searches-select option {
+  font-weight: 400;
+  padding: 6px 12px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .events-search-input {
