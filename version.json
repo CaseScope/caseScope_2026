@@ -1,6 +1,15 @@
 {
-  "version": "3.96.00",
+  "version": "3.96.01",
   "changelog": [
+    {
+      "version": "3.96.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Default Timezone system setting in Settings > General tab",
+        "Added: New cases automatically use the system default timezone",
+        "Added: API endpoints /api/settings/timezone for get/set default timezone"
+      ]
+    },
     {
       "version": "3.96.00",
       "date": "2026-01-16",

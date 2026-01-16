@@ -4795,6 +4795,64 @@ def restart_worker_service():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================
+# Default Timezone Settings API
+# ============================================
+
+@api_bp.route('/settings/timezone', methods=['GET'])
+@login_required
+def get_default_timezone():
+    """Get the default timezone for new cases"""
+    try:
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        timezone = SystemSettings.get(SettingKeys.DEFAULT_TIMEZONE, 'America/New_York')
+        
+        return jsonify({
+            'success': True,
+            'timezone': timezone
+        })
+    except Exception as e:
+        logger.exception("Error getting default timezone")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/timezone', methods=['POST'])
+@login_required
+def set_default_timezone():
+    """Set the default timezone for new cases"""
+    try:
+        # Check admin permission
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        from models.system_settings import SystemSettings, SettingKeys
+        from utils.timezone import is_valid_timezone
+        
+        data = request.get_json()
+        timezone = data.get('timezone', 'UTC')
+        
+        # Validate timezone
+        if not is_valid_timezone(timezone):
+            return jsonify({'success': False, 'error': 'Invalid timezone'}), 400
+        
+        SystemSettings.set(
+            SettingKeys.DEFAULT_TIMEZONE,
+            timezone,
+            value_type='string',
+            updated_by=current_user.username
+        )
+        
+        return jsonify({
+            'success': True,
+            'timezone': timezone,
+            'message': 'Default timezone saved successfully'
+        })
+    except Exception as e:
+        logger.exception("Error setting default timezone")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 def _update_worker_service_concurrency(concurrency: int) -> dict:
     """Update the systemd service file with new concurrency value
     

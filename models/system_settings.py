@@ -98,6 +98,9 @@ class SettingKeys:
     WORKER_CONCURRENCY = 'worker_concurrency'
     WORKER_OVERRIDE_RECOMMENDED = 'worker_override_recommended'
     
+    # Default timezone for new cases (IANA identifier e.g., 'America/New_York')
+    DEFAULT_TIMEZONE = 'default_timezone'
+    
     # OpenCTI integration settings
     OPENCTI_ENABLED = 'opencti_enabled'
     OPENCTI_URL = 'opencti_url'

@@ -113,8 +113,12 @@ def case_create():
         flash(f'Case "{name}" created successfully', 'success')
         return redirect(url_for('main.cases'))
     
+    # Get default timezone from system settings
+    from models.system_settings import SystemSettings, SettingKeys
+    default_tz = SystemSettings.get(SettingKeys.DEFAULT_TIMEZONE, 'America/New_York')
+    
     return render_template('case_create.html', page_title='Create Case',
-                           timezones=COMMON_TIMEZONES, detected_tz='America/New_York')
+                           timezones=COMMON_TIMEZONES, detected_tz=default_tz)
 
 
 @main_bp.route('/cases/select/<case_uuid>')

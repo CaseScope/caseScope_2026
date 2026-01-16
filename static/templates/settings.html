@@ -137,6 +137,68 @@
                     <div class="worker-status" id="workerStatus" style="display: none;"></div>
                 </div>
             </div>
+            
+            <!-- Default Timezone Section -->
+            <div class="settings-section timezone-settings" style="margin-top: 2rem;">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">🌐</span>
+                        Default Timezone
+                    </h4>
+                </div>
+                
+                <p class="text-muted" style="margin-bottom: 1rem;">
+                    Set the default timezone for new cases. Users can override this when creating a case.
+                </p>
+                
+                <div class="form-row">
+                    <div class="form-group" style="max-width: 400px;">
+                        <label class="form-label">Default Case Timezone</label>
+                        <select id="defaultTimezone" class="form-input">
+                            <option value="UTC">UTC (Coordinated Universal Time)</option>
+                            <option value="America/New_York">US Eastern (New York)</option>
+                            <option value="America/Chicago">US Central (Chicago)</option>
+                            <option value="America/Denver">US Mountain (Denver)</option>
+                            <option value="America/Los_Angeles">US Pacific (Los Angeles)</option>
+                            <option value="America/Anchorage">US Alaska</option>
+                            <option value="Pacific/Honolulu">US Hawaii</option>
+                            <option value="America/Toronto">Canada Eastern (Toronto)</option>
+                            <option value="America/Vancouver">Canada Pacific (Vancouver)</option>
+                            <option value="Europe/London">UK (London)</option>
+                            <option value="Europe/Paris">Central Europe (Paris)</option>
+                            <option value="Europe/Berlin">Central Europe (Berlin)</option>
+                            <option value="Europe/Amsterdam">Central Europe (Amsterdam)</option>
+                            <option value="Europe/Zurich">Central Europe (Zurich)</option>
+                            <option value="Europe/Rome">Central Europe (Rome)</option>
+                            <option value="Europe/Madrid">Central Europe (Madrid)</option>
+                            <option value="Europe/Stockholm">Northern Europe (Stockholm)</option>
+                            <option value="Europe/Helsinki">Northern Europe (Helsinki)</option>
+                            <option value="Europe/Warsaw">Eastern Europe (Warsaw)</option>
+                            <option value="Europe/Moscow">Russia (Moscow)</option>
+                            <option value="Asia/Dubai">Gulf (Dubai)</option>
+                            <option value="Asia/Kolkata">India (Kolkata)</option>
+                            <option value="Asia/Singapore">Singapore</option>
+                            <option value="Asia/Hong_Kong">Hong Kong</option>
+                            <option value="Asia/Shanghai">China (Shanghai)</option>
+                            <option value="Asia/Tokyo">Japan (Tokyo)</option>
+                            <option value="Asia/Seoul">Korea (Seoul)</option>
+                            <option value="Australia/Sydney">Australia Eastern (Sydney)</option>
+                            <option value="Australia/Melbourne">Australia Eastern (Melbourne)</option>
+                            <option value="Australia/Perth">Australia Western (Perth)</option>
+                            <option value="Pacific/Auckland">New Zealand (Auckland)</option>
+                        </select>
+                        <span class="form-help">All artifact timestamps for new cases will default to this timezone</span>
+                    </div>
+                </div>
+                
+                <div class="worker-actions" style="margin-top: 1rem;">
+                    <button class="btn btn-primary" onclick="saveDefaultTimezone()">
+                        <span class="btn-icon">💾</span> Save Timezone
+                    </button>
+                </div>
+                
+                <div class="timezone-status" id="timezoneStatus" style="display: none; margin-top: 1rem;"></div>
+            </div>
         </div>
         
         <script>
@@ -374,6 +436,58 @@
         function showWorkerError(message) {
             const infoBar = document.getElementById('workerInfoBar');
             infoBar.innerHTML = `<div class="info-error">⚠️ ${message}</div>`;
+        }
+        
+        // Timezone settings
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDefaultTimezone();
+        });
+        
+        function loadDefaultTimezone() {
+            fetch('/api/settings/timezone')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('defaultTimezone').value = data.timezone || 'UTC';
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading timezone setting:', err);
+                });
+        }
+        
+        function saveDefaultTimezone() {
+            const timezone = document.getElementById('defaultTimezone').value;
+            
+            fetch('/api/settings/timezone', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timezone: timezone })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showTimezoneStatus('Default timezone saved successfully.', 'success');
+                } else {
+                    showTimezoneStatus('Failed to save: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Error saving timezone:', err);
+                showTimezoneStatus('Error saving timezone setting.', 'error');
+            });
+        }
+        
+        function showTimezoneStatus(message, type) {
+            const statusEl = document.getElementById('timezoneStatus');
+            statusEl.style.display = 'block';
+            statusEl.className = `worker-status status-${type}`;
+            statusEl.innerHTML = `
+                <span class="status-icon">${type === 'success' ? '✓' : '✕'}</span>
+                <span class="status-text">${message}</span>
+            `;
+            
+            setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
         }
         </script>
         {% endif %}
