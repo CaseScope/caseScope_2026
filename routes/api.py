@@ -5031,9 +5031,11 @@ def get_tag_artifacts_progress(case_uuid):
 @api_bp.route('/hunting/browser/downloads/<int:case_id>')
 @login_required
 def get_browser_downloads(case_id):
-    """Get all browser download events for a case
+    """Get user-initiated browser download events for a case
     
-    Queries browser-related events and extracts download information.
+    Only returns actual user downloads from Chrome/Firefox/Edge downloads table.
+    Excludes web cache entries and browsing history.
+    
     Returns: timestamp, source_host (user/machine), filename, file path, source URL
     """
     try:
@@ -5045,8 +5047,8 @@ def get_browser_downloads(case_id):
         
         client = get_client()
         
-        # First, get events with download-specific artifact types
-        # Also search for browser_history events where visit_type indicates download
+        # Query only browser_download artifact type (user-initiated downloads)
+        # This comes from Chrome/Firefox/Edge downloads table parsing
         query = """
             SELECT 
                 timestamp,
@@ -5055,24 +5057,10 @@ def get_browser_downloads(case_id):
                 username,
                 raw_json,
                 extra_fields,
-                artifact_type,
-                source_file,
-                search_blob
+                source_file
             FROM events 
             WHERE case_id = {case_id:UInt32}
-            AND (
-                artifact_type IN ('browser_download', 'webcache_downloads', 'webcache_download')
-                OR (artifact_type IN ('browser_history', 'browser', 'webcache', 'webcache_history', 'webcache_cache') 
-                    AND (
-                        search_blob LIKE '%download%'
-                        OR raw_json LIKE '%"visit_type": "download"%'
-                        OR raw_json LIKE '%"visit_type": 7%'
-                        OR raw_json LIKE '%download_path%'
-                        OR raw_json LIKE '%target_path%'
-                        OR raw_json LIKE '%file_path%'
-                        OR raw_json LIKE '%current_path%'
-                    ))
-            )
+            AND artifact_type = 'browser_download'
             ORDER BY timestamp DESC
             LIMIT 10000
         """
@@ -5082,7 +5070,7 @@ def get_browser_downloads(case_id):
         downloads = []
         
         for row in result.result_rows:
-            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, artifact_type, source_file, search_blob = row
+            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, source_file = row
             
             # Parse JSON fields
             try:
@@ -5095,35 +5083,13 @@ def get_browser_downloads(case_id):
             except:
                 extra_fields = {}
             
-            # Extract download info
-            filename = ''
-            file_path = ''
-            source_url = ''
+            # Extract download info from raw_json
+            file_path = raw_json.get('file_path', raw_json.get('target_path', raw_json.get('current_path', target_path or '')))
+            source_url = raw_json.get('url', raw_json.get('source_url', ''))
+            filename = raw_json.get('filename', '')
             
-            # Check for download artifact types (most reliable)
-            if artifact_type in ('browser_download', 'webcache_downloads', 'webcache_download'):
-                source_url = raw_json.get('url', raw_json.get('source_url', target_path or ''))
-                file_path = raw_json.get('file_path', raw_json.get('target_path', raw_json.get('current_path', raw_json.get('download_path', ''))))
-                filename = raw_json.get('filename', '')
-            else:
-                # For browser_history, check visit_type
-                visit_type = raw_json.get('visit_type', '')
-                if visit_type == 'download' or visit_type == 7:
-                    source_url = raw_json.get('url', target_path or '')
-                
-                # Check for download-related fields in raw_json
-                if raw_json.get('download_path') or raw_json.get('target_path') or raw_json.get('current_path') or raw_json.get('file_path'):
-                    file_path = raw_json.get('download_path', raw_json.get('target_path', raw_json.get('current_path', raw_json.get('file_path', ''))))
-                    source_url = raw_json.get('url', raw_json.get('source_url', target_path or ''))
-                
-                # WebCache container entries might have url and filename
-                if raw_json.get('url'):
-                    source_url = source_url or raw_json.get('url', '')
-                if raw_json.get('filename'):
-                    filename = raw_json.get('filename', '')
-            
-            # Skip if we have no useful download info
-            if not source_url and not file_path:
+            # Skip if we have no file path (invalid download record)
+            if not file_path:
                 continue
             
             # Extract filename from path or URL if not set

@@ -1,6 +1,13 @@
 {
-  "version": "3.94.02",
+  "version": "3.94.03",
   "changelog": [
+    {
+      "version": "3.94.03",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Downloaded Files modal now shows only user-initiated downloads (excludes web cache)"
+      ]
+    },
     {
       "version": "3.94.02",
       "date": "2026-01-16",
