@@ -5108,7 +5108,6 @@ def get_browser_downloads(case_id):
                 'filename': filename or '(unknown)',
                 'file_path': file_path or '',
                 'source_url': source_url or '',
-                'artifact_type': artifact_type or '',
                 'source_file': source_file or ''
             })
         
