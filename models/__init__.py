@@ -24,6 +24,7 @@ from models.noise import (
 from models.event_description import EventDescription
 from models.evidence_file import EvidenceFile
 from models.file_audit_log import FileAuditLog, FileAction
+from models.field_enhancer import FieldEnhancer, seed_field_enhancers
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -39,5 +40,6 @@ __all__ = [
     'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults',
     'EventDescription',
     'EvidenceFile',
-    'FileAuditLog', 'FileAction'
+    'FileAuditLog', 'FileAction',
+    'FieldEnhancer', 'seed_field_enhancers'
 ]

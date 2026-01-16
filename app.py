@@ -367,6 +367,7 @@ def create_app():
         )
         from models.file_audit_log import FileAuditLog
         from models.audit_log import AuditLog
+        from models.field_enhancer import FieldEnhancer, seed_field_enhancers
         db.create_all()
         
         # Run schema migrations for new columns
@@ -374,6 +375,9 @@ def create_app():
         
         # Seed noise filter defaults if not exists
         seed_noise_defaults()
+        
+        # Seed field enhancers for Windows events
+        seed_field_enhancers()
         
         # Create default admin user if not exists
         from config import PermissionLevel

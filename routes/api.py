@@ -6166,3 +6166,47 @@ def get_entity_audit_log(entity_type, entity_id):
     except Exception as e:
         logger.error(f"Error getting entity audit log: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Field Enhancers API
+# ============================================
+
+@api_bp.route('/hunting/field-enhancers')
+@login_required
+def get_field_enhancers():
+    """Get all enabled field enhancers for client-side caching
+    
+    Returns a lookup-optimized structure:
+    {
+        "artifact_type:field_path:field_value": "description",
+        ...
+    }
+    
+    Frontend caches this on page load for O(1) lookups.
+    """
+    try:
+        from models.field_enhancer import FieldEnhancer
+        
+        enhancers = FieldEnhancer.query.filter_by(is_enabled=True).all()
+        
+        # Build lookup dict keyed by artifact_type:field_path:field_value
+        lookup = {}
+        for e in enhancers:
+            # Create multiple keys for pattern matching
+            # Exact match key
+            key = f"{e.artifact_type}:{e.field_path}:{e.field_value}"
+            lookup[key] = {
+                'description': e.description,
+                'source_pattern': e.source_pattern
+            }
+        
+        return jsonify({
+            'success': True,
+            'enhancers': lookup,
+            'count': len(lookup)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching field enhancers: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

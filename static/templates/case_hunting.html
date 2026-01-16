@@ -183,6 +183,7 @@ let eventsSearch = '';
 let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
 let currentEventsData = []; // Store current page's event data for modal display
 let caseIOCValues = []; // Store IOC values for highlighting in modal
+let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 
 // Filter state
 const eventFilters = {
@@ -397,6 +398,54 @@ function showToast(message) {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
     }, 2000);
+}
+
+// ============================================
+// Field Enhancers (human-readable value descriptions)
+// ============================================
+
+// Load field enhancers from API (called once on page load)
+function loadFieldEnhancers() {
+    fetch('/api/hunting/field-enhancers')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                fieldEnhancers = data.enhancers || {};
+                console.log(`Loaded ${data.count} field enhancers`);
+            }
+        })
+        .catch(err => {
+            console.warn('Failed to load field enhancers:', err);
+        });
+}
+
+// Get enhanced description for a field value
+// Returns null if no enhancement found
+function getFieldEnhancement(artifactType, fieldPath, fieldValue) {
+    if (!fieldEnhancers || !fieldValue) return null;
+    
+    // Normalize field path (strip raw_json. prefix if present)
+    let normalizedPath = fieldPath;
+    if (normalizedPath.startsWith('raw_json.')) {
+        normalizedPath = normalizedPath.substring(9);
+    }
+    
+    // Normalize value to string
+    const valueStr = String(fieldValue);
+    
+    // Try exact match first: artifact_type:field_path:field_value
+    let key = `${artifactType}:${normalizedPath}:${valueStr}`;
+    if (fieldEnhancers[key]) {
+        return fieldEnhancers[key].description;
+    }
+    
+    // Try wildcard artifact type: *:field_path:field_value
+    key = `*:${normalizedPath}:${valueStr}`;
+    if (fieldEnhancers[key]) {
+        return fieldEnhancers[key].description;
+    }
+    
+    return null;
 }
 
 // ============================================
@@ -859,6 +908,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize time filter visibility
     updateTimeFilterVisibility();
     
+    // Load field enhancers (cached for column value lookups)
+    loadFieldEnhancers();
+    
     // Load events on page load
     loadEvents();
     
@@ -1264,19 +1316,30 @@ function renderEventsTable(events) {
                 
                 // Format the display value
                 let displayValue = '-';
+                let enhancedDesc = null;
                 if (value !== null && value !== undefined) {
                     if (typeof value === 'object') {
                         displayValue = JSON.stringify(value);
                     } else {
                         displayValue = String(value);
                     }
+                    
+                    // Check for field enhancement (human-readable description)
+                    enhancedDesc = getFieldEnhancement(e.artifact_type, fieldPath, value);
+                    
                     // Truncate long values
                     if (displayValue.length > 50) {
                         displayValue = displayValue.substring(0, 47) + '...';
                     }
                 }
                 
-                return `<td class="col-custom" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(String(value || ''))}">${escapeHtml(displayValue)}</td>`;
+                // Build cell content with optional enhancement
+                let cellContent = escapeHtml(displayValue);
+                if (enhancedDesc) {
+                    cellContent = `<span class="enhanced-value">${escapeHtml(displayValue)}</span><span class="enhanced-desc">${escapeHtml(enhancedDesc)}</span>`;
+                }
+                
+                return `<td class="col-custom" onclick="showEventDetail(${index})" style="cursor: pointer;" title="${escapeHtml(String(value || ''))}${enhancedDesc ? ' - ' + enhancedDesc : ''}">${cellContent}</td>`;
             }).join('');
         }
         

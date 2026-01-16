@@ -1,6 +1,19 @@
 {
-  "version": "3.99.06",
+  "version": "3.100.00",
   "changelog": [
+    {
+      "version": "3.100.00",
+      "date": "2026-01-16",
+      "changes": [
+        "Feature: Field Enhancers - human-readable descriptions for cryptic field values",
+        "Added: field_enhancers PostgreSQL table with auto-seeding on startup",
+        "Added: API endpoint /api/hunting/field-enhancers for client-side caching",
+        "Added: LogonType descriptions (0-13 including Interactive, Network, RDP, etc.)",
+        "Added: SubStatus descriptions for failed logon codes (0xC0000064, 0xC000006A, etc.)",
+        "Added: FailureReason descriptions (%%2313, %%2305, etc.)",
+        "UI: Enhanced columns show value with description underneath in muted italic"
+      ]
+    },
     {
       "version": "3.99.06",
       "date": "2026-01-16",
