@@ -280,6 +280,8 @@ class BrowserSQLiteParser(BaseParser):
                 yield from self._parse_firefox_forms(temp_path, source_file, hostname)
             elif db_type == 'chrome_history':
                 yield from self._parse_chrome_history(temp_path, source_file, hostname)
+                # Also parse downloads table from Chrome History database
+                yield from self._parse_chrome_downloads(temp_path, source_file, hostname)
             elif db_type == 'chrome_cookies':
                 yield from self._parse_chrome_cookies(temp_path, source_file, hostname)
             elif db_type == 'chrome_logins':
@@ -529,6 +531,101 @@ class BrowserSQLiteParser(BaseParser):
             
         except Exception as e:
             self.errors.append(f"Chrome history parse error: {e}")
+    
+    def _parse_chrome_downloads(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Chrome/Edge downloads table"""
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Check if downloads table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='downloads'")
+            if not cursor.fetchone():
+                conn.close()
+                return
+            
+            query = """
+                SELECT 
+                    id,
+                    current_path,
+                    target_path,
+                    start_time,
+                    end_time,
+                    received_bytes,
+                    total_bytes,
+                    state,
+                    danger_type,
+                    interrupt_reason,
+                    mime_type,
+                    original_mime_type
+                FROM downloads
+                WHERE start_time IS NOT NULL
+                ORDER BY start_time DESC
+            """
+            
+            cursor.execute(query)
+            
+            # Also get download URLs from download_url_chains if available
+            url_chains = {}
+            try:
+                cursor2 = conn.cursor()
+                cursor2.execute("SELECT id, url FROM download_url_chains ORDER BY id, chain_index")
+                for row in cursor2:
+                    if row['id'] not in url_chains:
+                        url_chains[row['id']] = []
+                    url_chains[row['id']].append(row['url'])
+            except:
+                pass  # Table may not exist in older Chrome versions
+            
+            for row in cursor:
+                start_time = webkit_to_datetime(row['start_time'])
+                end_time = webkit_to_datetime(row['end_time'])
+                
+                if not start_time:
+                    start_time = datetime.now()
+                
+                file_path = row['target_path'] or row['current_path'] or ''
+                filename = file_path.split('\\')[-1].split('/')[-1] if file_path else ''
+                
+                # Get source URL from chain or try to extract from other fields
+                source_url = ''
+                if row['id'] in url_chains and url_chains[row['id']]:
+                    source_url = url_chains[row['id']][0]  # First URL in chain is the source
+                
+                raw_data = {
+                    'file_path': file_path,
+                    'filename': filename,
+                    'url': source_url,
+                    'start_time': str(start_time),
+                    'end_time': str(end_time) if end_time else None,
+                    'received_bytes': row['received_bytes'],
+                    'total_bytes': row['total_bytes'],
+                    'state': row['state'],
+                    'danger_type': row['danger_type'],
+                    'interrupt_reason': row['interrupt_reason'],
+                    'mime_type': row['mime_type'] or row['original_mime_type'],
+                }
+                
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type='browser_download',
+                    timestamp=start_time,
+                    source_file=source_file,
+                    source_path=db_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    target_path=file_path,
+                    raw_json=json.dumps(raw_data, default=str),
+                    search_blob=f"{filename} {source_url} {file_path} chrome download",
+                    extra_fields=json.dumps({'browser': 'chrome', 'artifact': 'download'}),
+                    parser_version=self.parser_version,
+                )
+            
+            conn.close()
+            
+        except Exception as e:
+            self.errors.append(f"Chrome downloads parse error: {e}")
     
     def _parse_chrome_cookies(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge Cookies database"""

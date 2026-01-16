@@ -1,6 +1,14 @@
 {
-  "version": "3.94.00",
+  "version": "3.94.01",
   "changelog": [
+    {
+      "version": "3.94.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Browser downloads API now searches more broadly for download events",
+        "Added: Chrome downloads table parser (browser_download artifact type) - previously only Firefox downloads were captured"
+      ]
+    },
     {
       "version": "3.94.00",
       "date": "2026-01-16",
