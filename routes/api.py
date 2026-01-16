@@ -1654,7 +1654,7 @@ def get_hunting_events(case_id):
             src_ip, dst_ip, src_port, dst_port,
             reg_key, reg_value, reg_data,
             rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-            search_blob, extra_fields, ioc_types, noise_matched,
+            search_blob, extra_fields, raw_json, ioc_types, noise_matched,
             analyst_tagged, analyst_tags, analyst_notes
         """
         
@@ -1856,7 +1856,7 @@ def get_hunting_events(case_id):
              src_ip, dst_ip, src_port, dst_port,
              reg_key, reg_value, reg_data,
              rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-             search_blob, extra_fields, ioc_types, noise_matched,
+             search_blob, extra_fields, raw_json, ioc_types, noise_matched,
              analyst_tagged, analyst_tags, analyst_notes) = row
             
             # Build description from available fields
@@ -1912,6 +1912,7 @@ def get_hunting_events(case_id):
                 'mitre_tags': list(mitre_tags) if mitre_tags else [],
                 'search_blob': search_blob or '',
                 'extra_fields': extra_fields or '{}',
+                'raw_json': raw_json or '',
                 'ioc_types': list(ioc_types) if ioc_types else [],
                 'noise_matched': bool(noise_matched) if noise_matched else False,
                 'analyst_tagged': bool(analyst_tagged) if analyst_tagged else False,

@@ -1006,19 +1006,24 @@ function renderEventsTable(events) {
                 }
             }
             
+            // Parse raw_json if present (now included in API response)
+            let rawJsonData = null;
+            if (e.raw_json) {
+                try {
+                    rawJsonData = typeof e.raw_json === 'string' ? JSON.parse(e.raw_json) : e.raw_json;
+                } catch (err) {
+                    // Ignore parse errors
+                }
+            }
+            
             customColsHtml = customColumns.map(fieldPath => {
                 let value = null;
                 
                 // Check if path starts with "raw_json." - extract from parsed raw_json
                 if (fieldPath.startsWith('raw_json.')) {
                     const innerPath = fieldPath.substring(9); // Remove "raw_json." prefix
-                    if (extraData?.raw_json) {
-                        try {
-                            const rawJson = typeof extraData.raw_json === 'string' ? JSON.parse(extraData.raw_json) : extraData.raw_json;
-                            value = getNestedValue(rawJson, innerPath);
-                        } catch (err) {
-                            // Ignore parse errors
-                        }
+                    if (rawJsonData) {
+                        value = getNestedValue(rawJsonData, innerPath);
                     }
                 } else {
                     // Try to get value from extra_fields directly

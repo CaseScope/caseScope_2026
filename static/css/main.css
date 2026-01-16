@@ -2701,7 +2701,7 @@ tbody td {
 /* Custom Column Header Styling */
 .custom-column-header {
   position: relative;
-  padding-right: 24px !important;
+  padding-left: 20px !important;
   max-width: 150px;
   white-space: nowrap;
   overflow: hidden;
@@ -2710,22 +2710,22 @@ tbody td {
 
 .custom-column-header .custom-col-label {
   display: inline-block;
-  max-width: calc(100% - 20px);
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .btn-remove-column {
   position: absolute;
-  right: 4px;
+  left: 2px;
   top: 50%;
   transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   padding: 0;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: bold;
-  line-height: 14px;
+  line-height: 12px;
   border-radius: 3px;
   background: var(--accent-danger);
   color: white;
