@@ -1550,11 +1550,15 @@ def get_hunting_events(case_id):
     """Get paginated events for hunting page"""
     try:
         from utils.clickhouse import get_client
+        from utils.timezone import format_for_display
         
         # Verify case exists
         case = Case.query.get(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get case timezone for display conversion
+        case_tz = case.timezone or 'UTC'
         
         # Pagination parameters
         page = request.args.get('page', 1, type=int)
@@ -1640,8 +1644,9 @@ def get_hunting_events(case_id):
         
         # Build query with optional search and type filter
         # All columns to fetch for event details modal
+        # Note: timestamp_utc is used for display (converted to case TZ), timestamp is kept for forensic integrity
         event_columns = """
-            timestamp, artifact_type, source_file, source_path, source_host,
+            timestamp, timestamp_utc, artifact_type, source_file, source_path, source_host,
             event_id, channel, provider, record_id, level,
             username, domain, sid, logon_type,
             process_name, process_path, process_id, parent_process, parent_pid, command_line,
@@ -1843,7 +1848,7 @@ def get_hunting_events(case_id):
         
         events = []
         for row in data_result.result_rows:
-            (timestamp, artifact_type, source_file, source_path, source_host,
+            (timestamp, timestamp_utc, artifact_type, source_file, source_path, source_host,
              event_id, channel, provider, record_id, level,
              username, domain, sid, logon_type,
              process_name, process_path, process_id, parent_process, parent_pid, command_line,
@@ -1860,9 +1865,12 @@ def get_hunting_events(case_id):
                 process_name, command_line, target_path, search_blob
             )
             
+            # Use timestamp_utc for display (converted to case TZ), fall back to timestamp
+            display_ts = timestamp_utc if timestamp_utc else timestamp
+            
             events.append({
-                # Display fields (for table)
-                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '-',
+                # Display fields (for table) - convert UTC to case timezone
+                'timestamp': format_for_display(display_ts, case_tz) if display_ts else '-',
                 'artifact_type': artifact_type or '-',
                 'source_host': source_host or '-',
                 'description': description,
@@ -2329,10 +2337,14 @@ def get_process_children(case_id):
     """
     try:
         from utils.clickhouse import get_client
+        from utils.timezone import format_for_display
         
         case = Case.query.get(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get case timezone for display conversion
+        case_tz = case.timezone or 'UTC'
         
         hostname = request.args.get('host', '', type=str).strip()
         parent_pid = request.args.get('parent_pid', 0, type=int)
@@ -2346,7 +2358,7 @@ def get_process_children(case_id):
         # Query for child processes - events where parent_pid matches
         query = """
             SELECT 
-                timestamp,
+                COALESCE(timestamp_utc, timestamp) as ts,
                 process_name,
                 process_path,
                 process_id,
@@ -2378,7 +2390,7 @@ def get_process_children(case_id):
         
         children = []
         for row in result.result_rows:
-            timestamp, proc_name, proc_path, pid, par_proc, par_pid, cmdline, username = row
+            ts, proc_name, proc_path, pid, par_proc, par_pid, cmdline, username = row
             
             # Check if this process has children (for tree expansion indicator)
             child_count_result = client.query(
@@ -2393,7 +2405,7 @@ def get_process_children(case_id):
             child_count = child_count_result.result_rows[0][0] if child_count_result.result_rows else 0
             
             children.append({
-                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
+                'timestamp': format_for_display(ts, case_tz) if ts else '',
                 'process_name': proc_name or '',
                 'process_path': proc_path or '',
                 'pid': pid,
@@ -2425,10 +2437,14 @@ def get_process_parent(case_id):
     """
     try:
         from utils.clickhouse import get_client
+        from utils.timezone import format_for_display
         
         case = Case.query.get(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get case timezone for display conversion
+        case_tz = case.timezone or 'UTC'
         
         hostname = request.args.get('host', '', type=str).strip()
         pid = request.args.get('pid', 0, type=int)
@@ -2444,7 +2460,7 @@ def get_process_parent(case_id):
         if pid:
             parent_query = """
                 SELECT 
-                    timestamp,
+                    COALESCE(timestamp_utc, timestamp) as ts,
                     process_name,
                     process_path,
                     process_id,
@@ -2470,7 +2486,7 @@ def get_process_parent(case_id):
             if result.result_rows:
                 row = result.result_rows[0]
                 parent = {
-                    'timestamp': row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '',
+                    'timestamp': format_for_display(row[0], case_tz) if row[0] else '',
                     'process_name': row[1] or '',
                     'process_path': row[2] or '',
                     'pid': row[3],
@@ -2485,7 +2501,7 @@ def get_process_parent(case_id):
         if parent and parent['pid']:
             siblings_query = """
                 SELECT 
-                    timestamp,
+                    COALESCE(timestamp_utc, timestamp) as ts,
                     process_name,
                     process_path,
                     process_id,
@@ -2522,7 +2538,7 @@ def get_process_parent(case_id):
                 child_count = child_count_result.result_rows[0][0] if child_count_result.result_rows else 0
                 
                 siblings.append({
-                    'timestamp': row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '',
+                    'timestamp': format_for_display(row[0], case_tz) if row[0] else '',
                     'process_name': row[1] or '',
                     'process_path': row[2] or '',
                     'pid': row[3],
@@ -5099,11 +5115,15 @@ def get_browser_downloads(case_id):
     """
     try:
         from utils.clickhouse import get_client
+        from utils.timezone import format_for_display
         from models.ioc import IOC
         
         case = Case.query.get(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get case timezone for display conversion
+        case_tz = case.timezone or 'UTC'
         
         # Get filename IOCs for this case to highlight malicious downloads
         ioc_filenames = set()
@@ -5121,7 +5141,7 @@ def get_browser_downloads(case_id):
         # This comes from Chrome/Firefox/Edge downloads table parsing
         query = """
             SELECT 
-                timestamp,
+                COALESCE(timestamp_utc, timestamp) as ts,
                 source_host,
                 target_path,
                 username,
@@ -5203,7 +5223,7 @@ def get_browser_downloads(case_id):
             is_ioc_match = filename.lower() in ioc_filenames if filename else False
             
             downloads.append({
-                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
+                'timestamp': format_for_display(timestamp, case_tz) if timestamp else '',
                 'source_host': source_host or '',
                 'username': display_username,
                 'filename': filename or '(unknown)',

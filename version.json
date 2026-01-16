@@ -1,6 +1,15 @@
 {
-  "version": "3.97.00",
+  "version": "3.97.01",
   "changelog": [
+    {
+      "version": "3.97.01",
+      "date": "2026-01-16",
+      "changes": [
+        "Fixed: Hunting Events timestamps now display in case timezone (was showing UTC)",
+        "Fixed: Process Analysis timestamps now display in case timezone",
+        "Fixed: Browser Downloads timestamps now display in case timezone"
+      ]
+    },
     {
       "version": "3.97.00",
       "date": "2026-01-16",
