@@ -13,19 +13,19 @@
         <div class="quickref-grid">
             <div class="quickref-item">
                 <code>term1 term2</code>
-                <span>AND - both must match</span>
+                <span>AND - both must match anywhere</span>
             </div>
             <div class="quickref-item">
                 <code>term1|term2</code>
                 <span>OR - either can match</span>
             </div>
             <div class="quickref-item">
-                <code>-term</code>
-                <span>Exclude term</span>
+                <code>"field value"</code>
+                <span>Field:Value pairing</span>
             </div>
             <div class="quickref-item">
-                <code>-"quoted phrase"</code>
-                <span>Exclude phrase</span>
+                <code>-term</code>
+                <span>Exclude term</span>
             </div>
             <div class="quickref-item">
                 <code>(group1)|(group2)</code>
@@ -141,6 +141,51 @@
         </div>
     </div>
 
+    <!-- Quoted Phrases & Field:Value Pairing -->
+    <div class="help-section">
+        <h2 class="help-section-title">🎯 Quoted Phrases &amp; Field:Value Pairing</h2>
+        <p class="help-text">Use quotes to search for exact phrases including spaces. This is especially powerful for field-specific searches because indexed data is stored in <code>FieldName:Value</code> format.</p>
+        
+        <div class="help-example-block">
+            <h3 class="help-example-title">Field-Specific Search Examples</h3>
+            <div class="help-example">
+                <code class="help-query">"LogonType 3"</code>
+                <p class="help-description">Finds events where LogonType is 3 (Network logon). The quoted phrase matches "LogonType:3" in the indexed data.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">"username bob"</code>
+                <p class="help-description">Finds events where the username field contains "bob". Matches "username:bob" or "TargetUserName:bob" in indexed data.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">4624 "LogonType 10"</code>
+                <p class="help-description">Finds Event ID 4624 with LogonType 10 (RDP/RemoteInteractive). The field pairing ensures you're matching the logon type, not just "10" anywhere.</p>
+            </div>
+            <div class="help-example">
+                <code class="help-query">"TargetUserName admin"</code>
+                <p class="help-description">Finds events where the TargetUserName field contains "admin" - more precise than just searching "admin" which could match anywhere.</p>
+            </div>
+        </div>
+
+        <div class="help-tip">
+            <span class="tip-icon">⚠️</span>
+            <span class="tip-text"><strong>Important:</strong> Without quotes, <code>4624 10</code> would find events containing both "4624" AND "10" anywhere in any field - not specifically logon type 10. Use <code>4624 "LogonType 10"</code> for precision.</span>
+        </div>
+        
+        <div class="help-example-block">
+            <h3 class="help-example-title">Common Field Names for Pairing</h3>
+            <div class="field-pair-grid">
+                <div class="field-pair"><code>LogonType</code> - Logon type (2=Interactive, 3=Network, 10=RDP)</div>
+                <div class="field-pair"><code>TargetUserName</code> - Target user in logon events</div>
+                <div class="field-pair"><code>SubjectUserName</code> - Subject user performing action</div>
+                <div class="field-pair"><code>IpAddress</code> - Source IP address</div>
+                <div class="field-pair"><code>WorkstationName</code> - Source workstation</div>
+                <div class="field-pair"><code>ProcessName</code> - Process executable name</div>
+                <div class="field-pair"><code>CommandLine</code> - Full command line</div>
+                <div class="field-pair"><code>TargetFilename</code> - File operation target</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Event ID Search -->
     <div class="help-section">
         <h2 class="help-section-title">🔢 Event ID Search</h2>
@@ -184,7 +229,7 @@
 
         <div class="help-tip">
             <span class="tip-icon">💡</span>
-            <span class="tip-text"><strong>Tip:</strong> Combine Event ID with keywords: <code>4688 powershell</code> finds PowerShell process creation events.</span>
+            <span class="tip-text"><strong>Tip:</strong> Combine Event ID with field pairings for precision: <code>4688 "CommandLine powershell"</code> finds process creation events where the command line contains PowerShell.</span>
         </div>
     </div>
 
@@ -233,20 +278,24 @@
             <h3 class="help-category-title">🔐 Authentication & Access</h3>
             <div class="help-example-block">
                 <div class="help-example">
-                    <code class="help-query">4624 10</code>
-                    <p class="help-description">RDP logons (Logon Type 10 = RemoteInteractive)</p>
+                    <code class="help-query">4624 "LogonType 10"</code>
+                    <p class="help-description">RDP logons (Logon Type 10 = RemoteInteractive). Quoted field pairing ensures we match the logon type field.</p>
                 </div>
                 <div class="help-example">
-                    <code class="help-query">4624 3 -SYSTEM -$</code>
-                    <p class="help-description">Network logons excluding SYSTEM and computer accounts ($ suffix)</p>
+                    <code class="help-query">4624 "LogonType 3" -SYSTEM -$</code>
+                    <p class="help-description">Network logons (Type 3) excluding SYSTEM and computer accounts ($ suffix).</p>
                 </div>
                 <div class="help-example">
-                    <code class="help-query">4625 0xc0000064</code>
-                    <p class="help-description">Failed logon: user does not exist (user enumeration)</p>
+                    <code class="help-query">4625 "Status 0xc0000064"</code>
+                    <p class="help-description">Failed logon: user does not exist (user enumeration attack indicator).</p>
                 </div>
                 <div class="help-example">
                     <code class="help-query">4648</code>
                     <p class="help-description">Explicit credential use - RunAs, pass-the-hash candidates</p>
+                </div>
+                <div class="help-example">
+                    <code class="help-query">4624 "LogonType 2"</code>
+                    <p class="help-description">Interactive (console) logons - physical access to the system.</p>
                 </div>
             </div>
         </div>
@@ -745,6 +794,29 @@
     padding: 2px 5px;
     border-radius: 3px;
     color: var(--accent-primary);
+}
+
+/* Field Pair Grid */
+.field-pair-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.field-pair {
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.field-pair code {
+    font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--accent-primary);
+    font-weight: 600;
 }
 </style>
 {% endblock %}

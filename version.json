@@ -1,6 +1,15 @@
 {
-  "version": "3.99.02",
+  "version": "3.99.03",
   "changelog": [
+    {
+      "version": "3.99.03",
+      "date": "2026-01-16",
+      "changes": [
+        "Updated: Search Help page with Field:Value pairing documentation",
+        "Added: Quoted phrase syntax for field-specific searches (e.g., \"LogonType 3\")",
+        "Fixed: DFIR examples now use proper field pairing syntax for precision"
+      ]
+    },
     {
       "version": "3.99.02",
       "date": "2026-01-16",
