@@ -5057,7 +5057,8 @@ def get_browser_downloads(case_id):
                 username,
                 raw_json,
                 extra_fields,
-                source_file
+                source_file,
+                case_file_id
             FROM events 
             WHERE case_id = {case_id:UInt32}
             AND artifact_type = 'browser_download'
@@ -5067,10 +5068,32 @@ def get_browser_downloads(case_id):
         
         result = client.query(query, parameters={'case_id': case_id})
         
+        # Collect unique case_file_ids to batch lookup for username extraction
+        case_file_ids = set()
+        rows_data = []
+        for row in result.result_rows:
+            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, source_file, case_file_id = row
+            rows_data.append(row)
+            if case_file_id:
+                case_file_ids.add(case_file_id)
+        
+        # Batch lookup CaseFile records for username extraction from path
+        case_file_usernames = {}
+        if case_file_ids:
+            from models.case_file import CaseFile
+            import re
+            case_files = CaseFile.query.filter(CaseFile.id.in_(case_file_ids)).all()
+            for cf in case_files:
+                # Extract username from path like "C/Users/USERNAME/AppData..."
+                if cf.filename:
+                    match = re.search(r'[/\\]Users[/\\]([^/\\]+)[/\\]', cf.filename, re.IGNORECASE)
+                    if match:
+                        case_file_usernames[cf.id] = match.group(1)
+        
         downloads = []
         
-        for row in result.result_rows:
-            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, source_file = row
+        for row in rows_data:
+            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, source_file, case_file_id = row
             
             # Parse JSON fields
             try:
@@ -5101,10 +5124,15 @@ def get_browser_downloads(case_id):
                     url_path = source_url.split('?')[0]
                     filename = url_path.split('/')[-1] if '/' in url_path else ''
             
+            # Get username: prefer event field, fallback to path extraction
+            display_username = username or ''
+            if not display_username and case_file_id:
+                display_username = case_file_usernames.get(case_file_id, '')
+            
             downloads.append({
                 'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
                 'source_host': source_host or '',
-                'username': username or '',
+                'username': display_username,
                 'filename': filename or '(unknown)',
                 'file_path': file_path or '',
                 'source_url': source_url or '',

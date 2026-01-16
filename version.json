@@ -1,6 +1,13 @@
 {
-  "version": "3.94.03",
+  "version": "3.94.04",
   "changelog": [
+    {
+      "version": "3.94.04",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Username extraction from browser database file path (e.g., C:\\Users\\bdole\\... -> bdole)"
+      ]
+    },
     {
       "version": "3.94.03",
       "date": "2026-01-16",
