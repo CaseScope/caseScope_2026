@@ -51,8 +51,9 @@ class IISLogParser(BaseParser):
         'cs-host': 'host',
     }
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self.fields = []
     
     @property
@@ -213,8 +214,9 @@ class FirewallLogParser(BaseParser):
         r'id=(\S+)\s+sn=(\S+)\s+time="([^"]+)"'
     )
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
     
     @property
     def artifact_type(self) -> str:
@@ -380,8 +382,9 @@ class HuntressParser(BaseParser):
     VERSION = '2.1.0'
     ARTIFACT_TYPE = 'huntress'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
     
     @property
     def artifact_type(self) -> str:
@@ -790,8 +793,8 @@ class GenericJSONParser(BaseParser):
     ARTIFACT_TYPE = 'json_log'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 artifact_type_override: str = None):
-        super().__init__(case_id, source_host, case_file_id)
+                 case_tz: str = 'UTC', artifact_type_override: str = None, **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self._artifact_type = artifact_type_override or self.ARTIFACT_TYPE
     
     @property
@@ -1119,8 +1122,8 @@ class CSVLogParser(BaseParser):
     ARTIFACT_TYPE = 'csv_log'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 artifact_type_override: str = None):
-        super().__init__(case_id, source_host, case_file_id)
+                 case_tz: str = 'UTC', artifact_type_override: str = None, **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self._artifact_type = artifact_type_override or self.ARTIFACT_TYPE
     
     @property
@@ -1227,8 +1230,9 @@ class SonicWallCSVParser(BaseParser):
         '%m/%d/%y %H:%M:%S',
     ]
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
     
     @property
     def artifact_type(self) -> str:

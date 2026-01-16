@@ -66,22 +66,23 @@ class EvtxECmdParser(BaseParser):
     }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 evtxecmd_bin: str = None, maps_dir: str = None,
+                 case_tz: str = 'UTC', evtxecmd_bin: str = None, maps_dir: str = None,
                  hayabusa_bin: str = None, rules_dir: str = None,
-                 enrich_detections: bool = True):
+                 enrich_detections: bool = True, **kwargs):
         """Initialize EvtxECmd + Hayabusa parser
         
         Args:
             case_id: ClickHouse case_id
             source_host: Hostname the EVTX came from
             case_file_id: Optional FK to case_files
+            case_tz: Case timezone (not used - EVTX is always UTC)
             evtxecmd_bin: Path to EvtxECmd wrapper script
             maps_dir: Path to EvtxECmd Maps directory
             hayabusa_bin: Path to Hayabusa binary (for detection enrichment)
             rules_dir: Path to Hayabusa rules
             enrich_detections: Run Hayabusa for Sigma detection enrichment
         """
-        super().__init__(case_id, source_host, case_file_id)
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         self.evtxecmd_bin = evtxecmd_bin or self.EVTXECMD_BIN
         self.maps_dir = maps_dir or self.EVTXECMD_MAPS
@@ -754,8 +755,9 @@ class EvtxFallbackParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'evtx'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         try:
             from evtx import PyEvtxParser

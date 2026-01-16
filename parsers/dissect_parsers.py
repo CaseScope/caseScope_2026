@@ -39,8 +39,9 @@ class PrefetchParser(BaseParser):
     VERSION = '2.0.0'
     ARTIFACT_TYPE = 'prefetch'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         try:
             from dissect.target.plugins.os.windows.prefetch import Prefetch
@@ -248,16 +249,17 @@ class RegistryParser(BaseParser):
     ]
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 extract_all: bool = False):
+                 case_tz: str = 'UTC', extract_all: bool = False, **kwargs):
         """Initialize Registry parser
         
         Args:
             case_id: ClickHouse case_id
             source_host: Hostname
             case_file_id: Optional FK to case_files
+            case_tz: Case timezone (not used - registry timestamps are UTC/FILETIME)
             extract_all: If True, extract all keys. If False, only interesting keys.
         """
-        super().__init__(case_id, source_host, case_file_id)
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self.extract_all = extract_all
         
         try:
@@ -445,8 +447,9 @@ class LnkParser(BaseParser):
     VERSION = '2.1.0'
     ARTIFACT_TYPE = 'lnk'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         try:
             from dissect.shellitem.lnk import Lnk
@@ -741,8 +744,9 @@ class JumpListParser(BaseParser):
     VERSION = '2.1.0'
     ARTIFACT_TYPE = 'jumplist'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         try:
             from dissect.ole import OLE
@@ -1064,16 +1068,17 @@ class MFTParser(BaseParser):
     ARTIFACT_TYPE = 'mft'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 max_entries: int = None):
+                 case_tz: str = 'UTC', max_entries: int = None, **kwargs):
         """Initialize MFT parser
         
         Args:
             case_id: ClickHouse case_id
             source_host: Hostname
             case_file_id: Optional FK to case_files
+            case_tz: Case timezone (not used - MFT timestamps are UTC/FILETIME)
             max_entries: Maximum MFT entries to process (None = no limit, process all)
         """
-        super().__init__(case_id, source_host, case_file_id)
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self.max_entries = max_entries  # None = no limit for complete DFIR analysis
         
         try:
@@ -1244,8 +1249,9 @@ class SRUMParser(BaseParser):
         '{B6D82AF1-F780-4E17-8077-6CB9AD8A6FC4}': 'SDL Storage Provider',
     }
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self._id_map = {}  # Cache for SruDbIdMapTable lookups
         
         try:

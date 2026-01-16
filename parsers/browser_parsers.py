@@ -128,8 +128,9 @@ class BrowserSQLiteParser(BaseParser):
         'iconcache_', 'thumbcache_', 'staterepository-',
     ]
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self._db_type = None
         self._browser = None
     
@@ -1006,8 +1007,9 @@ class FirefoxJSONLZ4Parser(BaseParser):
     # Mozilla LZ4 magic header
     MOZLZ4_MAGIC = b'mozLz40\0'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         # Try to import lz4
         try:

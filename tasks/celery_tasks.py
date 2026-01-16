@@ -70,8 +70,18 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     """
     from parsers import process_file, get_registry
     from utils.clickhouse import get_fresh_client
+    from models.case import Case
     
     logger.info(f"Processing file: {file_path} for case {case_id}")
+    
+    # Fetch case timezone for timestamp normalization
+    case_tz = 'UTC'  # Default
+    try:
+        case = Case.query.get(case_id)
+        if case and case.timezone:
+            case_tz = case.timezone
+    except Exception as e:
+        logger.warning(f"Could not fetch case timezone: {e}")
     
     # Mark file as ingesting
     if case_file_id:
@@ -124,6 +134,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             source_host=source_host,
             case_file_id=case_file_id,
             clickhouse_client=client,
+            case_tz=case_tz,
         )
         
         # Update case_file status in PostgreSQL

@@ -370,7 +370,8 @@ class ParserRegistry:
         return candidates[0][2]
     
     def get_parser(self, artifact_type: str, case_id: int, source_host: str = '', 
-                   case_file_id: Optional[int] = None, **kwargs) -> Optional[BaseParser]:
+                   case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                   **kwargs) -> Optional[BaseParser]:
         """Get a parser instance for the given artifact type
         
         Args:
@@ -378,6 +379,7 @@ class ParserRegistry:
             case_id: ClickHouse case_id
             source_host: Hostname
             case_file_id: Optional FK to case_files
+            case_tz: Case timezone (IANA identifier) for ambiguous timestamp sources
             **kwargs: Additional parser-specific arguments
             
         Returns:
@@ -393,6 +395,7 @@ class ParserRegistry:
                 case_id=case_id,
                 source_host=source_host,
                 case_file_id=case_file_id,
+                case_tz=case_tz,
                 **kwargs
             )
         except Exception as e:
@@ -400,7 +403,8 @@ class ParserRegistry:
             return None
     
     def get_parser_for_file(self, file_path: str, case_id: int, source_host: str = '',
-                           case_file_id: Optional[int] = None, **kwargs) -> Optional[BaseParser]:
+                           case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                           **kwargs) -> Optional[BaseParser]:
         """Auto-detect file type and get appropriate parser
         
         Args:
@@ -408,6 +412,7 @@ class ParserRegistry:
             case_id: ClickHouse case_id
             source_host: Hostname
             case_file_id: Optional FK to case_files
+            case_tz: Case timezone (IANA identifier) for ambiguous timestamp sources
             **kwargs: Additional parser-specific arguments
             
         Returns:
@@ -423,6 +428,7 @@ class ParserRegistry:
             case_id=case_id,
             source_host=source_host,
             case_file_id=case_file_id,
+            case_tz=case_tz,
             **kwargs
         )
         
@@ -441,7 +447,8 @@ class ParserRegistry:
         return {k: v.parser_class.__name__ for k, v in self._parsers.items()}
     
     def parse_file(self, file_path: str, case_id: int, source_host: str = '',
-                   case_file_id: Optional[int] = None, **kwargs) -> Tuple[Optional[str], Generator[ParsedEvent, None, None]]:
+                   case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                   **kwargs) -> Tuple[Optional[str], Generator[ParsedEvent, None, None]]:
         """Parse a file and yield events
         
         Args:
@@ -449,6 +456,7 @@ class ParserRegistry:
             case_id: ClickHouse case_id
             source_host: Hostname
             case_file_id: Optional FK to case_files
+            case_tz: Case timezone (IANA identifier) for ambiguous timestamp sources
             
         Returns:
             Tuple of (artifact_type, event generator) or (None, empty generator)
@@ -458,6 +466,7 @@ class ParserRegistry:
             case_id=case_id,
             source_host=source_host,
             case_file_id=case_file_id,
+            case_tz=case_tz,
             **kwargs
         )
         
@@ -535,7 +544,7 @@ class BatchProcessor:
 
 def process_file(file_path: str, case_id: int, source_host: str = '',
                 case_file_id: Optional[int] = None, clickhouse_client=None,
-                batch_size: int = 10000) -> ParseResult:
+                batch_size: int = 10000, case_tz: str = 'UTC') -> ParseResult:
     """Process a single file and insert events into ClickHouse
     
     Args:
@@ -545,6 +554,7 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         case_file_id: Optional FK to case_files
         clickhouse_client: ClickHouse client (optional, uses default if None)
         batch_size: Events per batch
+        case_tz: Case timezone (IANA identifier) for ambiguous timestamp sources
         
     Returns:
         ParseResult with processing status
@@ -568,7 +578,8 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         artifact_type=artifact_type,
         case_id=case_id,
         source_host=source_host,
-        case_file_id=case_file_id
+        case_file_id=case_file_id,
+        case_tz=case_tz
     )
     
     if not parser:

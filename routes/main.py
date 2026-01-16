@@ -4,7 +4,7 @@ from functools import wraps
 from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify
 from flask_login import login_required, current_user
 from models.database import db
-from models.case import Case, CaseStatus
+from models.case import Case, CaseStatus, COMMON_TIMEZONES
 from models.user import User
 from config import Config, PermissionLevel, UserSettings
 
@@ -70,23 +70,34 @@ def case_create():
         name = request.form.get('name', '').strip()
         company = request.form.get('company', '').strip()
         description = request.form.get('description', '').strip()
+        timezone = request.form.get('timezone', 'UTC').strip()
         router_ips = request.form.get('router_ips', '').strip()
         vpn_ips = request.form.get('vpn_ips', '').strip()
         
         # Validate mandatory fields
         if not name:
             flash('Case name is required', 'error')
-            return render_template('case_create.html', page_title='Create Case')
+            return render_template('case_create.html', page_title='Create Case',
+                                   timezones=COMMON_TIMEZONES, detected_tz='UTC')
         
         if not company:
             flash('Company is required', 'error')
-            return render_template('case_create.html', page_title='Create Case')
+            return render_template('case_create.html', page_title='Create Case',
+                                   timezones=COMMON_TIMEZONES, detected_tz='UTC')
+        
+        # Validate timezone
+        from utils.timezone import is_valid_timezone
+        if not is_valid_timezone(timezone):
+            flash('Invalid timezone selected', 'error')
+            return render_template('case_create.html', page_title='Create Case',
+                                   timezones=COMMON_TIMEZONES, detected_tz='UTC')
         
         # Create the case
         case = Case(
             name=name,
             company=company,
             description=description or None,
+            timezone=timezone,
             router_ips=router_ips or None,
             vpn_ips=vpn_ips or None,
             created_by=current_user.username
@@ -102,7 +113,8 @@ def case_create():
         flash(f'Case "{name}" created successfully', 'success')
         return redirect(url_for('main.cases'))
     
-    return render_template('case_create.html', page_title='Create Case')
+    return render_template('case_create.html', page_title='Create Case',
+                           timezones=COMMON_TIMEZONES, detected_tz='America/New_York')
 
 
 @main_bp.route('/cases/select/<case_uuid>')
@@ -131,6 +143,7 @@ def case_info(case_uuid):
         'uuid': case.uuid,
         'name': case.name,
         'company': case.company,
+        'timezone': case.timezone or 'UTC',
         'status': Case.get_status_display(case.status),
         'router_ips': case.router_ips or '-',
         'vpn_ips': case.vpn_ips or '-',

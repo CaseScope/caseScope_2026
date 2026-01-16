@@ -1,6 +1,22 @@
 {
-  "version": "3.95.00",
+  "version": "3.96.00",
   "changelog": [
+    {
+      "version": "3.96.00",
+      "date": "2026-01-16",
+      "changes": [
+        "FEATURE: Case Timezone Support - set timezone per case for artifact timestamp display",
+        "Added: timezone column to cases table (IANA timezone identifier e.g., America/New_York)",
+        "Added: timestamp_utc and timestamp_source_tz columns to ClickHouse events table",
+        "Added: Case creation form now requires timezone selection with common timezone dropdown",
+        "Added: utils/timezone.py with timezone conversion utilities (to_utc, from_utc, format_for_display)",
+        "Added: Automatic UTC normalization - parsers convert timestamps based on source type",
+        "Added: UTC sources (EVTX, browser, EDR) stored as UTC; ambiguous sources (IIS, firewall) use case TZ",
+        "Added: migrations/add_timezone_columns.py for database schema updates",
+        "Changed: ParsedEvent dataclass now includes timestamp_utc and timestamp_source_tz fields",
+        "Changed: All parsers updated to accept case_tz parameter for timestamp normalization"
+      ]
+    },
     {
       "version": "3.95.00",
       "date": "2026-01-16",

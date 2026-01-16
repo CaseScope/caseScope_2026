@@ -24,11 +24,18 @@ class ParsedEvent:
     Note: String fields use empty string defaults (not None)
     to match ClickHouse schema which uses non-nullable strings
     with DEFAULT '' for index compatibility.
+    
+    Timestamp fields:
+    - timestamp: Original timestamp as parsed (for forensic integrity)
+    - timestamp_utc: Normalized UTC timestamp for sorting/filtering/display
+    - timestamp_source_tz: IANA timezone identifier assumed for source
     """
     # Required fields
     case_id: int
     artifact_type: str
     timestamp: datetime
+    timestamp_utc: datetime = None  # Set by parser or compute_utc_timestamp()
+    timestamp_source_tz: str = 'UTC'  # IANA timezone identifier
     
     # Source tracking (required but with defaults)
     source_file: str = ''
@@ -108,12 +115,28 @@ class ParsedEvent:
     # Metadata
     parser_version: str = ''
     
+    def compute_utc_timestamp(self):
+        """Compute timestamp_utc if not already set
+        
+        Uses timestamp_source_tz to convert timestamp to UTC.
+        Should be called before to_clickhouse_row() if timestamp_utc wasn't
+        set explicitly by the parser.
+        """
+        if self.timestamp_utc is None and self.timestamp is not None:
+            from utils.timezone import to_utc
+            self.timestamp_utc = to_utc(self.timestamp, self.timestamp_source_tz)
+    
     def to_clickhouse_row(self) -> Tuple:
         """Convert to tuple for ClickHouse insertion"""
+        # Ensure timestamp_utc is computed
+        self.compute_utc_timestamp()
+        
         return (
             self.case_id,
             self.artifact_type,
             self.timestamp,
+            self.timestamp_utc if self.timestamp_utc else self.timestamp,
+            self.timestamp_source_tz,
             self.source_file,
             self.source_path,
             self.source_host,
@@ -174,7 +197,8 @@ class ParsedEvent:
     def clickhouse_columns() -> List[str]:
         """Column names matching to_clickhouse_row order"""
         return [
-            'case_id', 'artifact_type', 'timestamp', 'source_file', 'source_path',
+            'case_id', 'artifact_type', 'timestamp', 'timestamp_utc', 'timestamp_source_tz',
+            'source_file', 'source_path',
             'source_host', 'case_file_id', 'event_id', 'channel', 'provider',
             'record_id', 'level', 'username', 'domain', 'sid', 'logon_type',
             'logon_id', 'remote_host', 'workstation_name', 'auth_package',
@@ -217,17 +241,20 @@ class BaseParser(ABC):
     
     VERSION = '1.0.0'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC'):
         """Initialize parser with case context
         
         Args:
             case_id: ClickHouse case_id (PostgreSQL cases.id)
             source_host: Hostname the artifact came from
             case_file_id: Optional FK to PostgreSQL case_files.id
+            case_tz: Case timezone (IANA identifier) for ambiguous timestamp sources
         """
         self.case_id = case_id
         self.source_host = source_host
         self.case_file_id = case_file_id
+        self.case_tz = case_tz  # Used for ambiguous timestamp sources
         self.errors: List[str] = []
         self.warnings: List[str] = []
     
@@ -241,6 +268,15 @@ class BaseParser(ABC):
     def parser_version(self) -> str:
         """Return parser version string"""
         return f"{self.__class__.__name__}-{self.VERSION}"
+    
+    def get_source_tz(self) -> str:
+        """Get the source timezone for this artifact type
+        
+        Returns 'UTC' for artifacts with known UTC timestamps,
+        or case_tz for ambiguous sources.
+        """
+        from utils.timezone import get_source_tz_for_artifact
+        return get_source_tz_for_artifact(self.artifact_type, self.case_tz)
     
     @abstractmethod
     def can_parse(self, file_path: str) -> bool:

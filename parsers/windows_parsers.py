@@ -47,8 +47,9 @@ class ScheduledTaskParser(BaseParser):
     # XML namespace for Task Scheduler schema
     TASK_NS = {'task': 'http://schemas.microsoft.com/windows/2004/02/mit/task'}
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
     
     @property
     def artifact_type(self) -> str:
@@ -369,8 +370,9 @@ class ActivitiesCacheParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'activities_cache'
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
     
     @property
     def artifact_type(self) -> str:
@@ -626,8 +628,9 @@ class WebCacheParser(BaseParser):
         'iecompat': 'compatibility',
     }
     
-    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None):
-        super().__init__(case_id, source_host, case_file_id)
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         
         try:
             from dissect.esedb import EseDB

@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS events (
     -- ==========================================
     case_id           UInt32,                                    -- PostgreSQL case.id (not UUID)
     artifact_type     LowCardinality(String),                    -- evtx, prefetch, registry, lnk, etc.
-    timestamp         DateTime64(3),                             -- Event timestamp (millisecond precision)
+    timestamp         DateTime64(3),                             -- Original event timestamp (forensic integrity)
+    timestamp_utc     DateTime64(3),                             -- Normalized UTC timestamp for sorting/filtering
+    timestamp_source_tz LowCardinality(String) DEFAULT 'UTC',    -- Source timezone assumption (IANA identifier)
     
     -- ==========================================
     -- SOURCE TRACKING

@@ -3,6 +3,41 @@ import uuid
 from datetime import datetime
 from models.database import db
 
+# Common IANA timezones for dropdown selection
+COMMON_TIMEZONES = [
+    ('UTC', 'UTC (Coordinated Universal Time)'),
+    ('America/New_York', 'US Eastern (New York)'),
+    ('America/Chicago', 'US Central (Chicago)'),
+    ('America/Denver', 'US Mountain (Denver)'),
+    ('America/Los_Angeles', 'US Pacific (Los Angeles)'),
+    ('America/Anchorage', 'US Alaska'),
+    ('Pacific/Honolulu', 'US Hawaii'),
+    ('America/Toronto', 'Canada Eastern (Toronto)'),
+    ('America/Vancouver', 'Canada Pacific (Vancouver)'),
+    ('Europe/London', 'UK (London)'),
+    ('Europe/Paris', 'Central Europe (Paris)'),
+    ('Europe/Berlin', 'Central Europe (Berlin)'),
+    ('Europe/Amsterdam', 'Central Europe (Amsterdam)'),
+    ('Europe/Zurich', 'Central Europe (Zurich)'),
+    ('Europe/Rome', 'Central Europe (Rome)'),
+    ('Europe/Madrid', 'Central Europe (Madrid)'),
+    ('Europe/Stockholm', 'Northern Europe (Stockholm)'),
+    ('Europe/Helsinki', 'Northern Europe (Helsinki)'),
+    ('Europe/Warsaw', 'Eastern Europe (Warsaw)'),
+    ('Europe/Moscow', 'Russia (Moscow)'),
+    ('Asia/Dubai', 'Gulf (Dubai)'),
+    ('Asia/Kolkata', 'India (Kolkata)'),
+    ('Asia/Singapore', 'Singapore'),
+    ('Asia/Hong_Kong', 'Hong Kong'),
+    ('Asia/Shanghai', 'China (Shanghai)'),
+    ('Asia/Tokyo', 'Japan (Tokyo)'),
+    ('Asia/Seoul', 'Korea (Seoul)'),
+    ('Australia/Sydney', 'Australia Eastern (Sydney)'),
+    ('Australia/Melbourne', 'Australia Eastern (Melbourne)'),
+    ('Australia/Perth', 'Australia Western (Perth)'),
+    ('Pacific/Auckland', 'New Zealand (Auckland)'),
+]
+
 
 class CaseStatus:
     """Case Status Options"""
@@ -60,6 +95,10 @@ class Case(db.Model):
     router_ips = db.Column(db.Text, nullable=True)  # Single IP or comma-separated IPs
     vpn_ips = db.Column(db.Text, nullable=True)  # IPs, ranges (192.168.1.150-160), or CIDR (192.168.0.0/24)
     
+    # Timezone for artifact display and time window queries
+    # IANA timezone identifier (e.g., 'America/New_York', 'UTC')
+    timezone = db.Column(db.String(50), nullable=False, default='UTC')
+    
     # Status
     status = db.Column(
         db.String(50),
@@ -97,6 +136,7 @@ class Case(db.Model):
             'edr_report': self.edr_report,
             'router_ips': self.router_ips,
             'vpn_ips': self.vpn_ips,
+            'timezone': self.timezone,
             'status': self.status,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
