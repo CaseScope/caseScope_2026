@@ -273,8 +273,13 @@ function addCustomColumn(fieldPath, event) {
         
         // Update the raw data view to show checkmark instead of +
         const rawDataTree = document.getElementById('raw-data-tree');
-        if (rawDataTree && window._rawDataForCopy) {
-            renderRawDataTree(window._rawDataAllFields || window._rawDataOriginal || window._rawDataForCopy);
+        if (rawDataTree) {
+            // Re-render tree to update + button states
+            const basePath = window._showingRawJson ? 'raw_json' : '';
+            const dataToShow = window._showingRawJson ? window._rawDataOriginal : (window._rawDataAllFields || window._rawDataForCopy);
+            if (dataToShow) {
+                rawDataTree.innerHTML = buildTreeNode(dataToShow, 'root', true, basePath);
+            }
         }
         
         showToast(`Column "${getColumnLabel(fieldPath)}" added`);
@@ -295,8 +300,13 @@ function removeCustomColumn(fieldPath, event) {
     
     // Update the raw data view if open
     const rawDataTree = document.getElementById('raw-data-tree');
-    if (rawDataTree && window._rawDataForCopy) {
-        renderRawDataTree(window._rawDataAllFields || window._rawDataOriginal || window._rawDataForCopy);
+    if (rawDataTree) {
+        // Re-render tree to update + button states
+        const basePath = window._showingRawJson ? 'raw_json' : '';
+        const dataToShow = window._showingRawJson ? window._rawDataOriginal : (window._rawDataAllFields || window._rawDataForCopy);
+        if (dataToShow) {
+            rawDataTree.innerHTML = buildTreeNode(dataToShow, 'root', true, basePath);
+        }
     }
     
     showToast(`Column "${getColumnLabel(fieldPath)}" removed`);
@@ -304,8 +314,13 @@ function removeCustomColumn(fieldPath, event) {
 
 // Get a short display label for a field path
 function getColumnLabel(fieldPath) {
+    // Strip raw_json. prefix if present
+    let path = fieldPath;
+    if (path.startsWith('raw_json.')) {
+        path = path.substring(9);
+    }
     // Get last segment of the path for display
-    const parts = fieldPath.split('.');
+    const parts = path.split('.');
     return parts[parts.length - 1];
 }
 
@@ -994,18 +1009,21 @@ function renderEventsTable(events) {
             customColsHtml = customColumns.map(fieldPath => {
                 let value = null;
                 
-                // Try to get value from extra_fields first
-                if (extraData) {
-                    value = getNestedValue(extraData, fieldPath);
-                }
-                
-                // If not found and we have raw_json in extra_fields, try there
-                if (value === null && extraData?.raw_json) {
-                    try {
-                        const rawJson = typeof extraData.raw_json === 'string' ? JSON.parse(extraData.raw_json) : extraData.raw_json;
-                        value = getNestedValue(rawJson, fieldPath);
-                    } catch (err) {
-                        // Ignore
+                // Check if path starts with "raw_json." - extract from parsed raw_json
+                if (fieldPath.startsWith('raw_json.')) {
+                    const innerPath = fieldPath.substring(9); // Remove "raw_json." prefix
+                    if (extraData?.raw_json) {
+                        try {
+                            const rawJson = typeof extraData.raw_json === 'string' ? JSON.parse(extraData.raw_json) : extraData.raw_json;
+                            value = getNestedValue(rawJson, innerPath);
+                        } catch (err) {
+                            // Ignore parse errors
+                        }
+                    }
+                } else {
+                    // Try to get value from extra_fields directly
+                    if (extraData) {
+                        value = getNestedValue(extraData, fieldPath);
                     }
                 }
                 
@@ -1604,7 +1622,7 @@ function renderRawDataTree(data) {
             ` : ''}
         </div>
         <div class="raw-data-tree" id="raw-data-tree">
-            ${buildTreeNode(displayData, 'root', true)}
+            ${buildTreeNode(displayData, 'root', true, hasOriginalData ? 'raw_json' : '')}
         </div>
     `;
     
@@ -1613,6 +1631,9 @@ function renderRawDataTree(data) {
         window._rawDataOriginal = displayData;
         window._rawDataAllFields = data;
         window._showingOriginal = true;
+        window._showingRawJson = true;
+    } else {
+        window._showingRawJson = false;
     }
 }
 
@@ -1624,15 +1645,17 @@ function toggleRawDataView() {
     const tree = document.getElementById('raw-data-tree');
     
     if (window._showingOriginal) {
-        // Switch to all fields view
-        tree.innerHTML = buildTreeNode(window._rawDataAllFields, 'root', true);
+        // Switch to all fields view - paths start at root (extra_fields level)
+        tree.innerHTML = buildTreeNode(window._rawDataAllFields, 'root', true, '');
         btn.innerHTML = '<span class="btn-icon">🔄</span> Show Original Data';
         window._rawDataForCopy = window._rawDataAllFields;
+        window._showingRawJson = false;
     } else {
-        // Switch back to original data
-        tree.innerHTML = buildTreeNode(window._rawDataOriginal, 'root', true);
+        // Switch back to original data - paths start at raw_json level
+        tree.innerHTML = buildTreeNode(window._rawDataOriginal, 'root', true, 'raw_json');
         btn.innerHTML = '<span class="btn-icon">🔄</span> Show All Fields';
         window._rawDataForCopy = window._rawDataOriginal;
+        window._showingRawJson = true;
     }
     window._showingOriginal = !window._showingOriginal;
 }
