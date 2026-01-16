@@ -1,6 +1,14 @@
 {
-  "version": "3.96.01",
+  "version": "3.96.02",
   "changelog": [
+    {
+      "version": "3.96.02",
+      "date": "2026-01-16",
+      "changes": [
+        "Added: Timezone displayed in Case Dashboard (Case Overview section)",
+        "Added: Timezone dropdown in Case Edit page to modify case timezone"
+      ]
+    },
     {
       "version": "3.96.01",
       "date": "2026-01-16",

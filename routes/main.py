@@ -303,6 +303,7 @@ def case_edit():
         name = request.form.get('name', '').strip()
         company = request.form.get('company', '').strip()
         description = request.form.get('description', '').strip()
+        timezone = request.form.get('timezone', 'UTC').strip()
         router_ips = request.form.get('router_ips', '').strip()
         vpn_ips = request.form.get('vpn_ips', '').strip()
         status = request.form.get('status', '').strip()
@@ -311,16 +312,24 @@ def case_edit():
         # Validate mandatory fields
         if not name:
             flash('Case name is required', 'error')
-            return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)
+            return render_template('case_edit.html', page_title='Edit Case', case=case, 
+                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES)
         
         if not company:
             flash('Company is required', 'error')
-            return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)
+            return render_template('case_edit.html', page_title='Edit Case', case=case, 
+                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES)
+        
+        # Validate timezone
+        from utils.timezone import is_valid_timezone
+        if not is_valid_timezone(timezone):
+            timezone = 'UTC'
         
         # Update the case
         case.name = name
         case.company = company
         case.description = description or None
+        case.timezone = timezone
         case.router_ips = router_ips or None
         case.vpn_ips = vpn_ips or None
         if status in CaseStatus.all():
@@ -331,7 +340,8 @@ def case_edit():
         flash('Case updated successfully', 'success')
         return redirect(url_for('main.case_dashboard'))
     
-    return render_template('case_edit.html', page_title='Edit Case', case=case, CaseStatus=CaseStatus)
+    return render_template('case_edit.html', page_title='Edit Case', case=case, 
+                           CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES)
 
 
 # ============================================

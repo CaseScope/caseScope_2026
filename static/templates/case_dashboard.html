@@ -86,6 +86,12 @@
                     <span class="info-value">{{ case.vpn_ips or '-' }}</span>
                 </div>
                 <div class="info-row">
+                    <span class="info-label">Timezone:</span>
+                    <span class="info-value">
+                        <span class="badge badge-info">🌐 {{ case.timezone or 'UTC' }}</span>
+                    </span>
+                </div>
+                <div class="info-row">
                     <span class="info-label">EDR Report:</span>
                     <span class="info-value">
                         {% if case.edr_report %}
