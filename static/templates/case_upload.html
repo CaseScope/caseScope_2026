@@ -11,6 +11,54 @@
     </div>
 </div>
 
+<!-- Supported File Types Helper -->
+<div class="upload-helper-box">
+    <div class="upload-helper-header">
+        <span class="upload-helper-icon">ℹ️</span>
+        <h3>Supported File Types</h3>
+    </div>
+    <div class="upload-helper-content">
+        <p class="upload-helper-intro">CaseScope currently supports ingestion and parsing of the following log and evidence formats:</p>
+        
+        <div class="upload-helper-grid">
+            <div class="upload-helper-item">
+                <strong><a href="https://www.sonicwall.com" target="_blank" rel="noopener">SonicWall</a> CSV Log Files</strong>
+                <span class="upload-helper-desc">Firewall CSV exports with network traffic, events, and security logs</span>
+            </div>
+            <div class="upload-helper-item">
+                <strong><a href="https://www.huntress.com" target="_blank" rel="noopener">Huntress</a> NDJSON Files</strong>
+                <span class="upload-helper-desc">EDR telemetry exports with process execution, user activity, and endpoint data</span>
+            </div>
+            <div class="upload-helper-item">
+                <strong><a href="https://github.com/orlikoski/CyLR" target="_blank" rel="noopener">CyLR</a> Data ZIP Files</strong>
+                <span class="upload-helper-desc">Triage collection packages containing:
+                    <ul>
+                        <li>Windows Event Logs (EVTX) with SIGMA detection</li>
+                        <li>Registry hives (SAM, SYSTEM, SOFTWARE, NTUSER.DAT)</li>
+                        <li>Prefetch files (program execution history)</li>
+                        <li>LNK files and Jump Lists (file access history)</li>
+                        <li>MFT (NTFS file system metadata)</li>
+                        <li>SRUM (application resource usage)</li>
+                        <li>Browser data (Chrome, Firefox, Edge)</li>
+                        <li>Scheduled Tasks, ActivitiesCache, and more</li>
+                    </ul>
+                </span>
+            </div>
+            <div class="upload-helper-item">
+                <strong>IIS Log Files</strong>
+                <span class="upload-helper-desc">W3C Extended format web server logs (u_ex*.log, w3svc*.log)</span>
+            </div>
+        </div>
+        
+        <div class="upload-helper-note">
+            <span class="upload-helper-note-icon">⚠️</span>
+            <div>
+                <strong>Before uploading:</strong> The system will attempt to auto-detect the log/ZIP type and hostname from the filename, but these values <em>can and should</em> be reviewed and corrected in the queue below before ingestion. Accurate type and hostname information ensures proper parsing and timeline correlation.
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Upload Methods -->
 <div class="grid grid-2">
     <!-- Web Upload Card -->

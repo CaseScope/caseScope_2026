@@ -1,6 +1,16 @@
 {
-  "version": "3.103.01",
+  "version": "3.104.00",
   "changelog": [
+    {
+      "version": "3.104.00",
+      "date": "2026-01-17",
+      "changes": [
+        "Feature: Upload page helper explaining supported file types",
+        "Added: Documentation for SonicWall CSV, Huntress NDJSON, CyLR ZIP, and IIS logs",
+        "Added: Links to Huntress, SonicWall, and CyLR project sites",
+        "Added: Note about verifying auto-detected type and hostname before upload"
+      ]
+    },
     {
       "version": "3.103.01",
       "date": "2026-01-16",
