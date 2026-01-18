@@ -1,6 +1,16 @@
 {
-  "version": "3.108.00",
+  "version": "3.108.01",
   "changelog": [
+    {
+      "version": "3.108.01",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: pass_the_hash - rewrote correlated subqueries to JOIN-based for ClickHouse compatibility",
+        "Fixed: golden_ticket - rewrote correlated subqueries to JOIN-based for ClickHouse compatibility",
+        "Fixed: wmi_lateral - removed invalid row_id column reference, rewrote to use window-based JOINs",
+        "Fixed: cached_credentials_dump - added 30-minute temporal windowing to prevent multi-year durations"
+      ]
+    },
     {
       "version": "3.108.00",
       "date": "2026-01-18",

@@ -112,37 +112,36 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND event_id = '4768'
                     AND channel = 'Security'
             ),
-            -- Explicit credentials within ±10 min (reduces confidence)
-            explicit_credentials AS (
-                SELECT username, source_host, timestamp
+            -- Explicit credentials within ±10 min window (pre-aggregated per user/host/window)
+            explicit_cred_windows AS (
+                SELECT 
+                    username, 
+                    source_host, 
+                    toStartOfInterval(timestamp, INTERVAL 10 MINUTE) as time_window,
+                    count() as cred_count
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4648'
                     AND channel = 'Security'
+                GROUP BY username, source_host, time_window
             ),
-            -- Correlate: anchors without Kerberos and without explicit creds
-            correlated AS (
-            SELECT 
-                n.source_host,
-                n.username,
-                    n.anchor_time,
-                    n.src_ip,
-                    n.workstation,
-                    n.logon_type,
-                    -- Check for Kerberos TGT (if present, NOT pass-the-hash)
-                    (SELECT count() FROM kerberos_users k 
-                     WHERE k.username = n.username AND k.source_host = n.source_host) as has_kerberos,
-                    -- Check for explicit creds within window
-                    (SELECT count() FROM explicit_credentials e 
-                     WHERE e.username = n.username 
-                     AND e.source_host = n.source_host
-                     AND e.timestamp BETWEEN n.anchor_time - INTERVAL 10 MINUTE AND n.anchor_time) as has_explicit_creds
-            FROM ntlm_logons n
+            -- Join to filter: anchors without Kerberos
+            no_kerberos AS (
+                SELECT n.*
+                FROM ntlm_logons n
+                LEFT JOIN kerberos_users k 
+                    ON n.username = k.username AND n.source_host = k.source_host
+                WHERE k.username IS NULL
             ),
-            -- Filter: only keep logons without Kerberos and without explicit creds
+            -- Further filter: no explicit creds in same 10-min window
             filtered AS (
-                SELECT * FROM correlated
-                WHERE has_kerberos = 0 AND has_explicit_creds = 0
+                SELECT n.*
+                FROM no_kerberos n
+                LEFT JOIN explicit_cred_windows e 
+                    ON n.username = e.username 
+                    AND n.source_host = e.source_host
+                    AND toStartOfInterval(n.anchor_time, INTERVAL 10 MINUTE) = e.time_window
+                WHERE e.username IS NULL
             ),
             -- Group into attack windows (1 hour)
             attack_windows AS (
@@ -180,7 +179,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'indicators': [
             'Event 4624 logon type 3/9 with NTLM and KeyLength=0 (anchor)',
             'No Kerberos TGT (4768) for this user/host (exclusion)',
-            'No explicit credentials (4648) within ±10 min (exclusion)',
+            'No explicit credentials (4648) within same time window (exclusion)',
             'Grouped into 1-hour attack windows',
             'KeyLength=0 is definitive proof of hash-based authentication'
         ],
@@ -679,7 +678,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'thresholds': {'min_events': 1}
     },
 
-    # ========== T1003.005: Cached Domain Credentials ==========
+    # ========== T1003.005: Cached Domain Credentials (TEMPORAL) ==========
     {
         'id': 'cached_credentials_dump',
         'name': 'Cached Domain Credentials Dumping',
@@ -688,38 +687,71 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1003.005'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Access to cached credentials registry or dump file',
+            'event_ids': ['4656', '4663', '4657', '11'],
+            'conditions': "lower(search_blob) LIKE '%\\security\\cache%' OR lower(search_blob) LIKE '%\\cache\\nl$%'"
+        },
+        'supporting': [],
+        'attack_window_minutes': 30,
         'detection_query': """
+            WITH cache_events AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp,
+                    event_id,
+                    process_name
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND (
+                        -- Registry access to cache location
+                        (event_id IN ('4656', '4663') 
+                            AND (lower(search_blob) LIKE '%\\security\\cache%'
+                                OR lower(search_blob) LIKE '%\\cache\\nl$%'))
+                        -- Registry modifications
+                        OR (event_id = '4657' 
+                            AND lower(search_blob) LIKE '%\\cache\\nl$%')
+                        -- Reg.exe cache operations
+                        OR (lower(command_line) LIKE '%reg%save%security%cache%'
+                            OR lower(command_line) LIKE '%reg%query%security%cache%')
+                        -- File creation for cache dumps
+                        OR (event_id = '11' 
+                            AND lower(search_blob) LIKE '%cache.sav%')
+                        -- Known tools
+                        OR (lower(search_blob) LIKE '%cachedump%'
+                            OR lower(command_line) LIKE '%cachedump%')
+                    )
+            ),
+            -- Group into 30-minute attack windows
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    COUNT() as cache_access_events,
+                    groupArray(DISTINCT event_id) as event_ids,
+                    groupArray(DISTINCT process_name) as processes,
+                    MIN(timestamp) as first_seen,
+                    MAX(timestamp) as last_seen
+                FROM cache_events
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(timestamp, INTERVAL 30 MINUTE)
+            )
             SELECT 
                 source_host,
                 username,
-                COUNT() as cache_access_events,
-                groupArray(DISTINCT event_id) as event_ids,
-                groupArray(DISTINCT process_name) as processes,
-                MIN(timestamp) as first_seen,
-                MAX(timestamp) as last_seen
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND (
-                    -- Registry access to cache location
-                    (event_id IN ('4656', '4663') 
-                        AND (lower(search_blob) LIKE '%\\security\\cache%'
-                            OR lower(search_blob) LIKE '%\\cache\\nl$%'))
-                    -- Registry modifications
-                    OR (event_id = '4657' 
-                        AND lower(search_blob) LIKE '%\\cache\\nl$%')
-                    -- Reg.exe cache operations
-                    OR (lower(command_line) LIKE '%reg%save%security%cache%'
-                        OR lower(command_line) LIKE '%reg%query%security%cache%')
-                    -- File creation for cache dumps
-                    OR (event_id = '11' 
-                        AND lower(search_blob) LIKE '%cache.sav%')
-                    -- Known tools
-                    OR (lower(search_blob) LIKE '%cachedump%'
-                        OR lower(command_line) LIKE '%cachedump%')
-                )
-            GROUP BY source_host, username
-            HAVING cache_access_events >= 1
-            ORDER BY cache_access_events DESC
+                cache_access_events,
+                event_ids,
+                processes,
+                first_seen,
+                last_seen,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE cache_access_events >= 1
+            ORDER BY cache_access_events DESC, first_seen ASC
         """,
         'indicators': [
             'Event 4656/4663: Access to SECURITY\\Cache registry',
@@ -727,7 +759,8 @@ CREDENTIAL_ATTACK_PATTERNS = [
             'Reg.exe operations on cached credentials',
             'Sysmon Event 11: Cache dump file creation',
             'Tools: cachedump, Mimikatz, gsecdump',
-            'DCC2 hashes can be cracked offline'
+            'DCC2 hashes can be cracked offline',
+            'Grouped into 30-minute attack windows'
         ],
         'thresholds': {'min_events': 1}
     },
@@ -1117,13 +1150,18 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'attack_window_minutes': 60,
         'detection_query': """
             WITH 
-            -- TGT requests for correlation
-            tgt_requests AS (
-                SELECT DISTINCT username, source_host, timestamp
+            -- TGT requests aggregated by user/host/12-hour windows for join
+            tgt_windows AS (
+                SELECT 
+                    username, 
+                    source_host, 
+                    toStartOfInterval(timestamp, INTERVAL 12 HOUR) as time_window,
+                    count() as tgt_count
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4768'
                     AND channel = 'Security'
+                GROUP BY username, source_host, time_window
             ),
             -- Anchor: TGS requests
             tgs_requests AS (
@@ -1131,29 +1169,22 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     username,
                     source_host,
                     timestamp as anchor_time,
+                    toStartOfInterval(timestamp, INTERVAL 12 HOUR) as time_window,
                     JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') as encryption_type
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4769'
                     AND channel = 'Security'
             ),
-            -- Correlate: find TGS without preceding TGT in 12-hour window
-            correlated AS (
-                SELECT 
-                    tgs.username,
-                    tgs.source_host,
-                    tgs.anchor_time,
-                    tgs.encryption_type,
-                    -- Check for TGT within 12 hours before TGS
-                    (SELECT count() FROM tgt_requests tgt 
-                     WHERE tgt.username = tgs.username 
-                     AND tgt.timestamp BETWEEN tgs.anchor_time - INTERVAL 12 HOUR AND tgs.anchor_time) as nearby_tgt
-                FROM tgs_requests tgs
-            ),
-            -- Filter: only TGS without preceding TGT (Golden Ticket indicator)
+            -- Join to filter: TGS without preceding TGT in same 12-hour window
             filtered AS (
-                SELECT * FROM correlated
-                WHERE nearby_tgt = 0
+                SELECT tgs.*
+                FROM tgs_requests tgs
+                LEFT JOIN tgt_windows tgt 
+                    ON tgs.username = tgt.username 
+                    AND tgs.source_host = tgt.source_host
+                    AND tgs.time_window = tgt.time_window
+                WHERE tgt.username IS NULL
             ),
             -- Group into attack windows (1 hour)
             attack_windows AS (
@@ -2083,58 +2114,71 @@ LATERAL_MOVEMENT_PATTERNS = [
             WITH 
             -- Find anchor events: WMI-Activity operational events
             wmi_anchors AS (
-            SELECT 
-                source_host,
+                SELECT 
+                    source_host,
                     timestamp as anchor_time,
-                    row_id,
                     username,
                     search_blob
-            FROM events
-            WHERE case_id = {case_id:UInt32}
+                FROM events
+                WHERE case_id = {case_id:UInt32}
                     AND channel LIKE '%WMI-Activity%'
                     AND event_id IN ('5857', '5860', '5861')
             ),
-            -- Find supporting: network logons within ±5 min of anchor
-            network_logons AS (
-                SELECT source_host, timestamp, username
+            -- Supporting: network logons aggregated by host/5-min window
+            network_logon_windows AS (
+                SELECT 
+                    source_host, 
+                    toStartOfInterval(timestamp, INTERVAL 5 MINUTE) as time_window,
+                    count() as logon_count
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4624'
                     AND logon_type = 3
+                GROUP BY source_host, time_window
             ),
-            -- Find supporting: explicit credentials within ±5 min
-            explicit_creds AS (
-                SELECT source_host, timestamp, username
+            -- Supporting: explicit creds aggregated by host/5-min window
+            explicit_cred_windows AS (
+                SELECT 
+                    source_host, 
+                    toStartOfInterval(timestamp, INTERVAL 5 MINUTE) as time_window,
+                    count() as cred_count
                 FROM events  
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4648'
+                GROUP BY source_host, time_window
             ),
-            -- Find supporting: wmic.exe /node execution within ±2 min
-            wmic_exec AS (
-                SELECT source_host, timestamp, command_line
+            -- Supporting: wmic execution aggregated by host/2-min window
+            wmic_windows AS (
+                SELECT 
+                    source_host, 
+                    toStartOfInterval(timestamp, INTERVAL 2 MINUTE) as time_window,
+                    count() as wmic_count
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id IN ('1', '4688')
                     AND lower(command_line) LIKE '%wmic%'
                     AND lower(command_line) LIKE '%/node:%'
+                GROUP BY source_host, time_window
             ),
-            -- Correlate anchors with supporting indicators
+            -- Join anchors with supporting indicators via windows
             correlated AS (
                 SELECT 
                     a.source_host,
                     a.anchor_time,
                     a.username,
-                    -- Check for supporting indicators within time windows
-                    (SELECT count() FROM network_logons n 
-                     WHERE n.source_host = a.source_host 
-                     AND n.timestamp BETWEEN a.anchor_time - INTERVAL 5 MINUTE AND a.anchor_time + INTERVAL 5 MINUTE) as nearby_logons,
-                    (SELECT count() FROM explicit_creds e 
-                     WHERE e.source_host = a.source_host 
-                     AND e.timestamp BETWEEN a.anchor_time - INTERVAL 5 MINUTE AND a.anchor_time + INTERVAL 5 MINUTE) as nearby_creds,
-                    (SELECT count() FROM wmic_exec w 
-                     WHERE w.source_host = a.source_host 
-                     AND w.timestamp BETWEEN a.anchor_time - INTERVAL 2 MINUTE AND a.anchor_time + INTERVAL 2 MINUTE) as nearby_wmic
+                    coalesce(n.logon_count, 0) as nearby_logons,
+                    coalesce(e.cred_count, 0) as nearby_creds,
+                    coalesce(w.wmic_count, 0) as nearby_wmic
                 FROM wmi_anchors a
+                LEFT JOIN network_logon_windows n 
+                    ON a.source_host = n.source_host 
+                    AND toStartOfInterval(a.anchor_time, INTERVAL 5 MINUTE) = n.time_window
+                LEFT JOIN explicit_cred_windows e 
+                    ON a.source_host = e.source_host 
+                    AND toStartOfInterval(a.anchor_time, INTERVAL 5 MINUTE) = e.time_window
+                LEFT JOIN wmic_windows w 
+                    ON a.source_host = w.source_host 
+                    AND toStartOfInterval(a.anchor_time, INTERVAL 2 MINUTE) = w.time_window
             ),
             -- Group into attack windows (30 min clusters)
             attack_windows AS (
