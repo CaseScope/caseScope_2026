@@ -2163,9 +2163,9 @@ LATERAL_MOVEMENT_PATTERNS = [
             -- Join anchors with supporting indicators via windows
             correlated AS (
                 SELECT 
-                    a.source_host,
-                    a.anchor_time,
-                    a.username,
+                    a.source_host as source_host,
+                    a.anchor_time as anchor_time,
+                    a.username as username,
                     coalesce(n.logon_count, 0) as nearby_logons,
                     coalesce(e.cred_count, 0) as nearby_creds,
                     coalesce(w.wmic_count, 0) as nearby_wmic
