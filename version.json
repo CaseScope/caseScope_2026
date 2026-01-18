@@ -1,6 +1,16 @@
 {
-  "version": "3.110.03",
+  "version": "3.110.04",
   "changelog": [
+    {
+      "version": "3.110.04",
+      "date": "2026-01-18",
+      "changes": [
+        "Improved: Search Events - widened time window to ±2 hours for timezone tolerance",
+        "Improved: Search Events - always includes host filter when available",
+        "Improved: Search Events - includes username when no event IDs available",
+        "Added: Console logging for debugging pattern search queries"
+      ]
+    },
     {
       "version": "3.110.03",
       "date": "2026-01-18",

@@ -4622,8 +4622,16 @@ function searchPatternEvents() {
     const patternData = { ...currentPatternData };
     const patternEventIds = [...(currentPatternEventIds || [])];
     
+    console.log('searchPatternEvents - patternData:', patternData);
+    console.log('searchPatternEvents - patternEventIds:', patternEventIds);
+    
     // Build search query based on pattern data
     let searchTerms = [];
+    
+    // Add host filter if present (always include for targeted results)
+    if (patternData.source_host && patternData.source_host !== '-') {
+        searchTerms.push('host:' + patternData.source_host);
+    }
     
     // Add event_id filter if we have pattern-specific event IDs
     // Use OR syntax for multiple event IDs: event_id:4624|event_id:4768
@@ -4637,35 +4645,30 @@ function searchPatternEvents() {
         }
     }
     
-    // Add host filter if present
-    if (patternData.source_host && patternData.source_host !== '-') {
-        searchTerms.push('host:' + patternData.source_host);
-    }
-    
-    // Add username filter if present (for additional context)
+    // Add username filter if present and we have no other specific terms
     if (patternData.username && patternData.username !== '-') {
-        // Only add username as a term if no event IDs (simpler search)
-        if (!patternEventIds || patternEventIds.length === 0) {
+        // Add username if no event IDs or no host (need something to search)
+        if (searchTerms.length === 0 || (!patternEventIds || patternEventIds.length === 0)) {
             searchTerms.push(patternData.username);
         }
     }
     
     // Build search query
     const searchQuery = searchTerms.join(' ');
+    console.log('searchPatternEvents - searchQuery:', searchQuery);
     
     // Close modal
     closePatternModal();
     
-    // Set up time range based on pattern's timeframe (in case timezone)
-    // Pattern times are in UTC, need to display in case timezone
+    // Set up time range based on pattern's timeframe
+    // Use 2-hour padding to account for timezone differences
     if (patternData.first_seen && patternData.last_seen) {
-        // Add 30 minutes padding on each side for context
         const firstSeen = new Date(patternData.first_seen);
         const lastSeen = new Date(patternData.last_seen);
         
-        // Add padding (30 min before, 30 min after)
-        const paddedStart = new Date(firstSeen.getTime() - 30 * 60 * 1000);
-        const paddedEnd = new Date(lastSeen.getTime() + 30 * 60 * 1000);
+        // Add 2 hours padding on each side to account for timezone differences
+        const paddedStart = new Date(firstSeen.getTime() - 2 * 60 * 60 * 1000);
+        const paddedEnd = new Date(lastSeen.getTime() + 2 * 60 * 60 * 1000);
         
         // Format for datetime-local input (YYYY-MM-DDTHH:MM)
         // Use local time representation for the input
@@ -4694,10 +4697,10 @@ function searchPatternEvents() {
         
         updateTimeFilterInfo();
     } else if (patternData.first_seen) {
-        // Only first_seen available - use 2 hour window around it
+        // Only first_seen available - use 4 hour window around it
         const firstSeen = new Date(patternData.first_seen);
-        const paddedStart = new Date(firstSeen.getTime() - 60 * 60 * 1000);
-        const paddedEnd = new Date(firstSeen.getTime() + 60 * 60 * 1000);
+        const paddedStart = new Date(firstSeen.getTime() - 2 * 60 * 60 * 1000);
+        const paddedEnd = new Date(firstSeen.getTime() + 2 * 60 * 60 * 1000);
         
         const formatDateTimeLocal = (d) => {
             const pad = (n) => n.toString().padStart(2, '0');
