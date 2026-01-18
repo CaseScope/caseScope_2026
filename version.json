@@ -1,6 +1,18 @@
 {
-  "version": "3.107.00",
+  "version": "3.108.00",
   "changelog": [
+    {
+      "version": "3.108.00",
+      "date": "2026-01-18",
+      "changes": [
+        "Feature: AI Hunting Logger - detailed tracking of pattern detection operations",
+        "New: Per-case logs at /logs/{case_id}/ai_hunting/ with timestamps",
+        "New: Tracks pattern checks, query times, matches, confidence calculations",
+        "New: Campaign detection logging with severity and host/user counts",
+        "New: HuntingLogger utility class with structured logging",
+        "Changed: detect_attack_patterns and rag_detect_campaigns now return log_file path"
+      ]
+    },
     {
       "version": "3.107.00",
       "date": "2026-01-18",

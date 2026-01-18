@@ -8,10 +8,12 @@ Provides Celery tasks for:
 """
 
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 from tasks.celery_tasks import celery_app, get_flask_app
+from utils.hunting_logger import HuntingLogger, get_hunting_logger
 
 logger = logging.getLogger(__name__)
 
@@ -529,6 +531,10 @@ def rag_detect_campaigns(
     with app.app_context():
         from models.rag import AttackCampaign, PatternMatch, CAMPAIGN_TEMPLATES
         
+        # Initialize hunting logger
+        hunt_log = get_hunting_logger(case_id=case_id, case_uuid=case_uuid)
+        hunt_log.log_start('rag_detect_campaigns')
+        
         client = get_fresh_client()
         
         self.update_state(state='PROGRESS', meta={
@@ -539,11 +545,14 @@ def rag_detect_campaigns(
         # Clear existing campaigns for this case (will regenerate)
         AttackCampaign.query.filter_by(case_id=case_id).delete()
         db.session.commit()
+        hunt_log.info(f"Cleared existing campaigns for case {case_id}")
         
         campaigns_detected = []
         errors = []
+        error_count = 0
         
         total_templates = len(CAMPAIGN_TEMPLATES)
+        hunt_log.info(f"Will check {total_templates} campaign templates")
         
         # Noise filter to exclude events marked as noise
         noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
@@ -556,6 +565,8 @@ def rag_detect_campaigns(
                     'status': f'Checking: {template["name"]}...',
                     'campaigns_found': len(campaigns_detected)
                 })
+                
+                hunt_log.log_campaign_start(template['name'])
                 
                 # Run detection query with noise filtering
                 if template.get('detection_query'):
@@ -696,8 +707,20 @@ def rag_detect_campaigns(
                                     'confidence': confidence
                                 })
                                 
+                                # Log campaign found
+                                hunt_log.log_campaign_found(
+                                    campaign_type=template['type'],
+                                    campaign_name=template['name'],
+                                    hosts_affected=len(affected_hosts),
+                                    users_affected=len(affected_users),
+                                    confidence=confidence,
+                                    severity=template['severity']
+                                )
+                                
             except Exception as e:
+                error_count += 1
                 logger.warning(f"[RAG] Campaign detection failed for {template['type']}: {e}")
+                hunt_log.error(f"Campaign {template['type']} failed: {str(e)[:200]}")
                 errors.append(f"{template['type']}: {str(e)[:100]}")
         
         db.session.commit()
@@ -711,6 +734,13 @@ def rag_detect_campaigns(
             PatternMatch.case_id == case_id
         ).group_by(PatternMatch.pattern_id).all()
         
+        # Log completion
+        hunt_log.log_complete(
+            patterns_checked=total_templates,
+            matches_found=len(campaigns_detected),
+            errors=error_count
+        )
+        
         return {
             'success': True,
             'case_id': case_id,
@@ -721,7 +751,8 @@ def rag_detect_campaigns(
                 {'pattern_id': p[0], 'matches': p[1], 'hosts': p[2]}
                 for p in pattern_summary
             ],
-            'errors': errors[:10] if errors else None
+            'errors': errors[:10] if errors else None,
+            'log_file': hunt_log.get_log_path()
         }
 
 
@@ -1762,6 +1793,10 @@ def detect_attack_patterns(
     with app.app_context():
         from models.rag import PatternRuleMatch
         
+        # Initialize hunting logger for this case
+        hunt_log = get_hunting_logger(case_id=case_id, case_uuid=case_uuid)
+        hunt_log.log_start('detect_attack_patterns', categories=categories)
+        
         client = get_fresh_client()
         
         self.update_state(state='PROGRESS', meta={
@@ -1769,9 +1804,22 @@ def detect_attack_patterns(
             'status': 'Initializing pattern detection...'
         })
         
+        # Get event count for logging
+        try:
+            count_result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+                parameters={'case_id': case_id}
+            )
+            total_events = count_result.result_rows[0][0] if count_result.result_rows else 0
+            hunt_log.log_event_count(total_events)
+        except Exception as e:
+            hunt_log.warning(f"Could not get event count: {e}")
+            total_events = 0
+        
         # Clear existing matches for this case
         PatternRuleMatch.query.filter_by(case_id=case_id).delete()
         db.session.commit()
+        hunt_log.info(f"Cleared existing pattern matches for case {case_id}")
         
         # Filter patterns by category if specified
         if categories:
@@ -1779,17 +1827,22 @@ def detect_attack_patterns(
                 p for p in ALL_PATTERN_RULES 
                 if p.get('category') in categories
             ]
+            hunt_log.info(f"Filtering to categories: {categories}")
         else:
             patterns_to_check = ALL_PATTERN_RULES
         
         total_patterns = len(patterns_to_check)
+        hunt_log.info(f"Will check {total_patterns} patterns")
+        
         matches_found = []
         errors = []
+        error_count = 0
         
         # Noise filter to exclude events marked as noise
         noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
         
         for idx, pattern in enumerate(patterns_to_check):
+            pattern_start_time = time.time()
             try:
                 progress = int(((idx + 1) / total_patterns) * 90) + 5
                 self.update_state(state='PROGRESS', meta={
@@ -1799,7 +1852,16 @@ def detect_attack_patterns(
                 })
                 
                 if not pattern.get('detection_query'):
+                    hunt_log.log_pattern_skip(pattern['id'], 'No detection query defined')
                     continue
+                
+                # Log pattern check start
+                hunt_log.log_pattern_start(
+                    pattern_id=pattern['id'],
+                    pattern_name=pattern['name'],
+                    category=pattern.get('category'),
+                    temporal=pattern.get('temporal', False)
+                )
                 
                 # Inject noise filter into query
                 # For CTE-based queries (WITH...), add filter to each FROM events WHERE clause
@@ -1834,10 +1896,20 @@ def detect_attack_patterns(
                     else:
                         query_with_noise = query_with_noise.rstrip() + noise_filter
                 
-                # Run detection query
+                # Run detection query with timing
+                query_start = time.time()
                 result = client.query(
                     query_with_noise,
                     parameters={'case_id': case_id}
+                )
+                query_time_ms = (time.time() - query_start) * 1000
+                
+                # Log query execution
+                hunt_log.log_pattern_query(
+                    pattern_id=pattern['id'],
+                    query_time_ms=query_time_ms,
+                    rows_returned=len(result.result_rows) if result.result_rows else 0,
+                    query_preview=query_with_noise[:200] if query_time_ms > 500 else None
                 )
                 
                 if result.result_rows:
@@ -1899,6 +1971,11 @@ def detect_attack_patterns(
                             except:
                                 pass
                         
+                        # Calculate duration in minutes for logging
+                        duration_minutes = None
+                        if duration_seconds:
+                            duration_minutes = duration_seconds / 60
+                        
                         # Store match data for later confidence calculation
                         matches_found.append({
                             'pattern': pattern,
@@ -1915,9 +1992,19 @@ def detect_attack_patterns(
                             'duration_seconds': duration_seconds,
                             'match_data': {k: str(v)[:500] for k, v in row_dict.items()}
                         })
+                
+                # Log pattern completion
+                pattern_time_ms = (time.time() - pattern_start_time) * 1000
+                hunt_log.log_pattern_complete(
+                    pattern_id=pattern['id'],
+                    matches=len(result.result_rows) if result.result_rows else 0,
+                    query_time_ms=pattern_time_ms
+                )
                         
             except Exception as e:
+                error_count += 1
                 logger.warning(f"[PatternRules] Pattern {pattern['name']} failed: {e}")
+                hunt_log.log_pattern_error(pattern['id'], str(e))
                 errors.append(f"{pattern['name']}: {str(e)[:100]}")
         
         # Calculate category counts for corroboration factor
@@ -1926,7 +2013,11 @@ def detect_attack_patterns(
             cat = match['category']
             category_counts[cat] = category_counts.get(cat, 0) + 1
         
+        hunt_log.log_category_summary(category_counts)
+        
         # Now create match records with confidence scores
+        hunt_log.info(f"Saving {len(matches_found)} matches to database...")
+        
         for match_info in matches_found:
             pattern = match_info['pattern']
             category = match_info['category']
@@ -1939,6 +2030,26 @@ def detect_attack_patterns(
                 duration_seconds=match_info['duration_seconds'] or 0,
                 match_data=match_info['match_data'],
                 category_matches=category_counts.get(category, 1)
+            )
+            
+            # Log match with confidence
+            hunt_log.log_match(
+                pattern_id=match_info['pattern_id'],
+                pattern_name=match_info['pattern_name'],
+                source_host=match_info['source_host'],
+                username=match_info['username'],
+                confidence=confidence,
+                event_count=match_info['event_count'],
+                first_seen=match_info['first_seen'],
+                last_seen=match_info['last_seen'],
+                duration_minutes=match_info['duration_seconds'] / 60 if match_info['duration_seconds'] else None
+            )
+            
+            # Log confidence calculation details
+            hunt_log.log_confidence_calc(
+                pattern_id=match_info['pattern_id'],
+                confidence=confidence,
+                factors=confidence_factors
             )
             
             match = PatternRuleMatch(
@@ -1972,6 +2083,14 @@ def detect_attack_patterns(
             'matches_found': len(matches_found)
         })
         
+        # Log completion
+        hunt_log.log_complete(
+            patterns_checked=len(patterns_to_check),
+            matches_found=len(matches_found),
+            errors=error_count,
+            total_events=total_events
+        )
+        
         return {
             'success': True,
             'case_id': case_id,
@@ -1980,5 +2099,6 @@ def detect_attack_patterns(
             'matches_found': len(matches_found),
             'categories_matched': category_counts,
             'matches': matches_found[:50],  # Limit response size
-            'errors': errors[:10] if errors else None
+            'errors': errors[:10] if errors else None,
+            'log_file': hunt_log.get_log_path()
         }
