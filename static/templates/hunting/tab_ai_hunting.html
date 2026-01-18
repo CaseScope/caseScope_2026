@@ -1,54 +1,39 @@
-<!-- AI Hunting Tab Content -->
+<!-- AI Hunting Tab - Pattern Detection Testing -->
 
-<!-- Non-AI Pattern Matching Section (TOP) -->
+<!-- Pattern Detection Section -->
 <div class="ai-section">
     <div class="ai-section-header">
-        <h3 class="ai-section-title">🔍 Non-AI Pattern Matching</h3>
+        <h3 class="ai-section-title">🎯 Attack Pattern Detection</h3>
         <span class="ai-section-badge ai-badge-info" id="patternRulesStatus">Ready</span>
     </div>
-    <p class="ai-section-desc">Rule-based detection of common attack patterns: credential attacks, lateral movement, persistence, privilege escalation, defense evasion, discovery, and exfiltration.</p>
+    <p class="ai-section-desc">Detect attack patterns across all case artifacts using 58 rule-based detection queries mapped to MITRE ATT&CK.</p>
     
-    <!-- Help Panel -->
-    <div class="ai-help-panel">
-        <div class="ai-help-toggle" onclick="toggleHelp(this)">
-            <span class="ai-help-icon">❓</span> What does this detect?
-        </div>
-        <div class="ai-help-content" style="display: none;">
-            <p><strong>Non-AI Pattern Matching</strong> uses predefined detection rules to identify attack techniques:</p>
-            <ul>
-                <li><strong>Credential Attacks:</strong> Pass-the-Hash, Pass-the-Ticket, Password Spraying, Brute Force, Kerberoasting, AS-REP Roasting, Golden/Silver Ticket, LSASS dumping</li>
-                <li><strong>Lateral Movement:</strong> PsExec, WMI, Remote Scheduled Tasks, DCOM, WinRM/PowerShell Remoting, RDP chains</li>
-                <li><strong>Persistence:</strong> Registry Run Keys, Scheduled Tasks, Services, DLL Hijacking, WMI Subscriptions</li>
-                <li><strong>Privilege Escalation:</strong> Token Manipulation, Named Pipe Impersonation, UAC Bypass</li>
-                <li><strong>Defense Evasion:</strong> Log Clearing, Timestomping, Process Injection, AMSI Bypass</li>
-                <li><strong>Discovery:</strong> Network/AD Enumeration, BloodHound/SharpHound</li>
-                <li><strong>Exfiltration:</strong> Data Staging, DNS Exfiltration, Cloud Storage</li>
-            </ul>
-            <p class="ai-help-note">💡 These rules look for specific Event IDs and patterns without requiring AI/ML models.</p>
-        </div>
-    </div>
-    
+    <!-- Pattern Stats Overview -->
     <div class="ai-action-card">
         <div class="ai-action-stats" id="patternRulesStats">
             <div class="ai-stat">
-                <span class="ai-stat-label">Patterns Checked:</span>
+                <span class="ai-stat-label">Patterns Available</span>
+                <span class="ai-stat-value">58</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Patterns Checked</span>
                 <span class="ai-stat-value" id="patternRulesChecked">-</span>
             </div>
             <div class="ai-stat ai-stat-critical">
-                <span class="ai-stat-label">Matches Found:</span>
+                <span class="ai-stat-label">Matches Found</span>
                 <span class="ai-stat-value" id="patternRulesMatches">-</span>
             </div>
             <div class="ai-stat">
-                <span class="ai-stat-label">Categories:</span>
+                <span class="ai-stat-label">Categories Hit</span>
                 <span class="ai-stat-value" id="patternRulesCategories">-</span>
             </div>
         </div>
         <div class="ai-action-buttons">
-            <button class="btn btn-primary btn-lg" id="btnDetectPatternRules" onclick="startPatternRulesDetection()" title="Run rule-based pattern detection">
-                <span class="btn-icon">🔍</span> Detect Attack Patterns
+            <button class="btn btn-primary btn-lg" id="btnDetectPatternRules" onclick="startPatternRulesDetection()" title="Run all 58 pattern detection queries">
+                <span class="btn-icon">🔍</span> Run Detection
             </button>
             <button class="btn btn-secondary" onclick="clearPatternRulesResults()" title="Clear previous results">
-                <span class="btn-icon">🗑️</span>
+                <span class="btn-icon">🗑️</span> Clear
             </button>
         </div>
     </div>
@@ -67,14 +52,6 @@
     
     <!-- Results -->
     <div class="ai-results" id="patternRulesResults" style="display: none;">
-        <div class="ai-results-header">
-            <h4>Detected Attack Patterns</h4>
-            <div class="ai-results-actions">
-                <button class="btn btn-sm btn-secondary" onclick="refreshPatternRulesResults()">
-                    <span class="btn-icon">🔄</span> Refresh
-                </button>
-            </div>
-        </div>
         
         <!-- Category Summary Cards -->
         <div class="pattern-rules-categories" id="patternRulesCategoriesContainer">
@@ -82,6 +59,14 @@
         </div>
         
         <!-- Results Table -->
+        <div class="ai-results-header">
+            <h4>Detected Patterns</h4>
+            <div class="ai-results-actions">
+                <button class="btn btn-sm btn-secondary" onclick="refreshPatternRulesResults()">
+                    <span class="btn-icon">🔄</span> Refresh
+                </button>
+            </div>
+        </div>
         <div class="ai-results-table">
             <table class="data-table">
                 <thead>
@@ -96,33 +81,74 @@
                     </tr>
                 </thead>
                 <tbody id="patternRulesResultsBody">
-                    <!-- Populated by JS -->
+                    <tr><td colspan="7" class="text-center text-muted">Click "Run Detection" to scan for attack patterns</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 
-<!-- Campaign Details Modal -->
-<div class="modal-overlay" id="campaign-modal" style="display: none;" onclick="closeCampaignModal(event)">
-    <div class="modal-container modal-campaign" onclick="event.stopPropagation()">
-        <div class="modal-header">
-            <h3 class="modal-title" id="campaign-modal-title">Campaign Details</h3>
-            <button class="modal-close" onclick="closeCampaignModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            <div class="campaign-modal-content" id="campaign-modal-content">
-                <!-- Populated by JavaScript -->
+<!-- Pattern Categories Reference -->
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">📋 Pattern Categories</h3>
+    </div>
+    <div class="pattern-category-grid">
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">🔑</span>
+            <div class="pattern-cat-info">
+                <strong>Credential Access</strong>
+                <span class="pattern-cat-count">21 patterns</span>
             </div>
+            <div class="pattern-cat-examples">Pass-the-Hash, DCSync, Kerberoasting, SAM dump, NTDS dump, Password Spray</div>
         </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeCampaignModal()">Close</button>
-            <button class="btn btn-success" onclick="reviewCampaign('confirmed')">
-                <span class="btn-icon">✓</span> Confirm
-            </button>
-            <button class="btn btn-danger" onclick="reviewCampaign('false_positive')">
-                <span class="btn-icon">✗</span> False Positive
-            </button>
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">🔀</span>
+            <div class="pattern-cat-info">
+                <strong>Lateral Movement</strong>
+                <span class="pattern-cat-count">8 patterns</span>
+            </div>
+            <div class="pattern-cat-examples">RDP, SMB Admin Shares, WMI, PsExec, DCOM, WinRM, Tool Transfer</div>
+        </div>
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">📌</span>
+            <div class="pattern-cat-info">
+                <strong>Persistence</strong>
+                <span class="pattern-cat-count">8 patterns</span>
+            </div>
+            <div class="pattern-cat-examples">Registry Run Keys, Scheduled Tasks, Services, WMI Subscriptions, Winlogon</div>
+        </div>
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">⬆️</span>
+            <div class="pattern-cat-info">
+                <strong>Privilege Escalation</strong>
+                <span class="pattern-cat-count">4 patterns</span>
+            </div>
+            <div class="pattern-cat-examples">Token Manipulation, Named Pipe Impersonation, UAC Bypass</div>
+        </div>
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">🛡️</span>
+            <div class="pattern-cat-info">
+                <strong>Defense Evasion</strong>
+                <span class="pattern-cat-count">9 patterns</span>
+            </div>
+            <div class="pattern-cat-examples">Log Clearing, Timestomping, Process Injection, AMSI Bypass</div>
+        </div>
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">🔎</span>
+            <div class="pattern-cat-info">
+                <strong>Discovery</strong>
+                <span class="pattern-cat-count">5 patterns</span>
+            </div>
+            <div class="pattern-cat-examples">AD Enumeration, Network Scanning, BloodHound, Domain Discovery</div>
+        </div>
+        <div class="pattern-category-item">
+            <span class="pattern-cat-icon">📤</span>
+            <div class="pattern-cat-info">
+                <strong>Exfiltration</strong>
+                <span class="pattern-cat-count">3 patterns</span>
+            </div>
+            <div class="pattern-cat-examples">Data Staging, DNS Exfil, Cloud Storage Upload</div>
         </div>
     </div>
 </div>
@@ -131,7 +157,7 @@
 <div class="modal-overlay" id="pattern-match-modal" style="display: none;" onclick="closePatternModal(event)">
     <div class="modal-container modal-pattern-match" onclick="event.stopPropagation()">
         <div class="modal-header">
-            <h3 class="modal-title" id="pattern-modal-title">Pattern Match Details</h3>
+            <h3 class="modal-title" id="pattern-modal-title">Pattern Details</h3>
             <button class="modal-close" onclick="closePatternModal()">&times;</button>
         </div>
         <div class="modal-body">
@@ -141,390 +167,202 @@
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closePatternModal()">Close</button>
-            <button class="btn btn-success" onclick="reviewMatch('confirmed')">
-                <span class="btn-icon">✓</span> Confirm
-            </button>
-            <button class="btn btn-danger" onclick="reviewMatch('false_positive')">
-                <span class="btn-icon">✗</span> False Positive
+            <button class="btn btn-primary" onclick="searchPatternEvents()">
+                <span class="btn-icon">🔍</span> Search Events
             </button>
         </div>
     </div>
 </div>
 
-<!-- Attack Campaign Detection Section (PRIMARY) -->
-<div class="ai-section">
-    <div class="ai-section-header">
-        <h3 class="ai-section-title">🎯 Attack Campaign Detection</h3>
-        <span class="ai-section-badge ai-badge-primary" id="campaignStatus">Ready</span>
-    </div>
-    <p class="ai-section-desc">Detect high-level attack behaviors: password spray, lateral movement, Cobalt Strike, credential dumping, and more.</p>
-    
-    <!-- Help Panel -->
-    <div class="ai-help-panel">
-        <div class="ai-help-toggle" onclick="toggleHelp(this)">
-            <span class="ai-help-icon">❓</span> What does this do?
-        </div>
-        <div class="ai-help-content" style="display: none;">
-            <p><strong>Campaign Detection</strong> identifies complete attack behaviors, not just individual rule hits.</p>
-            <ul>
-                <li><strong>Password Spray:</strong> 10+ accounts targeted with failed logins</li>
-                <li><strong>Brute Force:</strong> Repeated failures against single account</li>
-                <li><strong>Lateral Movement:</strong> User accessing 3+ hosts via RDP/remote</li>
-                <li><strong>Pass-the-Hash:</strong> NTLM logon type 9 patterns</li>
-                <li><strong>Cobalt Strike:</strong> Beacon indicators, named pipes, mimikatz</li>
-                <li><strong>Credential Dumping:</strong> LSASS access, sekurlsa patterns</li>
-                <li><strong>Ransomware Precursor:</strong> Shadow copy deletion, backup disruption</li>
-            </ul>
-            <p class="ai-help-note">💡 Campaigns correlate multiple indicators to reduce noise and surface real attacks.</p>
-        </div>
-    </div>
-    
-    <div class="ai-action-card">
-        <div class="ai-action-stats" id="campaignStats">
-            <div class="ai-stat">
-                <span class="ai-stat-label">Campaigns Detected:</span>
-                <span class="ai-stat-value" id="campaignCount">-</span>
-            </div>
-            <div class="ai-stat ai-stat-critical">
-                <span class="ai-stat-label">Critical:</span>
-                <span class="ai-stat-value" id="criticalCampaignCount">-</span>
-            </div>
-            <div class="ai-stat">
-                <span class="ai-stat-label">Raw Pattern Matches:</span>
-                <span class="ai-stat-value" id="patternMatchCount">-</span>
-            </div>
-        </div>
-        <div class="ai-action-buttons">
-            <button class="btn btn-primary btn-lg" id="btnDetectCampaigns" onclick="startCampaignDetection()" title="Detect attack campaigns across all case events">
-                <span class="btn-icon">🎯</span> Detect Attack Campaigns
-            </button>
-        </div>
-    </div>
-    
-    <!-- Progress -->
-    <div class="ai-progress" id="campaignProgress" style="display: none;">
-        <div class="ai-progress-header">
-            <span class="ai-progress-title">Detecting campaigns...</span>
-            <span class="ai-progress-percent" id="campaignProgressPercent">0%</span>
-        </div>
-        <div class="ai-progress-bar">
-            <div class="ai-progress-fill" id="campaignProgressFill" style="width: 0%"></div>
-        </div>
-        <div class="ai-progress-status" id="campaignProgressStatus">Initializing...</div>
-    </div>
-    
-    <!-- Campaign Results -->
-    <div class="ai-results" id="campaignResults" style="display: none;">
-        <div class="ai-results-header">
-            <h4>Detected Campaigns</h4>
-            <div class="ai-results-actions">
-                <button class="btn btn-sm btn-secondary" onclick="refreshCampaigns()">
-                    <span class="btn-icon">🔄</span> Refresh
-                </button>
-            </div>
-        </div>
-        <div class="campaign-cards" id="campaignCardsContainer">
-            <!-- Campaign cards populated by JS -->
-        </div>
-    </div>
-</div>
+<style>
+/* Pattern Category Grid */
+.pattern-category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+}
 
-<!-- Pattern Discovery Section (collapsed by default) -->
-<div class="ai-section ai-section-collapsed">
-    <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
-        <h3 class="ai-section-title">🧩 Raw Pattern Matches</h3>
-        <span class="ai-section-chevron">▼</span>
-    </div>
-    <div class="ai-section-content" style="display: none;">
-        <p class="ai-section-desc">Individual pattern detections (aggregated by pattern type). Use campaigns above for actionable insights.</p>
-        
-        <div class="ai-action-card">
-            <div class="ai-action-stats" id="patternStats">
-                <div class="ai-stat">
-                    <span class="ai-stat-label">Active Patterns:</span>
-                    <span class="ai-stat-value" id="patternCount">-</span>
-                </div>
-                <div class="ai-stat">
-                    <span class="ai-stat-label">Last Scan:</span>
-                    <span class="ai-stat-value" id="patternLastScan">Never</span>
-                </div>
-            </div>
-            <div class="ai-action-buttons">
-                <button class="btn btn-secondary" id="btnFindPatterns" onclick="startPatternDiscovery()" title="Scan for individual pattern matches">
-                    <span class="btn-icon">🔍</span> Find Patterns
-                </button>
-                <button class="btn btn-secondary btn-sm" onclick="initRAG()" title="Initialize built-in detection patterns">
-                    <span class="btn-icon">⚙️</span> Init
-                </button>
-            </div>
-        </div>
-        
-        <!-- Progress -->
-        <div class="ai-progress" id="patternProgress" style="display: none;">
-            <div class="ai-progress-header">
-                <span class="ai-progress-title">Scanning for patterns...</span>
-                <span class="ai-progress-percent" id="patternProgressPercent">0%</span>
-            </div>
-            <div class="ai-progress-bar">
-                <div class="ai-progress-fill" id="patternProgressFill" style="width: 0%"></div>
-            </div>
-            <div class="ai-progress-status" id="patternProgressStatus">Initializing...</div>
-        </div>
-        
-        <!-- Aggregated Pattern Results -->
-        <div class="ai-results" id="patternResults" style="display: none;">
-            <div class="ai-results-header">
-                <h4>Pattern Matches (Aggregated)</h4>
-            </div>
-            <div class="ai-results-table">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Pattern</th>
-                            <th>MITRE</th>
-                            <th>Severity</th>
-                            <th>Matches</th>
-                            <th>Hosts</th>
-                            <th>Avg Confidence</th>
-                        </tr>
-                    </thead>
-                    <tbody id="patternResultsBody">
-                        <!-- Populated by JS -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
+.pattern-category-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
 
-<!-- Related Event Hunting Section -->
-<div class="ai-section">
-    <div class="ai-section-header">
-        <h3 class="ai-section-title">🔗 Related Event Hunting</h3>
-    </div>
-    <p class="ai-section-desc">Find events contextually related to SIGMA hits, IOC matches, or analyst-tagged events.</p>
-    
-    <!-- Help Panel -->
-    <div class="ai-help-panel">
-        <div class="ai-help-toggle" onclick="toggleHelp(this)">
-            <span class="ai-help-icon">❓</span> What does this do?
-        </div>
-        <div class="ai-help-content" style="display: none;">
-            <p><strong>Related Event Hunting</strong> uses "anchor" events (high-severity SIGMA hits) to find surrounding context.</p>
-            <ul>
-                <li><strong>Anchor Events:</strong> High/Critical SIGMA detections serve as starting points</li>
-                <li><strong>Time Window:</strong> Searches for related events within the specified time range around each anchor</li>
-                <li><strong>Related Events:</strong> Finds logins, process executions, service installs, and other interesting events near the anchors</li>
-            </ul>
-            <p class="ai-help-note">💡 This helps analysts understand what happened before and after a detection - crucial for building attack timelines.</p>
-        </div>
-    </div>
-    
-    <div class="ai-action-card">
-        <div class="ai-options">
-            <label class="ai-checkbox">
-                <input type="checkbox" id="huntFromSigma" checked>
-                <span class="checkmark"></span>
-                <span class="ai-checkbox-label">High/Critical SIGMA hits</span>
-                <span class="ai-checkbox-count" id="sigmaHighCount">(0)</span>
-            </label>
-            <label class="ai-checkbox">
-                <input type="checkbox" id="huntFromIOC" checked disabled>
-                <span class="checkmark"></span>
-                <span class="ai-checkbox-label">IOC-tagged events</span>
-                <span class="ai-checkbox-count">(coming soon)</span>
-            </label>
-            <label class="ai-checkbox">
-                <input type="checkbox" id="huntFromAnalyst" checked disabled>
-                <span class="checkmark"></span>
-                <span class="ai-checkbox-label">Analyst-tagged events</span>
-                <span class="ai-checkbox-count">(coming soon)</span>
-            </label>
-            <div class="ai-select-row">
-                <label>Time window:</label>
-                <select id="huntTimeWindow" class="form-select">
-                    <option value="6">±6 hours</option>
-                    <option value="12">±12 hours</option>
-                    <option value="24" selected>±24 hours</option>
-                    <option value="48">±48 hours</option>
-                    <option value="168">±7 days</option>
-                </select>
-            </div>
-        </div>
-        <div class="ai-action-buttons">
-            <button class="btn btn-primary" id="btnHuntRelated" onclick="startRelatedHunt()" title="Find events occurring near high-severity SIGMA detections">
-                <span class="btn-icon">🔍</span> Hunt Related
-            </button>
-        </div>
-    </div>
-    
-    <!-- Progress -->
-    <div class="ai-progress" id="relatedProgress" style="display: none;">
-        <div class="ai-progress-header">
-            <span class="ai-progress-title">Hunting related events...</span>
-            <span class="ai-progress-percent" id="relatedProgressPercent">0%</span>
-        </div>
-        <div class="ai-progress-bar">
-            <div class="ai-progress-fill" id="relatedProgressFill" style="width: 0%"></div>
-        </div>
-        <div class="ai-progress-status" id="relatedProgressStatus">Initializing...</div>
-    </div>
-    
-    <!-- Results -->
-    <div class="ai-results" id="relatedResults" style="display: none;">
-        <div class="ai-results-summary" id="relatedResultsSummary"></div>
-    </div>
-</div>
+.pattern-cat-icon {
+    font-size: 1.5rem;
+}
 
-<!-- Timeline Generation Section -->
-<div class="ai-section">
-    <div class="ai-section-header">
-        <h3 class="ai-section-title">📅 Timeline Generation</h3>
-    </div>
-    <p class="ai-section-desc">Generate MITRE ATT&CK mapped incident timeline using AI analysis.</p>
-    
-    <!-- Help Panel -->
-    <div class="ai-help-panel">
-        <div class="ai-help-toggle" onclick="toggleHelp(this)">
-            <span class="ai-help-icon">❓</span> What does this do?
-        </div>
-        <div class="ai-help-content" style="display: none;">
-            <p><strong>Timeline Generation</strong> creates an AI-powered incident narrative from your case events.</p>
-            <ul>
-                <li><strong>Phase Clustering:</strong> Groups events into attack phases based on time gaps (2+ hours between phases)</li>
-                <li><strong>MITRE Mapping:</strong> Maps each phase to ATT&CK tactics and techniques</li>
-                <li><strong>AI Narratives:</strong> Uses Ollama LLM to generate human-readable descriptions of attacker objectives</li>
-                <li><strong>Executive Summary:</strong> Produces a high-level overview suitable for management reporting</li>
-            </ul>
-            <p class="ai-help-note">💡 Best results when run after Pattern Discovery - pattern matches are included in the timeline.</p>
-        </div>
-    </div>
-    
-    <div class="ai-action-card">
-        <div class="ai-options">
-            <label class="ai-checkbox">
-                <input type="checkbox" id="timelineSigma" checked>
-                <span class="checkmark"></span>
-                <span class="ai-checkbox-label">SIGMA hits (high/critical)</span>
-            </label>
-            <label class="ai-checkbox">
-                <input type="checkbox" id="timelinePattern" checked>
-                <span class="checkmark"></span>
-                <span class="ai-checkbox-label">AI pattern matches</span>
-            </label>
-            <label class="ai-checkbox">
-                <input type="checkbox" id="timelineIOC" checked disabled>
-                <span class="checkmark"></span>
-                <span class="ai-checkbox-label">IOC matches (coming soon)</span>
-            </label>
-        </div>
-        <div class="ai-action-buttons">
-            <button class="btn btn-primary" id="btnGenerateTimeline" onclick="generateTimeline()" title="Generate AI-powered incident timeline with MITRE ATT&CK mapping">
-                <span class="btn-icon">📅</span> Generate Timeline
-            </button>
-        </div>
-    </div>
-    
-    <!-- Progress -->
-    <div class="ai-progress" id="timelineProgress" style="display: none;">
-        <div class="ai-progress-header">
-            <span class="ai-progress-title">Generating timeline...</span>
-            <span class="ai-progress-percent" id="timelineProgressPercent">0%</span>
-        </div>
-        <div class="ai-progress-bar">
-            <div class="ai-progress-fill" id="timelineProgressFill" style="width: 0%"></div>
-        </div>
-        <div class="ai-progress-status" id="timelineProgressStatus">Collecting events...</div>
-    </div>
-    
-    <!-- Timeline Results -->
-    <div class="ai-results" id="timelineResults" style="display: none;">
-        <div class="timeline-executive-summary" id="timelineExecutiveSummary"></div>
-        <div class="timeline-container" id="timelineContainer">
-            <!-- Timeline phases rendered here -->
-        </div>
-    </div>
-</div>
+.pattern-cat-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 120px;
+}
 
-<!-- OpenCTI Sync Section (collapsed) - only shown if OpenCTI RAG sync is enabled -->
-{% if opencti_rag_enabled %}
-<div class="ai-section ai-section-collapsed">
-    <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
-        <h3 class="ai-section-title">🔄 OpenCTI Pattern Sync</h3>
-        <span class="ai-section-chevron">▼</span>
-    </div>
-    <div class="ai-section-content" style="display: none;">
-        <p class="ai-section-desc">Sync attack patterns and threat intelligence from your OpenCTI instance.</p>
-        
-        <!-- Help Panel -->
-        <div class="ai-help-panel">
-            <div class="ai-help-toggle" onclick="toggleHelp(this)">
-                <span class="ai-help-icon">❓</span> What does this do?
-            </div>
-            <div class="ai-help-content" style="display: none;">
-                <p><strong>OpenCTI Pattern Sync</strong> pulls threat intelligence from your OpenCTI instance.</p>
-                <ul>
-                    <li><strong>Attack Patterns:</strong> MITRE ATT&CK techniques with detection guidance</li>
-                    <li><strong>Sigma Indicators:</strong> Detection rules stored in OpenCTI that can be executed against your events</li>
-                </ul>
-                <p class="ai-help-note">💡 Synced patterns enrich the RAG context. Sigma indicators become executable detection queries.</p>
-            </div>
-        </div>
-        
-        <div class="ai-action-card">
-            <div class="ai-action-stats" id="openctiStats">
-                <div class="ai-stat">
-                    <span class="ai-stat-label">Last Sync:</span>
-                    <span class="ai-stat-value" id="openctiLastSync">Never</span>
-                </div>
-                <div class="ai-stat">
-                    <span class="ai-stat-label">OpenCTI Patterns:</span>
-                    <span class="ai-stat-value" id="openctiPatterns">-</span>
-                </div>
-                <div class="ai-stat">
-                    <span class="ai-stat-label">Sigma Indicators:</span>
-                    <span class="ai-stat-value" id="openctiIndicators">-</span>
-                </div>
-            </div>
-            <div class="ai-action-buttons">
-                <button class="btn btn-primary" id="btnSyncOpenCTI" onclick="syncOpenCTI()">
-                    <span class="btn-icon">🔄</span> Sync Now
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
+.pattern-cat-info strong {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
 
-<!-- RAG Health Section (collapsed) -->
-<div class="ai-section ai-section-collapsed">
-    <div class="ai-section-header ai-section-toggle" onclick="toggleAISection(this)">
-        <h3 class="ai-section-title">🔧 System Health</h3>
-        <span class="ai-section-chevron">▼</span>
-    </div>
-    <div class="ai-section-content" style="display: none;">
-        <p class="ai-section-desc">Check RAG system component status.</p>
-        
-        <div class="ai-action-card">
-            <div class="ai-health-grid" id="ragHealthGrid">
-                <div class="ai-health-item">
-                    <span class="ai-health-icon" id="healthEmbeddings">⏳</span>
-                    <span class="ai-health-label">Embeddings</span>
-                </div>
-                <div class="ai-health-item">
-                    <span class="ai-health-icon" id="healthQdrant">⏳</span>
-                    <span class="ai-health-label">Vector Store</span>
-                </div>
-                <div class="ai-health-item">
-                    <span class="ai-health-icon" id="healthLLM">⏳</span>
-                    <span class="ai-health-label">LLM (Ollama)</span>
-                </div>
-            </div>
-            <div class="ai-action-buttons">
-                <button class="btn btn-secondary" onclick="checkRAGHealth()">
-                    <span class="btn-icon">🔍</span> Check Health
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+.pattern-cat-count {
+    font-size: 0.8rem;
+    color: var(--accent-primary);
+}
+
+.pattern-cat-examples {
+    width: 100%;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* Badge styles */
+.ai-badge-info {
+    background: var(--accent-info);
+    color: #fff;
+}
+
+.ai-badge-success {
+    background: var(--accent-success);
+    color: #fff;
+}
+
+.ai-badge-warning {
+    background: var(--accent-warning);
+    color: #000;
+}
+
+.ai-badge-danger {
+    background: var(--accent-danger);
+    color: #fff;
+}
+
+/* Critical stat highlight */
+.ai-stat-critical .ai-stat-value {
+    color: var(--accent-danger);
+}
+
+/* Pattern result row hover */
+.pattern-match-row {
+    cursor: pointer;
+}
+
+.pattern-match-row:hover {
+    background: var(--bg-hover);
+}
+
+/* Pattern category cards in results */
+.pattern-rules-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.pattern-category-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
+
+.pattern-category-icon {
+    font-size: 1.2rem;
+}
+
+.pattern-category-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.pattern-category-count {
+    background: var(--accent-danger);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* MITRE badge */
+.mitre-badge {
+    display: inline-block;
+    background: rgba(var(--accent-info-rgb), 0.2);
+    color: var(--accent-info);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+/* Severity badges */
+.severity-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.severity-critical {
+    background: #dc3545;
+    color: #fff;
+}
+
+.severity-high {
+    background: #fd7e14;
+    color: #fff;
+}
+
+.severity-medium {
+    background: #ffc107;
+    color: #000;
+}
+
+.severity-low {
+    background: #6c757d;
+    color: #fff;
+}
+
+/* Modal detail rows */
+.detail-row {
+    display: flex;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    width: 150px;
+    flex-shrink: 0;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.detail-value {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.indicator-list {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.indicator-list li {
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+}
+</style>

@@ -4044,6 +4044,9 @@ function showPatternRuleDetails(patternId) {
             if (data.success && data.matches && data.matches.length > 0) {
                 const match = data.matches[0];
                 
+                // Store for search function
+                currentPatternData = match;
+                
                 document.getElementById('pattern-modal-title').textContent = match.pattern_name || 'Pattern Details';
                 
                 const content = document.getElementById('pattern-match-content');
@@ -4503,6 +4506,48 @@ function closePatternModal(e) {
     if (e && e.target !== e.currentTarget) return;
     document.getElementById('pattern-match-modal').style.display = 'none';
     currentMatchId = null;
+    currentPatternData = null;
+}
+
+// Store current pattern data for searching
+let currentPatternData = null;
+
+function searchPatternEvents() {
+    if (!currentPatternData) return;
+    
+    // Build search query based on pattern data
+    let searchTerms = [];
+    
+    // Add username if present
+    if (currentPatternData.username && currentPatternData.username !== '-') {
+        searchTerms.push(currentPatternData.username);
+    }
+    
+    // Add source host if present
+    if (currentPatternData.source_host && currentPatternData.source_host !== '-') {
+        searchTerms.push(currentPatternData.source_host);
+    }
+    
+    // Build search query
+    const searchQuery = searchTerms.join(' ');
+    
+    // Close modal and switch to Events tab with search
+    closePatternModal();
+    
+    // Switch to Events tab
+    const eventsTab = document.querySelector('[data-tab="events"]');
+    if (eventsTab) {
+        eventsTab.click();
+    }
+    
+    // Set search and trigger
+    setTimeout(() => {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchQuery) {
+            searchInput.value = searchQuery;
+            doSearch();
+        }
+    }, 100);
 }
 
 function reviewMatch(verdict) {
