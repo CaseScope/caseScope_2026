@@ -1559,7 +1559,13 @@ def calculate_confidence(
     """
     Calculate confidence score (0-100) for a pattern match.
     
-    Factors:
+    For TEMPORAL patterns:
+    - Indicator Count (30%): How many supporting indicators present
+    - Time Density (20%): Events per hour in attack window
+    - Specificity (25%): Pattern severity + temporal complexity
+    - Corroboration (25%): Other patterns in same category
+    
+    For SIMPLE patterns:
     - Volume (25%): Events vs threshold
     - Multi-Host (25%): Pattern across multiple hosts
     - Specificity (25%): Pattern complexity/severity
@@ -1569,78 +1575,155 @@ def calculate_confidence(
         (confidence_score, factors_breakdown)
     """
     factors = {}
+    is_temporal = pattern.get('temporal', False)
     
-    # 1. Volume Factor (0-25)
-    # How many events matched vs the minimum threshold
-    thresholds = pattern.get('thresholds', {})
-    min_events = thresholds.get('min_events', thresholds.get('min_logons', 1))
-    
-    if event_count <= min_events:
-        volume_score = 10  # Barely met threshold
-    elif event_count <= min_events * 2:
-        volume_score = 15
-    elif event_count <= min_events * 5:
-        volume_score = 20
-    else:
-        volume_score = 25  # Significantly exceeded threshold
-    
-    factors['volume'] = {
-        'score': volume_score,
-        'detail': f'{event_count} events (threshold: {min_events})'
-    }
-    
-    # 2. Multi-Host Factor (0-25)
-    # Same pattern across multiple hosts = higher confidence
-    if host_count >= 5:
-        host_score = 25
-    elif host_count >= 3:
-        host_score = 20
-    elif host_count >= 2:
-        host_score = 15
-    else:
-        host_score = 10  # Single host - could be false positive
-    
-    factors['multi_host'] = {
-        'score': host_score,
-        'detail': f'{host_count} hosts affected'
-    }
-    
-    # 3. Specificity Factor (0-25)
-    # Based on pattern severity and complexity
-    severity = pattern.get('severity', 'medium')
-    query = pattern.get('detection_query', '')
-    
-    # Base score from severity
-    severity_scores = {'critical': 20, 'high': 15, 'medium': 10, 'low': 5}
-    specificity_score = severity_scores.get(severity, 10)
-    
-    # Bonus for complex queries (exclusion logic, joins)
-    if 'LEFT JOIN' in query or 'NOT IN' in query or 'IS NULL' in query:
+    if is_temporal:
+        # TEMPORAL PATTERN CONFIDENCE
+        
+        # 1. Indicator Count Factor (0-30)
+        # How many supporting indicators were found
+        indicator_count = 0
+        for key in ['indicator_count', 'nearby_logons', 'nearby_creds', 'nearby_smb', 
+                    'network_logons', 'explicit_creds', 'total_logons', 'total_smb']:
+            val = match_data.get(key, 0)
+            if val:
+                try:
+                    indicator_count += int(val) if int(val) > 0 else 0
+                except:
+                    pass
+        
+        if indicator_count >= 3:
+            indicator_score = 30
+        elif indicator_count >= 2:
+            indicator_score = 25
+        elif indicator_count >= 1:
+            indicator_score = 18
+        else:
+            indicator_score = 10  # Only anchor matched
+        
+        factors['indicators'] = {
+            'score': indicator_score,
+            'detail': f'{indicator_count} supporting indicators found'
+        }
+        
+        # 2. Time Density Factor (0-20)
+        # Events per hour in attack window (high density = more suspicious)
+        if duration_seconds and duration_seconds > 0:
+            hours = max(duration_seconds / 3600, 0.1)  # Min 6 min
+            events_per_hour = event_count / hours
+            
+            if events_per_hour >= 10:
+                density_score = 20  # High burst
+            elif events_per_hour >= 5:
+                density_score = 15
+            elif events_per_hour >= 2:
+                density_score = 10
+            else:
+                density_score = 5  # Spread out over long time
+        else:
+            density_score = 15  # Unknown duration, assume moderate
+        
+        factors['time_density'] = {
+            'score': density_score,
+            'detail': f'{event_count} events in {duration_seconds or 0}s window'
+        }
+        
+        # 3. Specificity Factor (0-25) - same as before but temporal bonus
+        severity = pattern.get('severity', 'medium')
+        severity_scores = {'critical': 20, 'high': 15, 'medium': 10, 'low': 5}
+        specificity_score = severity_scores.get(severity, 10)
+        
+        # Bonus for temporal patterns (already more accurate)
         specificity_score = min(25, specificity_score + 5)
-    
-    factors['specificity'] = {
-        'score': specificity_score,
-        'detail': f'Severity: {severity}, complex query: {"yes" if specificity_score > severity_scores.get(severity, 10) else "no"}'
-    }
-    
-    # 4. Corroboration Factor (0-25)
-    # Other patterns in same category also fired
-    if category_matches >= 5:
-        corr_score = 25
-    elif category_matches >= 3:
-        corr_score = 20
-    elif category_matches >= 2:
-        corr_score = 15
+        
+        factors['specificity'] = {
+            'score': specificity_score,
+            'detail': f'Severity: {severity}, temporal: yes'
+        }
+        
+        # 4. Corroboration Factor (0-25)
+        if category_matches >= 5:
+            corr_score = 25
+        elif category_matches >= 3:
+            corr_score = 20
+        elif category_matches >= 2:
+            corr_score = 15
+        else:
+            corr_score = 8
+        
+        factors['corroboration'] = {
+            'score': corr_score,
+            'detail': f'{category_matches} patterns in this category'
+        }
+        
+        total = indicator_score + density_score + specificity_score + corr_score
+        
     else:
-        corr_score = 8  # Only pattern in category
-    
-    factors['corroboration'] = {
-        'score': corr_score,
-        'detail': f'{category_matches} patterns in this category'
-    }
-    
-    # Calculate total confidence
-    total = volume_score + host_score + specificity_score + corr_score
+        # SIMPLE PATTERN CONFIDENCE (original logic)
+        
+        # 1. Volume Factor (0-25)
+        thresholds = pattern.get('thresholds', {})
+        min_events = thresholds.get('min_events', thresholds.get('min_logons', 1))
+        
+        if event_count <= min_events:
+            volume_score = 10
+        elif event_count <= min_events * 2:
+            volume_score = 15
+        elif event_count <= min_events * 5:
+            volume_score = 20
+        else:
+            volume_score = 25
+        
+        factors['volume'] = {
+            'score': volume_score,
+            'detail': f'{event_count} events (threshold: {min_events})'
+        }
+        
+        # 2. Multi-Host Factor (0-25)
+        if host_count >= 5:
+            host_score = 25
+        elif host_count >= 3:
+            host_score = 20
+        elif host_count >= 2:
+            host_score = 15
+        else:
+            host_score = 10
+        
+        factors['multi_host'] = {
+            'score': host_score,
+            'detail': f'{host_count} hosts affected'
+        }
+        
+        # 3. Specificity Factor (0-25)
+        severity = pattern.get('severity', 'medium')
+        query = pattern.get('detection_query', '')
+        severity_scores = {'critical': 20, 'high': 15, 'medium': 10, 'low': 5}
+        specificity_score = severity_scores.get(severity, 10)
+        
+        if 'LEFT JOIN' in query or 'NOT IN' in query or 'IS NULL' in query:
+            specificity_score = min(25, specificity_score + 5)
+        
+        factors['specificity'] = {
+            'score': specificity_score,
+            'detail': f'Severity: {severity}, temporal: no'
+        }
+        
+        # 4. Corroboration Factor (0-25)
+        if category_matches >= 5:
+            corr_score = 25
+        elif category_matches >= 3:
+            corr_score = 20
+        elif category_matches >= 2:
+            corr_score = 15
+        else:
+            corr_score = 8
+        
+        factors['corroboration'] = {
+            'score': corr_score,
+            'detail': f'{category_matches} patterns in this category'
+        }
+        
+        total = volume_score + host_score + specificity_score + corr_score
     
     # Ensure within 0-100 range
     confidence = max(0, min(100, total))

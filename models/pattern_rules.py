@@ -7,12 +7,41 @@ Rule-based detection patterns for common attack techniques.
 These patterns use ClickHouse queries to identify suspicious activity
 without requiring AI/ML components.
 
-Each pattern contains:
-- Detection query for ClickHouse
-- MITRE ATT&CK mapping
-- Severity level
-- Description for analysts
-- Event ID indicators
+PATTERN TYPES:
+==============
+1. SIMPLE PATTERNS: Basic event filtering (legacy)
+   - Just finds matching events, groups by host
+   - Prone to false positives over long timeframes
+
+2. TEMPORAL PATTERNS: Correlated attack detection (preferred)
+   - Anchor event: Primary indicator that triggers detection
+   - Supporting indicators: Must occur within time window of anchor
+   - Attack window grouping: Clusters nearby detections
+   - Much higher accuracy, lower false positives
+
+TEMPORAL PATTERN STRUCTURE:
+===========================
+{
+    'id': 'pattern_id',
+    'name': 'Pattern Name',
+    'temporal': True,  # Marks this as temporal pattern
+    'anchor': {
+        'description': 'What triggers the detection',
+        'event_ids': ['4648'],  # Primary event IDs
+        'conditions': "channel = 'Security'"  # Additional SQL conditions
+    },
+    'supporting': [
+        {
+            'name': 'indicator_name',
+            'required': True,  # Must be present for detection
+            'window_seconds': 300,  # ±5 minutes from anchor
+            'event_ids': ['4624'],
+            'conditions': "logon_type = 3"
+        }
+    ],
+    'attack_window_minutes': 30,  # Group anchors within this time
+    'detection_query': "..."  # ClickHouse query with temporal logic
+}
 """
 
 from typing import Dict, List, Any
@@ -22,24 +51,49 @@ from typing import Dict, List, Any
 # ============================================================================
 
 CREDENTIAL_ATTACK_PATTERNS = [
-    # ========== T1550.002: Pass the Hash (ENHANCED) ==========
+    # ========== T1550.002: Pass the Hash (TEMPORAL) ==========
     {
         'id': 'pass_the_hash',
         'name': 'Pass the Hash',
         'category': 'Credential Access',
-        'description': 'NTLM authentication with KeyLength=0 (hash-based) without corresponding Kerberos TGT or explicit credentials. Strong indicator of Pass-the-Hash attack using stolen NTLM hashes.',
+        'description': 'NTLM authentication with KeyLength=0 (hash-based) without corresponding Kerberos TGT or explicit credentials within attack window. Strong indicator of Pass-the-Hash attack using stolen NTLM hashes.',
         'severity': 'critical',
         'mitre_tactics': ['Credential Access', 'Lateral Movement'],
         'mitre_techniques': ['T1550.002'],
+        'temporal': True,
+        'anchor': {
+            'description': 'NTLM logon with KeyLength=0 (hash-based auth)',
+            'event_ids': ['4624'],
+            'conditions': "logon_type IN (3, 9) AND search_blob LIKE '%NTLM%' AND JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0'"
+        },
+        'supporting': [
+            {
+                'name': 'kerberos_tgt',
+                'required': False,  # ABSENCE strengthens detection
+                'negate': True,  # If present, reduces confidence
+                'window_seconds': 0,  # Check entire case for this user
+                'event_ids': ['4768'],
+                'conditions': None
+            },
+            {
+                'name': 'explicit_credentials',
+                'required': False,
+                'negate': True,  # If present within window, reduces confidence
+                'window_seconds': 600,  # ±10 minutes
+                'event_ids': ['4648'],
+                'conditions': None
+            }
+        ],
+        'attack_window_minutes': 60,
         'detection_query': """
-            WITH ntlm_logons AS (
+            WITH 
+            -- Anchor: NTLM logons with KeyLength=0
+            ntlm_logons AS (
                 SELECT 
                     source_host,
                     username,
-                    timestamp,
+                    timestamp as anchor_time,
                     logon_type,
-                    row_id,
-                    JSONExtractString(raw_json, 'EventData', 'KeyLength') as key_length,
                     JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
                     JSONExtractString(raw_json, 'EventData', 'WorkstationName') as workstation
                 FROM events
@@ -50,53 +104,84 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND (search_blob LIKE '%NTLM%' OR search_blob LIKE '%NtLmSsp%')
                     AND JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0'
             ),
-            explicit_credentials AS (
-                SELECT DISTINCT 
-                    username,
-                    source_host,
-                    timestamp
-                FROM events
-                WHERE case_id = {case_id:UInt32}
-                    AND event_id = '4648'
-                    AND channel = 'Security'
-            ),
-            kerberos_tgt AS (
+            -- Check if user has ANY Kerberos TGT (reduces confidence)
+            kerberos_users AS (
                 SELECT DISTINCT username, source_host
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4768'
                     AND channel = 'Security'
-            )
+            ),
+            -- Explicit credentials within ±10 min (reduces confidence)
+            explicit_credentials AS (
+                SELECT username, source_host, timestamp
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4648'
+                    AND channel = 'Security'
+            ),
+            -- Correlate: anchors without Kerberos and without explicit creds
+            correlated AS (
             SELECT 
                 n.source_host,
                 n.username,
-                COUNT() as ntlm_attempts,
-                COUNT(DISTINCT n.src_ip) as unique_sources,
-                COUNT(DISTINCT n.workstation) as unique_workstations,
-                MIN(n.timestamp) as first_seen,
-                MAX(n.timestamp) as last_seen,
-                ROUND((MAX(n.timestamp) - MIN(n.timestamp)) / 60, 2) as duration_minutes,
-                groupUniqArray(n.logon_type) as logon_types,
-                groupUniqArray(n.src_ip) as source_ips
+                    n.anchor_time,
+                    n.src_ip,
+                    n.workstation,
+                    n.logon_type,
+                    -- Check for Kerberos TGT (if present, NOT pass-the-hash)
+                    (SELECT count() FROM kerberos_users k 
+                     WHERE k.username = n.username AND k.source_host = n.source_host) as has_kerberos,
+                    -- Check for explicit creds within window
+                    (SELECT count() FROM explicit_credentials e 
+                     WHERE e.username = n.username 
+                     AND e.source_host = n.source_host
+                     AND e.timestamp BETWEEN n.anchor_time - INTERVAL 10 MINUTE AND n.anchor_time) as has_explicit_creds
             FROM ntlm_logons n
-            LEFT JOIN kerberos_tgt k 
-                ON n.username = k.username 
-                AND n.source_host = k.source_host
-            LEFT JOIN explicit_credentials e
-                ON n.username = e.username
-                AND n.source_host = e.source_host
-                AND e.timestamp BETWEEN n.timestamp - INTERVAL 10 MINUTE AND n.timestamp
-            WHERE k.username IS NULL
-              AND e.username IS NULL
-            GROUP BY n.source_host, n.username
-            HAVING ntlm_attempts >= 1
-            ORDER BY ntlm_attempts DESC, first_seen ASC
+            ),
+            -- Filter: only keep logons without Kerberos and without explicit creds
+            filtered AS (
+                SELECT * FROM correlated
+                WHERE has_kerberos = 0 AND has_explicit_creds = 0
+            ),
+            -- Group into attack windows (1 hour)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as pth_attempts,
+                    count(DISTINCT src_ip) as unique_sources,
+                    count(DISTINCT workstation) as unique_workstations,
+                    groupUniqArray(logon_type) as logon_types,
+                    groupUniqArray(src_ip) as source_ips
+                FROM filtered
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 1 HOUR)
+            )
+            SELECT 
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                pth_attempts as ntlm_attempts,
+                unique_sources,
+                unique_workstations,
+                logon_types,
+                source_ips,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE pth_attempts >= 1
+            ORDER BY pth_attempts DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4624 logon type 3/9 with NTLM and KeyLength=0',
-            'No corresponding Event 4768 Kerberos TGT request',
-            'No Event 4648 explicit credential usage within 10 minutes',
-            'Multiple systems or rapid attempts indicate lateral movement',
+            'Event 4624 logon type 3/9 with NTLM and KeyLength=0 (anchor)',
+            'No Kerberos TGT (4768) for this user/host (exclusion)',
+            'No explicit credentials (4648) within ±10 min (exclusion)',
+            'Grouped into 1-hour attack windows',
             'KeyLength=0 is definitive proof of hash-based authentication'
         ],
         'thresholds': {
@@ -618,15 +703,15 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'mitre_techniques': ['T1110.004'],
         'detection_query': """
             WITH failed_attempts AS (
-                SELECT 
+            SELECT 
                     username,
-                    source_host,
+                source_host,
                     COUNT() as attempts,
                     MIN(timestamp) as first_attempt,
                     MAX(timestamp) as last_attempt,
                     JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
-                FROM events
-                WHERE case_id = {case_id:UInt32}
+            FROM events
+            WHERE case_id = {case_id:UInt32}
                     AND event_id = '4625'
                     AND channel = 'Security'
                 GROUP BY username, source_host, substatus
@@ -1055,8 +1140,8 @@ CREDENTIAL_ATTACK_PATTERNS = [
                 MIN(timestamp) as first_seen,
                 MAX(timestamp) as last_seen,
                 groupArray(DISTINCT process_name) as processes
-            FROM events
-            WHERE case_id = {case_id:UInt32}
+                FROM events
+                WHERE case_id = {case_id:UInt32}
                 AND (
                     -- Registry modification for password filters
                     (event_id IN ('4657', '13') 
@@ -1146,9 +1231,9 @@ LATERAL_MOVEMENT_PATTERNS = [
         'mitre_tactics': ['Lateral Movement'],
         'mitre_techniques': ['T1021.002'],
         'detection_query': """
-            SELECT 
-                source_host,
-                username,
+                SELECT 
+                    source_host,
+                    username,
                 COUNT() as share_access_count,
                 COUNT(DISTINCT JSONExtractString(raw_json, 'EventData', 'ShareName')) as unique_shares,
                 MIN(timestamp) as first_seen,
@@ -1321,80 +1406,270 @@ LATERAL_MOVEMENT_PATTERNS = [
         ],
         'thresholds': {'min_writes': 3}
     },
-    # ========== T1021.002/T1569.002: PsExec Remote Service ==========
+    # ========== T1021.002/T1569.002: PsExec Remote Service (TEMPORAL) ==========
     {
         'id': 'psexec_remote_service',
         'name': 'PsExec / Remote Service Execution',
         'category': 'Lateral Movement',
-        'description': 'Remote service installation indicating PsExec or similar tool usage.',
+        'description': 'Remote service installation with network logon and SMB access within attack window. High-confidence PsExec or similar tool detection.',
         'severity': 'high',
         'mitre_tactics': ['Lateral Movement', 'Execution'],
         'mitre_techniques': ['T1021.002', 'T1569.002'],
+        'temporal': True,
+        'anchor': {
+            'description': 'New service installed (Event 7045)',
+            'event_ids': ['7045'],
+            'conditions': None
+        },
+        'supporting': [
+            {
+                'name': 'network_logon',
+                'required': True,  # PsExec requires network logon
+                'window_seconds': 120,
+                'event_ids': ['4624'],
+                'conditions': "logon_type = 3"
+            },
+            {
+                'name': 'smb_admin_share',
+                'required': False,
+                'window_seconds': 120,
+                'event_ids': ['5145'],
+                'conditions': "search_blob LIKE '%ADMIN$%' OR search_blob LIKE '%IPC$%'"
+            }
+        ],
+        'attack_window_minutes': 15,
         'detection_query': """
+            WITH 
+            -- Anchor: Service installation events
+            service_installs AS (
             SELECT 
                 source_host,
-                count() as service_events,
-                countIf(event_id = '7045') as services_installed,
-                countIf(event_id = '5145') as smb_access,
-                min(timestamp) as first_seen,
-                max(timestamp) as last_seen,
-                groupArray(search_blob) as details
+                    timestamp as anchor_time,
+                    username,
+                    search_blob,
+                    -- Check for PsExec-style naming
+                    CASE 
+                        WHEN lower(search_blob) LIKE '%psexe%' THEN 'psexec'
+                        WHEN lower(search_blob) LIKE '%paexec%' THEN 'paexec'
+                        WHEN lower(search_blob) LIKE '%remcom%' THEN 'remcom'
+                        ELSE 'unknown_service'
+                    END as tool_type
             FROM events
             WHERE case_id = {case_id:UInt32}
-                AND (
-                    (event_id = '7045' AND (
-                        lower(search_blob) LIKE '%psexe%'
-                        OR lower(search_blob) LIKE '%paexec%'
-                        OR length(extractAll(search_blob, 'ServiceName[:\\s]*([A-Za-z]{8})')[1]) = 8
-                    ))
-                    OR (event_id = '5145' AND (search_blob LIKE '%ADMIN$%' OR search_blob LIKE '%IPC$%'))
-                )
-            GROUP BY source_host
-            HAVING services_installed >= 1 OR (services_installed >= 1 AND smb_access >= 1)
+                    AND event_id = '7045'
+            ),
+            -- Supporting: Network logons within ±2 min
+            network_logons AS (
+                SELECT source_host, timestamp, username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4624'
+                    AND logon_type = 3
+            ),
+            -- Supporting: SMB access to admin shares within ±2 min
+            smb_access AS (
+                SELECT source_host, timestamp
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '5145'
+                    AND (search_blob LIKE '%ADMIN$%' OR search_blob LIKE '%IPC$%')
+            ),
+            -- Correlate: Only services with nearby network logon
+            correlated AS (
+                SELECT 
+                    s.source_host,
+                    s.anchor_time,
+                    s.username,
+                    s.tool_type,
+                    (SELECT count() FROM network_logons n 
+                     WHERE n.source_host = s.source_host 
+                     AND n.timestamp BETWEEN s.anchor_time - INTERVAL 2 MINUTE AND s.anchor_time + INTERVAL 2 MINUTE) as nearby_logons,
+                    (SELECT count() FROM smb_access a 
+                     WHERE a.source_host = s.source_host 
+                     AND a.timestamp BETWEEN s.anchor_time - INTERVAL 2 MINUTE AND s.anchor_time + INTERVAL 2 MINUTE) as nearby_smb
+                FROM service_installs s
+            ),
+            -- Group into attack windows
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as service_count,
+                    any(tool_type) as tool_type,
+                    sum(nearby_logons) as total_logons,
+                    sum(nearby_smb) as total_smb,
+                    (CASE WHEN sum(nearby_logons) > 0 THEN 1 ELSE 0 END +
+                     CASE WHEN sum(nearby_smb) > 0 THEN 1 ELSE 0 END) as indicator_count
+                FROM correlated
+                WHERE nearby_logons > 0  -- REQUIRE network logon for PsExec
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 15 MINUTE)
+            )
+            SELECT 
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                service_count as services_installed,
+                tool_type,
+                total_logons as network_logons,
+                total_smb as smb_access,
+                indicator_count
+            FROM attack_windows
+            ORDER BY indicator_count DESC, service_count DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 7045 new service with random name',
-            'services.exe spawning cmd/PowerShell',
-            'SMB access to ADMIN$ or IPC$',
-            'Event 4624 type 3 + service creation'
+            'Event 7045 new service installed (anchor)',
+            'Network logon 4624 type 3 within ±2 min (required)',
+            'SMB access to ADMIN$/IPC$ within ±2 min',
+            'PsExec/PAExec/RemCom service name patterns'
         ],
-        'thresholds': {'min_services': 1}
+        'thresholds': {'min_services': 1, 'require_network_logon': True, 'window_minutes': 15}
     },
-    # ========== T1047: WMI Lateral Movement ==========
+    # ========== T1047: WMI Lateral Movement (TEMPORAL) ==========
     {
         'id': 'wmi_lateral',
         'name': 'WMI Lateral Movement',
         'category': 'Lateral Movement',
-        'description': 'Windows Management Instrumentation used for remote code execution.',
+        'description': 'Windows Management Instrumentation used for remote code execution. Detects correlated WMI activity with network logon and explicit credentials within attack window.',
         'severity': 'high',
         'mitre_tactics': ['Lateral Movement', 'Execution'],
         'mitre_techniques': ['T1047'],
+        'temporal': True,
+        'anchor': {
+            'description': 'WMI-Activity operational event (provider load/query)',
+            'event_ids': ['5857', '5860', '5861'],
+            'conditions': "channel LIKE '%WMI-Activity%'"
+        },
+        'supporting': [
+            {
+                'name': 'network_logon',
+                'required': False,  # Strengthens detection but not required
+                'window_seconds': 300,
+                'event_ids': ['4624'],
+                'conditions': "logon_type = 3"
+            },
+            {
+                'name': 'explicit_credentials',
+                'required': False,
+                'window_seconds': 300,
+                'event_ids': ['4648'],
+                'conditions': None
+            },
+            {
+                'name': 'wmic_execution',
+                'required': False,
+                'window_seconds': 120,
+                'event_ids': ['1', '4688'],  # Sysmon or Security process creation
+                'conditions': "lower(command_line) LIKE '%wmic%' AND lower(command_line) LIKE '%/node:%'"
+            }
+        ],
+        'attack_window_minutes': 30,
         'detection_query': """
+            WITH 
+            -- Find anchor events: WMI-Activity operational events
+            wmi_anchors AS (
             SELECT 
                 source_host,
-                count() as wmi_events,
-                countIf(event_id = '4624' AND logon_type = 3) as network_logons,
-                countIf(lower(search_blob) LIKE '%wmic%' OR lower(search_blob) LIKE '%wmiprvse%') as wmi_activity,
-                min(timestamp) as first_seen,
-                max(timestamp) as last_seen
+                    timestamp as anchor_time,
+                    row_id,
+                    username,
+                    search_blob
             FROM events
             WHERE case_id = {case_id:UInt32}
-                AND (
-                    (channel LIKE '%WMI-Activity%' AND event_id IN ('5857', '5860', '5861'))
-                    OR (lower(process_name) = 'wmiprvse.exe')
-                    OR (lower(command_line) LIKE '%wmic%/node:%')
-                    OR (event_id = '4648' AND lower(search_blob) LIKE '%wmi%')
-                )
-            GROUP BY source_host
-            HAVING wmi_events >= 2
+                    AND channel LIKE '%WMI-Activity%'
+                    AND event_id IN ('5857', '5860', '5861')
+            ),
+            -- Find supporting: network logons within ±5 min of anchor
+            network_logons AS (
+                SELECT source_host, timestamp, username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4624'
+                    AND logon_type = 3
+            ),
+            -- Find supporting: explicit credentials within ±5 min
+            explicit_creds AS (
+                SELECT source_host, timestamp, username
+                FROM events  
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4648'
+            ),
+            -- Find supporting: wmic.exe /node execution within ±2 min
+            wmic_exec AS (
+                SELECT source_host, timestamp, command_line
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id IN ('1', '4688')
+                    AND lower(command_line) LIKE '%wmic%'
+                    AND lower(command_line) LIKE '%/node:%'
+            ),
+            -- Correlate anchors with supporting indicators
+            correlated AS (
+                SELECT 
+                    a.source_host,
+                    a.anchor_time,
+                    a.username,
+                    -- Check for supporting indicators within time windows
+                    (SELECT count() FROM network_logons n 
+                     WHERE n.source_host = a.source_host 
+                     AND n.timestamp BETWEEN a.anchor_time - INTERVAL 5 MINUTE AND a.anchor_time + INTERVAL 5 MINUTE) as nearby_logons,
+                    (SELECT count() FROM explicit_creds e 
+                     WHERE e.source_host = a.source_host 
+                     AND e.timestamp BETWEEN a.anchor_time - INTERVAL 5 MINUTE AND a.anchor_time + INTERVAL 5 MINUTE) as nearby_creds,
+                    (SELECT count() FROM wmic_exec w 
+                     WHERE w.source_host = a.source_host 
+                     AND w.timestamp BETWEEN a.anchor_time - INTERVAL 2 MINUTE AND a.anchor_time + INTERVAL 2 MINUTE) as nearby_wmic
+                FROM wmi_anchors a
+            ),
+            -- Group into attack windows (30 min clusters)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as anchor_count,
+                    sum(nearby_logons) as total_logons,
+                    sum(nearby_creds) as total_creds,
+                    sum(nearby_wmic) as total_wmic,
+                    -- Confidence boost for corroborating indicators
+                    (CASE WHEN sum(nearby_logons) > 0 THEN 1 ELSE 0 END +
+                     CASE WHEN sum(nearby_creds) > 0 THEN 1 ELSE 0 END +
+                     CASE WHEN sum(nearby_wmic) > 0 THEN 1 ELSE 0 END) as indicator_count
+                FROM correlated
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 30 MINUTE)
+            )
+            SELECT 
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                anchor_count as wmi_events,
+                total_logons as network_logons,
+                total_creds as explicit_creds,
+                total_wmic as wmic_commands,
+                indicator_count,
+                -- Higher indicator count = more confident this is real attack
+                (anchor_count + total_logons + total_creds + total_wmic * 2) as attack_score
+            FROM attack_windows
+            WHERE anchor_count >= 1
+            ORDER BY indicator_count DESC, attack_score DESC, first_seen ASC
         """,
         'indicators': [
-            'WMI-Activity events 5857, 5860, 5861',
-            'wmiprvse.exe parent process',
-            'wmic.exe with /node parameter',
-            'Event 4648 with explicit credentials'
+            'WMI-Activity events 5857, 5860, 5861 (anchor)',
+            'Network logon 4624 type 3 within ±5 min',
+            'Explicit credentials 4648 within ±5 min',
+            'wmic.exe /node: execution within ±2 min'
         ],
-        'thresholds': {'min_events': 2}
+        'thresholds': {'min_anchors': 1, 'window_minutes': 30}
     },
     # ========== T1053.005: Remote Scheduled Task ==========
     {
@@ -1526,15 +1801,15 @@ PERSISTENCE_PATTERNS = [
         'mitre_tactics': ['Persistence', 'Privilege Escalation'],
         'mitre_techniques': ['T1547.004'],
         'detection_query': """
-            SELECT 
-                source_host,
-                username,
+                SELECT 
+                    source_host,
+                    username,
                 COUNT() as winlogon_modifications,
                 MIN(timestamp) as first_seen,
                 MAX(timestamp) as last_seen,
                 groupArray(DISTINCT JSONExtractString(raw_json, 'EventData', 'ObjectName')) as registry_keys
-            FROM events
-            WHERE case_id = {case_id:UInt32}
+                FROM events
+                WHERE case_id = {case_id:UInt32}
                 AND event_id IN ('4657', '13')
                 AND (
                     lower(search_blob) LIKE '%\\microsoft\\windows nt\\currentversion\\winlogon\\notify%'

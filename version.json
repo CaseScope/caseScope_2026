@@ -1,6 +1,20 @@
 {
-  "version": "3.105.01",
+  "version": "3.106.00",
   "changelog": [
+    {
+      "version": "3.106.00",
+      "date": "2026-01-18",
+      "changes": [
+        "Feature: Temporal pattern detection with attack windowing",
+        "Changed: WMI Lateral Movement - now requires correlated indicators within ±5 min window",
+        "Changed: PsExec detection - requires network logon within ±2 min of service install",
+        "Changed: Pass-the-Hash - groups into 1-hour attack windows, excludes Kerberos users",
+        "Added: Anchor/Supporting indicator structure for temporal patterns",
+        "Added: Attack window grouping (cluster nearby anchors)",
+        "Improved: Confidence scoring factors in indicator count and time density for temporal patterns",
+        "Reduced: False positives from long-duration accumulation (e.g., 2 years of WMI activity)"
+      ]
+    },
     {
       "version": "3.105.01",
       "date": "2026-01-18",
