@@ -383,6 +383,10 @@ class PatternRuleMatch(db.Model):
     # Indicators that matched
     indicators = db.Column(db.ARRAY(db.String), nullable=True)
     
+    # Confidence score (0-100)
+    confidence = db.Column(db.Integer, default=50)
+    confidence_factors = db.Column(db.JSON, nullable=True)  # Breakdown of confidence calculation
+    
     # Analyst review
     analyst_reviewed = db.Column(db.Boolean, default=False)
     analyst_verdict = db.Column(db.String(50), nullable=True)  # confirmed, false_positive, needs_review
@@ -419,6 +423,8 @@ class PatternRuleMatch(db.Model):
             'duration_seconds': self.duration_seconds,
             'indicators': self.indicators or [],
             'match_data': self.match_data,
+            'confidence': self.confidence,
+            'confidence_factors': self.confidence_factors,
             'analyst_reviewed': self.analyst_reviewed,
             'analyst_verdict': self.analyst_verdict,
             'detected_at': self.detected_at.isoformat() if self.detected_at else None

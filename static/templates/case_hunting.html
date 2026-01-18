@@ -3997,7 +3997,7 @@ function renderPatternRulesResults() {
     const tbody = document.getElementById('patternRulesResultsBody');
     
     if (patternRulesResults.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No attack patterns detected. Click "Detect Attack Patterns" to scan.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No attack patterns detected. Click "Detect Attack Patterns" to scan.</td></tr>';
         return;
     }
     
@@ -4021,14 +4021,26 @@ function renderPatternRulesResults() {
             timeframe = new Date(pattern.first_seen).toLocaleDateString();
         }
         
+        // Confidence indicator
+        const confidence = pattern.confidence || 50;
+        const confClass = confidence >= 70 ? 'high' : (confidence >= 40 ? 'medium' : 'low');
+        
         html += `
             <tr class="pattern-match-row" onclick="showPatternRuleDetails('${escapeHtml(pattern.pattern_id)}')">
                 <td><strong>${escapeHtml(pattern.pattern_name || '-')}</strong></td>
                 <td>${escapeHtml(pattern.category || '-')}</td>
                 <td><span class="severity-badge severity-${severityClass}">${pattern.severity || '-'}</span></td>
+                <td>
+                    <div class="confidence-bar">
+                        <div class="confidence-meter">
+                            <div class="confidence-fill ${confClass}" style="width: ${confidence}%"></div>
+                        </div>
+                        <span class="confidence-value ${confClass}">${confidence}%</span>
+                    </div>
+                </td>
                 <td>${techniques ? `<span class="mitre-badge">${escapeHtml(techniques)}</span>` : '-'}</td>
                 <td>${pattern.host_count || 1}</td>
-                <td><strong>${pattern.match_count}</strong></td>
+                <td><strong>${pattern.total_events || pattern.match_count}</strong></td>
                 <td>${timeframe}</td>
             </tr>
         `;

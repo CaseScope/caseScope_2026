@@ -1548,6 +1548,106 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
 # NON-AI PATTERN DETECTION
 # ============================================================================
 
+def calculate_confidence(
+    pattern: Dict[str, Any],
+    event_count: int,
+    host_count: int,
+    duration_seconds: int,
+    match_data: Dict[str, Any],
+    category_matches: int
+) -> tuple:
+    """
+    Calculate confidence score (0-100) for a pattern match.
+    
+    Factors:
+    - Volume (25%): Events vs threshold
+    - Multi-Host (25%): Pattern across multiple hosts
+    - Specificity (25%): Pattern complexity/severity
+    - Corroboration (25%): Other patterns in same category
+    
+    Returns:
+        (confidence_score, factors_breakdown)
+    """
+    factors = {}
+    
+    # 1. Volume Factor (0-25)
+    # How many events matched vs the minimum threshold
+    thresholds = pattern.get('thresholds', {})
+    min_events = thresholds.get('min_events', thresholds.get('min_logons', 1))
+    
+    if event_count <= min_events:
+        volume_score = 10  # Barely met threshold
+    elif event_count <= min_events * 2:
+        volume_score = 15
+    elif event_count <= min_events * 5:
+        volume_score = 20
+    else:
+        volume_score = 25  # Significantly exceeded threshold
+    
+    factors['volume'] = {
+        'score': volume_score,
+        'detail': f'{event_count} events (threshold: {min_events})'
+    }
+    
+    # 2. Multi-Host Factor (0-25)
+    # Same pattern across multiple hosts = higher confidence
+    if host_count >= 5:
+        host_score = 25
+    elif host_count >= 3:
+        host_score = 20
+    elif host_count >= 2:
+        host_score = 15
+    else:
+        host_score = 10  # Single host - could be false positive
+    
+    factors['multi_host'] = {
+        'score': host_score,
+        'detail': f'{host_count} hosts affected'
+    }
+    
+    # 3. Specificity Factor (0-25)
+    # Based on pattern severity and complexity
+    severity = pattern.get('severity', 'medium')
+    query = pattern.get('detection_query', '')
+    
+    # Base score from severity
+    severity_scores = {'critical': 20, 'high': 15, 'medium': 10, 'low': 5}
+    specificity_score = severity_scores.get(severity, 10)
+    
+    # Bonus for complex queries (exclusion logic, joins)
+    if 'LEFT JOIN' in query or 'NOT IN' in query or 'IS NULL' in query:
+        specificity_score = min(25, specificity_score + 5)
+    
+    factors['specificity'] = {
+        'score': specificity_score,
+        'detail': f'Severity: {severity}, complex query: {"yes" if specificity_score > severity_scores.get(severity, 10) else "no"}'
+    }
+    
+    # 4. Corroboration Factor (0-25)
+    # Other patterns in same category also fired
+    if category_matches >= 5:
+        corr_score = 25
+    elif category_matches >= 3:
+        corr_score = 20
+    elif category_matches >= 2:
+        corr_score = 15
+    else:
+        corr_score = 8  # Only pattern in category
+    
+    factors['corroboration'] = {
+        'score': corr_score,
+        'detail': f'{category_matches} patterns in this category'
+    }
+    
+    # Calculate total confidence
+    total = volume_score + host_score + specificity_score + corr_score
+    
+    # Ensure within 0-100 range
+    confidence = max(0, min(100, total))
+    
+    return confidence, factors
+
+
 @celery_app.task(bind=True, name='tasks.detect_attack_patterns')
 def detect_attack_patterns(
     self,
@@ -1695,48 +1795,72 @@ def detect_attack_patterns(
                             except:
                                 pass
                         
-                        # Create match record
-                        match = PatternRuleMatch(
-                            case_id=case_id,
-                            pattern_id=pattern['id'],
-                            pattern_name=pattern['name'],
-                            category=pattern['category'],
-                            description=pattern.get('description'),
-                            severity=pattern.get('severity', 'medium'),
-                            mitre_tactics=pattern.get('mitre_tactics'),
-                            mitre_techniques=pattern.get('mitre_techniques'),
-                            source_host=source_host,
-                            username=username,
-                            affected_users=affected_users[:20] if affected_users else None,
-                            event_count=event_count,
-                            first_seen=first_seen if isinstance(first_seen, datetime) else None,
-                            last_seen=last_seen if isinstance(last_seen, datetime) else None,
-                            duration_seconds=duration_seconds,
-                            match_data={k: str(v)[:500] for k, v in row_dict.items()},
-                            indicators=pattern.get('indicators', [])
-                        )
-                        db.session.add(match)
-                        
+                        # Store match data for later confidence calculation
                         matches_found.append({
+                            'pattern': pattern,
                             'pattern_id': pattern['id'],
                             'pattern_name': pattern['name'],
                             'category': pattern['category'],
-                            'severity': pattern['severity'],
+                            'severity': pattern.get('severity', 'medium'),
                             'source_host': source_host,
-                            'event_count': event_count
+                            'username': username,
+                            'affected_users': affected_users[:20] if affected_users else None,
+                            'event_count': event_count,
+                            'first_seen': first_seen if isinstance(first_seen, datetime) else None,
+                            'last_seen': last_seen if isinstance(last_seen, datetime) else None,
+                            'duration_seconds': duration_seconds,
+                            'match_data': {k: str(v)[:500] for k, v in row_dict.items()}
                         })
                         
             except Exception as e:
                 logger.warning(f"[PatternRules] Pattern {pattern['name']} failed: {e}")
                 errors.append(f"{pattern['name']}: {str(e)[:100]}")
         
-        db.session.commit()
-        
-        # Calculate category summary
+        # Calculate category counts for corroboration factor
         category_counts = {}
         for match in matches_found:
             cat = match['category']
             category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        # Now create match records with confidence scores
+        for match_info in matches_found:
+            pattern = match_info['pattern']
+            category = match_info['category']
+            
+            # Calculate confidence
+            confidence, confidence_factors = calculate_confidence(
+                pattern=pattern,
+                event_count=match_info['event_count'],
+                host_count=1,  # Will be aggregated in results API
+                duration_seconds=match_info['duration_seconds'] or 0,
+                match_data=match_info['match_data'],
+                category_matches=category_counts.get(category, 1)
+            )
+            
+            match = PatternRuleMatch(
+                case_id=case_id,
+                pattern_id=match_info['pattern_id'],
+                pattern_name=match_info['pattern_name'],
+                category=category,
+                description=pattern.get('description'),
+                severity=match_info['severity'],
+                mitre_tactics=pattern.get('mitre_tactics'),
+                mitre_techniques=pattern.get('mitre_techniques'),
+                source_host=match_info['source_host'],
+                username=match_info['username'],
+                affected_users=match_info['affected_users'],
+                event_count=match_info['event_count'],
+                first_seen=match_info['first_seen'],
+                last_seen=match_info['last_seen'],
+                duration_seconds=match_info['duration_seconds'],
+                match_data=match_info['match_data'],
+                indicators=pattern.get('indicators', []),
+                confidence=confidence,
+                confidence_factors=confidence_factors
+            )
+            db.session.add(match)
+        
+        db.session.commit()
         
         self.update_state(state='PROGRESS', meta={
             'progress': 100,

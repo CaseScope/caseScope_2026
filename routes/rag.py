@@ -759,7 +759,9 @@ def get_pattern_rule_results(case_id):
         db.func.count(PatternRuleMatch.id).label('match_count'),
         db.func.count(db.distinct(PatternRuleMatch.source_host)).label('host_count'),
         db.func.min(PatternRuleMatch.first_seen).label('first_seen'),
-        db.func.max(PatternRuleMatch.last_seen).label('last_seen')
+        db.func.max(PatternRuleMatch.last_seen).label('last_seen'),
+        db.func.avg(PatternRuleMatch.confidence).label('avg_confidence'),
+        db.func.sum(PatternRuleMatch.event_count).label('total_events')
     ).filter(
         PatternRuleMatch.case_id == case_id
     ).group_by(
@@ -782,6 +784,19 @@ def get_pattern_rule_results(case_id):
     # Format results
     formatted = []
     for row in results:
+        # Recalculate confidence based on aggregated host count
+        base_confidence = int(row.avg_confidence or 50)
+        
+        # Boost confidence for multi-host patterns
+        if row.host_count >= 5:
+            confidence = min(100, base_confidence + 15)
+        elif row.host_count >= 3:
+            confidence = min(100, base_confidence + 10)
+        elif row.host_count >= 2:
+            confidence = min(100, base_confidence + 5)
+        else:
+            confidence = base_confidence
+        
         formatted.append({
             'pattern_id': row.pattern_id,
             'pattern_name': row.pattern_name,
@@ -790,8 +805,10 @@ def get_pattern_rule_results(case_id):
             'mitre_techniques': row.mitre_techniques,
             'match_count': row.match_count,
             'host_count': row.host_count,
+            'total_events': row.total_events or row.match_count,
             'first_seen': row.first_seen.isoformat() if row.first_seen else None,
-            'last_seen': row.last_seen.isoformat() if row.last_seen else None
+            'last_seen': row.last_seen.isoformat() if row.last_seen else None,
+            'confidence': confidence
         })
     
     # Get total matches

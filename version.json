@@ -1,6 +1,17 @@
 {
-  "version": "3.105.00",
+  "version": "3.105.01",
   "changelog": [
+    {
+      "version": "3.105.01",
+      "date": "2026-01-18",
+      "changes": [
+        "Feature: Confidence scoring for pattern detection results",
+        "Added: Confidence column with visual meter in pattern results table",
+        "Added: Confidence calculation based on event volume, multi-host spread, pattern specificity, corroboration",
+        "Added: Confidence factors breakdown stored per match for transparency",
+        "UI: Simplified AI Hunting tab focused on pattern detection testing"
+      ]
+    },
     {
       "version": "3.105.00",
       "date": "2026-01-18",

@@ -74,6 +74,7 @@
                         <th>Pattern</th>
                         <th>Category</th>
                         <th>Severity</th>
+                        <th>Confidence</th>
                         <th>MITRE</th>
                         <th>Hosts</th>
                         <th>Events</th>
@@ -81,7 +82,7 @@
                     </tr>
                 </thead>
                 <tbody id="patternRulesResultsBody">
-                    <tr><td colspan="7" class="text-center text-muted">Click "Run Detection" to scan for attack patterns</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted">Click "Run Detection" to scan for attack patterns</td></tr>
                 </tbody>
             </table>
         </div>
@@ -364,5 +365,56 @@
 .indicator-list li {
     margin-bottom: 4px;
     color: var(--text-secondary);
+}
+
+/* Confidence indicator */
+.confidence-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.confidence-meter {
+    width: 50px;
+    height: 8px;
+    background: var(--bg-hover);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.confidence-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.confidence-fill.high {
+    background: linear-gradient(90deg, #28a745, #20c997);
+}
+
+.confidence-fill.medium {
+    background: linear-gradient(90deg, #ffc107, #fd7e14);
+}
+
+.confidence-fill.low {
+    background: linear-gradient(90deg, #dc3545, #e83e8c);
+}
+
+.confidence-value {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 30px;
+}
+
+.confidence-value.high {
+    color: #28a745;
+}
+
+.confidence-value.medium {
+    color: #ffc107;
+}
+
+.confidence-value.low {
+    color: #dc3545;
 }
 </style>
