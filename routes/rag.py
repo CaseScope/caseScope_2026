@@ -877,16 +877,33 @@ def get_pattern_rule_results(case_id):
 def get_pattern_rule_details(case_id, pattern_id):
     """Get detailed matches for a specific pattern rule"""
     from models.rag import PatternRuleMatch
+    from models.pattern_rules import ALL_PATTERN_RULES
     
     matches = PatternRuleMatch.query.filter_by(
         case_id=case_id,
         pattern_id=pattern_id
     ).order_by(PatternRuleMatch.first_seen).all()
     
+    # Get pattern definition to include event_ids for filtering
+    pattern_def = next((p for p in ALL_PATTERN_RULES if p['id'] == pattern_id), None)
+    event_ids = []
+    if pattern_def:
+        # Get anchor event IDs
+        if 'anchor' in pattern_def and 'event_ids' in pattern_def['anchor']:
+            event_ids.extend(pattern_def['anchor']['event_ids'])
+        # Get supporting indicator event IDs
+        if 'supporting' in pattern_def:
+            for indicator in pattern_def['supporting']:
+                if 'event_ids' in indicator:
+                    event_ids.extend(indicator['event_ids'])
+        # Remove duplicates
+        event_ids = list(set(event_ids))
+    
     return jsonify({
         'success': True,
         'count': len(matches),
-        'matches': [m.to_dict() for m in matches]
+        'matches': [m.to_dict() for m in matches],
+        'event_ids': event_ids
     })
 
 

@@ -1,6 +1,16 @@
 {
-  "version": "3.109.00",
+  "version": "3.110.00",
   "changelog": [
+    {
+      "version": "3.110.00",
+      "date": "2026-01-18",
+      "changes": [
+        "Feature: AI Hunting - Search Events button now shows events likely involved in pattern",
+        "New: Auto-sets time filter to pattern's timeframe (with 30min padding)",
+        "New: Auto-filters by pattern's event IDs (4624, 4768, etc) and source host",
+        "New: Respects pattern detection time window for focused investigation"
+      ]
+    },
     {
       "version": "3.109.00",
       "date": "2026-01-18",
