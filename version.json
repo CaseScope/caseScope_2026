@@ -1,6 +1,13 @@
 {
-  "version": "3.110.00",
+  "version": "3.110.01",
   "changelog": [
+    {
+      "version": "3.110.01",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: Console error 'idx is not defined' in renderEventsTable (was using wrong variable name)"
+      ]
+    },
     {
       "version": "3.110.00",
       "date": "2026-01-18",

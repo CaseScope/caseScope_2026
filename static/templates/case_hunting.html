@@ -1288,7 +1288,7 @@ function renderEventsTable(events) {
                 try {
                     rawJsonData = typeof e.raw_json === 'string' ? JSON.parse(e.raw_json) : e.raw_json;
                     // Debug: log first event's raw_json structure
-                    if (idx === 0 && customColumns.length > 0) {
+                    if (index === 0 && customColumns.length > 0) {
                         console.log('DEBUG raw_json parsed:', rawJsonData);
                         console.log('DEBUG EventData:', rawJsonData?.EventData);
                         console.log('DEBUG TargetUserName:', rawJsonData?.EventData?.TargetUserName);
@@ -1296,7 +1296,7 @@ function renderEventsTable(events) {
                 } catch (err) {
                     console.error('DEBUG raw_json parse error:', err, 'raw:', e.raw_json?.substring(0, 200));
                 }
-            } else if (idx === 0 && customColumns.length > 0) {
+            } else if (index === 0 && customColumns.length > 0) {
                 console.log('DEBUG: e.raw_json is empty or missing');
             }
             
