@@ -6,7 +6,33 @@
         <h3 class="ai-section-title">🎯 Attack Pattern Detection</h3>
         <span class="ai-section-badge ai-badge-info" id="patternRulesStatus">Ready</span>
     </div>
-    <p class="ai-section-desc">Detect attack patterns across all case artifacts using 58 rule-based detection queries mapped to MITRE ATT&CK.</p>
+    <p class="ai-section-desc">Detect attack patterns across case artifacts using 58 rule-based detection queries mapped to MITRE ATT&CK.</p>
+    
+    <!-- Time Range Filter -->
+    <div class="ai-time-filter-row">
+        <div class="time-filter-group">
+            <label class="time-filter-label">Time Range:</label>
+            <select id="ai-time-range-select" class="time-range-select">
+                <option value="none" selected>No Limit</option>
+                <option value="1d">Last 1 Day</option>
+                <option value="3d">Last 3 Days</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="custom">Custom</option>
+            </select>
+        </div>
+        <div class="time-filter-custom" id="ai-time-filter-custom" style="display: none;">
+            <div class="time-filter-field">
+                <label class="time-filter-label">Start:</label>
+                <input type="datetime-local" id="ai-time-start" class="time-filter-input">
+            </div>
+            <div class="time-filter-field">
+                <label class="time-filter-label">End:</label>
+                <input type="datetime-local" id="ai-time-end" class="time-filter-input">
+            </div>
+        </div>
+        <span class="time-filter-info" id="ai-time-filter-info"></span>
+    </div>
     
     <!-- Pattern Stats Overview -->
     <div class="ai-action-card">
@@ -176,6 +202,19 @@
 </div>
 
 <style>
+/* AI Hunting Time Filter Row */
+.ai-time-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    margin-bottom: 16px;
+}
+
 /* Pattern Category Grid */
 .pattern-category-grid {
     display: grid;

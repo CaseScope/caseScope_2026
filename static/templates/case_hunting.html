@@ -3074,6 +3074,7 @@ function searchFromProcess(hostname, pid, processName, cmdline) {
 // Load IOC types on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadProcessIOCTypes();
+    initAIHuntingTimeRange();
 });
 
 function buildEventDetailHTML(event) {
@@ -3837,6 +3838,69 @@ function reviewCampaign(verdict) {
 let currentPatternRulesTaskId = null;
 let patternRulesResults = [];
 
+// AI Hunting time range state
+let aiTimeRangeFilter = 'none';
+let aiTimeStartCustom = '';
+let aiTimeEndCustom = '';
+
+// Initialize AI Hunting time range controls
+function initAIHuntingTimeRange() {
+    const select = document.getElementById('ai-time-range-select');
+    if (select) {
+        select.addEventListener('change', handleAITimeRangeChange);
+    }
+    const startInput = document.getElementById('ai-time-start');
+    const endInput = document.getElementById('ai-time-end');
+    if (startInput) startInput.addEventListener('change', applyAICustomTimeRange);
+    if (endInput) endInput.addEventListener('change', applyAICustomTimeRange);
+}
+
+function handleAITimeRangeChange() {
+    const select = document.getElementById('ai-time-range-select');
+    const customDiv = document.getElementById('ai-time-filter-custom');
+    const infoSpan = document.getElementById('ai-time-filter-info');
+    
+    aiTimeRangeFilter = select.value;
+    
+    if (aiTimeRangeFilter === 'custom') {
+        customDiv.style.display = 'flex';
+        infoSpan.textContent = aiTimeStartCustom && aiTimeEndCustom ? '' : 'Select date range';
+    } else {
+        customDiv.style.display = 'none';
+        updateAITimeFilterInfo();
+    }
+}
+
+function applyAICustomTimeRange() {
+    const startInput = document.getElementById('ai-time-start');
+    const endInput = document.getElementById('ai-time-end');
+    
+    aiTimeStartCustom = startInput.value;
+    aiTimeEndCustom = endInput.value;
+    
+    if (aiTimeStartCustom && aiTimeEndCustom) {
+        updateAITimeFilterInfo();
+    }
+}
+
+function updateAITimeFilterInfo() {
+    const infoSpan = document.getElementById('ai-time-filter-info');
+    if (!infoSpan) return;
+    
+    if (aiTimeRangeFilter === 'none') {
+        infoSpan.textContent = '';
+    } else if (aiTimeRangeFilter === 'custom') {
+        if (aiTimeStartCustom && aiTimeEndCustom) {
+            const start = new Date(aiTimeStartCustom).toLocaleString();
+            const end = new Date(aiTimeEndCustom).toLocaleString();
+            infoSpan.textContent = `${start} → ${end} (case TZ)`;
+        }
+    } else {
+        const rangeLabels = {'1d': 'Last 1 Day', '3d': 'Last 3 Days', '7d': 'Last 7 Days', '30d': 'Last 30 Days'};
+        infoSpan.textContent = `${rangeLabels[aiTimeRangeFilter] || ''} (from most recent artifact)`;
+    }
+}
+
 function startPatternRulesDetection() {
     const btn = document.getElementById('btnDetectPatternRules');
     btn.disabled = true;
@@ -3847,10 +3911,22 @@ function startPatternRulesDetection() {
     document.getElementById('patternRulesStatus').textContent = 'Running';
     document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-warning';
     
+    // Build request payload with time range
+    const payload = {case_id: CASE_ID};
+    
+    // Add time range parameters
+    if (aiTimeRangeFilter && aiTimeRangeFilter !== 'none') {
+        payload.time_range = aiTimeRangeFilter;
+        if (aiTimeRangeFilter === 'custom' && aiTimeStartCustom && aiTimeEndCustom) {
+            payload.time_start = aiTimeStartCustom;
+            payload.time_end = aiTimeEndCustom;
+        }
+    }
+    
     fetch('/api/rag/pattern-rules/detect', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({case_id: CASE_ID})
+        body: JSON.stringify(payload)
     })
     .then(res => res.json())
     .then(data => {

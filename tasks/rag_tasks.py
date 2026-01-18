@@ -1767,7 +1767,8 @@ def detect_attack_patterns(
     self,
     case_id: int,
     case_uuid: str,
-    categories: List[str] = None
+    categories: List[str] = None,
+    time_filter: str = None
 ) -> Dict[str, Any]:
     """
     Detect attack patterns using rule-based ClickHouse queries (no AI/ML).
@@ -1780,6 +1781,7 @@ def detect_attack_patterns(
         case_id: PostgreSQL case.id
         case_uuid: Case UUID
         categories: Optional list of categories to scan (None = all)
+        time_filter: Optional SQL clause for time filtering (e.g., "timestamp_utc >= '...'")
         
     Returns:
         Dict with detection results
@@ -1804,14 +1806,18 @@ def detect_attack_patterns(
             'status': 'Initializing pattern detection...'
         })
         
-        # Get event count for logging
+        # Get event count for logging (include time filter if specified)
         try:
+            time_clause = f" AND {time_filter}" if time_filter else ""
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{time_clause}"
             count_result = client.query(
-                "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+                count_query,
                 parameters={'case_id': case_id}
             )
             total_events = count_result.result_rows[0][0] if count_result.result_rows else 0
             hunt_log.log_event_count(total_events)
+            if time_filter:
+                hunt_log.info(f"Time filter active: scanning {total_events:,} events in time range")
         except Exception as e:
             hunt_log.warning(f"Could not get event count: {e}")
             total_events = 0
@@ -1841,6 +1847,12 @@ def detect_attack_patterns(
         # Noise filter to exclude events marked as noise
         noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
         
+        # Time filter (optional) - passed from API when user selects time range
+        time_filter_clause = ""
+        if time_filter:
+            time_filter_clause = f" AND {time_filter}"
+            hunt_log.info(f"Applying time filter: {time_filter}")
+        
         for idx, pattern in enumerate(patterns_to_check):
             pattern_start_time = time.time()
             try:
@@ -1863,43 +1875,39 @@ def detect_attack_patterns(
                     temporal=pattern.get('temporal', False)
                 )
                 
-                # Inject noise filter into query
-                # For CTE-based queries (WITH...), add filter to each FROM events WHERE clause
+                # Inject noise filter and time filter into query
+                # For CTE-based queries (WITH...), add filters to each FROM events WHERE clause
                 # For simple queries, add before GROUP BY/ORDER BY
                 import re
-                query_with_noise = pattern['detection_query']
+                combined_filter = noise_filter + time_filter_clause
+                query_with_filters = pattern['detection_query']
                 
-                if 'WITH' in query_with_noise.upper() and 'FROM events' in query_with_noise:
-                    # CTE-based query: add noise filter after each "FROM events WHERE" clause
+                if 'WITH' in query_with_filters.upper() and 'FROM events' in query_with_filters:
+                    # CTE-based query: add filters after each "FROM events WHERE" clause
                     # This handles temporal patterns correctly
-                    def add_noise_to_events_clause(match):
-                        clause = match.group(0)
-                        # Find the end of the WHERE conditions in this clause
-                        # Add noise filter before closing paren or end of clause
-                        return clause + noise_filter
                     
-                    # Match "FROM events WHERE case_id = {case_id:UInt32}" and add noise filter
-                    query_with_noise = re.sub(
+                    # Match "FROM events WHERE case_id = {case_id:UInt32}" and add filters
+                    query_with_filters = re.sub(
                         r'(FROM events\s+WHERE\s+case_id\s*=\s*\{case_id:UInt32\})',
-                        r'\1' + noise_filter,
-                        query_with_noise,
+                        r'\1' + combined_filter,
+                        query_with_filters,
                         flags=re.IGNORECASE
                     )
                 else:
                     # Simple query: add before GROUP BY, HAVING, ORDER BY, or LIMIT
                     for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
-                        match = re.search(keyword, query_with_noise, re.IGNORECASE)
+                        match = re.search(keyword, query_with_filters, re.IGNORECASE)
                         if match:
                             pos = match.start()
-                            query_with_noise = query_with_noise[:pos] + noise_filter + ' ' + query_with_noise[pos:]
+                            query_with_filters = query_with_filters[:pos] + combined_filter + ' ' + query_with_filters[pos:]
                             break
                     else:
-                        query_with_noise = query_with_noise.rstrip() + noise_filter
+                        query_with_filters = query_with_filters.rstrip() + combined_filter
                 
                 # Run detection query with timing
                 query_start = time.time()
                 result = client.query(
-                    query_with_noise,
+                    query_with_filters,
                     parameters={'case_id': case_id}
                 )
                 query_time_ms = (time.time() - query_start) * 1000
@@ -1909,7 +1917,7 @@ def detect_attack_patterns(
                     pattern_id=pattern['id'],
                     query_time_ms=query_time_ms,
                     rows_returned=len(result.result_rows) if result.result_rows else 0,
-                    query_preview=query_with_noise[:200] if query_time_ms > 500 else None
+                    query_preview=query_with_filters[:200] if query_time_ms > 500 else None
                 )
                 
                 if result.result_rows:
