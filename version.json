@@ -1,6 +1,14 @@
 {
-  "version": "3.110.01",
+  "version": "3.110.02",
   "changelog": [
+    {
+      "version": "3.110.02",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: AI tab console errors for missing DOM elements (campaignCardsContainer, patternResultsBody)",
+        "Added: Null checks for legacy AI features that are not in current tab layout"
+      ]
+    },
     {
       "version": "3.110.01",
       "date": "2026-01-18",

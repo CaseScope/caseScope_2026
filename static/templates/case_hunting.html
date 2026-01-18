@@ -3523,9 +3523,14 @@ function loadAIStats() {
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                document.getElementById('patternCount').textContent = data.pattern_count || 0;
-                document.getElementById('patternMatchCount').textContent = data.match_count || 0;
-                document.getElementById('sigmaHighCount').textContent = `(${data.sigma_high_events || 0})`;
+                const patternCountEl = document.getElementById('patternCount');
+                const patternMatchCountEl = document.getElementById('patternMatchCount');
+                const sigmaHighCountEl = document.getElementById('sigmaHighCount');
+                const patternLastScanEl = document.getElementById('patternLastScan');
+                
+                if (patternCountEl) patternCountEl.textContent = data.pattern_count || 0;
+                if (patternMatchCountEl) patternMatchCountEl.textContent = data.match_count || 0;
+                if (sigmaHighCountEl) sigmaHighCountEl.textContent = `(${data.sigma_high_events || 0})`;
                 
                 // Campaign stats
                 if (document.getElementById('campaignCount')) {
@@ -3535,9 +3540,9 @@ function loadAIStats() {
                     document.getElementById('criticalCampaignCount').textContent = data.critical_campaigns || 0;
                 }
                 
-                if (data.last_scan) {
+                if (data.last_scan && patternLastScanEl) {
                     const date = new Date(data.last_scan);
-                    document.getElementById('patternLastScan').textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                    patternLastScanEl.textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
                 }
             }
         })
@@ -3657,8 +3662,9 @@ function refreshCampaigns() {
                 campaigns = data.campaigns || [];
                 renderCampaigns();
                 
-                if (campaigns.length > 0) {
-                    document.getElementById('campaignResults').style.display = 'block';
+                const campaignResultsEl = document.getElementById('campaignResults');
+                if (campaigns.length > 0 && campaignResultsEl) {
+                    campaignResultsEl.style.display = 'block';
                 }
                 
                 // Update counts
@@ -3676,6 +3682,7 @@ function refreshCampaigns() {
 
 function renderCampaigns() {
     const container = document.getElementById('campaignCardsContainer');
+    if (!container) return;  // Element not in current tab layout
     
     if (campaigns.length === 0) {
         container.innerHTML = '<div class="campaign-empty">No attack campaigns detected. Click "Detect Attack Campaigns" to scan.</div>';
@@ -4279,8 +4286,9 @@ function refreshPatternMatches() {
                     document.getElementById('patternMatchCount').textContent = data.total_matches || 0;
                 }
                 
-                if (patternMatches.length > 0) {
-                    document.getElementById('patternResults').style.display = 'block';
+                const patternResultsEl = document.getElementById('patternResults');
+                if (patternMatches.length > 0 && patternResultsEl) {
+                    patternResultsEl.style.display = 'block';
                 }
             }
         })
@@ -4289,6 +4297,7 @@ function refreshPatternMatches() {
 
 function renderPatternMatches() {
     const tbody = document.getElementById('patternResultsBody');
+    if (!tbody) return;  // Element not in current tab layout
     
     if (patternMatches.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No pattern matches found yet</td></tr>';
