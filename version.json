@@ -1,6 +1,14 @@
 {
-  "version": "3.108.01",
+  "version": "3.108.02",
   "changelog": [
+    {
+      "version": "3.108.02",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: pass_the_hash - removed over-aggressive Kerberos/credential exclusions that filtered all matches",
+        "Fixed: wmi_lateral - explicit column aliases for ClickHouse CTE compatibility"
+      ]
+    },
     {
       "version": "3.108.01",
       "date": "2026-01-18",
