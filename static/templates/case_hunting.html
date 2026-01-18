@@ -3939,6 +3939,9 @@ function refreshPatternRulesResults() {
             if (data.success) {
                 patternRulesResults = data.patterns || [];
                 
+                // Sort by confidence descending (highest confidence first)
+                patternRulesResults.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+                
                 // Update stats
                 document.getElementById('patternRulesMatches').textContent = data.total_matches || 0;
                 document.getElementById('patternRulesCategories').textContent = Object.keys(data.categories || {}).length;
