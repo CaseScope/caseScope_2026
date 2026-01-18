@@ -1,6 +1,24 @@
 {
-  "version": "3.104.00",
+  "version": "3.105.00",
   "changelog": [
+    {
+      "version": "3.105.00",
+      "date": "2026-01-18",
+      "changes": [
+        "Feature: MITRE ATT&CK Pattern Sync - automatic pattern updates from ATT&CK STIX 2.0 data",
+        "Added: 58 merged detection patterns from multiple sources (was 32)",
+        "Added: Credential Access patterns - Pass-the-Hash, DCSync, SAM/NTDS dumping, Silver Ticket, Kerberoasting",
+        "Added: Lateral Movement patterns - RDP, SMB, WMI, PsExec, DCOM, WinRM, tool transfer",
+        "Added: Persistence patterns - Registry Run Keys, Scheduled Tasks, Services, WMI Subscriptions, Winlogon",
+        "Added: Privilege Escalation patterns - Token Manipulation, Named Pipe Impersonation, UAC Bypass",
+        "Added: Defense Evasion patterns - Log Clearing, Timestomping, Process Injection, AMSI Bypass",
+        "Added: Discovery patterns - AD Enumeration, Network Scanning, BloodHound detection",
+        "Added: Exfiltration patterns - Data Staging, DNS Exfil, Cloud Storage",
+        "Added: mitre_attack_sync.py utility for syncing latest ATT&CK patterns",
+        "Added: rag_sync_mitre_attack Celery task for background pattern synchronization",
+        "Added: stix2 dependency for MITRE ATT&CK STIX 2.0 data parsing"
+      ]
+    },
     {
       "version": "3.104.00",
       "date": "2026-01-17",

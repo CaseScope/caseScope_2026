@@ -176,6 +176,158 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
         }
 
 
+@celery_app.task(bind=True, name='tasks.rag_sync_mitre_attack')
+def rag_sync_mitre_attack(
+    self,
+    categories: Optional[List[str]] = None,
+    triggered_by: str = 'system'
+) -> Dict[str, Any]:
+    """
+    Sync MITRE ATT&CK patterns and convert to CaseScope detection rules
+    
+    Downloads latest ATT&CK STIX 2.0 data from GitHub and creates/updates
+    pattern rules with ClickHouse detection queries.
+    
+    Run monthly or on-demand to stay current with ATT&CK updates.
+    
+    Args:
+        categories: Optional list of ATT&CK tactics to sync (e.g., ['credential-access'])
+        triggered_by: Username who triggered the sync
+        
+    Returns:
+        Dict with sync results
+    """
+    from utils.mitre_attack_sync import MitreAttackSync
+    from models.database import db
+    from models.rag import AttackPattern, RAGSyncLog
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        self.update_state(state='PROGRESS', meta={
+            'stage': 'fetching',
+            'progress': 0,
+            'status': 'Downloading MITRE ATT&CK data...'
+        })
+        
+        stats = {
+            'new_patterns': 0,
+            'updated_patterns': 0,
+            'skipped': 0,
+            'errors': 0
+        }
+        
+        try:
+            # Initialize syncer
+            syncer = MitreAttackSync()
+            
+            # Fetch and convert patterns
+            logger.info(f"[MITRE ATT&CK] Starting sync for categories: {categories or 'all'}")
+            attack_patterns = syncer.sync_patterns(categories=categories)
+            
+            self.update_state(state='PROGRESS', meta={
+                'stage': 'processing',
+                'progress': 30,
+                'status': f'Processing {len(attack_patterns)} ATT&CK patterns...'
+            })
+            
+            # Import patterns to database
+            for idx, pattern_data in enumerate(attack_patterns):
+                try:
+                    # Update progress
+                    if idx % 10 == 0:
+                        progress = 30 + int((idx / len(attack_patterns)) * 50)
+                        self.update_state(state='PROGRESS', meta={
+                            'stage': 'processing',
+                            'progress': progress,
+                            'status': f'Processing pattern {idx+1}/{len(attack_patterns)}: {pattern_data["name"]}'
+                        })
+                    
+                    # Check if pattern already exists
+                    existing = AttackPattern.query.filter_by(
+                        source='mitre_attack_v18',
+                        source_id=pattern_data['id']
+                    ).first()
+                    
+                    if existing:
+                        # Update existing pattern
+                        existing.name = pattern_data['name']
+                        existing.description = pattern_data['description']
+                        existing.mitre_tactic = pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None
+                        existing.mitre_technique = pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None
+                        existing.clickhouse_query = pattern_data['detection_query']
+                        existing.severity = pattern_data['severity']
+                        existing.pattern_definition = {
+                            'indicators': pattern_data['indicators'],
+                            'event_ids': pattern_data.get('event_ids', []),
+                            'thresholds': pattern_data.get('thresholds', {})
+                        }
+                        existing.last_synced_at = datetime.utcnow()
+                        stats['updated_patterns'] += 1
+                    else:
+                        # Create new pattern
+                        new_pattern = AttackPattern(
+                            name=pattern_data['name'],
+                            description=pattern_data['description'],
+                            mitre_tactic=pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None,
+                            mitre_technique=pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None,
+                            source='mitre_attack_v18',
+                            source_id=pattern_data['id'],
+                            pattern_type='clickhouse_query',
+                            clickhouse_query=pattern_data['detection_query'],
+                            severity=pattern_data['severity'],
+                            pattern_definition={
+                                'indicators': pattern_data['indicators'],
+                                'event_ids': pattern_data.get('event_ids', []),
+                                'thresholds': pattern_data.get('thresholds', {})
+                            },
+                            required_artifact_types=['evtx'],
+                            enabled=True,
+                            last_synced_at=datetime.utcnow(),
+                            created_by=triggered_by
+                        )
+                        db.session.add(new_pattern)
+                        stats['new_patterns'] += 1
+                    
+                except Exception as e:
+                    logger.error(f"[MITRE ATT&CK] Error processing pattern {pattern_data.get('id')}: {e}")
+                    stats['errors'] += 1
+                    continue
+            
+            # Commit all changes
+            db.session.commit()
+            
+            # Log sync
+            sync_log = RAGSyncLog(
+                source='mitre_attack_v18',
+                sync_type='mitre_attack',
+                triggered_by=triggered_by
+            )
+            sync_log.patterns_added = stats['new_patterns']
+            sync_log.patterns_updated = stats['updated_patterns']
+            sync_log.success = True
+            sync_log.completed_at = datetime.utcnow()
+            db.session.add(sync_log)
+            db.session.commit()
+            
+            logger.info(f"[MITRE ATT&CK] Sync complete: {stats}")
+            
+            return {
+                'success': True,
+                'stats': stats,
+                'message': f"Synced {stats['new_patterns']} new patterns, updated {stats['updated_patterns']}, {stats['errors']} errors"
+            }
+            
+        except Exception as e:
+            logger.error(f"[MITRE ATT&CK] Sync failed: {e}")
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'stats': stats
+            }
+
+
 @celery_app.task(bind=True, name='tasks.rag_discover_patterns')
 def rag_discover_patterns(
     self,
