@@ -1802,16 +1802,37 @@ def detect_attack_patterns(
                     continue
                 
                 # Inject noise filter into query
+                # For CTE-based queries (WITH...), add filter to each FROM events WHERE clause
+                # For simple queries, add before GROUP BY/ORDER BY
                 import re
                 query_with_noise = pattern['detection_query']
-                for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
-                    match = re.search(keyword, query_with_noise, re.IGNORECASE)
-                    if match:
-                        pos = match.start()
-                        query_with_noise = query_with_noise[:pos] + noise_filter + ' ' + query_with_noise[pos:]
-                        break
+                
+                if 'WITH' in query_with_noise.upper() and 'FROM events' in query_with_noise:
+                    # CTE-based query: add noise filter after each "FROM events WHERE" clause
+                    # This handles temporal patterns correctly
+                    def add_noise_to_events_clause(match):
+                        clause = match.group(0)
+                        # Find the end of the WHERE conditions in this clause
+                        # Add noise filter before closing paren or end of clause
+                        return clause + noise_filter
+                    
+                    # Match "FROM events WHERE case_id = {case_id:UInt32}" and add noise filter
+                    query_with_noise = re.sub(
+                        r'(FROM events\s+WHERE\s+case_id\s*=\s*\{case_id:UInt32\})',
+                        r'\1' + noise_filter,
+                        query_with_noise,
+                        flags=re.IGNORECASE
+                    )
                 else:
-                    query_with_noise = query_with_noise.rstrip() + noise_filter
+                    # Simple query: add before GROUP BY, HAVING, ORDER BY, or LIMIT
+                    for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
+                        match = re.search(keyword, query_with_noise, re.IGNORECASE)
+                        if match:
+                            pos = match.start()
+                            query_with_noise = query_with_noise[:pos] + noise_filter + ' ' + query_with_noise[pos:]
+                            break
+                    else:
+                        query_with_noise = query_with_noise.rstrip() + noise_filter
                 
                 # Run detection query
                 result = client.query(

@@ -1,6 +1,15 @@
 {
-  "version": "3.106.00",
+  "version": "3.106.01",
   "changelog": [
+    {
+      "version": "3.106.01",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: Noise filter now correctly handles CTE-based (WITH) queries",
+        "Fixed: Token Manipulation pattern - now detects LSASS access instead of all SeDebugPrivilege events",
+        "Changed: Token Manipulation anchors on Sysmon Event 10 accessing LSASS, excludes system processes"
+      ]
+    },
     {
       "version": "3.106.00",
       "date": "2026-01-18",

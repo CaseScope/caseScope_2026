@@ -2015,39 +2015,114 @@ PERSISTENCE_PATTERNS = [
 # ============================================================================
 
 PRIV_ESC_PATTERNS = [
-    # ========== T1134: Token Manipulation ==========
+    # ========== T1134: Token Manipulation (TEMPORAL) ==========
+    # NOTE: 4672 SeDebugPrivilege fires for EVERY admin logon - not useful alone
+    # Real token manipulation requires LSASS access or suspicious process patterns
     {
         'id': 'token_manipulation',
         'name': 'Token Manipulation',
         'category': 'Privilege Escalation',
-        'description': 'Token impersonation or theft for privilege escalation.',
+        'description': 'Token impersonation detected via LSASS process access with token rights. Normal 4672 SeDebugPrivilege events are excluded - only suspicious LSASS access patterns are reported.',
         'severity': 'critical',
         'mitre_tactics': ['Privilege Escalation', 'Defense Evasion'],
         'mitre_techniques': ['T1134'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Sysmon Event 10 (Process Access) to LSASS with token rights',
+            'event_ids': ['10'],
+            'conditions': "channel LIKE '%Sysmon%' AND lower(search_blob) LIKE '%lsass%'"
+        },
+        'supporting': [
+            {
+                'name': 'debug_privilege',
+                'required': False,
+                'window_seconds': 60,
+                'event_ids': ['4672'],
+                'conditions': "search_blob LIKE '%SeDebugPrivilege%'"
+            }
+        ],
+        'attack_window_minutes': 15,
         'detection_query': """
+            WITH 
+            -- Anchor: Sysmon Event 10 accessing LSASS (the real indicator)
+            lsass_access AS (
+                SELECT 
+                    source_host,
+                    timestamp as anchor_time,
+                    username,
+                    process_name as source_process,
+                    command_line,
+                    -- Extract target process from search_blob
+                    search_blob
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '10'
+                    AND channel LIKE '%Sysmon%'
+                    AND lower(search_blob) LIKE '%lsass.exe%'
+                    -- Exclude known legitimate processes
+                    AND lower(process_name) NOT IN (
+                        'csrss.exe', 'services.exe', 'svchost.exe', 'lsass.exe',
+                        'smss.exe', 'wininit.exe', 'msiexec.exe', 'wmiprvse.exe'
+                    )
+            ),
+            -- Supporting: SeDebugPrivilege within 1 min (confirms elevated context)
+            debug_privs AS (
+                SELECT source_host, timestamp, username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4672'
+                    AND search_blob LIKE '%SeDebugPrivilege%'
+            ),
+            -- Correlate
+            correlated AS (
+                SELECT 
+                    l.source_host,
+                    l.anchor_time,
+                    l.username,
+                    l.source_process,
+                    l.command_line,
+                    (SELECT count() FROM debug_privs d 
+                     WHERE d.source_host = l.source_host 
+                     AND d.timestamp BETWEEN l.anchor_time - INTERVAL 1 MINUTE AND l.anchor_time + INTERVAL 1 MINUTE) as nearby_debug_priv
+                FROM lsass_access l
+            ),
+            -- Group into attack windows
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as lsass_access_count,
+                    any(source_process) as source_process,
+                    sum(nearby_debug_priv) as debug_priv_events,
+                    groupUniqArray(command_line) as command_lines
+                FROM correlated
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 15 MINUTE)
+            )
             SELECT 
                 source_host,
-                count() as token_events,
-                countIf(event_id = '4672') as special_privs,
-                countIf(event_id = '4624') as elevated_logons,
-                min(timestamp) as first_seen,
-                max(timestamp) as last_seen
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND (
-                    (event_id = '4672' AND search_blob LIKE '%SeDebugPrivilege%')
-                    OR (event_id = '4624' AND search_blob LIKE '%elevated%')
-                    OR (event_id = '10' AND channel LIKE '%Sysmon%' AND search_blob LIKE '%token%')
-                )
-            GROUP BY source_host
-            HAVING token_events >= 1
+                username,
+                first_seen,
+                last_seen,
+                lsass_access_count as token_events,
+                source_process,
+                debug_priv_events,
+                command_lines
+            FROM attack_windows
+            WHERE lsass_access_count >= 1
+            ORDER BY lsass_access_count DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4624 with elevated token',
-            'Event 4672 special privileges (SeDebugPrivilege)',
-            'Sysmon Event 10 token handle manipulation'
+            'Sysmon Event 10: Non-system process accessing LSASS (anchor)',
+            'Event 4672 SeDebugPrivilege within ±1 min (supporting)',
+            'Excludes legitimate system processes (csrss, services, svchost)',
+            'Grouped into 15-minute attack windows'
         ],
-        'thresholds': {'min_events': 1}
+        'thresholds': {'min_lsass_access': 1, 'window_minutes': 15}
     },
     # ========== T1134.001: Named Pipe Impersonation ==========
     {
