@@ -87,7 +87,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'attack_window_minutes': 60,
         'detection_query': """
             WITH 
-            -- Anchor: NTLM logons with KeyLength=0
+            -- Anchor: NTLM logons with KeyLength=0 (definitive PTH indicator)
             ntlm_logons AS (
                 SELECT 
                     source_host,
@@ -104,46 +104,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND (search_blob LIKE '%NTLM%' OR search_blob LIKE '%NtLmSsp%')
                     AND JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0'
             ),
-            -- Check if user has ANY Kerberos TGT (reduces confidence)
-            kerberos_users AS (
-                SELECT DISTINCT username, source_host
-                FROM events
-                WHERE case_id = {case_id:UInt32}
-                    AND event_id = '4768'
-                    AND channel = 'Security'
-            ),
-            -- Explicit credentials within ±10 min window (pre-aggregated per user/host/window)
-            explicit_cred_windows AS (
-                SELECT 
-                    username, 
-                    source_host, 
-                    toStartOfInterval(timestamp, INTERVAL 10 MINUTE) as time_window,
-                    count() as cred_count
-                FROM events
-                WHERE case_id = {case_id:UInt32}
-                    AND event_id = '4648'
-                    AND channel = 'Security'
-                GROUP BY username, source_host, time_window
-            ),
-            -- Join to filter: anchors without Kerberos
-            no_kerberos AS (
-                SELECT n.*
-                FROM ntlm_logons n
-                LEFT JOIN kerberos_users k 
-                    ON n.username = k.username AND n.source_host = k.source_host
-                WHERE k.username IS NULL
-            ),
-            -- Further filter: no explicit creds in same 10-min window
-            filtered AS (
-                SELECT n.*
-                FROM no_kerberos n
-                LEFT JOIN explicit_cred_windows e 
-                    ON n.username = e.username 
-                    AND n.source_host = e.source_host
-                    AND toStartOfInterval(n.anchor_time, INTERVAL 10 MINUTE) = e.time_window
-                WHERE e.username IS NULL
-            ),
-            -- Group into attack windows (1 hour)
+            -- Group into attack windows (1 hour) - detect ALL KeyLength=0 events
             attack_windows AS (
                 SELECT 
                     source_host,
@@ -155,7 +116,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     count(DISTINCT workstation) as unique_workstations,
                     groupUniqArray(logon_type) as logon_types,
                     groupUniqArray(src_ip) as source_ips
-                FROM filtered
+                FROM ntlm_logons
                 GROUP BY 
                     source_host, 
                     username,
@@ -177,11 +138,11 @@ CREDENTIAL_ATTACK_PATTERNS = [
             ORDER BY pth_attempts DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4624 logon type 3/9 with NTLM and KeyLength=0 (anchor)',
-            'No Kerberos TGT (4768) for this user/host (exclusion)',
-            'No explicit credentials (4648) within same time window (exclusion)',
+            'Event 4624 logon type 3/9 with NTLM and KeyLength=0',
+            'KeyLength=0 is definitive proof of hash-based authentication',
+            'Network logon (type 3) or new credentials logon (type 9)',
             'Grouped into 1-hour attack windows',
-            'KeyLength=0 is definitive proof of hash-based authentication'
+            'Multiple sources/workstations increases confidence'
         ],
         'thresholds': {
             'min_logons': 1,
