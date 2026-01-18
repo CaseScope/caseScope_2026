@@ -1,6 +1,13 @@
 {
-  "version": "3.108.02",
+  "version": "3.108.03",
   "changelog": [
+    {
+      "version": "3.108.03",
+      "date": "2026-01-18",
+      "changes": [
+        "UI: Detected Patterns now sorted by confidence (highest first)"
+      ]
+    },
     {
       "version": "3.108.02",
       "date": "2026-01-18",
