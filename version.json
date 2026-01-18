@@ -1,6 +1,13 @@
 {
-  "version": "3.110.02",
+  "version": "3.110.03",
   "changelog": [
+    {
+      "version": "3.110.03",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: Search Events button error - pattern data was cleared by closePatternModal before use"
+      ]
+    },
     {
       "version": "3.110.02",
       "date": "2026-01-18",

@@ -4618,13 +4618,17 @@ let currentPatternEventIds = [];  // Event IDs relevant to the pattern
 function searchPatternEvents() {
     if (!currentPatternData) return;
     
+    // Save pattern data before closing modal (closePatternModal clears currentPatternData)
+    const patternData = { ...currentPatternData };
+    const patternEventIds = [...(currentPatternEventIds || [])];
+    
     // Build search query based on pattern data
     let searchTerms = [];
     
     // Add event_id filter if we have pattern-specific event IDs
     // Use OR syntax for multiple event IDs: event_id:4624|event_id:4768
-    if (currentPatternEventIds && currentPatternEventIds.length > 0) {
-        const eventIdTerms = currentPatternEventIds.map(id => 'event_id:' + id);
+    if (patternEventIds && patternEventIds.length > 0) {
+        const eventIdTerms = patternEventIds.map(id => 'event_id:' + id);
         if (eventIdTerms.length === 1) {
             searchTerms.push(eventIdTerms[0]);
         } else {
@@ -4634,15 +4638,15 @@ function searchPatternEvents() {
     }
     
     // Add host filter if present
-    if (currentPatternData.source_host && currentPatternData.source_host !== '-') {
-        searchTerms.push('host:' + currentPatternData.source_host);
+    if (patternData.source_host && patternData.source_host !== '-') {
+        searchTerms.push('host:' + patternData.source_host);
     }
     
     // Add username filter if present (for additional context)
-    if (currentPatternData.username && currentPatternData.username !== '-') {
+    if (patternData.username && patternData.username !== '-') {
         // Only add username as a term if no event IDs (simpler search)
-        if (!currentPatternEventIds || currentPatternEventIds.length === 0) {
-            searchTerms.push(currentPatternData.username);
+        if (!patternEventIds || patternEventIds.length === 0) {
+            searchTerms.push(patternData.username);
         }
     }
     
@@ -4654,10 +4658,10 @@ function searchPatternEvents() {
     
     // Set up time range based on pattern's timeframe (in case timezone)
     // Pattern times are in UTC, need to display in case timezone
-    if (currentPatternData.first_seen && currentPatternData.last_seen) {
+    if (patternData.first_seen && patternData.last_seen) {
         // Add 30 minutes padding on each side for context
-        const firstSeen = new Date(currentPatternData.first_seen);
-        const lastSeen = new Date(currentPatternData.last_seen);
+        const firstSeen = new Date(patternData.first_seen);
+        const lastSeen = new Date(patternData.last_seen);
         
         // Add padding (30 min before, 30 min after)
         const paddedStart = new Date(firstSeen.getTime() - 30 * 60 * 1000);
@@ -4689,9 +4693,9 @@ function searchPatternEvents() {
         if (endInput) endInput.value = timeEndCustom;
         
         updateTimeFilterInfo();
-    } else if (currentPatternData.first_seen) {
+    } else if (patternData.first_seen) {
         // Only first_seen available - use 2 hour window around it
-        const firstSeen = new Date(currentPatternData.first_seen);
+        const firstSeen = new Date(patternData.first_seen);
         const paddedStart = new Date(firstSeen.getTime() - 60 * 60 * 1000);
         const paddedEnd = new Date(firstSeen.getTime() + 60 * 60 * 1000);
         
