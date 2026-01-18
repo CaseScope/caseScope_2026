@@ -4732,14 +4732,21 @@ function searchPatternEvents() {
         eventsTab.click();
     }
     
-    // Set search and trigger
+    // Save searchQuery for closure
+    const finalSearchQuery = searchQuery;
+    
+    // Set search and trigger - use timeout to ensure tab has loaded
     setTimeout(() => {
-        const searchInput = document.getElementById('searchInput');
+        // Use correct ID: events-search (not searchInput)
+        const searchInput = document.getElementById('events-search');
         if (searchInput) {
-            searchInput.value = searchQuery;
-            doSearch();
+            searchInput.value = finalSearchQuery;
+            // Set the global search variable
+            eventsSearch = finalSearchQuery;
+            eventsPage = 1;  // Reset to first page
+            loadEvents();
         }
-    }, 150);
+    }, 200);
 }
 
 function reviewMatch(verdict) {

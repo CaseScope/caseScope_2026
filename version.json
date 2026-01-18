@@ -1,6 +1,13 @@
 {
-  "version": "3.110.04",
+  "version": "3.110.05",
   "changelog": [
+    {
+      "version": "3.110.05",
+      "date": "2026-01-18",
+      "changes": [
+        "Fixed: Search Events - was using wrong input ID (searchInput instead of events-search)"
+      ]
+    },
     {
       "version": "3.110.04",
       "date": "2026-01-18",
