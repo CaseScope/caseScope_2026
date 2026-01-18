@@ -191,7 +191,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         }
     },
     
-    # ========== CUSTOM: NTLMv1 Protocol Downgrade (Event 4023) ==========
+    # ========== CUSTOM: NTLMv1 Protocol Downgrade (TEMPORAL) ==========
     {
         'id': 'ntlmv1_downgrade',
         'name': 'NTLMv1 Protocol Downgrade Attack',
@@ -200,12 +200,31 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'severity': 'critical',
         'mitre_tactics': ['Credential Access', 'Defense Evasion'],
         'mitre_techniques': ['T1550.002', 'T1112'],
+        'temporal': True,
+        'anchor': {
+            'description': 'NTLMv1 downgrade event (4023)',
+            'event_ids': ['4023'],
+            'conditions': None
+        },
+        'supporting': [
+            {
+                'name': 'successful_logon',
+                'required': False,
+                'negate': False,
+                'window_seconds': 300,
+                'event_ids': ['4624'],
+                'conditions': None
+            }
+        ],
+        'attack_window_minutes': 30,
         'detection_query': """
-            WITH ntlmv1_events AS (
+            WITH 
+            -- Anchor: NTLMv1 downgrade events
+            ntlmv1_events AS (
                 SELECT 
                     source_host,
                     username,
-                    timestamp,
+                    timestamp as anchor_time,
                     JSONExtractString(raw_json, 'EventData', 'WorkstationName') as workstation,
                     JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip
                 FROM events
@@ -213,41 +232,66 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND event_id = '4023'
                     AND channel = 'Security'
             ),
+            -- Successful logons for correlation
             recent_logons AS (
-                SELECT 
-                    username,
-                    source_host,
-                    timestamp
+                SELECT username, source_host, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4624'
                     AND channel = 'Security'
+            ),
+            -- Correlate: find NTLMv1 with nearby successful logons
+            correlated AS (
+                SELECT 
+                    n.source_host,
+                    n.username,
+                    n.anchor_time,
+                    n.workstation,
+                    n.src_ip,
+                    -- Check for successful logon within 5 minutes after NTLMv1
+                    (SELECT count() FROM recent_logons l 
+                     WHERE l.username = n.username 
+                     AND l.source_host = n.source_host
+                     AND l.timestamp BETWEEN n.anchor_time AND n.anchor_time + INTERVAL 5 MINUTE) as nearby_logons
+                FROM ntlmv1_events n
+            ),
+            -- Group into attack windows (30 minutes)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as ntlmv1_count,
+                    sum(nearby_logons) as successful_logons_after,
+                    groupUniqArray(workstation) as workstations,
+                    groupUniqArray(src_ip) as source_ips
+                FROM correlated
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 30 MINUTE)
             )
             SELECT 
-                n.source_host,
-                n.username,
-                COUNT() as ntlmv1_count,
-                MIN(n.timestamp) as first_seen,
-                MAX(n.timestamp) as last_seen,
-                groupUniqArray(n.workstation) as workstations,
-                groupUniqArray(n.src_ip) as source_ips,
-                SUM(IF(l.timestamp IS NOT NULL AND 
-                       l.timestamp > n.timestamp AND 
-                       l.timestamp < n.timestamp + INTERVAL 5 MINUTE, 1, 0)) as successful_logons_after
-            FROM ntlmv1_events n
-            LEFT JOIN recent_logons l
-                ON n.username = l.username
-                AND n.source_host = l.source_host
-            GROUP BY n.source_host, n.username
-            HAVING ntlmv1_count >= 1
-            ORDER BY successful_logons_after DESC, ntlmv1_count DESC
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                ntlmv1_count,
+                successful_logons_after,
+                workstations,
+                source_ips,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE ntlmv1_count >= 1
+            ORDER BY successful_logons_after DESC, ntlmv1_count DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4023: Downgrade to NTLMv1 detected',
+            'Event 4023: Downgrade to NTLMv1 detected (anchor)',
+            'Grouped into 30-minute attack windows',
             'NTLMv1 is deprecated since 2006',
             'Extremely vulnerable to rainbow table attacks',
-            'Often indicates active credential theft',
-            'May be forced downgrade attack (protocol manipulation)'
+            'Often indicates active credential theft'
         ],
         'thresholds': {
             'min_events': 1,
@@ -255,7 +299,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         }
     },
     
-    # ========== T1550.003: Pass the Ticket ==========
+    # ========== T1550.003: Pass the Ticket (TEMPORAL) ==========
     {
         'id': 'pass_the_ticket',
         'name': 'Pass the Ticket',
@@ -264,24 +308,39 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'severity': 'critical',
         'mitre_tactics': ['Credential Access', 'Lateral Movement'],
         'mitre_techniques': ['T1550.003'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Kerberos logon (4624 type 3) without preceding TGT request',
+            'event_ids': ['4624'],
+            'conditions': "logon_type = 3 AND search_blob LIKE '%Kerberos%'"
+        },
+        'supporting': [
+            {
+                'name': 'missing_tgt',
+                'required': False,
+                'negate': True,
+                'window_seconds': 3600,
+                'event_ids': ['4768'],
+                'conditions': None
+            },
+            {
+                'name': 'missing_tgs',
+                'required': False,
+                'negate': True,
+                'window_seconds': 3600,
+                'event_ids': ['4769'],
+                'conditions': None
+            }
+        ],
+        'attack_window_minutes': 60,
         'detection_query': """
-            WITH ticket_requests AS (
+            WITH 
+            -- Anchor: Kerberos logons (type 3 network logon with Kerberos)
+            kerberos_logons AS (
                 SELECT 
                     source_host,
                     username,
-                    timestamp,
-                    event_id,
-                    JSONExtractString(raw_json, 'EventData', 'IpAddress') as client_ip
-                FROM events
-                WHERE case_id = {case_id:UInt32}
-                    AND event_id IN ('4768', '4769')
-                    AND channel = 'Security'
-            ),
-            logons AS (
-                SELECT 
-                    source_host,
-                    username,
-                    timestamp,
+                    timestamp as anchor_time,
                     JSONExtractString(raw_json, 'EventData', 'IpAddress') as logon_ip
                 FROM events
                 WHERE case_id = {case_id:UInt32}
@@ -289,30 +348,83 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND channel = 'Security'
                     AND logon_type = 3
                     AND search_blob LIKE '%Kerberos%'
+            ),
+            -- TGT requests (4768) within 1 hour before logon
+            tgt_requests AS (
+                SELECT username, source_host, timestamp
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4768'
+                    AND channel = 'Security'
+            ),
+            -- TGS requests (4769) within 1 hour before logon  
+            tgs_requests AS (
+                SELECT username, source_host, timestamp
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4769'
+                    AND channel = 'Security'
+            ),
+            -- Correlate: find logons without preceding ticket requests
+            correlated AS (
+                SELECT 
+                    k.source_host,
+                    k.username,
+                    k.anchor_time,
+                    k.logon_ip,
+                    -- Check for TGT within 1 hour before logon
+                    (SELECT count() FROM tgt_requests t 
+                     WHERE t.username = k.username 
+                     AND t.source_host = k.source_host
+                     AND t.timestamp BETWEEN k.anchor_time - INTERVAL 1 HOUR AND k.anchor_time) as nearby_tgt,
+                    -- Check for TGS within 1 hour before logon
+                    (SELECT count() FROM tgs_requests s
+                     WHERE s.username = k.username
+                     AND s.source_host = k.source_host
+                     AND s.timestamp BETWEEN k.anchor_time - INTERVAL 1 HOUR AND k.anchor_time) as nearby_tgs
+                FROM kerberos_logons k
+            ),
+            -- Filter: only keep logons WITHOUT preceding ticket requests (Pass the Ticket indicator)
+            filtered AS (
+                SELECT * FROM correlated
+                WHERE nearby_tgt = 0 AND nearby_tgs = 0
+            ),
+            -- Group into attack windows (1 hour)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as ptt_logons,
+                    count(DISTINCT logon_ip) as unique_ips,
+                    groupUniqArray(logon_ip) as logon_ips
+                FROM filtered
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 1 HOUR)
             )
             SELECT 
-                l.source_host,
-                l.username,
-                count() as logon_count,
-                countIf(t.event_id = '4768') as tgt_requests,
-                countIf(t.event_id = '4769') as tgs_requests,
-                min(l.timestamp) as first_seen,
-                max(l.timestamp) as last_seen,
-                groupUniqArray(l.logon_ip) as logon_ips
-            FROM logons l
-            LEFT JOIN ticket_requests t ON l.username = t.username 
-                AND l.source_host = t.source_host
-                AND t.timestamp < l.timestamp
-                AND t.timestamp > l.timestamp - INTERVAL 1 HOUR
-            GROUP BY l.source_host, l.username
-            HAVING tgt_requests = 0 AND logon_count >= 1
-            ORDER BY logon_count DESC
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                ptt_logons as logon_count,
+                unique_ips,
+                logon_ips,
+                0 as tgt_requests,
+                0 as tgs_requests,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE ptt_logons >= 1
+            ORDER BY ptt_logons DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4624 Kerberos logon without Event 4768 TGT on DC',
-            'Event 4769 TGS with RC4 encryption (0x17)',
-            'Mismatched client IP addresses',
-            'Ticket usage from unexpected hosts'
+            'Event 4624 Kerberos logon without Event 4768 TGT within 1 hour (anchor)',
+            'Event 4624 Kerberos logon without Event 4769 TGS within 1 hour (anchor)',
+            'Grouped into 1-hour attack windows',
+            'Ticket usage from unexpected hosts without local request'
         ],
         'thresholds': {'min_logons': 1}
     },
@@ -620,36 +732,69 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'thresholds': {'min_events': 1}
     },
 
-    # ========== T1110.003: Password Spraying ==========
+    # ========== T1110.003: Password Spraying (TEMPORAL) ==========
     {
         'id': 'password_spraying',
         'name': 'Password Spraying',
         'category': 'Credential Access',
-        'description': 'Same password attempted against many accounts in short succession. Common method to avoid account lockouts while testing for weak passwords.',
+        'description': 'Same password attempted against many accounts in short succession. Detects campaigns within time windows to avoid aggregating separate attacks.',
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1110.003'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Failed login attempt (4625) with bad password code',
+            'event_ids': ['4625'],
+            'conditions': None
+        },
+        'supporting': [],
+        'attack_window_minutes': 60,
         'detection_query': """
+            WITH 
+            -- Failed login attempts
+            failed_logins AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp as anchor_time,
+                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4625'
+                    AND channel = 'Security'
+            ),
+            -- Group into attack windows (1 hour) - by source host
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    min(anchor_time) as first_fail,
+                    max(anchor_time) as last_fail,
+                    count() as total_failures,
+                    count(DISTINCT username) as unique_users,
+                    dateDiff('minute', min(anchor_time), max(anchor_time)) as duration_mins,
+                    groupUniqArray(username) as usernames,
+                    avg(IF(substatus = '0xC000006A', 1, 0)) as bad_password_ratio
+                FROM failed_logins
+                GROUP BY 
+                    source_host,
+                    toStartOfInterval(anchor_time, INTERVAL 1 HOUR)
+            )
             SELECT 
-                count(DISTINCT username) as unique_users,
-                count() as total_failures,
-                min(timestamp) as first_fail,
-                max(timestamp) as last_fail,
-                dateDiff('minute', min(timestamp), max(timestamp)) as duration_mins,
-                groupUniqArray(source_host) as source_hosts,
-                groupUniqArray(username) as usernames,
-                avg(multiIf(
-                    JSONExtractString(raw_json, 'EventData', 'SubStatus') = '0xC000006A', 1,
-                    0
-                )) as bad_password_ratio
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND event_id = '4625'
-                AND channel = 'Security'
-            HAVING unique_users >= 10 AND total_failures >= 20 AND duration_mins <= 60
+                source_host,
+                first_fail as first_seen,
+                last_fail as last_seen,
+                total_failures,
+                unique_users,
+                duration_mins as duration_minutes,
+                usernames,
+                bad_password_ratio
+            FROM attack_windows
+            WHERE unique_users >= 10 AND total_failures >= 20 AND duration_mins <= 60
+            ORDER BY total_failures DESC, first_fail ASC
         """,
         'indicators': [
             'Event 4625 failed logon across many accounts',
+            'Grouped into 1-hour attack windows by source',
             'Failure code 0xC000006A (bad password)',
             'Low attempts per account, high total',
             'Often during off-hours'
@@ -657,34 +802,69 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'thresholds': {'min_users': 10, 'min_failures': 20, 'max_minutes': 60}
     },
 
-    # ========== T1110.001: Brute Force Attack ==========
+    # ========== T1110.001: Brute Force Attack (TEMPORAL) ==========
     {
         'id': 'brute_force',
         'name': 'Brute Force Attack',
         'category': 'Credential Access',
-        'description': 'High frequency failed login attempts against single account from single source. Indicates password guessing attack.',
+        'description': 'High frequency failed login attempts against single account from single source. Detects bursts of password guessing attacks.',
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1110.001'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Failed login attempt (4625)',
+            'event_ids': ['4625'],
+            'conditions': None
+        },
+        'supporting': [],
+        'attack_window_minutes': 10,
         'detection_query': """
+            WITH 
+            -- Failed login attempts
+            failed_logins AS (
+                SELECT 
+                    username,
+                    source_host,
+                    timestamp as anchor_time,
+                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4625'
+                    AND channel = 'Security'
+            ),
+            -- Group into attack windows (10 minutes - brute force is fast)
+            attack_windows AS (
+                SELECT 
+                    username,
+                    source_host,
+                    min(anchor_time) as first_fail,
+                    max(anchor_time) as last_fail,
+                    count() as fail_count,
+                    dateDiff('second', min(anchor_time), max(anchor_time)) as duration_secs,
+                    groupUniqArray(substatus) as failure_codes
+                FROM failed_logins
+                GROUP BY 
+                    username, 
+                    source_host,
+                    toStartOfInterval(anchor_time, INTERVAL 10 MINUTE)
+            )
             SELECT 
                 username,
                 source_host,
-                count() as fail_count,
-                min(timestamp) as first_fail,
-                max(timestamp) as last_fail,
-                dateDiff('second', min(timestamp), max(timestamp)) as duration_secs,
-                groupUniqArray(JSONExtractString(raw_json, 'EventData', 'SubStatus')) as failure_codes
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND event_id = '4625'
-                AND channel = 'Security'
-            GROUP BY username, source_host
-            HAVING fail_count >= 10 AND duration_secs <= 600
-            ORDER BY fail_count DESC
+                first_fail as first_seen,
+                last_fail as last_seen,
+                fail_count,
+                duration_secs,
+                failure_codes,
+                dateDiff('minute', first_fail, last_fail) as duration_minutes
+            FROM attack_windows
+            WHERE fail_count >= 10 AND duration_secs <= 600
+            ORDER BY fail_count DESC, first_fail ASC
         """,
         'indicators': [
             'Event 4625 high frequency from single source',
+            'Burst detection: grouped into 10-minute windows',
             'Failure codes 0xC000006A or 0xC000006D',
             'Account lockouts (Event 4740)',
             'Success (4624) after multiple failures'
@@ -692,7 +872,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'thresholds': {'min_failures': 10, 'max_seconds': 600}
     },
 
-    # ========== T1110.004: Credential Stuffing ==========
+    # ========== T1110.004: Credential Stuffing (TEMPORAL) ==========
     {
         'id': 'credential_stuffing',
         'name': 'Credential Stuffing Attack',
@@ -701,64 +881,104 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1110.004'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Failed login attempts (4625) from same source',
+            'event_ids': ['4625'],
+            'conditions': None
+        },
+        'supporting': [
+            {
+                'name': 'successful_logon',
+                'required': False,
+                'negate': False,
+                'window_seconds': 3600,
+                'event_ids': ['4624'],
+                'conditions': None
+            }
+        ],
+        'attack_window_minutes': 60,
         'detection_query': """
-            WITH failed_attempts AS (
-            SELECT 
-                    username,
-                source_host,
-                    COUNT() as attempts,
-                    MIN(timestamp) as first_attempt,
-                    MAX(timestamp) as last_attempt,
-                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                    AND event_id = '4625'
-                    AND channel = 'Security'
-                GROUP BY username, source_host, substatus
-            ),
-            successful_logons AS (
-                SELECT DISTINCT
+            WITH 
+            -- Anchor: Failed login attempts with timestamp for windowing
+            failed_attempts AS (
+                SELECT 
                     username,
                     source_host,
-                    timestamp
+                    timestamp as anchor_time,
+                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4625'
+                    AND channel = 'Security'
+            ),
+            -- Successful logons for correlation
+            successful_logons AS (
+                SELECT username, source_host, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4624'
                     AND channel = 'Security'
+            ),
+            -- Group failed attempts into 1-hour attack windows first
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_attempt,
+                    max(anchor_time) as last_attempt,
+                    count() as attempts,
+                    count(DISTINCT substatus) as unique_substatus,
+                    toStartOfInterval(anchor_time, INTERVAL 1 HOUR) as window_start
+                FROM failed_attempts
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 1 HOUR)
+            ),
+            -- Correlate with successful logons within window
+            correlated AS (
+                SELECT 
+                    aw.source_host,
+                    aw.username,
+                    aw.first_attempt as first_seen,
+                    aw.last_attempt as last_seen,
+                    aw.attempts as total_attempts,
+                    aw.unique_substatus,
+                    -- Check for successful logon within 1 hour after last failure
+                    (SELECT count() FROM successful_logons s 
+                     WHERE s.username = aw.username 
+                     AND s.source_host = aw.source_host
+                     AND s.timestamp BETWEEN aw.first_attempt AND aw.last_attempt + INTERVAL 1 HOUR) as successful_compromises
+                FROM attack_windows aw
             )
             SELECT 
-                f.username,
-                f.source_host,
-                SUM(f.attempts) as total_attempts,
-                COUNT(DISTINCT f.username) as unique_users_tested,
-                MIN(f.first_attempt) as campaign_start,
-                MAX(f.last_attempt) as campaign_end,
-                COUNT(s.username) as successful_compromises
-            FROM failed_attempts f
-            LEFT JOIN successful_logons s 
-                ON f.username = s.username
-                AND f.source_host = s.source_host
-                AND s.timestamp > f.first_attempt
-                AND s.timestamp < f.last_attempt + INTERVAL 1 HOUR
-            GROUP BY f.source_host, f.username
-            HAVING total_attempts >= 5 AND unique_users_tested >= 3
-            ORDER BY successful_compromises DESC, total_attempts DESC
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                total_attempts,
+                unique_substatus,
+                successful_compromises,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM correlated
+            WHERE total_attempts >= 5
+            ORDER BY successful_compromises DESC, total_attempts DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4625 with mixed SubStatus codes (trying different passwords)',
-            'Multiple username attempts from same source',
+            'Event 4625 failed logins grouped into 1-hour attack windows',
+            'Mixed SubStatus codes (trying different passwords)',
             'Event 4624 successes after failures indicate credential match',
             'Often uses VPN or proxy sources',
             'Lower velocity than brute force (avoiding detection)'
         ],
         'thresholds': {
             'min_attempts': 5,
-            'min_users': 3,
             'success_indicates_breach': True
         }
     },
 
-    # ========== T1558.002: Silver Ticket Attack ==========
+    # ========== T1558.002: Silver Ticket Attack (TEMPORAL) ==========
     {
         'id': 'silver_ticket',
         'name': 'Silver Ticket - Forged Service Ticket',
@@ -767,12 +987,31 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'severity': 'critical',
         'mitre_tactics': ['Credential Access', 'Persistence'],
         'mitre_techniques': ['T1558.002'],
+        'temporal': True,
+        'anchor': {
+            'description': 'TGS request (4769) without preceding TGT request (4768)',
+            'event_ids': ['4769'],
+            'conditions': None
+        },
+        'supporting': [
+            {
+                'name': 'missing_tgt',
+                'required': True,
+                'negate': True,
+                'window_seconds': 600,
+                'event_ids': ['4768'],
+                'conditions': None
+            }
+        ],
+        'attack_window_minutes': 30,
         'detection_query': """
-            WITH service_tickets AS (
+            WITH 
+            -- Anchor: TGS service ticket requests
+            service_tickets AS (
                 SELECT 
                     source_host,
                     username,
-                    timestamp,
+                    timestamp as anchor_time,
                     JSONExtractString(raw_json, 'EventData', 'ServiceName') as service_name,
                     JSONExtractString(raw_json, 'EventData', 'TicketOptions') as ticket_options,
                     JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') as encryption_type
@@ -780,48 +1019,77 @@ CREDENTIAL_ATTACK_PATTERNS = [
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4769'
                     AND channel = 'Security'
+                    AND username != 'ANONYMOUS LOGON'
             ),
+            -- TGT requests for correlation
             tgt_requests AS (
-                SELECT DISTINCT 
-                    username,
-                    source_host,
-                    timestamp
+                SELECT username, source_host, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4768'
                     AND channel = 'Security'
+            ),
+            -- Correlate: find TGS without preceding TGT
+            correlated AS (
+                SELECT 
+                    st.source_host,
+                    st.username,
+                    st.anchor_time,
+                    st.service_name,
+                    st.encryption_type,
+                    -- Check for TGT within 10 minutes before TGS
+                    (SELECT count() FROM tgt_requests tgt 
+                     WHERE tgt.username = st.username 
+                     AND tgt.source_host = st.source_host
+                     AND tgt.timestamp BETWEEN st.anchor_time - INTERVAL 10 MINUTE AND st.anchor_time) as nearby_tgt
+                FROM service_tickets st
+            ),
+            -- Filter: only TGS without preceding TGT (Silver Ticket indicator)
+            filtered AS (
+                SELECT * FROM correlated
+                WHERE nearby_tgt = 0
+            ),
+            -- Group into attack windows (30 minutes)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as tgs_requests,
+                    count(DISTINCT service_name) as unique_services,
+                    groupUniqArray(service_name) as services,
+                    countIf(encryption_type = '0x17') as rc4_count
+                FROM filtered
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 30 MINUTE)
             )
             SELECT 
-                st.source_host,
-                st.username,
-                COUNT() as tgs_requests,
-                COUNT(DISTINCT st.service_name) as unique_services,
-                groupUniqArray(st.service_name) as services,
-                countIf(st.encryption_type = '0x17') as rc4_count,
-                MIN(st.timestamp) as first_seen,
-                MAX(st.timestamp) as last_seen
-            FROM service_tickets st
-            LEFT JOIN tgt_requests tgt 
-                ON st.username = tgt.username
-                AND st.source_host = tgt.source_host
-                AND tgt.timestamp < st.timestamp
-                AND tgt.timestamp > st.timestamp - INTERVAL 10 MINUTE
-            WHERE tgt.username IS NULL
-              AND st.username != 'ANONYMOUS LOGON'
-            GROUP BY st.source_host, st.username
-            HAVING tgs_requests >= 3
-            ORDER BY rc4_count DESC, tgs_requests DESC
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                tgs_requests,
+                unique_services,
+                services,
+                rc4_count,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE tgs_requests >= 3
+            ORDER BY rc4_count DESC, tgs_requests DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4769 TGS requests without Event 4768 TGT',
-            'RC4 encryption (0x17) often used',
-            'Multiple service ticket requests in short window',
-            'Ticket appears valid but no prior TGT'
+            'Event 4769 TGS requests without Event 4768 TGT within 10 min (anchor)',
+            'RC4 encryption (0x17) often used with forged tickets',
+            'Multiple service ticket requests grouped into 30-min windows',
+            'Ticket appears valid but no prior TGT request'
         ],
         'thresholds': {'min_tgs_requests': 3}
     },
 
-    # ========== T1558.001: Golden Ticket ==========
+    # ========== T1558.001: Golden Ticket (TEMPORAL) ==========
     {
         'id': 'golden_ticket',
         'name': 'Golden Ticket - Forged TGT',
@@ -830,110 +1098,233 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'severity': 'critical',
         'mitre_tactics': ['Credential Access', 'Persistence'],
         'mitre_techniques': ['T1558.001'],
+        'temporal': True,
+        'anchor': {
+            'description': 'TGS request (4769) without preceding TGT request (4768) in 12-hour window',
+            'event_ids': ['4769'],
+            'conditions': None
+        },
+        'supporting': [
+            {
+                'name': 'missing_tgt',
+                'required': True,
+                'negate': True,
+                'window_seconds': 43200,
+                'event_ids': ['4768'],
+                'conditions': None
+            }
+        ],
+        'attack_window_minutes': 60,
         'detection_query': """
-            WITH tgt_requests AS (
+            WITH 
+            -- TGT requests for correlation
+            tgt_requests AS (
                 SELECT DISTINCT username, source_host, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4768'
                     AND channel = 'Security'
             ),
+            -- Anchor: TGS requests
             tgs_requests AS (
                 SELECT 
                     username,
                     source_host,
-                    timestamp,
+                    timestamp as anchor_time,
                     JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') as encryption_type
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4769'
                     AND channel = 'Security'
+            ),
+            -- Correlate: find TGS without preceding TGT in 12-hour window
+            correlated AS (
+                SELECT 
+                    tgs.username,
+                    tgs.source_host,
+                    tgs.anchor_time,
+                    tgs.encryption_type,
+                    -- Check for TGT within 12 hours before TGS
+                    (SELECT count() FROM tgt_requests tgt 
+                     WHERE tgt.username = tgs.username 
+                     AND tgt.timestamp BETWEEN tgs.anchor_time - INTERVAL 12 HOUR AND tgs.anchor_time) as nearby_tgt
+                FROM tgs_requests tgs
+            ),
+            -- Filter: only TGS without preceding TGT (Golden Ticket indicator)
+            filtered AS (
+                SELECT * FROM correlated
+                WHERE nearby_tgt = 0
+            ),
+            -- Group into attack windows (1 hour)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as tgs_count,
+                    countIf(encryption_type = '0x17') as rc4_tickets
+                FROM filtered
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 1 HOUR)
             )
             SELECT 
-                tgs.username,
-                tgs.source_host,
-                COUNT() as tgs_count,
-                MIN(tgs.timestamp) as first_seen,
-                MAX(tgs.timestamp) as last_seen,
-                countIf(tgs.encryption_type = '0x17') as rc4_tickets
-            FROM tgs_requests tgs
-            LEFT JOIN tgt_requests tgt 
-                ON tgs.username = tgt.username
-                AND tgt.timestamp < tgs.timestamp
-                AND tgt.timestamp > tgs.timestamp - INTERVAL 12 HOUR
-            WHERE tgt.username IS NULL
-            GROUP BY tgs.username, tgs.source_host
-            HAVING tgs_count >= 1
-            ORDER BY tgs_count DESC
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                tgs_count,
+                rc4_tickets,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE tgs_count >= 1
+            ORDER BY tgs_count DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4769 without Event 4768 in 12-hour window',
-            'TGS requests for non-existent or disabled accounts',
+            'Event 4769 without Event 4768 in 12-hour window (anchor)',
+            'TGS requests grouped into 1-hour attack windows',
             'Unusual ticket lifetimes (10+ years)',
-            'RC4 encryption common'
+            'RC4 encryption common with forged tickets'
         ],
         'thresholds': {'min_events': 1}
     },
 
-    # ========== T1558.003: Kerberoasting ==========
+    # ========== T1558.003: Kerberoasting (TEMPORAL) ==========
     {
         'id': 'kerberoasting',
         'name': 'Kerberoasting',
         'category': 'Credential Access',
-        'description': 'Excessive TGS requests for service accounts with RC4 encryption indicating offline cracking attempt.',
+        'description': 'Burst of TGS requests for service accounts with RC4 encryption indicating offline cracking attempt. Detects enumeration bursts, not scattered activity.',
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1558.003'],
+        'temporal': True,
+        'anchor': {
+            'description': 'TGS request (4769) with RC4 encryption',
+            'event_ids': ['4769'],
+            'conditions': "search_blob LIKE '%0x17%' OR search_blob LIKE '%RC4%'"
+        },
+        'supporting': [],
+        'attack_window_minutes': 15,
         'detection_query': """
+            WITH 
+            -- TGS requests with RC4 encryption
+            tgs_requests AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp as anchor_time,
+                    JSONExtractString(raw_json, 'EventData', 'ServiceName') as service_name,
+                    CASE WHEN search_blob LIKE '%0x17%' OR search_blob LIKE '%RC4%' THEN 1 ELSE 0 END as is_rc4
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4769'
+                    AND channel = 'Security'
+            ),
+            -- Group into attack windows (15 minutes - Kerberoasting is typically fast)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as tgs_requests,
+                    sum(is_rc4) as rc4_requests,
+                    count(DISTINCT service_name) as unique_services,
+                    groupUniqArray(service_name) as service_accounts
+                FROM tgs_requests
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 15 MINUTE)
+            )
             SELECT 
                 source_host,
                 username,
-                count() as tgs_requests,
-                countIf(search_blob LIKE '%0x17%' OR search_blob LIKE '%RC4%') as rc4_requests,
-                min(timestamp) as first_seen,
-                max(timestamp) as last_seen,
-                groupUniqArray(JSONExtractString(raw_json, 'EventData', 'ServiceName')) as service_accounts
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND event_id = '4769'
-                AND channel = 'Security'
-            GROUP BY source_host, username
-            HAVING tgs_requests >= 5 AND rc4_requests >= 3
+                first_seen,
+                last_seen,
+                tgs_requests,
+                rc4_requests,
+                unique_services,
+                service_accounts,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE tgs_requests >= 5 AND rc4_requests >= 3
+            ORDER BY rc4_requests DESC, tgs_requests DESC, first_seen ASC
         """,
         'indicators': [
             'Event 4769 with encryption type 0x17 (RC4)',
+            'Burst detection: grouped into 15-minute windows',
             'High volume TGS requests from single source',
             'Requests for user account SPNs'
         ],
         'thresholds': {'min_requests': 5, 'min_rc4': 3}
     },
 
-    # ========== T1558.004: AS-REP Roasting ==========
+    # ========== T1558.004: AS-REP Roasting (TEMPORAL) ==========
     {
         'id': 'asrep_roasting',
         'name': 'AS-REP Roasting',
         'category': 'Credential Access',
-        'description': 'TGT requests for accounts without pre-authentication, indicating offline password cracking attempt.',
+        'description': 'Burst of TGT requests for accounts without pre-authentication, indicating offline password cracking attempt.',
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1558.004'],
+        'temporal': True,
+        'anchor': {
+            'description': 'TGT request (4768) potentially without pre-auth',
+            'event_ids': ['4768'],
+            'conditions': None
+        },
+        'supporting': [],
+        'attack_window_minutes': 15,
         'detection_query': """
+            WITH 
+            -- TGT requests
+            tgt_requests AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp as anchor_time,
+                    CASE WHEN search_blob LIKE '%PreAuth%0%' OR search_blob LIKE '%0x0%' THEN 1 ELSE 0 END as is_no_preauth
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4768'
+                    AND channel = 'Security'
+            ),
+            -- Group into attack windows (15 minutes - AS-REP roasting is typically fast)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as tgt_requests,
+                    sum(is_no_preauth) as no_preauth,
+                    count(DISTINCT username) as unique_users,
+                    groupUniqArray(username) as usernames
+                FROM tgt_requests
+                GROUP BY 
+                    source_host,
+                    toStartOfInterval(anchor_time, INTERVAL 15 MINUTE)
+            )
             SELECT 
                 source_host,
-                count() as tgt_requests,
-                countIf(search_blob LIKE '%PreAuth%0%' OR search_blob LIKE '%0x0%') as no_preauth,
-                min(timestamp) as first_seen,
-                max(timestamp) as last_seen,
-                groupUniqArray(username) as usernames
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND event_id = '4768'
-                AND channel = 'Security'
-            GROUP BY source_host
-            HAVING tgt_requests >= 5 AND no_preauth >= 1
+                first_seen,
+                last_seen,
+                tgt_requests,
+                no_preauth,
+                unique_users,
+                usernames,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE tgt_requests >= 5 AND no_preauth >= 1
+            ORDER BY no_preauth DESC, tgt_requests DESC, first_seen ASC
         """,
         'indicators': [
             'Event 4768 with pre-auth type 0',
+            'Burst detection: grouped into 15-minute windows',
             'Accounts with DONT_REQUIRE_PREAUTH flag',
             'Unusual TGT request volume with RC4'
         ],
@@ -1261,7 +1652,7 @@ LATERAL_MOVEMENT_PATTERNS = [
         'thresholds': {'min_accesses': 3}
     },
 
-    # ========== T1021.003: Distributed Component Object Model ==========
+    # ========== T1021.003: Distributed Component Object Model (TEMPORAL) ==========
     {
         'id': 'dcom_lateral_movement',
         'name': 'Lateral Movement via DCOM',
@@ -1270,32 +1661,69 @@ LATERAL_MOVEMENT_PATTERNS = [
         'severity': 'high',
         'mitre_tactics': ['Lateral Movement', 'Execution'],
         'mitre_techniques': ['T1021.003'],
+        'temporal': True,
+        'anchor': {
+            'description': 'DCOM logon or execution event',
+            'event_ids': ['4624', '1', '4688'],
+            'conditions': None
+        },
+        'supporting': [],
+        'attack_window_minutes': 30,
         'detection_query': """
+            WITH 
+            -- DCOM events
+            dcom_events AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp as anchor_time,
+                    event_id,
+                    process_name
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND (
+                        (event_id = '4624' AND logon_type = 3 
+                            AND search_blob LIKE '%DCOM%')
+                        OR (event_id = '1' 
+                            AND (lower(command_line) LIKE '%mmc20.application%'
+                                OR lower(command_line) LIKE '%shellwindows%'
+                                OR lower(command_line) LIKE '%shellbrowserwindow%'))
+                        OR (event_id = '4688'
+                            AND lower(command_line) LIKE '%-activationarguments%')
+                    )
+            ),
+            -- Group into attack windows (30 minutes)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as dcom_events,
+                    groupUniqArray(event_id) as event_types,
+                    groupUniqArray(process_name) as processes
+                FROM dcom_events
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 30 MINUTE)
+            )
             SELECT 
                 source_host,
                 username,
-                COUNT() as dcom_events,
-                MIN(timestamp) as first_seen,
-                MAX(timestamp) as last_seen,
-                groupArray(DISTINCT process_name) as processes
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND (
-                    (event_id = '4624' AND logon_type = 3 
-                        AND search_blob LIKE '%DCOM%')
-                    OR (event_id = '1' 
-                        AND (lower(command_line) LIKE '%mmc20.application%'
-                            OR lower(command_line) LIKE '%shellwindows%'
-                            OR lower(command_line) LIKE '%shellbrowserwindow%'))
-                    OR (event_id = '4688'
-                        AND lower(command_line) LIKE '%-activationarguments%')
-                )
-            GROUP BY source_host, username
-            HAVING dcom_events >= 1
-            ORDER BY dcom_events DESC
+                first_seen,
+                last_seen,
+                dcom_events,
+                event_types,
+                processes,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE dcom_events >= 1
+            ORDER BY dcom_events DESC, first_seen ASC
         """,
         'indicators': [
             'Event 4624 Type 3 with DCOM',
+            'Grouped into 30-minute attack windows',
             'Sysmon Event 1: MMC20.Application instantiation',
             'Event 4688: Process with -ActivationArguments',
             'Tools: Invoke-DCOM, lateral movement frameworks'
@@ -1303,7 +1731,7 @@ LATERAL_MOVEMENT_PATTERNS = [
         'thresholds': {'min_events': 1}
     },
 
-    # ========== T1021.006: Windows Remote Management ==========
+    # ========== T1021.006: Windows Remote Management (TEMPORAL) ==========
     {
         'id': 'winrm_lateral_movement',
         'name': 'Lateral Movement via WinRM',
@@ -1312,12 +1740,31 @@ LATERAL_MOVEMENT_PATTERNS = [
         'severity': 'medium',
         'mitre_tactics': ['Lateral Movement'],
         'mitre_techniques': ['T1021.006'],
+        'temporal': True,
+        'anchor': {
+            'description': 'WinRM logon (4624 Type 3 with WinRM/wsmprovhost)',
+            'event_ids': ['4624'],
+            'conditions': "logon_type = 3 AND (search_blob LIKE '%wsmprovhost%' OR search_blob LIKE '%WinRM%')"
+        },
+        'supporting': [
+            {
+                'name': 'wsmprovhost_process',
+                'required': False,
+                'negate': False,
+                'window_seconds': 60,
+                'event_ids': ['1', '4688'],
+                'conditions': "process_name = 'wsmprovhost.exe'"
+            }
+        ],
+        'attack_window_minutes': 30,
         'detection_query': """
-            WITH winrm_logons AS (
+            WITH 
+            -- Anchor: WinRM logons
+            winrm_logons AS (
                 SELECT 
                     source_host,
                     username,
-                    timestamp,
+                    timestamp as anchor_time,
                     JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip
                 FROM events
                 WHERE case_id = {case_id:UInt32}
@@ -1325,34 +1772,61 @@ LATERAL_MOVEMENT_PATTERNS = [
                     AND logon_type = 3
                     AND (search_blob LIKE '%wsmprovhost%' OR search_blob LIKE '%WinRM%')
             ),
+            -- WinRM processes for correlation
             winrm_processes AS (
-                SELECT 
-                    source_host,
-                    timestamp,
-                    process_name
+                SELECT source_host, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id IN ('1', '4688')
                     AND lower(process_name) = 'wsmprovhost.exe'
+            ),
+            -- Correlate: find WinRM logons with nearby process creation
+            correlated AS (
+                SELECT 
+                    w.source_host,
+                    w.username,
+                    w.anchor_time,
+                    w.src_ip,
+                    -- Check for wsmprovhost process within ±1 minute
+                    (SELECT count() FROM winrm_processes p 
+                     WHERE p.source_host = w.source_host
+                     AND p.timestamp BETWEEN w.anchor_time - INTERVAL 1 MINUTE AND w.anchor_time + INTERVAL 1 MINUTE) as nearby_processes
+                FROM winrm_logons w
+            ),
+            -- Group into attack windows (30 minutes)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as winrm_sessions,
+                    count(DISTINCT src_ip) as unique_sources,
+                    sum(nearby_processes) as corroborating_processes,
+                    groupUniqArray(src_ip) as source_ips
+                FROM correlated
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 30 MINUTE)
             )
             SELECT 
-                w.source_host,
-                w.username,
-                COUNT(DISTINCT w.timestamp) as winrm_sessions,
-                COUNT(DISTINCT w.src_ip) as unique_sources,
-                MIN(w.timestamp) as first_seen,
-                MAX(w.timestamp) as last_seen,
-                groupUniqArray(w.src_ip) as source_ips
-            FROM winrm_logons w
-            LEFT JOIN winrm_processes p 
-                ON w.source_host = p.source_host
-                AND p.timestamp BETWEEN w.timestamp - INTERVAL 1 MINUTE AND w.timestamp + INTERVAL 1 MINUTE
-            GROUP BY w.source_host, w.username
-            HAVING winrm_sessions >= 1
-            ORDER BY unique_sources DESC
+                source_host,
+                username,
+                first_seen,
+                last_seen,
+                winrm_sessions,
+                unique_sources,
+                corroborating_processes,
+                source_ips,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE winrm_sessions >= 1
+            ORDER BY unique_sources DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4624 Type 3 with wsmprovhost.exe',
+            'Event 4624 Type 3 with wsmprovhost.exe/WinRM (anchor)',
+            'Grouped into 30-minute attack windows',
             'Sysmon Event 1: wsmprovhost.exe process creation',
             'Event 4648: Explicit credentials (Enter-PSSession)',
             'Network connections on TCP 5985/5986'
@@ -1360,7 +1834,7 @@ LATERAL_MOVEMENT_PATTERNS = [
         'thresholds': {'min_sessions': 1}
     },
 
-    # ========== T1570: Lateral Tool Transfer ==========
+    # ========== T1570: Lateral Tool Transfer (TEMPORAL) ==========
     {
         'id': 'lateral_tool_transfer',
         'name': 'Lateral Tool Transfer',
@@ -1369,37 +1843,73 @@ LATERAL_MOVEMENT_PATTERNS = [
         'severity': 'medium',
         'mitre_tactics': ['Lateral Movement'],
         'mitre_techniques': ['T1570'],
+        'temporal': True,
+        'anchor': {
+            'description': 'File write to admin share (5145)',
+            'event_ids': ['5145'],
+            'conditions': "executable file types to admin shares"
+        },
+        'supporting': [],
+        'attack_window_minutes': 30,
         'detection_query': """
+            WITH 
+            -- File transfers to admin shares
+            file_transfers AS (
+                SELECT 
+                    source_host,
+                    username,
+                    timestamp as anchor_time,
+                    JSONExtractString(raw_json, 'EventData', 'ShareName') as share_name,
+                    JSONExtractString(raw_json, 'EventData', 'RelativeTargetName') as file_name
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '5145'
+                    AND (
+                        lower(search_blob) LIKE '%.exe%'
+                        OR lower(search_blob) LIKE '%.dll%'
+                        OR lower(search_blob) LIKE '%.ps1%'
+                        OR lower(search_blob) LIKE '%.bat%'
+                        OR lower(search_blob) LIKE '%.vbs%'
+                    )
+                    AND (
+                        search_blob LIKE '%C$%'
+                        OR search_blob LIKE '%ADMIN$%'
+                        OR search_blob LIKE '%\\Windows\\Temp%'
+                        OR search_blob LIKE '%\\ProgramData%'
+                    )
+            ),
+            -- Group into attack windows (30 minutes)
+            attack_windows AS (
+                SELECT 
+                    source_host,
+                    username,
+                    min(anchor_time) as first_seen,
+                    max(anchor_time) as last_seen,
+                    count() as file_writes,
+                    count(DISTINCT share_name) as unique_shares,
+                    groupUniqArray(file_name) as files_written
+                FROM file_transfers
+                GROUP BY 
+                    source_host, 
+                    username,
+                    toStartOfInterval(anchor_time, INTERVAL 30 MINUTE)
+            )
             SELECT 
                 source_host,
                 username,
-                COUNT() as file_writes,
-                COUNT(DISTINCT JSONExtractString(raw_json, 'EventData', 'ShareName')) as unique_shares,
-                MIN(timestamp) as first_seen,
-                MAX(timestamp) as last_seen,
-                groupUniqArray(JSONExtractString(raw_json, 'EventData', 'RelativeTargetName')) as files_written
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-                AND event_id = '5145'
-                AND (
-                    lower(search_blob) LIKE '%.exe%'
-                    OR lower(search_blob) LIKE '%.dll%'
-                    OR lower(search_blob) LIKE '%.ps1%'
-                    OR lower(search_blob) LIKE '%.bat%'
-                    OR lower(search_blob) LIKE '%.vbs%'
-                )
-                AND (
-                    search_blob LIKE '%C$%'
-                    OR search_blob LIKE '%ADMIN$%'
-                    OR search_blob LIKE '%\\Windows\\Temp%'
-                    OR search_blob LIKE '%\\ProgramData%'
-                )
-            GROUP BY source_host, username
-            HAVING file_writes >= 3
-            ORDER BY file_writes DESC
+                first_seen,
+                last_seen,
+                file_writes,
+                unique_shares,
+                files_written,
+                dateDiff('minute', first_seen, last_seen) as duration_minutes
+            FROM attack_windows
+            WHERE file_writes >= 3
+            ORDER BY file_writes DESC, first_seen ASC
         """,
         'indicators': [
             'Event 5145: Write access to remote shares',
+            'Grouped into 30-minute attack windows',
             'Executables written to C$, ADMIN$',
             'Tools: PsExec, Cobalt Strike, Metasploit',
             'Common paths: \\Windows\\Temp, \\ProgramData'

@@ -1,6 +1,26 @@
 {
-  "version": "3.106.01",
+  "version": "3.107.00",
   "changelog": [
+    {
+      "version": "3.107.00",
+      "date": "2026-01-18",
+      "changes": [
+        "Feature: Comprehensive temporal windowing for all attack patterns",
+        "Fixed: Pass the Ticket - now groups into 1-hour attack windows instead of entire case timeframe",
+        "Fixed: Silver Ticket - 30-minute attack windows with proper TGT correlation",
+        "Fixed: Golden Ticket - 1-hour attack windows with 12-hour TGT lookback",
+        "Fixed: Credential Stuffing - 1-hour attack windows with success correlation",
+        "Fixed: NTLMv1 Downgrade - 30-minute attack windows with logon correlation",
+        "Fixed: WinRM Lateral Movement - 30-minute windows with process correlation",
+        "Fixed: Kerberoasting - 15-minute burst detection windows",
+        "Fixed: Brute Force - 10-minute burst detection windows",
+        "Fixed: Password Spraying - 1-hour windows grouped by source host",
+        "Fixed: AS-REP Roasting - 15-minute burst detection windows",
+        "Fixed: DCOM Lateral Movement - 30-minute attack windows",
+        "Fixed: Lateral Tool Transfer - 30-minute attack windows",
+        "Changed: All temporal patterns now use toStartOfInterval for proper attack grouping"
+      ]
+    },
     {
       "version": "3.106.01",
       "date": "2026-01-18",
