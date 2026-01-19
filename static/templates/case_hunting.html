@@ -576,14 +576,14 @@ function executeSearchDirect(searchConfig) {
         }
     }
     
-    // Fill search bar with the search query
+    // Fill search bar with the search query and set global variable
     const searchInput = document.getElementById('events-search');
     if (searchInput) {
         searchInput.value = searchConfig.search;
+        eventsSearch = searchConfig.search;
+        eventsPage = 1;
+        loadEvents();
     }
-    
-    // Execute the search (this preserves time filter settings)
-    searchEvents();
 }
 
 // Show the search guide modal
