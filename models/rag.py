@@ -51,6 +51,14 @@ class AttackPattern(db.Model):
     confidence_weight = db.Column(db.Float, default=1.0)
     false_positive_rate = db.Column(db.Float, default=0.0)
     
+    # Semantic search configuration (per-pattern threshold tuning)
+    semantic_enabled = db.Column(db.Boolean, default=True)  # Include in semantic searches
+    semantic_threshold = db.Column(db.Float, nullable=True)  # Override global threshold (0.0-1.0)
+    
+    # Extended MITRE fields (from STIX x_mitre_detection)
+    detection_guidance = db.Column(db.Text, nullable=True)  # Full detection methodology
+    procedure_examples = db.Column(db.JSON, nullable=True)  # Real-world usage examples
+    
     # Status
     enabled = db.Column(db.Boolean, default=True, index=True)
     last_synced_at = db.Column(db.DateTime, nullable=True)
@@ -87,6 +95,9 @@ class AttackPattern(db.Model):
             'severity': self.severity,
             'confidence_weight': self.confidence_weight,
             'enabled': self.enabled,
+            'semantic_enabled': self.semantic_enabled,
+            'semantic_threshold': self.semantic_threshold,
+            'detection_guidance': self.detection_guidance,
             'time_window_minutes': self.time_window_minutes,
             'required_event_ids': self.required_event_ids,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -937,6 +948,275 @@ BUILTIN_PATTERNS = [
         """
     }
 ]
+
+
+class RAGQueryLog(db.Model):
+    """Log all RAG/semantic search queries for baseline establishment
+    
+    Tracks query patterns, scores, response times, and outcomes to:
+    - Establish score threshold baselines
+    - Identify query types that need tuning
+    - Measure semantic search effectiveness
+    """
+    __tablename__ = 'rag_query_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=True, index=True)
+    
+    # Query details
+    query_text = db.Column(db.Text, nullable=False)
+    query_type = db.Column(db.String(50), nullable=False, index=True)  # ask_ai, pattern_search, event_similarity
+    
+    # Results
+    patterns_returned = db.Column(db.Integer, default=0)
+    top_score = db.Column(db.Float, nullable=True)  # Highest similarity score
+    avg_score = db.Column(db.Float, nullable=True)  # Average score of results
+    min_score = db.Column(db.Float, nullable=True)  # Lowest score returned
+    score_threshold_used = db.Column(db.Float, nullable=True)
+    
+    # Performance
+    embedding_duration_ms = db.Column(db.Integer, nullable=True)
+    search_duration_ms = db.Column(db.Integer, nullable=True)
+    total_duration_ms = db.Column(db.Integer, nullable=True)
+    
+    # Context
+    llm_model = db.Column(db.String(100), nullable=True)
+    llm_response_tokens = db.Column(db.Integer, nullable=True)
+    
+    # Outcome tracking
+    user_feedback = db.Column(db.String(20), nullable=True)  # helpful, not_helpful, null
+    feedback_notes = db.Column(db.Text, nullable=True)
+    
+    # Audit
+    user_id = db.Column(db.String(80), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<RAGQueryLog {self.id}: {self.query_type}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'query_text': self.query_text[:100] + '...' if len(self.query_text) > 100 else self.query_text,
+            'query_type': self.query_type,
+            'patterns_returned': self.patterns_returned,
+            'top_score': self.top_score,
+            'avg_score': self.avg_score,
+            'score_threshold_used': self.score_threshold_used,
+            'total_duration_ms': self.total_duration_ms,
+            'user_feedback': self.user_feedback,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @staticmethod
+    def get_score_distribution(query_type: str = None, days: int = 30) -> Dict[str, Any]:
+        """Get score distribution for threshold tuning"""
+        from sqlalchemy import func
+        
+        query = db.session.query(
+            func.avg(RAGQueryLog.top_score).label('avg_top'),
+            func.avg(RAGQueryLog.avg_score).label('avg_avg'),
+            func.min(RAGQueryLog.min_score).label('min_min'),
+            func.count().label('total_queries'),
+            func.sum(db.case((RAGQueryLog.user_feedback == 'helpful', 1), else_=0)).label('helpful'),
+            func.sum(db.case((RAGQueryLog.user_feedback == 'not_helpful', 1), else_=0)).label('not_helpful')
+        )
+        
+        if query_type:
+            query = query.filter(RAGQueryLog.query_type == query_type)
+        
+        result = query.first()
+        return {
+            'avg_top_score': float(result.avg_top) if result.avg_top else None,
+            'avg_avg_score': float(result.avg_avg) if result.avg_avg else None,
+            'min_observed_score': float(result.min_min) if result.min_min else None,
+            'total_queries': result.total_queries,
+            'helpful_count': result.helpful or 0,
+            'not_helpful_count': result.not_helpful or 0
+        }
+
+
+class SemanticMatchFeedback(db.Model):
+    """Track analyst feedback on semantic matches for threshold tuning
+    
+    When analysts confirm or reject semantic matches, this data informs:
+    - Per-pattern threshold adjustments
+    - Per-tactic threshold recommendations
+    - Overall system calibration
+    """
+    __tablename__ = 'semantic_match_feedback'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    pattern_id = db.Column(db.Integer, db.ForeignKey('attack_patterns.id'), nullable=False, index=True)
+    
+    # Match context
+    similarity_score = db.Column(db.Float, nullable=False)
+    query_text = db.Column(db.Text, nullable=True)  # What was searched
+    matched_event_summary = db.Column(db.Text, nullable=True)  # What matched
+    
+    # Analyst verdict
+    verdict = db.Column(db.String(20), nullable=False, index=True)  # confirmed, rejected, uncertain
+    verdict_reason = db.Column(db.Text, nullable=True)
+    
+    # Audit
+    analyst_username = db.Column(db.String(80), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    pattern = db.relationship('AttackPattern', backref=db.backref('semantic_feedback', lazy='dynamic'))
+    
+    def __repr__(self):
+        return f'<SemanticMatchFeedback {self.id}: {self.verdict} @ {self.similarity_score}>'
+    
+    @staticmethod
+    def get_pattern_threshold_recommendation(pattern_id: int) -> Dict[str, Any]:
+        """Calculate recommended threshold based on feedback"""
+        from sqlalchemy import func
+        
+        confirmed = db.session.query(func.avg(SemanticMatchFeedback.similarity_score)).filter(
+            SemanticMatchFeedback.pattern_id == pattern_id,
+            SemanticMatchFeedback.verdict == 'confirmed'
+        ).scalar()
+        
+        rejected = db.session.query(func.avg(SemanticMatchFeedback.similarity_score)).filter(
+            SemanticMatchFeedback.pattern_id == pattern_id,
+            SemanticMatchFeedback.verdict == 'rejected'
+        ).scalar()
+        
+        if confirmed and rejected:
+            # Recommend midpoint between confirmed and rejected averages
+            recommended = (confirmed + rejected) / 2
+        elif confirmed:
+            # Use 90% of confirmed average as floor
+            recommended = confirmed * 0.9
+        else:
+            recommended = None
+        
+        return {
+            'pattern_id': pattern_id,
+            'avg_confirmed_score': float(confirmed) if confirmed else None,
+            'avg_rejected_score': float(rejected) if rejected else None,
+            'recommended_threshold': float(recommended) if recommended else None
+        }
+
+
+class MitreDataSource(db.Model):
+    """MITRE ATT&CK Data Sources (x-mitre-data-source objects)
+    
+    Data Sources represent categories of information that can be collected
+    to detect adversary activity.
+    """
+    __tablename__ = 'mitre_data_sources'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    stix_id = db.Column(db.String(100), unique=True, nullable=False, index=True)  # x-mitre-data-source--xyz
+    name = db.Column(db.String(255), nullable=False, index=True)  # e.g., "Process"
+    description = db.Column(db.Text, nullable=True)
+    
+    # MITRE-specific fields
+    platforms = db.Column(db.ARRAY(db.String), nullable=True)  # Windows, Linux, macOS
+    collection_layers = db.Column(db.ARRAY(db.String), nullable=True)  # Host, Network, Cloud
+    
+    # Tracking
+    mitre_version = db.Column(db.String(20), nullable=True)
+    last_synced_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    components = db.relationship('MitreDataComponent', backref='data_source', lazy='dynamic', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f'<MitreDataSource {self.name}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'stix_id': self.stix_id,
+            'name': self.name,
+            'description': self.description,
+            'platforms': self.platforms or [],
+            'collection_layers': self.collection_layers or [],
+            'component_count': self.components.count() if self.components else 0
+        }
+
+
+class MitreDataComponent(db.Model):
+    """MITRE ATT&CK Data Components (x-mitre-data-component objects)
+    
+    Data Components are specific types of data within a Data Source.
+    Example: Data Source "Process" has Components like "Process Creation", "Process Access"
+    """
+    __tablename__ = 'mitre_data_components'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    stix_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    data_source_id = db.Column(db.Integer, db.ForeignKey('mitre_data_sources.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    name = db.Column(db.String(255), nullable=False, index=True)  # e.g., "Process Creation"
+    description = db.Column(db.Text, nullable=True)
+    
+    # Event ID mapping (derived from our analysis)
+    windows_event_ids = db.Column(db.ARRAY(db.String), nullable=True)  # ['4688', '1']
+    sysmon_event_ids = db.Column(db.ARRAY(db.String), nullable=True)  # ['1', '5']
+    
+    # Tracking
+    last_synced_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<MitreDataComponent {self.name}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'stix_id': self.stix_id,
+            'name': self.name,
+            'description': self.description,
+            'data_source_name': self.data_source.name if self.data_source else None,
+            'windows_event_ids': self.windows_event_ids or [],
+            'sysmon_event_ids': self.sysmon_event_ids or []
+        }
+
+
+class TechniqueDataComponentMap(db.Model):
+    """Maps MITRE Techniques to Data Components they can be detected with
+    
+    This is the core relationship: Technique → Data Component(s) → Event IDs
+    """
+    __tablename__ = 'technique_data_component_maps'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    technique_id = db.Column(db.String(20), nullable=False, index=True)  # T1003.001
+    data_component_id = db.Column(db.Integer, db.ForeignKey('mitre_data_components.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Relationship context from STIX
+    relationship_type = db.Column(db.String(50), default='detects')  # detects, uses
+    relationship_description = db.Column(db.Text, nullable=True)
+    
+    # Detection guidance extracted from x_mitre_detection
+    detection_guidance = db.Column(db.Text, nullable=True)
+    
+    # Tracking
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    data_component = db.relationship('MitreDataComponent', backref=db.backref('technique_maps', lazy='dynamic'))
+    
+    __table_args__ = (
+        db.UniqueConstraint('technique_id', 'data_component_id', name='uq_technique_component'),
+    )
+    
+    def __repr__(self):
+        return f'<TechniqueDataComponentMap {self.technique_id} -> {self.data_component_id}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'technique_id': self.technique_id,
+            'data_component': self.data_component.name if self.data_component else None,
+            'data_source': self.data_component.data_source.name if self.data_component and self.data_component.data_source else None,
+            'detection_guidance': self.detection_guidance,
+            'event_ids': self.data_component.windows_event_ids if self.data_component else []
+        }
 
 
 def seed_builtin_patterns():

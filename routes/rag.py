@@ -992,12 +992,15 @@ def ask_ai():
     
     Uses RAG to retrieve relevant events/patterns from the case,
     then queries the LLM with a DFIR expert system prompt.
+    Logs all queries for threshold tuning and effectiveness measurement.
     """
+    import time
     from utils.rag_llm import get_ollama_client
     from utils.rag_embeddings import embed_text
     from utils.rag_vectorstore import search_similar_patterns
     from utils.clickhouse import get_client
     from models.system_settings import SystemSettings, SettingKeys
+    from models.rag import RAGQueryLog
     
     data = request.json or {}
     case_id = data.get('case_id')
@@ -1021,6 +1024,14 @@ def ask_ai():
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
+    # Initialize timing and logging variables
+    start_time = time.time()
+    embedding_duration_ms = None
+    search_duration_ms = None
+    pattern_scores = []
+    score_threshold_used = 0.4
+    query_log_id = None
+    
     try:
         client = get_client()
         context_parts = []
@@ -1029,17 +1040,24 @@ def ask_ai():
         pattern_context = []
         if include_patterns:
             try:
+                embed_start = time.time()
                 question_embedding = embed_text(question)
-                similar_patterns = search_similar_patterns(question_embedding, limit=5, score_threshold=0.4)
+                embedding_duration_ms = int((time.time() - embed_start) * 1000)
+                
+                search_start = time.time()
+                similar_patterns = search_similar_patterns(question_embedding, limit=5, score_threshold=score_threshold_used)
+                search_duration_ms = int((time.time() - search_start) * 1000)
                 
                 for pattern in similar_patterns:
                     payload = pattern.get('payload', {})
+                    score = pattern.get('score', 0)
+                    pattern_scores.append(score)
                     pattern_context.append({
                         'name': payload.get('name', 'Unknown'),
                         'description': payload.get('description', ''),
                         'mitre': payload.get('mitre_technique', ''),
                         'severity': payload.get('severity', 'medium'),
-                        'score': round(pattern.get('score', 0), 2)
+                        'score': round(score, 2)
                     })
                 
                 if pattern_context:
@@ -1359,6 +1377,33 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
                 'error': result.get('error', 'LLM query failed')
             }), 500
         
+        # Calculate total duration
+        total_duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Log query for baseline establishment and threshold tuning
+        try:
+            query_log = RAGQueryLog(
+                case_id=case_id,
+                query_text=question,
+                query_type='ask_ai',
+                patterns_returned=len(pattern_context),
+                top_score=max(pattern_scores) if pattern_scores else None,
+                avg_score=sum(pattern_scores) / len(pattern_scores) if pattern_scores else None,
+                min_score=min(pattern_scores) if pattern_scores else None,
+                score_threshold_used=score_threshold_used,
+                embedding_duration_ms=embedding_duration_ms,
+                search_duration_ms=search_duration_ms,
+                total_duration_ms=total_duration_ms,
+                llm_model=result.get('model'),
+                user_id=current_user.username if current_user else None
+            )
+            db.session.add(query_log)
+            db.session.commit()
+            query_log_id = query_log.id
+        except Exception as log_err:
+            logger.warning(f"[Ask AI] Failed to log query: {log_err}")
+            db.session.rollback()
+        
         return jsonify({
             'success': True,
             'answer': result.get('response', ''),
@@ -1368,9 +1413,134 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
                 'search_terms_used': search_terms[:5] if search_terms else []
             },
             'model': result.get('model'),
-            'duration_ns': result.get('total_duration')
+            'duration_ns': result.get('total_duration'),
+            'query_log_id': query_log_id  # For feedback submission
         })
         
     except Exception as e:
         logger.error(f"[Ask AI] Error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/ask/feedback', methods=['POST'])
+@login_required
+def submit_query_feedback():
+    """Submit feedback on an Ask AI query for threshold tuning
+    
+    This feedback helps establish baselines for score thresholds.
+    """
+    from models.rag import RAGQueryLog
+    
+    data = request.json or {}
+    query_log_id = data.get('query_log_id')
+    feedback = data.get('feedback')  # 'helpful' or 'not_helpful'
+    notes = data.get('notes', '')
+    
+    if not query_log_id:
+        return jsonify({'success': False, 'error': 'query_log_id required'}), 400
+    
+    if feedback not in ('helpful', 'not_helpful'):
+        return jsonify({'success': False, 'error': 'feedback must be "helpful" or "not_helpful"'}), 400
+    
+    try:
+        query_log = RAGQueryLog.query.get(query_log_id)
+        if not query_log:
+            return jsonify({'success': False, 'error': 'Query log not found'}), 404
+        
+        query_log.user_feedback = feedback
+        query_log.feedback_notes = notes
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Feedback recorded',
+            'query_log_id': query_log_id
+        })
+        
+    except Exception as e:
+        logger.error(f"[Ask AI Feedback] Error: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/semantic-feedback', methods=['POST'])
+@login_required
+def submit_semantic_feedback():
+    """Submit analyst feedback on a semantic match for threshold tuning
+    
+    When an analyst confirms or rejects a semantic match, this data
+    informs per-pattern threshold adjustments.
+    """
+    from models.rag import SemanticMatchFeedback
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    pattern_id = data.get('pattern_id')
+    similarity_score = data.get('similarity_score')
+    verdict = data.get('verdict')  # 'confirmed', 'rejected', 'uncertain'
+    
+    if not all([case_id, pattern_id, similarity_score, verdict]):
+        return jsonify({'success': False, 'error': 'case_id, pattern_id, similarity_score, and verdict required'}), 400
+    
+    if verdict not in ('confirmed', 'rejected', 'uncertain'):
+        return jsonify({'success': False, 'error': 'verdict must be "confirmed", "rejected", or "uncertain"'}), 400
+    
+    try:
+        feedback = SemanticMatchFeedback(
+            case_id=case_id,
+            pattern_id=pattern_id,
+            similarity_score=similarity_score,
+            query_text=data.get('query_text'),
+            matched_event_summary=data.get('matched_event_summary'),
+            verdict=verdict,
+            verdict_reason=data.get('verdict_reason'),
+            analyst_username=current_user.username if current_user else 'unknown'
+        )
+        db.session.add(feedback)
+        db.session.commit()
+        
+        # Return updated threshold recommendation
+        recommendation = SemanticMatchFeedback.get_pattern_threshold_recommendation(pattern_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Feedback recorded',
+            'feedback_id': feedback.id,
+            'threshold_recommendation': recommendation
+        })
+        
+    except Exception as e:
+        logger.error(f"[Semantic Feedback] Error: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/query-stats')
+@login_required
+def get_query_stats():
+    """Get RAG query statistics for threshold tuning and monitoring
+    
+    Provides score distributions and feedback summaries.
+    """
+    from models.rag import RAGQueryLog
+    
+    try:
+        query_type = request.args.get('query_type')
+        
+        stats = RAGQueryLog.get_score_distribution(query_type=query_type)
+        
+        # Get recent queries for inspection
+        recent_query = RAGQueryLog.query.order_by(RAGQueryLog.created_at.desc())
+        if query_type:
+            recent_query = recent_query.filter_by(query_type=query_type)
+        recent = recent_query.limit(10).all()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'recent_queries': [q.to_dict() for q in recent]
+        })
+        
+    except Exception as e:
+        logger.error(f"[Query Stats] Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

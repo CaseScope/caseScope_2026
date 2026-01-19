@@ -5,7 +5,7 @@ Uses sentence-transformers with all-MiniLM-L6-v2 (runs on CPU).
 """
 
 import logging
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 import numpy as np
 
 from config import Config
@@ -183,23 +183,69 @@ def get_embedding_dimension() -> int:
     return model.get_sentence_embedding_dimension()
 
 
+def check_embedding_normalization(embedding: List[float]) -> Dict[str, Any]:
+    """Check if embedding is properly normalized (unit vector)
+    
+    Normalized embeddings have L2 norm ≈ 1.0, which is required for
+    cosine similarity to work correctly in Qdrant.
+    
+    Args:
+        embedding: Embedding vector to check
+        
+    Returns:
+        Dict with normalization status
+    """
+    norm = np.linalg.norm(np.array(embedding))
+    is_normalized = 0.99 < norm < 1.01  # Allow small floating point variance
+    
+    return {
+        'l2_norm': float(norm),
+        'is_normalized': is_normalized,
+        'warning': None if is_normalized else f'Embedding not normalized (L2={norm:.4f}). Cosine similarity may be inaccurate.'
+    }
+
+
 def health_check() -> dict:
-    """Check embedding model health
+    """Check embedding model health and normalization
     
     Returns:
-        Dict with status and model info
+        Dict with status and model info including normalization check
     """
     try:
         model = get_embedding_model()
         
         # Test embedding
-        test_embedding = embed_text("test")
+        test_embedding = embed_text("test query for embedding validation")
+        
+        # Check normalization
+        norm_check = check_embedding_normalization(test_embedding)
+        
+        # Test pattern embedding (different input type)
+        class MockPattern:
+            name = "Test Pattern"
+            mitre_tactic = "Credential Access"
+            mitre_technique = "T1003"
+            description = "Test description for pattern embedding"
+            required_event_ids = ['4624', '4625']
+            required_channels = ['Security']
+        
+        pattern_embedding = embed_pattern(MockPattern())
+        pattern_norm_check = check_embedding_normalization(pattern_embedding)
         
         return {
             'status': 'healthy',
             'model': Config.EMBEDDING_MODEL,
             'dimension': len(test_embedding),
-            'device': str(model.device) if hasattr(model, 'device') else 'unknown'
+            'device': str(model.device) if hasattr(model, 'device') else 'unknown',
+            'text_embedding': {
+                'l2_norm': norm_check['l2_norm'],
+                'normalized': norm_check['is_normalized']
+            },
+            'pattern_embedding': {
+                'l2_norm': pattern_norm_check['l2_norm'],
+                'normalized': pattern_norm_check['is_normalized']
+            },
+            'warnings': [w for w in [norm_check.get('warning'), pattern_norm_check.get('warning')] if w]
         }
     except Exception as e:
         return {

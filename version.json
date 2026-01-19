@@ -1,6 +1,24 @@
 {
-  "version": "3.114.04",
+  "version": "3.115.00",
   "changelog": [
+    {
+      "version": "3.115.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: RAG instrumentation - RAGQueryLog tracks all semantic searches for threshold tuning",
+        "Feature: SemanticMatchFeedback model for analyst verdicts on semantic matches",
+        "Feature: MITRE Data Sources/Components parsing from STIX 2.1 x-mitre-data-source objects",
+        "Feature: Technique → Data Component → Event ID structured mapping (replaces prose parsing)",
+        "Feature: Full x_mitre_detection ingestion for rich detection guidance",
+        "Feature: Procedure examples extraction from threat group relationships",
+        "Feature: Per-pattern semantic_threshold and semantic_enabled configuration",
+        "Feature: Embedding normalization health check for Qdrant cosine similarity validation",
+        "Changed: Pattern descriptions no longer truncated at 500 chars for richer embeddings",
+        "Added: /api/rag/ask/feedback endpoint for query feedback submission",
+        "Added: /api/rag/semantic-feedback endpoint for match verdict submission",
+        "Added: /api/rag/query-stats endpoint for score distribution analysis"
+      ]
+    },
     {
       "version": "3.114.04",
       "date": "2026-01-19",
