@@ -951,3 +951,288 @@ def clear_pattern_rule_results(case_id):
         'success': True,
         'deleted': deleted
     })
+
+
+# ============================================================================
+# ASK AI - RAG-POWERED HUNTING ASSISTANT
+# ============================================================================
+
+# DFIR Expert System Prompt - Designed for zero hallucinations
+DFIR_SYSTEM_PROMPT = """You are a DFIR (Digital Forensics and Incident Response) expert assistant integrated into CaseScope, an incident response platform.
+
+CRITICAL RULES:
+1. ONLY analyze and reference data that is explicitly provided to you in the context
+2. NEVER fabricate, assume, or hallucinate events, timestamps, usernames, hosts, or any other data
+3. If you cannot find evidence for something in the provided context, clearly state "No evidence found in the provided data"
+4. Always cite specific events, timestamps, and hosts when making claims
+5. Distinguish between confirmed findings (with evidence) and potential areas to investigate further
+6. Use precise forensic terminology
+
+Your role is to help analysts hunt for threats by:
+- Analyzing event patterns for signs of malicious activity
+- Identifying indicators of compromise (IOCs)
+- Recognizing attack techniques mapped to MITRE ATT&CK
+- Finding correlations between events across hosts and users
+- Suggesting additional queries to investigate
+
+When analyzing data, always:
+- Reference specific event IDs, timestamps, and hosts
+- Explain your reasoning step by step
+- Rate your confidence level (High/Medium/Low)
+- Suggest follow-up investigation steps
+
+If asked about something not in the provided data, respond: "I don't have that information in the current context. To investigate this, you could search for [specific suggestion]."
+"""
+
+
+@rag_bp.route('/ask', methods=['POST'])
+@login_required
+def ask_ai():
+    """Ask AI a hunting question with RAG context
+    
+    Uses RAG to retrieve relevant events/patterns from the case,
+    then queries the LLM with a DFIR expert system prompt.
+    """
+    from utils.rag_llm import get_ollama_client
+    from utils.rag_embeddings import embed_text
+    from utils.rag_vectorstore import search_similar_patterns
+    from utils.clickhouse import get_client
+    from models.system_settings import SystemSettings, SettingKeys
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    question = data.get('question', '').strip()
+    include_patterns = data.get('include_patterns', True)
+    include_high_severity = data.get('include_high_severity', True)
+    max_events = data.get('max_events', 50)
+    
+    if not case_id:
+        return jsonify({'success': False, 'error': 'case_id required'}), 400
+    
+    if not question:
+        return jsonify({'success': False, 'error': 'question required'}), 400
+    
+    # Check if AI is enabled
+    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    if not ai_enabled:
+        return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        client = get_client()
+        context_parts = []
+        
+        # 1. Embed the question and find relevant patterns
+        pattern_context = []
+        if include_patterns:
+            try:
+                question_embedding = embed_text(question)
+                similar_patterns = search_similar_patterns(question_embedding, limit=5, score_threshold=0.4)
+                
+                for pattern in similar_patterns:
+                    payload = pattern.get('payload', {})
+                    pattern_context.append({
+                        'name': payload.get('name', 'Unknown'),
+                        'description': payload.get('description', ''),
+                        'mitre': payload.get('mitre_technique', ''),
+                        'severity': payload.get('severity', 'medium'),
+                        'score': round(pattern.get('score', 0), 2)
+                    })
+                
+                if pattern_context:
+                    context_parts.append("RELEVANT ATTACK PATTERNS:")
+                    for p in pattern_context:
+                        context_parts.append(f"  - {p['name']} (MITRE: {p['mitre']}, Severity: {p['severity']})")
+                        if p['description']:
+                            context_parts.append(f"    Description: {p['description'][:200]}")
+            except Exception as e:
+                logger.warning(f"[Ask AI] Pattern search failed: {e}")
+        
+        # 2. Get high-severity events if requested
+        if include_high_severity:
+            try:
+                high_severity_query = """
+                SELECT 
+                    timestamp_utc, 
+                    event_id, 
+                    channel, 
+                    computer_name,
+                    username,
+                    rule_title,
+                    rule_level,
+                    process_name,
+                    commandline
+                FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                AND rule_level IN ('high', 'critical')
+                ORDER BY timestamp_utc DESC
+                LIMIT {limit:UInt32}
+                """
+                result = client.query(high_severity_query, parameters={'case_id': case_id, 'limit': max_events})
+                
+                if result.result_rows:
+                    context_parts.append(f"\nHIGH SEVERITY EVENTS ({len(result.result_rows)} events):")
+                    for row in result.result_rows:
+                        ts, eid, ch, comp, user, title, level, proc, cmd = row
+                        event_line = f"  [{ts}] {level.upper()}: {title or 'No title'}"
+                        if comp:
+                            event_line += f" | Host: {comp}"
+                        if user:
+                            event_line += f" | User: {user}"
+                        if proc:
+                            event_line += f" | Process: {proc}"
+                        context_parts.append(event_line)
+                        if cmd and len(cmd) < 200:
+                            context_parts.append(f"    Command: {cmd}")
+            except Exception as e:
+                logger.warning(f"[Ask AI] High severity query failed: {e}")
+        
+        # 3. Semantic search for events related to the question
+        # Extract key terms from question for targeted search
+        search_terms = []
+        question_lower = question.lower()
+        
+        # Common DFIR keywords to look for
+        dfir_keywords = {
+            'brute force': ['4625', '4771', 'logon', 'failed'],
+            'pass the hash': ['4624', 'ntlm', 'logon type 9', 'logon type 3'],
+            'pass the ticket': ['4768', '4769', 'kerberos', 'ticket'],
+            'lateral movement': ['4624', 'logon type 3', 'remote', 'psexec'],
+            'privilege escalation': ['4672', '4673', 'privilege', 'admin'],
+            'failed login': ['4625', '4771', 'failed', 'logon'],
+            'rdp': ['4624', '4625', 'logon type 10', 'remote desktop'],
+            'powershell': ['4103', '4104', 'powershell', 'script'],
+            'credential': ['credential', 'lsass', 'password', 'hash'],
+            'persistence': ['registry', 'scheduled task', 'service', 'autorun'],
+            'exfiltration': ['upload', 'transfer', 'data', 'cloud'],
+        }
+        
+        for keyword, terms in dfir_keywords.items():
+            if keyword in question_lower:
+                search_terms.extend(terms)
+        
+        # 4. If we have search terms, query for related events
+        if search_terms:
+            try:
+                # Build OR conditions for search
+                conditions = []
+                for term in search_terms[:5]:  # Limit to 5 terms
+                    if term.isdigit():
+                        conditions.append(f"event_id = '{term}'")
+                    else:
+                        conditions.append(f"(lower(rule_title) LIKE '%{term}%' OR lower(commandline) LIKE '%{term}%' OR lower(process_name) LIKE '%{term}%')")
+                
+                search_query = f"""
+                SELECT 
+                    timestamp_utc, 
+                    event_id, 
+                    channel, 
+                    computer_name,
+                    username,
+                    source_ip,
+                    rule_title,
+                    rule_level,
+                    process_name,
+                    commandline
+                FROM events 
+                WHERE case_id = {{case_id:UInt32}} 
+                AND ({' OR '.join(conditions)})
+                ORDER BY timestamp_utc DESC
+                LIMIT {{limit:UInt32}}
+                """
+                result = client.query(search_query, parameters={'case_id': case_id, 'limit': max_events})
+                
+                if result.result_rows:
+                    context_parts.append(f"\nRELEVANT EVENTS MATCHING QUERY ({len(result.result_rows)} events):")
+                    for row in result.result_rows:
+                        ts, eid, ch, comp, user, src_ip, title, level, proc, cmd = row
+                        event_line = f"  [{ts}] EventID:{eid}"
+                        if title:
+                            event_line += f" {title}"
+                        if comp:
+                            event_line += f" | Host: {comp}"
+                        if user:
+                            event_line += f" | User: {user}"
+                        if src_ip:
+                            event_line += f" | Source: {src_ip}"
+                        if proc:
+                            event_line += f" | Process: {proc}"
+                        context_parts.append(event_line)
+                        if cmd and len(cmd) < 200:
+                            context_parts.append(f"    Command: {cmd}")
+            except Exception as e:
+                logger.warning(f"[Ask AI] Related events query failed: {e}")
+        
+        # 5. Get case summary stats
+        try:
+            stats_query = """
+            SELECT 
+                count() as total,
+                countIf(rule_level = 'critical') as critical,
+                countIf(rule_level = 'high') as high,
+                countIf(rule_level = 'medium') as medium,
+                min(timestamp_utc) as first_event,
+                max(timestamp_utc) as last_event,
+                count(DISTINCT computer_name) as hosts,
+                count(DISTINCT username) as users
+            FROM events 
+            WHERE case_id = {case_id:UInt32}
+            """
+            result = client.query(stats_query, parameters={'case_id': case_id})
+            
+            if result.result_rows:
+                row = result.result_rows[0]
+                context_parts.insert(0, f"CASE SUMMARY:")
+                context_parts.insert(1, f"  Case: {case.name}")
+                context_parts.insert(2, f"  Total Events: {row[0]:,}")
+                context_parts.insert(3, f"  Critical: {row[1]}, High: {row[2]}, Medium: {row[3]}")
+                context_parts.insert(4, f"  Timeframe: {row[4]} to {row[5]}")
+                context_parts.insert(5, f"  Unique Hosts: {row[6]}, Unique Users: {row[7]}")
+                context_parts.insert(6, "")
+        except Exception as e:
+            logger.warning(f"[Ask AI] Stats query failed: {e}")
+        
+        # Build the full prompt
+        context_text = "\n".join(context_parts) if context_parts else "No relevant data found in the case."
+        
+        user_prompt = f"""Based on the following data from the investigation, please answer this question:
+
+QUESTION: {question}
+
+{context_text}
+
+Provide a detailed analysis based ONLY on the data above. If you cannot find evidence for something, say so clearly."""
+
+        # Query the LLM
+        ollama_client = get_ollama_client()
+        result = ollama_client.generate(
+            prompt=user_prompt,
+            system=DFIR_SYSTEM_PROMPT,
+            temperature=0.3,  # Lower temperature for more factual responses
+            max_tokens=2000
+        )
+        
+        if not result.get('success'):
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'LLM query failed')
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'answer': result.get('response', ''),
+            'context_summary': {
+                'patterns_found': len(pattern_context),
+                'events_analyzed': len([p for p in context_parts if p.startswith('  [')]),
+                'search_terms_used': search_terms[:5] if search_terms else []
+            },
+            'model': result.get('model'),
+            'duration_ns': result.get('total_duration')
+        })
+        
+    except Exception as e:
+        logger.error(f"[Ask AI] Error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500

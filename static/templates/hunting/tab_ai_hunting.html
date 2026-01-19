@@ -2,7 +2,7 @@
 
 <!-- AI Tools Toolbar -->
 <div class="ai-tools-toolbar">
-    <button class="btn btn-ai-tool" id="btnAskAI" disabled title="Coming soon: Ask AI about case artifacts">
+    <button class="btn btn-ai-tool" id="btnAskAI" onclick="openAskAIModal()" title="Ask AI questions about case artifacts">
         <span class="btn-icon">🤖</span> Ask AI
     </button>
     <button class="btn btn-ai-tool" id="btnCreateTimeline" disabled title="Coming soon: Generate timeline from findings">
@@ -213,6 +213,290 @@
         </div>
     </div>
 </div>
+
+<!-- Ask AI Modal -->
+<div class="modal-overlay" id="ask-ai-modal" style="display: none;" onclick="closeAskAIModal(event)">
+    <div class="modal-container modal-ask-ai" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">🤖 Ask AI - DFIR Hunting Assistant</h3>
+            <button class="modal-close" onclick="closeAskAIModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="ask-ai-intro">
+                <p>Ask questions about your case data. The AI will analyze events, patterns, and artifacts to help you hunt for threats.</p>
+                <div class="ask-ai-examples">
+                    <span class="example-label">Examples:</span>
+                    <button class="example-btn" onclick="setAskAIQuestion('Do you see signs of brute forcing?')">Brute forcing</button>
+                    <button class="example-btn" onclick="setAskAIQuestion('Do you see signs of pass the hash attacks?')">Pass the hash</button>
+                    <button class="example-btn" onclick="setAskAIQuestion('Show me failed login attempts and the users involved')">Failed logins</button>
+                    <button class="example-btn" onclick="setAskAIQuestion('What lateral movement activity do you see?')">Lateral movement</button>
+                    <button class="example-btn" onclick="setAskAIQuestion('Are there signs of credential theft or dumping?')">Credential theft</button>
+                    <button class="example-btn" onclick="setAskAIQuestion('What are the most suspicious activities in this case?')">Suspicious activity</button>
+                </div>
+            </div>
+            
+            <div class="ask-ai-input-section">
+                <textarea 
+                    id="askAIQuestion" 
+                    class="ask-ai-textarea" 
+                    placeholder="Ask a question about your case data..."
+                    rows="3"
+                ></textarea>
+                <div class="ask-ai-options">
+                    <label class="ask-ai-option">
+                        <input type="checkbox" id="askAIIncludePatterns" checked>
+                        <span>Include pattern context</span>
+                    </label>
+                    <label class="ask-ai-option">
+                        <input type="checkbox" id="askAIIncludeHighSeverity" checked>
+                        <span>Include high severity events</span>
+                    </label>
+                </div>
+                <div class="ask-ai-submit">
+                    <button class="btn btn-primary btn-lg" id="btnSubmitAskAI" onclick="submitAskAI()">
+                        <span class="btn-icon">🔍</span> Ask AI
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Loading State -->
+            <div class="ask-ai-loading" id="askAILoading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <span class="loading-text">AI is analyzing your case data...</span>
+                <span class="loading-subtext">This may take 30-60 seconds for complex queries</span>
+            </div>
+            
+            <!-- Response Section -->
+            <div class="ask-ai-response" id="askAIResponse" style="display: none;">
+                <div class="response-header">
+                    <h4>🤖 AI Analysis</h4>
+                    <div class="response-meta" id="askAIResponseMeta"></div>
+                </div>
+                <div class="response-content" id="askAIResponseContent">
+                    <!-- AI response will be rendered here -->
+                </div>
+            </div>
+            
+            <!-- Conversation History -->
+            <div class="ask-ai-history" id="askAIHistory" style="display: none;">
+                <div class="history-header">
+                    <h4>Previous Questions</h4>
+                    <button class="btn btn-sm btn-secondary" onclick="clearAskAIHistory()">Clear</button>
+                </div>
+                <div class="history-list" id="askAIHistoryList">
+                    <!-- History items populated by JS -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeAskAIModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Ask AI Modal Functions
+let askAIHistory = [];
+
+function openAskAIModal() {
+    document.getElementById('ask-ai-modal').style.display = 'flex';
+    document.getElementById('askAIQuestion').focus();
+    // Load history from localStorage
+    loadAskAIHistory();
+}
+
+function closeAskAIModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('ask-ai-modal').style.display = 'none';
+}
+
+function setAskAIQuestion(question) {
+    document.getElementById('askAIQuestion').value = question;
+    document.getElementById('askAIQuestion').focus();
+}
+
+function loadAskAIHistory() {
+    const stored = localStorage.getItem(`askAIHistory_${CASE_ID}`);
+    if (stored) {
+        try {
+            askAIHistory = JSON.parse(stored);
+            renderAskAIHistory();
+        } catch (e) {
+            askAIHistory = [];
+        }
+    }
+}
+
+function saveAskAIHistory() {
+    localStorage.setItem(`askAIHistory_${CASE_ID}`, JSON.stringify(askAIHistory.slice(-10))); // Keep last 10
+}
+
+function clearAskAIHistory() {
+    askAIHistory = [];
+    localStorage.removeItem(`askAIHistory_${CASE_ID}`);
+    document.getElementById('askAIHistory').style.display = 'none';
+}
+
+function renderAskAIHistory() {
+    if (askAIHistory.length === 0) {
+        document.getElementById('askAIHistory').style.display = 'none';
+        return;
+    }
+    
+    const container = document.getElementById('askAIHistoryList');
+    container.innerHTML = askAIHistory.map((item, idx) => `
+        <div class="history-item" onclick="loadHistoryItem(${idx})">
+            <div class="history-question">${escapeHtml(item.question.substring(0, 100))}${item.question.length > 100 ? '...' : ''}</div>
+            <div class="history-time">${new Date(item.timestamp).toLocaleString()}</div>
+        </div>
+    `).join('');
+    
+    document.getElementById('askAIHistory').style.display = 'block';
+}
+
+function loadHistoryItem(idx) {
+    const item = askAIHistory[idx];
+    if (item) {
+        document.getElementById('askAIQuestion').value = item.question;
+        if (item.response) {
+            showAskAIResponse(item.response, item.meta);
+        }
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function submitAskAI() {
+    const question = document.getElementById('askAIQuestion').value.trim();
+    if (!question) {
+        alert('Please enter a question');
+        return;
+    }
+    
+    const includePatterns = document.getElementById('askAIIncludePatterns').checked;
+    const includeHighSeverity = document.getElementById('askAIIncludeHighSeverity').checked;
+    
+    // Show loading
+    document.getElementById('askAILoading').style.display = 'flex';
+    document.getElementById('askAIResponse').style.display = 'none';
+    document.getElementById('btnSubmitAskAI').disabled = true;
+    
+    try {
+        const response = await fetch('/api/rag/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                case_id: CASE_ID,
+                question: question,
+                include_patterns: includePatterns,
+                include_high_severity: includeHighSeverity,
+                max_events: 50
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const meta = {
+                patterns_found: data.context_summary?.patterns_found || 0,
+                events_analyzed: data.context_summary?.events_analyzed || 0,
+                search_terms: data.context_summary?.search_terms_used || [],
+                model: data.model || 'unknown',
+                duration_ms: data.duration_ns ? Math.round(data.duration_ns / 1000000) : null
+            };
+            
+            showAskAIResponse(data.answer, meta);
+            
+            // Add to history
+            askAIHistory.unshift({
+                question: question,
+                response: data.answer,
+                meta: meta,
+                timestamp: new Date().toISOString()
+            });
+            saveAskAIHistory();
+            renderAskAIHistory();
+        } else {
+            showAskAIError(data.error || 'Unknown error occurred');
+        }
+    } catch (error) {
+        console.error('Ask AI error:', error);
+        showAskAIError('Failed to connect to AI service: ' + error.message);
+    } finally {
+        document.getElementById('askAILoading').style.display = 'none';
+        document.getElementById('btnSubmitAskAI').disabled = false;
+    }
+}
+
+function showAskAIResponse(answer, meta) {
+    const responseDiv = document.getElementById('askAIResponse');
+    const contentDiv = document.getElementById('askAIResponseContent');
+    const metaDiv = document.getElementById('askAIResponseMeta');
+    
+    // Format the answer with markdown-like formatting
+    let formattedAnswer = escapeHtml(answer);
+    
+    // Convert markdown-style formatting
+    formattedAnswer = formattedAnswer
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`(.*?)`/g, '<code>$1</code>')
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n- /g, '</p><ul><li>')
+        .replace(/\n\d+\. /g, '</p><ol><li>')
+        .replace(/\n/g, '<br>');
+    
+    // Wrap in paragraph
+    formattedAnswer = '<p>' + formattedAnswer + '</p>';
+    
+    // Clean up list formatting
+    formattedAnswer = formattedAnswer
+        .replace(/<\/p><ul><li>/g, '</p><ul><li>')
+        .replace(/<br><li>/g, '</li><li>')
+        .replace(/<li>([^<]*?)(?=<\/p>|<li>|$)/g, '<li>$1</li>');
+    
+    contentDiv.innerHTML = formattedAnswer;
+    
+    // Show meta info
+    let metaHtml = [];
+    if (meta.patterns_found) metaHtml.push(`${meta.patterns_found} patterns`);
+    if (meta.events_analyzed) metaHtml.push(`${meta.events_analyzed} events analyzed`);
+    if (meta.duration_ms) metaHtml.push(`${(meta.duration_ms / 1000).toFixed(1)}s`);
+    metaDiv.innerHTML = metaHtml.join(' • ');
+    
+    responseDiv.style.display = 'block';
+}
+
+function showAskAIError(error) {
+    const responseDiv = document.getElementById('askAIResponse');
+    const contentDiv = document.getElementById('askAIResponseContent');
+    const metaDiv = document.getElementById('askAIResponseMeta');
+    
+    contentDiv.innerHTML = `<div class="ask-ai-error">
+        <span class="error-icon">⚠️</span>
+        <span class="error-text">${escapeHtml(error)}</span>
+    </div>`;
+    metaDiv.innerHTML = '';
+    responseDiv.style.display = 'block';
+}
+
+// Handle Enter key in textarea (Ctrl+Enter to submit)
+document.addEventListener('DOMContentLoaded', function() {
+    const textarea = document.getElementById('askAIQuestion');
+    if (textarea) {
+        textarea.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                submitAskAI();
+            }
+        });
+    }
+});
+</script>
 
 <style>
 /* AI Hunting Time Filter Row */

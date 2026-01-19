@@ -1,6 +1,13 @@
 {
-  "version": "3.113.00",
+  "version": "3.114.00",
   "changelog": [
+    {
+      "version": "3.114.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Added: Ask AI feature - RAG-powered DFIR hunting assistant with zero-hallucination prompting"
+      ]
+    },
     {
       "version": "3.113.00",
       "date": "2026-01-19",
