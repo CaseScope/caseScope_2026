@@ -370,6 +370,7 @@ def create_app():
         from models.file_audit_log import FileAuditLog
         from models.audit_log import AuditLog
         from models.field_enhancer import FieldEnhancer, seed_field_enhancers
+        from models.memory_job import MemoryJob
         db.create_all()
         
         # Run schema migrations for new columns

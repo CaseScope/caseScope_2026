@@ -1,6 +1,21 @@
 {
-  "version": "3.118.01",
+  "version": "3.119.00",
   "changelog": [
+    {
+      "version": "3.119.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Memory Forensics - full Volatility3 integration for memory analysis",
+        "Added: MemoryJob model for tracking processing jobs",
+        "Added: Hostname, OS type, and memory type selection per file",
+        "Added: Plugin selection with categorized presets (Essential, Recommended, Credentials, Advanced)",
+        "Added: Windows/Linux/macOS plugin sets with sensible defaults",
+        "Added: Celery task for async Volatility3 processing",
+        "Added: Job queue with real-time progress tracking",
+        "Added: Output stored to storage/{case_id}/{hostname}/memory_{timestamp}/",
+        "Added: Source files purged after processing completes"
+      ]
+    },
     {
       "version": "3.118.01",
       "date": "2026-01-19",

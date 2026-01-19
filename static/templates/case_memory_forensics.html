@@ -32,7 +32,7 @@
     </div>
     <div class="upload-helper-content">
         <p class="upload-helper-intro">
-            Memory forensics requires <strong>local folder upload only</strong>. Web uploads are not supported due to the large file sizes of memory dumps.
+            Memory forensics requires <strong>local folder upload only</strong>. Web uploads are not supported due to the large file sizes.
         </p>
         
         <div class="upload-helper-note" style="margin-top: 16px; margin-bottom: 16px;">
@@ -50,13 +50,9 @@
             <span class="upload-helper-note-icon">🗑️</span>
             <div>
                 <strong>Files are NOT retained!</strong><br>
-                After analysis, files in this folder will be cleared. <em>You must maintain your own copy of all memory dumps.</em>
+                After processing, source files are purged. <em>You must maintain your own copy of all memory dumps.</em>
             </div>
         </div>
-        
-        <p class="upload-helper-intro" style="margin-top: 16px;">
-            <strong>Supported formats:</strong> Raw memory (.raw, .mem), DMP files, VMware (.vmem), LiME (.lime), hibernation files, page files, EnCase images (.E01), AFF images
-        </p>
     </div>
 </div>
 
@@ -81,7 +77,7 @@
     </div>
 </div>
 
-<!-- File Queue -->
+<!-- File Queue with Configuration -->
 <div class="card mt-4">
     <div class="card-header">
         <span class="card-icon">📋</span>
@@ -92,15 +88,17 @@
         <table>
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Filename</th>
                     <th>Size</th>
-                    <th>Type</th>
-                    <th>Modified</th>
+                    <th style="width: 140px;">Hostname</th>
+                    <th style="width: 120px;">OS</th>
+                    <th style="width: 160px;">Type</th>
                 </tr>
             </thead>
             <tbody id="queueBody">
                 <tr class="queue-empty-row" id="emptyRow">
-                    <td colspan="4" class="text-center text-muted" style="padding: 40px;">
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
                         No files found. Copy memory dumps to the upload folder and click "Scan for Files".
                     </td>
                 </tr>
@@ -110,63 +108,148 @@
     <div class="queue-actions" id="queueActions" style="display: none;">
         <div class="queue-summary">
             <span id="totalSizeLabel">Total: 0 B</span>
+            <span id="selectedLabel" style="margin-left: 16px;">0 selected</span>
         </div>
-        <button class="btn btn-success" id="analyzeBtn" disabled>
-            <span class="btn-icon">🔬</span>
-            Analyze Memory (Coming Soon)
+        <button class="btn btn-primary" id="configureBtn" onclick="openPluginModal()">
+            <span class="btn-icon">⚙️</span>
+            Configure & Process
         </button>
     </div>
 </div>
 
-<!-- Placeholder Features -->
-<div class="tile" style="margin-top: 24px;">
-    <div class="tile-header">
-        <h3 class="tile-title">Planned Features</h3>
+<!-- Processing Jobs -->
+<div class="card mt-4">
+    <div class="card-header">
+        <span class="card-icon">⚡</span>
+        <h3 class="card-title">Processing Jobs</h3>
+        <button class="btn btn-sm btn-secondary" onclick="loadJobs()" style="margin-left: auto;">
+            <span class="btn-icon">🔄</span> Refresh
+        </button>
     </div>
-    <div class="tile-body">
-        <div class="feature-grid">
-            <div class="feature-item">
-                <span class="feature-icon">🔄</span>
-                <div class="feature-content">
-                    <strong>Process Extraction</strong>
-                    <p>List and analyze running processes from memory</p>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Hostname</th>
+                    <th>File</th>
+                    <th>OS</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Started</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="jobsBody">
+                <tr class="queue-empty-row">
+                    <td colspan="7" class="text-center text-muted" style="padding: 30px;">
+                        No processing jobs yet.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Plugin Configuration Modal -->
+<div id="pluginModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-lg">
+        <div class="modal-header">
+            <h3 class="modal-title">⚙️ Configure Volatility3 Plugins</h3>
+            <button class="modal-close" onclick="closePluginModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted mb-3">
+                Processing <strong id="modalFileCount">0</strong> file(s). Select plugins to run:
+            </p>
+            
+            <div class="plugin-categories" id="pluginCategories">
+                <!-- Essential Plugins -->
+                <div class="plugin-category">
+                    <div class="plugin-category-header" onclick="toggleCategory('essential')">
+                        <span class="category-toggle" id="toggle-essential">▼</span>
+                        <span class="category-icon">🟢</span>
+                        <span class="category-title">Essential (Default)</span>
+                        <span class="category-count" id="count-essential">0</span>
+                        <label class="category-select-all" onclick="event.stopPropagation();">
+                            <input type="checkbox" id="selectAll-essential" onchange="toggleCategoryPlugins('essential', this.checked)" checked>
+                            Select All
+                        </label>
+                    </div>
+                    <div class="plugin-list" id="plugins-essential"></div>
+                </div>
+                
+                <!-- Recommended Plugins -->
+                <div class="plugin-category">
+                    <div class="plugin-category-header" onclick="toggleCategory('recommended')">
+                        <span class="category-toggle" id="toggle-recommended">▶</span>
+                        <span class="category-icon">🟡</span>
+                        <span class="category-title">Recommended</span>
+                        <span class="category-count" id="count-recommended">0</span>
+                        <label class="category-select-all" onclick="event.stopPropagation();">
+                            <input type="checkbox" id="selectAll-recommended" onchange="toggleCategoryPlugins('recommended', this.checked)">
+                            Select All
+                        </label>
+                    </div>
+                    <div class="plugin-list collapsed" id="plugins-recommended"></div>
+                </div>
+                
+                <!-- Credentials Plugins -->
+                <div class="plugin-category">
+                    <div class="plugin-category-header" onclick="toggleCategory('credentials')">
+                        <span class="category-toggle" id="toggle-credentials">▶</span>
+                        <span class="category-icon">⚠️</span>
+                        <span class="category-title">Credentials (Sensitive)</span>
+                        <span class="category-count" id="count-credentials">0</span>
+                        <label class="category-select-all" onclick="event.stopPropagation();">
+                            <input type="checkbox" id="selectAll-credentials" onchange="toggleCategoryPlugins('credentials', this.checked)">
+                            Select All
+                        </label>
+                    </div>
+                    <div class="plugin-list collapsed" id="plugins-credentials"></div>
+                </div>
+                
+                <!-- Advanced Plugins -->
+                <div class="plugin-category">
+                    <div class="plugin-category-header" onclick="toggleCategory('advanced')">
+                        <span class="category-toggle" id="toggle-advanced">▶</span>
+                        <span class="category-icon">🔴</span>
+                        <span class="category-title">Advanced (Slow)</span>
+                        <span class="category-count" id="count-advanced">0</span>
+                        <label class="category-select-all" onclick="event.stopPropagation();">
+                            <input type="checkbox" id="selectAll-advanced" onchange="toggleCategoryPlugins('advanced', this.checked)">
+                            Select All
+                        </label>
+                    </div>
+                    <div class="plugin-list collapsed" id="plugins-advanced"></div>
                 </div>
             </div>
-            <div class="feature-item">
-                <span class="feature-icon">🌐</span>
-                <div class="feature-content">
-                    <strong>Network Connections</strong>
-                    <p>Extract active network connections and listening ports</p>
-                </div>
+            
+            <div class="plugin-summary">
+                <span id="pluginSummary">0 plugins selected</span>
             </div>
-            <div class="feature-item">
-                <span class="feature-icon">📚</span>
-                <div class="feature-content">
-                    <strong>DLL & Module Analysis</strong>
-                    <p>Inspect loaded modules and detect injected code</p>
-                </div>
-            </div>
-            <div class="feature-item">
-                <span class="feature-icon">🔑</span>
-                <div class="feature-content">
-                    <strong>Registry Extraction</strong>
-                    <p>Recover registry hives from memory dumps</p>
-                </div>
-            </div>
-            <div class="feature-item">
-                <span class="feature-icon">🦠</span>
-                <div class="feature-content">
-                    <strong>Malware Detection</strong>
-                    <p>Identify suspicious patterns and malware artifacts</p>
-                </div>
-            </div>
-            <div class="feature-item">
-                <span class="feature-icon">📅</span>
-                <div class="feature-content">
-                    <strong>Timeline Generation</strong>
-                    <p>Build timeline of memory-based events</p>
-                </div>
-            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closePluginModal()">Cancel</button>
+            <button class="btn btn-success" id="processBtn" onclick="startProcessing()">
+                <span class="btn-icon">⚡</span>
+                Start Processing
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Job Details Modal -->
+<div id="jobModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container modal-lg">
+        <div class="modal-header">
+            <h3 class="modal-title" id="jobModalTitle">Job Details</h3>
+            <button class="modal-close" onclick="closeJobModal()">×</button>
+        </div>
+        <div class="modal-body" id="jobModalBody">
+            <!-- Populated dynamically -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeJobModal()">Close</button>
         </div>
     </div>
 </div>
@@ -178,12 +261,20 @@ const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
 let memoryFiles = [];
 let folderPath = '';
+let selectedFiles = new Set();
+let pluginData = {};
+let selectedPlugins = new Set();
+let jobPollInterval = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     loadFolderPath();
+    loadJobs();
 });
 
-// Load the folder path from the server
+// ========================================
+// Folder and File Management
+// ========================================
+
 function loadFolderPath() {
     fetch(`/api/memory/folder/${caseUuid}`)
         .then(response => response.json())
@@ -191,17 +282,10 @@ function loadFolderPath() {
             if (data.success) {
                 folderPath = data.folder_path;
                 document.getElementById('memoryFolderPath').textContent = folderPath;
-            } else {
-                document.getElementById('memoryFolderPath').textContent = 'Error loading path';
             }
-        })
-        .catch(err => {
-            console.error('Error loading folder path:', err);
-            document.getElementById('memoryFolderPath').textContent = 'Error loading path';
         });
 }
 
-// Copy folder path to clipboard
 function copyPath() {
     const path = document.getElementById('memoryFolderPath').textContent;
     navigator.clipboard.writeText(path).then(() => {
@@ -211,7 +295,6 @@ function copyPath() {
     });
 }
 
-// Scan folder for files
 async function scanFolder() {
     const btn = document.getElementById('scanBtn');
     btn.disabled = true;
@@ -223,26 +306,18 @@ async function scanFolder() {
         
         if (data.success) {
             memoryFiles = data.files;
+            selectedFiles.clear();
             renderFileList(memoryFiles);
-            
-            if (data.files.length === 0) {
-                showMessage('No files found in the upload folder.', 'info');
-            } else {
-                showMessage(`Found ${data.files.length} file(s)`, 'success');
-            }
-        } else {
-            showMessage('Error scanning folder: ' + (data.error || 'Unknown error'), 'error');
         }
     } catch (err) {
         console.error('Scan error:', err);
-        showMessage('Error scanning folder. Please try again.', 'error');
+        alert('Error scanning folder');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<span class="btn-icon">🔍</span> Scan for Files';
     }
 }
 
-// Render file list
 function renderFileList(files) {
     const tbody = document.getElementById('queueBody');
     const queueActions = document.getElementById('queueActions');
@@ -253,7 +328,7 @@ function renderFileList(files) {
     if (files.length === 0) {
         tbody.innerHTML = `
             <tr class="queue-empty-row">
-                <td colspan="4" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="6" class="text-center text-muted" style="padding: 40px;">
                     No files found. Copy memory dumps to the upload folder and click "Scan for Files".
                 </td>
             </tr>
@@ -267,93 +342,517 @@ function renderFileList(files) {
     let totalSize = 0;
     let html = '';
     
-    for (const file of files) {
+    const osOptions = `
+        <option value="windows">Windows</option>
+        <option value="linux">Linux</option>
+        <option value="macos">macOS</option>
+    `;
+    
+    const typeOptions = `
+        <option value="raw">Raw Memory</option>
+        <option value="dmp">Windows Dump</option>
+        <option value="vmware">VMware Memory</option>
+        <option value="lime">LiME Dump</option>
+        <option value="hibernation">Hibernation File</option>
+        <option value="pagefile">Page/Swap File</option>
+        <option value="encase">EnCase Image</option>
+        <option value="aff">AFF Image</option>
+        <option value="other">Other</option>
+    `;
+    
+    for (let idx = 0; idx < files.length; idx++) {
+        const file = files[idx];
         totalSize += file.size;
-        const typeClass = getTypeClass(file.type);
+        const isSelected = selectedFiles.has(idx);
         
         html += `
-            <tr class="queue-row">
+            <tr class="queue-row ${isSelected ? 'selected' : ''}" data-idx="${idx}">
+                <td class="checkbox-cell">
+                    <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleFileSelection(${idx}, this.checked)">
+                </td>
                 <td class="queue-filename">
                     <span class="filename-text">${escapeHtml(file.name)}</span>
-                    ${file.relative_path !== file.name ? `<span class="filename-path text-muted">${escapeHtml(file.relative_path)}</span>` : ''}
                 </td>
                 <td class="queue-size">${formatSize(file.size)}</td>
-                <td class="queue-type">
-                    <span class="badge ${typeClass}">${file.type}</span>
+                <td>
+                    <input type="text" class="form-input form-input-sm" id="hostname-${idx}" 
+                           value="${escapeHtml(file.detected_hostname || '')}" 
+                           placeholder="HOSTNAME" style="text-transform: uppercase;">
                 </td>
-                <td class="queue-modified">${formatDate(file.modified)}</td>
+                <td>
+                    <select class="form-input form-input-sm" id="os-${idx}" onchange="onOsChange(${idx})">
+                        ${osOptions.replace(`value="${file.detected_os}"`, `value="${file.detected_os}" selected`)}
+                    </select>
+                </td>
+                <td>
+                    <select class="form-input form-input-sm" id="type-${idx}">
+                        ${typeOptions}
+                    </select>
+                </td>
             </tr>
         `;
     }
     
     tbody.innerHTML = html;
     document.getElementById('totalSizeLabel').textContent = `Total: ${formatSize(totalSize)}`;
+    updateSelectedLabel();
 }
 
-// Get badge class for file type
-function getTypeClass(type) {
-    switch (type) {
-        case 'Raw Memory':
-        case 'Memory Dump':
-            return 'badge-primary';
-        case 'VMware Memory':
-        case 'LiME Dump':
-            return 'badge-success';
-        case 'Hibernation File':
-        case 'Page File':
-        case 'Swap File':
-            return 'badge-warning';
-        case 'Minidump':
-        case 'Kernel Dump':
-        case 'Complete Dump':
-            return 'badge-info';
-        case 'EnCase Image':
-        case 'AFF Image':
-            return 'badge-secondary';
-        default:
-            return 'badge-muted';
+function toggleFileSelection(idx, checked) {
+    if (checked) {
+        selectedFiles.add(idx);
+    } else {
+        selectedFiles.delete(idx);
     }
+    
+    const row = document.querySelector(`tr[data-idx="${idx}"]`);
+    if (row) {
+        row.classList.toggle('selected', checked);
+    }
+    
+    updateSelectedLabel();
 }
 
-// Confirm clear folder
-function confirmClearFolder() {
-    if (memoryFiles.length === 0) {
-        showMessage('Folder is already empty.', 'info');
+function updateSelectedLabel() {
+    const count = selectedFiles.size;
+    document.getElementById('selectedLabel').textContent = `${count} selected`;
+    document.getElementById('configureBtn').disabled = count === 0;
+}
+
+function onOsChange(idx) {
+    // When OS changes, we'll reload plugins for that OS when modal opens
+}
+
+// ========================================
+// Plugin Modal
+// ========================================
+
+async function openPluginModal() {
+    if (selectedFiles.size === 0) {
+        alert('Please select at least one file');
         return;
     }
     
-    if (confirm(`Are you sure you want to delete ${memoryFiles.length} file(s) from the upload folder?\n\nThis action cannot be undone!`)) {
-        clearFolder();
+    // Check all selected files have same OS (for now, require same OS)
+    const osTypes = new Set();
+    selectedFiles.forEach(idx => {
+        const os = document.getElementById(`os-${idx}`).value;
+        osTypes.add(os);
+    });
+    
+    if (osTypes.size > 1) {
+        alert('All selected files must have the same OS type. Please process different OS types separately.');
+        return;
     }
+    
+    // Validate hostnames
+    let missingHostnames = false;
+    selectedFiles.forEach(idx => {
+        const hostname = document.getElementById(`hostname-${idx}`).value.trim();
+        if (!hostname) {
+            missingHostnames = true;
+        }
+    });
+    
+    if (missingHostnames) {
+        alert('Please enter a hostname for all selected files.');
+        return;
+    }
+    
+    const osType = Array.from(osTypes)[0];
+    document.getElementById('modalFileCount').textContent = selectedFiles.size;
+    
+    // Load plugins for this OS
+    await loadPlugins(osType);
+    
+    document.getElementById('pluginModal').style.display = 'flex';
 }
 
-// Clear folder
-async function clearFolder() {
-    const btn = document.getElementById('clearBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Clearing...';
-    
+function closePluginModal() {
+    document.getElementById('pluginModal').style.display = 'none';
+}
+
+async function loadPlugins(osType) {
     try {
-        const response = await fetch(`/api/memory/clear/${caseUuid}`, { method: 'POST' });
+        const response = await fetch(`/api/memory/plugins/${osType}`);
         const data = await response.json();
         
         if (data.success) {
-            showMessage(`Deleted ${data.deleted_count} file(s)`, 'success');
-            memoryFiles = [];
-            renderFileList([]);
-        } else {
-            showMessage('Error clearing folder: ' + (data.error || 'Unknown error'), 'error');
+            pluginData = data.plugins;
+            selectedPlugins.clear();
+            renderPlugins();
         }
     } catch (err) {
-        console.error('Clear error:', err);
-        showMessage('Error clearing folder. Please try again.', 'error');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">🗑️</span> Clear Folder';
+        console.error('Error loading plugins:', err);
     }
 }
 
-// Utility functions
+function renderPlugins() {
+    const categories = ['essential', 'recommended', 'credentials', 'advanced'];
+    
+    categories.forEach(category => {
+        const container = document.getElementById(`plugins-${category}`);
+        const plugins = pluginData[category] || [];
+        
+        document.getElementById(`count-${category}`).textContent = plugins.length;
+        
+        if (plugins.length === 0) {
+            container.innerHTML = '<div class="plugin-empty">No plugins in this category for selected OS</div>';
+            return;
+        }
+        
+        let html = '';
+        plugins.forEach(plugin => {
+            const isDefault = plugin.default;
+            if (isDefault) {
+                selectedPlugins.add(plugin.name);
+            }
+            
+            let badges = '';
+            if (plugin.sensitive) badges += '<span class="plugin-badge badge-warning">Sensitive</span>';
+            if (plugin.slow) badges += '<span class="plugin-badge badge-danger">Slow</span>';
+            
+            html += `
+                <label class="plugin-item">
+                    <input type="checkbox" value="${plugin.name}" 
+                           ${isDefault ? 'checked' : ''} 
+                           onchange="togglePlugin('${plugin.name}', this.checked)">
+                    <span class="plugin-name">${plugin.name}</span>
+                    <span class="plugin-desc">${plugin.description}</span>
+                    ${badges}
+                </label>
+            `;
+        });
+        
+        container.innerHTML = html;
+    });
+    
+    updatePluginSummary();
+}
+
+function toggleCategory(category) {
+    const container = document.getElementById(`plugins-${category}`);
+    const toggle = document.getElementById(`toggle-${category}`);
+    
+    if (container.classList.contains('collapsed')) {
+        container.classList.remove('collapsed');
+        toggle.textContent = '▼';
+    } else {
+        container.classList.add('collapsed');
+        toggle.textContent = '▶';
+    }
+}
+
+function toggleCategoryPlugins(category, checked) {
+    const plugins = pluginData[category] || [];
+    plugins.forEach(plugin => {
+        selectedPlugins[checked ? 'add' : 'delete'](plugin.name);
+    });
+    
+    // Update checkboxes
+    const container = document.getElementById(`plugins-${category}`);
+    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+    });
+    
+    updatePluginSummary();
+}
+
+function togglePlugin(pluginName, checked) {
+    if (checked) {
+        selectedPlugins.add(pluginName);
+    } else {
+        selectedPlugins.delete(pluginName);
+    }
+    updatePluginSummary();
+}
+
+function updatePluginSummary() {
+    document.getElementById('pluginSummary').textContent = `${selectedPlugins.size} plugins selected`;
+}
+
+// ========================================
+// Processing
+// ========================================
+
+async function startProcessing() {
+    if (selectedFiles.size === 0 || selectedPlugins.size === 0) {
+        alert('Please select files and plugins');
+        return;
+    }
+    
+    const btn = document.getElementById('processBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Submitting...';
+    
+    const plugins = Array.from(selectedPlugins);
+    let submitted = 0;
+    let errors = [];
+    
+    for (const idx of selectedFiles) {
+        const file = memoryFiles[idx];
+        const hostname = document.getElementById(`hostname-${idx}`).value.trim().toUpperCase();
+        const osType = document.getElementById(`os-${idx}`).value;
+        const memType = document.getElementById(`type-${idx}`).value;
+        
+        try {
+            const response = await fetch(`/api/memory/submit/${caseUuid}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_file: file.path,
+                    hostname: hostname,
+                    os_type: osType,
+                    memory_type: memType,
+                    selected_plugins: plugins
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                submitted++;
+            } else {
+                errors.push(`${file.name}: ${data.error}`);
+            }
+        } catch (err) {
+            errors.push(`${file.name}: ${err.message}`);
+        }
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">⚡</span> Start Processing';
+    
+    closePluginModal();
+    
+    if (submitted > 0) {
+        alert(`Submitted ${submitted} job(s) for processing`);
+        loadJobs();
+        scanFolder(); // Refresh file list
+    }
+    
+    if (errors.length > 0) {
+        alert('Errors:\n' + errors.join('\n'));
+    }
+}
+
+// ========================================
+// Jobs Management
+// ========================================
+
+async function loadJobs() {
+    try {
+        const response = await fetch(`/api/memory/jobs/${caseUuid}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            renderJobs(data.jobs);
+            
+            // Start polling if any jobs are running
+            const hasRunning = data.jobs.some(j => j.status === 'running' || j.status === 'pending');
+            if (hasRunning) {
+                startJobPolling();
+            } else {
+                stopJobPolling();
+            }
+        }
+    } catch (err) {
+        console.error('Error loading jobs:', err);
+    }
+}
+
+function renderJobs(jobs) {
+    const tbody = document.getElementById('jobsBody');
+    
+    if (jobs.length === 0) {
+        tbody.innerHTML = `
+            <tr class="queue-empty-row">
+                <td colspan="7" class="text-center text-muted" style="padding: 30px;">
+                    No processing jobs yet.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    let html = '';
+    jobs.forEach(job => {
+        const statusClass = getStatusClass(job.status);
+        const progress = job.status === 'running' ? 
+            `<div class="progress-mini"><div class="progress-bar-mini" style="width: ${job.progress}%"></div></div>
+             <span class="progress-text">${job.progress}%</span>` :
+            (job.status === 'completed' ? '100%' : '-');
+        
+        html += `
+            <tr class="job-row" data-job-id="${job.id}">
+                <td><strong>${escapeHtml(job.hostname)}</strong></td>
+                <td class="filename-cell">${escapeHtml(job.source_filename)}</td>
+                <td>${job.os_type}</td>
+                <td><span class="badge ${statusClass}">${job.status}</span></td>
+                <td class="progress-cell">${progress}</td>
+                <td>${job.started_at ? formatDateTime(job.started_at) : '-'}</td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="viewJob(${job.id})">View</button>
+                    ${job.status === 'running' || job.status === 'pending' ? 
+                        `<button class="btn btn-sm btn-danger" onclick="cancelJob(${job.id})">Cancel</button>` : ''}
+                </td>
+            </tr>
+        `;
+    });
+    
+    tbody.innerHTML = html;
+}
+
+function getStatusClass(status) {
+    switch (status) {
+        case 'pending': return 'badge-info';
+        case 'running': return 'badge-warning';
+        case 'completed': return 'badge-success';
+        case 'failed': return 'badge-danger';
+        case 'cancelled': return 'badge-muted';
+        default: return 'badge-muted';
+    }
+}
+
+function startJobPolling() {
+    if (jobPollInterval) return;
+    jobPollInterval = setInterval(loadJobs, 3000);
+}
+
+function stopJobPolling() {
+    if (jobPollInterval) {
+        clearInterval(jobPollInterval);
+        jobPollInterval = null;
+    }
+}
+
+async function viewJob(jobId) {
+    try {
+        const response = await fetch(`/api/memory/job/${jobId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            showJobModal(data.job);
+        }
+    } catch (err) {
+        console.error('Error loading job:', err);
+    }
+}
+
+function showJobModal(job) {
+    document.getElementById('jobModalTitle').textContent = `Job: ${job.hostname} - ${job.source_filename}`;
+    
+    let html = `
+        <div class="job-details">
+            <div class="job-detail-grid">
+                <div class="job-detail-item">
+                    <span class="job-detail-label">Status:</span>
+                    <span class="badge ${getStatusClass(job.status)}">${job.status}</span>
+                </div>
+                <div class="job-detail-item">
+                    <span class="job-detail-label">Progress:</span>
+                    <span>${job.progress}%</span>
+                </div>
+                <div class="job-detail-item">
+                    <span class="job-detail-label">OS Type:</span>
+                    <span>${job.os_type}</span>
+                </div>
+                <div class="job-detail-item">
+                    <span class="job-detail-label">Memory Type:</span>
+                    <span>${job.memory_type}</span>
+                </div>
+                <div class="job-detail-item">
+                    <span class="job-detail-label">File Size:</span>
+                    <span>${formatSize(job.file_size)}</span>
+                </div>
+                <div class="job-detail-item">
+                    <span class="job-detail-label">Created:</span>
+                    <span>${formatDateTime(job.created_at)}</span>
+                </div>
+            </div>
+            
+            ${job.current_plugin ? `<p class="current-plugin">Currently processing: <strong>${job.current_plugin}</strong></p>` : ''}
+            
+            ${job.error_message ? `<div class="job-error">Error: ${escapeHtml(job.error_message)}</div>` : ''}
+            
+            <h4>Selected Plugins (${job.selected_plugins.length})</h4>
+            <div class="plugin-list-summary">
+                ${job.selected_plugins.map(p => `<span class="badge badge-muted">${p}</span>`).join(' ')}
+            </div>
+            
+            ${job.plugins_completed && job.plugins_completed.length > 0 ? `
+                <h4>Completed (${job.plugins_completed.length})</h4>
+                <div class="plugin-list-summary">
+                    ${job.plugins_completed.map(p => `<span class="badge badge-success">${p.name}</span>`).join(' ')}
+                </div>
+            ` : ''}
+            
+            ${job.plugins_failed && job.plugins_failed.length > 0 ? `
+                <h4>Failed (${job.plugins_failed.length})</h4>
+                <div class="plugin-list-summary">
+                    ${job.plugins_failed.map(p => `<span class="badge badge-danger" title="${escapeHtml(p.error)}">${p.name}</span>`).join(' ')}
+                </div>
+            ` : ''}
+            
+            ${job.output_folder ? `<p class="output-folder">Output: <code>${job.output_folder}</code></p>` : ''}
+        </div>
+    `;
+    
+    document.getElementById('jobModalBody').innerHTML = html;
+    document.getElementById('jobModal').style.display = 'flex';
+}
+
+function closeJobModal() {
+    document.getElementById('jobModal').style.display = 'none';
+}
+
+async function cancelJob(jobId) {
+    if (!confirm('Cancel this job?')) return;
+    
+    try {
+        const response = await fetch(`/api/memory/job/${jobId}/cancel`, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            loadJobs();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (err) {
+        alert('Error cancelling job');
+    }
+}
+
+async function confirmClearFolder() {
+    if (memoryFiles.length === 0) {
+        alert('Folder is already empty.');
+        return;
+    }
+    
+    if (confirm(`Delete ${memoryFiles.length} file(s) from upload folder?\n\nThis cannot be undone!`)) {
+        const btn = document.getElementById('clearBtn');
+        btn.disabled = true;
+        
+        try {
+            const response = await fetch(`/api/memory/clear/${caseUuid}`, { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                memoryFiles = [];
+                selectedFiles.clear();
+                renderFileList([]);
+            }
+        } catch (err) {
+            alert('Error clearing folder');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+}
+
+// ========================================
+// Utilities
+// ========================================
+
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -369,20 +868,10 @@ function formatSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-function formatDate(isoString) {
+function formatDateTime(isoString) {
     if (!isoString) return '-';
     const d = new Date(isoString);
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-}
-
-function showMessage(message, type) {
-    // Simple alert for now - could be enhanced with toast notifications
-    if (type === 'error') {
-        alert('Error: ' + message);
-    } else if (type === 'info') {
-        alert(message);
-    }
-    // Success messages can be silent or shown briefly
 }
 </script>
 
@@ -390,9 +879,7 @@ function showMessage(message, type) {
 /* Warning box variant */
 .warning-box {
     border-color: var(--accent-warning);
-    background: linear-gradient(135deg, 
-        rgba(var(--accent-warning-rgb, 255, 193, 7), 0.05) 0%, 
-        rgba(var(--accent-warning-rgb, 255, 193, 7), 0.02) 100%);
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.05) 0%, rgba(255, 193, 7, 0.02) 100%);
 }
 
 .warning-box .upload-helper-header h3 {
@@ -400,12 +887,8 @@ function showMessage(message, type) {
 }
 
 .danger-note {
-    background-color: rgba(var(--accent-danger-rgb, 220, 53, 69), 0.1);
+    background-color: rgba(220, 53, 69, 0.1);
     border-color: var(--accent-danger);
-}
-
-.danger-note .upload-helper-note-icon {
-    color: var(--accent-danger);
 }
 
 .folder-path-inline {
@@ -414,7 +897,6 @@ function showMessage(message, type) {
     border-radius: 4px;
     font-family: monospace;
     font-size: 13px;
-    display: inline-block;
     user-select: all;
 }
 
@@ -424,59 +906,222 @@ function showMessage(message, type) {
     margin-top: 16px;
 }
 
+.queue-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-top: 1px solid var(--border-primary);
+}
+
 .queue-summary {
     color: var(--text-secondary);
-    font-size: 14px;
 }
 
-.filename-path {
-    display: block;
-    font-size: 12px;
-    margin-top: 2px;
+.queue-row.selected {
+    background-color: rgba(var(--accent-primary-rgb, 66, 153, 225), 0.1);
 }
 
-/* Feature grid for planned features */
-.feature-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
+.form-input-sm {
+    padding: 4px 8px;
+    font-size: 13px;
 }
 
-.feature-item {
-    display: flex;
-    gap: 12px;
-    padding: 16px;
-    background: var(--bg-secondary);
-    border-radius: 8px;
+/* Plugin Modal */
+.modal-lg {
+    max-width: 800px;
+}
+
+.plugin-category {
+    margin-bottom: 8px;
     border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    overflow: hidden;
 }
 
-.feature-icon {
-    font-size: 28px;
-    flex-shrink: 0;
+.plugin-category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    user-select: none;
 }
 
-.feature-content strong {
-    display: block;
-    color: var(--text-primary);
-    margin-bottom: 4px;
+.plugin-category-header:hover {
+    background: var(--bg-tertiary);
 }
 
-.feature-content p {
-    margin: 0;
+.category-toggle {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.category-title {
+    font-weight: 600;
+}
+
+.category-count {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.category-select-all {
+    margin-left: auto;
     font-size: 13px;
     color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
-/* Badge variants */
-.badge-primary {
-    background-color: var(--accent-primary);
-    color: white;
+.plugin-list {
+    padding: 8px 16px;
 }
 
-.badge-secondary {
-    background-color: var(--text-muted);
-    color: white;
+.plugin-list.collapsed {
+    display: none;
+}
+
+.plugin-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-primary);
+    cursor: pointer;
+}
+
+.plugin-item:last-child {
+    border-bottom: none;
+}
+
+.plugin-item:hover {
+    background: var(--bg-secondary);
+    margin: 0 -16px;
+    padding-left: 16px;
+    padding-right: 16px;
+}
+
+.plugin-name {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--accent-primary);
+    min-width: 200px;
+}
+
+.plugin-desc {
+    color: var(--text-secondary);
+    font-size: 13px;
+    flex: 1;
+}
+
+.plugin-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.plugin-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 16px 0;
+}
+
+.plugin-summary {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+}
+
+/* Jobs table */
+.progress-cell {
+    min-width: 100px;
+}
+
+.progress-mini {
+    width: 60px;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    display: inline-block;
+    margin-right: 8px;
+}
+
+.progress-bar-mini {
+    height: 100%;
+    background: var(--accent-primary);
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.progress-text {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Job modal */
+.job-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.job-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.job-detail-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.current-plugin {
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.job-error {
+    padding: 12px;
+    background: rgba(220, 53, 69, 0.1);
+    border: 1px solid var(--accent-danger);
+    border-radius: 8px;
+    color: var(--accent-danger);
+    margin-bottom: 16px;
+}
+
+.plugin-list-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 16px;
+}
+
+.output-folder {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.output-folder code {
+    font-size: 12px;
+}
+
+.filename-cell {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 </style>
 {% endblock %}
