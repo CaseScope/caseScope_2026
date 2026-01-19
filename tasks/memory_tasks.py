@@ -70,11 +70,11 @@ def process_memory_dump(self, job_id: int):
             db.session.commit()
             update_job_progress(job_id, 0, status='running')
             
-            # Create output folder
+            # Create output folder - use case UUID, not integer ID
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             output_base = os.path.join(
                 Config.STORAGE_FOLDER,
-                str(job.case_id),
+                job.case.uuid,
                 job.hostname,
                 f"memory_{timestamp}"
             )
