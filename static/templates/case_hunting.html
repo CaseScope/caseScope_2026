@@ -517,6 +517,53 @@ const preconfiguredSearches = {
                         </div>
                     `
                 }
+            },
+            {
+                label: 'Pass the Ticket',
+                search: '4768|4769|4770|(4624 logontype:3) -dwm -$ -health',
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType', 'raw_json.EventData.ServiceName'],
+                description: {
+                    title: '🎫 Pass the Ticket Detection',
+                    content: `
+                        <p>No single event screams "PtT", but these combinations are <strong>high-fidelity</strong>:</p>
+                        <ul>
+                            <li><strong>Service ticket (4769)</strong> without recent corresponding TGT request (4768) from the same user/machine — Classic PtT sign: attacker injects stolen TGT → requests TGS directly (no fresh 4768).</li>
+                            <li><strong>4624 Type 3</strong> (network logon) with Authentication Package = Kerberos → but no recent interactive logon (Type 2/10) or explicit credential use (4648) for that user on the source machine.</li>
+                            <li><strong>Anomalous ticket behavior:</strong>
+                                <ul>
+                                    <li>Service tickets requested from unusual source IPs/hosts for that user</li>
+                                    <li>Privileged accounts (admins, service accounts) accessing many systems quickly</li>
+                                    <li>Unusual ticket options (e.g., very long lifetime, RC4 encryption in modern envs, missing PAC)</li>
+                                </ul>
+                            </li>
+                            <li><strong>4769/4770 chains</strong> with no 4768 in recent timeframe (e.g., last 10-60 minutes)</li>
+                            <li><strong>Irregularities in logon fields</strong> (especially with forged/Golden Tickets): Blank/missing Logon GUID, Account Domain, or other fields in 4624/4672</li>
+                            <li><strong>Tool indicators</strong> — Process creation (4688) or Sysmon for Mimikatz/Rubeus/Kekeo execution, or suspicious LSASS access (Event 10 Sysmon)</li>
+                        </ul>
+                        
+                        <h4>🎯 Quick Hunting Checklist</h4>
+                        <ul>
+                            <li><strong>Focus on DCs</strong> → 4768/4769/4770 are DC-only</li>
+                            <li><strong>Correlate across machines</strong> → 4769 on DC + 4624 Type 3 on target</li>
+                            <li><strong>Prioritize privileged accounts</strong> — Domain Admins, service accounts, KRBTGT-related</li>
+                            <li><strong>Look for lateral movement</strong> — Same user → many targets in short time</li>
+                            <li><strong>Baseline normal behavior</strong> — Tune out known apps/scanners that generate odd patterns</li>
+                            <li><strong>Advanced</strong> — Use SIEM/UEBA (e.g., Microsoft Defender for Identity alerts for "Suspected identity theft (pass-the-ticket)") or EDR for ticket injection detection</li>
+                        </ul>
+                        
+                        <h4>⚠️ False Positives to Watch</h4>
+                        <ul>
+                            <li>Legacy apps or misconfigured services requesting tickets oddly</li>
+                            <li>Shared workstations or jump boxes</li>
+                            <li>Long ticket lifetimes in certain configs</li>
+                            <li>Monitoring/scanning tools</li>
+                        </ul>
+                        
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>🔑 Bottom Line:</strong> The highest-confidence PtT sign is <strong>4769 service ticket requests without a recent matching 4768 TGT request</strong> for the same user/session — especially on privileged accounts with unusual access patterns. Correlate aggressively, and treat it as suspicious until proven benign.
+                        </div>
+                    `
+                }
             }
         ]
     },

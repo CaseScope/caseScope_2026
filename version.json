@@ -1,6 +1,13 @@
 {
-  "version": "3.111.04",
+  "version": "3.112.00",
   "changelog": [
+    {
+      "version": "3.112.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Added: Pass the Ticket predefined search with detection guide"
+      ]
+    },
     {
       "version": "3.111.04",
       "date": "2026-01-19",
