@@ -1,6 +1,15 @@
 {
-  "version": "3.117.03",
+  "version": "3.117.04",
   "changelog": [
+    {
+      "version": "3.117.04",
+      "date": "2026-01-19",
+      "changes": [
+        "UI: Redesigned Find IOCs modal with professional gradient stat cards",
+        "UI: Improved progress view with animated progress bar and live IOC count",
+        "UI: Clean results header with scan completion summary"
+      ]
+    },
     {
       "version": "3.117.03",
       "date": "2026-01-19",

@@ -691,68 +691,127 @@
     <div class="modal-container modal-extraction">
         <div class="modal-header">
             <h3 class="modal-title">
-                <span id="findIOCsTitle">🔎 Find IOCs in Tagged Events</span>
+                <span id="findIOCsTitle">IOC Discovery</span>
             </h3>
             <button class="modal-close" onclick="closeFindIOCsModal()">×</button>
         </div>
         <div class="modal-body">
             <!-- Initial State / Pre-scan Info -->
             <div id="findIOCsStart" class="extraction-section">
-                <div class="extraction-info">
-                    <p>This feature scans events that are already tagged with IOCs to discover additional indicators.</p>
-                    <div class="extraction-stat-row">
-                        <div class="extraction-stat">
-                            <span class="stat-icon">📋</span>
-                            <span class="stat-value" id="taggedEventCount">-</span>
-                            <span class="stat-label">Tagged Events</span>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                    <!-- Left: Stats -->
+                    <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 1.5rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #3b82f6, #6366f1); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1;" id="taggedEventCount">-</div>
+                                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Tagged Events</div>
+                            </div>
                         </div>
-                        <div class="extraction-stat">
-                            <span class="stat-icon">🔍</span>
-                            <span class="stat-value" id="existingIOCCount">-</span>
-                            <span class="stat-label">Existing IOCs</span>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1;" id="existingIOCCount">-</div>
+                                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Existing IOCs</div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Right: Description -->
+                    <div style="display: flex; flex-direction: column; justify-content: center;">
+                        <h4 style="margin: 0 0 0.75rem 0; color: var(--text-primary); font-size: 1.1rem;">Discover Hidden Indicators</h4>
+                        <p style="margin: 0 0 1rem 0; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
+                            Scan events already tagged with IOCs to uncover additional indicators that may have been missed.
+                        </p>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: rgba(59, 130, 246, 0.1); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary);">
+                                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+                                IPs & Domains
+                            </span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: rgba(59, 130, 246, 0.1); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary);">
+                                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+                                File Hashes
+                            </span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: rgba(59, 130, 246, 0.1); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary);">
+                                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+                                Registry Keys
+                            </span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: rgba(59, 130, 246, 0.1); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary);">
+                                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+                                URLs
+                            </span>
                         </div>
                     </div>
                 </div>
-                <div class="find-iocs-options">
-                    <p class="hint">AI will analyze each tagged event to extract IOCs, then compare against known systems, users, and existing IOCs.</p>
+                <div style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.75rem;">
+                    <svg width="20" height="20" fill="none" stroke="#fbbf24" stroke-width="2" viewBox="0 0 24 24"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Uses fast regex pattern matching. Results are compared against known systems, users, and existing IOCs for deduplication.</span>
                 </div>
             </div>
             
             <!-- No Tagged Events State -->
             <div id="noTaggedEventsState" class="extraction-section" style="display: none;">
-                <div class="no-reports-message">
-                    <span class="no-reports-icon">📭</span>
-                    <h4>No Tagged Events</h4>
-                    <p>No events are currently tagged with IOCs.</p>
-                    <p class="hint">Use "Tag Artifacts" first to tag events with existing IOCs, then use this feature to find additional indicators.</p>
+                <div style="text-align: center; padding: 3rem 2rem;">
+                    <div style="width: 64px; height: 64px; margin: 0 auto 1.5rem; background: rgba(107, 114, 128, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                        <svg width="32" height="32" fill="none" stroke="var(--text-muted)" stroke-width="1.5" viewBox="0 0 24 24"><path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+                    </div>
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary);">No Tagged Events</h4>
+                    <p style="margin: 0 0 1rem 0; color: var(--text-muted); max-width: 400px; margin-left: auto; margin-right: auto;">
+                        No events are currently tagged with IOCs. Use "Tag Artifacts" first to mark events with existing IOCs.
+                    </p>
                 </div>
             </div>
             
             <!-- Extraction Progress -->
             <div id="findIOCsProgress" class="extraction-section" style="display: none;">
-                <div class="extraction-progress-container">
-                    <div class="spinner"></div>
-                    <p>Processing event <span id="findIOCsCurrentNum">0</span> of <span id="findIOCsTotalNum">0</span>...</p>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="findIOCsProgressBar" style="width: 0%"></div>
+                <div style="text-align: center; padding: 2rem;">
+                    <div class="spinner" style="margin: 0 auto 1.5rem;"></div>
+                    <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">
+                        Scanning Events
                     </div>
-                    <p class="progress-hint" id="findIOCsCurrentValue"></p>
-                    <p class="progress-hint">Found <span id="findIOCsFoundCount">0</span> potential IOCs so far</p>
+                    <div style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                        Processing <span id="findIOCsCurrentNum" style="font-weight: 600; color: var(--accent-primary);">0</span> of <span id="findIOCsTotalNum" style="font-weight: 600;">0</span> events
+                    </div>
+                    <div style="background: var(--bg-tertiary); border-radius: 8px; height: 8px; overflow: hidden; margin-bottom: 1rem;">
+                        <div id="findIOCsProgressBar" style="height: 100%; background: linear-gradient(90deg, #3b82f6, #6366f1); width: 0%; transition: width 0.3s ease;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: center; gap: 2rem;">
+                        <div>
+                            <span style="font-size: 1.5rem; font-weight: 700; color: var(--accent-success);" id="findIOCsFoundCount">0</span>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">IOCs Found</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);" id="findIOCsCurrentValue"></p>
                 </div>
             </div>
             
             <!-- Extraction Results -->
             <div id="findIOCsResults" class="extraction-section" style="display: none;">
-                <div class="extraction-summary">
-                    <h4>Extraction Complete</h4>
-                    <div class="extraction-method-container" id="findIOCsMethodContainer">
-                        <!-- Filled by JS -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <svg width="20" height="20" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">Scan Complete</div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted);" id="findIOCsMethodContainer"></div>
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent-primary);" id="findIOCsCount">0</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">IOCs Found</div>
                     </div>
                 </div>
                 
                 <!-- IOCs to Import -->
                 <div class="result-section">
-                    <h5>📋 IOCs Found (<span id="findIOCsCount">0</span>)</h5>
+                    <h5 style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        Select IOCs to Import
+                    </h5>
                     <div class="ioc-results-table-container">
                         <table class="ioc-results-table">
                             <thead>
@@ -2803,13 +2862,7 @@ function renderFindIOCsResults(data) {
     
     // Method summary
     const methodContainer = document.getElementById('findIOCsMethodContainer');
-    methodContainer.innerHTML = `
-        <span class="extraction-method">
-            <span class="method-icon">${data.used_ai ? '🧠' : '📋'}</span>
-            ${data.used_ai ? 'AI Extraction' : 'Regex Extraction'}
-        </span>
-        <span class="extraction-count">Processed ${data.events_processed || 0} events</span>
-    `;
+    methodContainer.textContent = `${data.used_ai ? 'AI' : 'Regex'} extraction • ${(data.events_processed || 0).toLocaleString()} events processed`;
     
     // Render IOCs
     const iocs = data.iocs_to_import || [];
