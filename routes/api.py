@@ -2012,9 +2012,10 @@ def get_hunting_events(case_id):
             
             if paren_groups:
                 # We have parenthesized groups
-                # Check if there are | between groups (OR relationship)
-                # Find the structure: look for ) | ( pattern or ) | ( with spaces
-                has_group_or = bool(re.search(r'\)\s*\|\s*\(', search))
+                # Check if there are | between groups or between group and term (OR relationship)
+                # Patterns: (grp)|(grp), (grp)|term, term|(grp)
+                has_group_or = bool(re.search(r'\)\s*\|\s*\(', search))  # (grp)|(grp)
+                has_mixed_or = bool(re.search(r'\)\s*\|(?!\s*\()', search)) or bool(re.search(r'(?<!\))\|\s*\(', search))  # (grp)|term or term|(grp)
                 
                 group_sqls = []
                 for i, group_content in enumerate(paren_groups):
@@ -2023,18 +2024,41 @@ def get_hunting_events(case_id):
                     if group_sql:
                         group_sqls.append(group_sql)
                 
-                if group_sqls:
+                if has_mixed_or:
+                    # Mixed OR: (group)|term or term|(group)
+                    # Parse the terms connected by | outside parens and include in OR clause
+                    # Extract OR-connected parts from outside content (before pipe cleanup)
+                    or_terms_outside = []
+                    if outside_content:
+                        # Split by | but keep non-empty parts
+                        outside_parts = [p.strip() for p in outside_content.split('|') if p.strip()]
+                        for k, part in enumerate(outside_parts):
+                            # Skip exclusions - they stay global
+                            if part.startswith('-'):
+                                continue
+                            pos_conds, _ = parse_group(part, f'mixed_or_{k}')
+                            for cond in pos_conds:
+                                or_terms_outside.append(cond)
+                    
+                    # Combine group sqls with OR-connected outside terms
+                    all_or_parts = group_sqls + or_terms_outside
+                    if all_or_parts:
+                        search_conditions.append(f"({' OR '.join(all_or_parts)})")
+                    
+                    # Only add exclusions from global (they apply to everything)
+                    search_conditions.extend(global_exclusions)
+                elif group_sqls:
                     if has_group_or or len(group_sqls) > 1:
                         # Multiple groups with OR between them
                         search_conditions.append(f"({' OR '.join(group_sqls)})")
                     else:
                         # Single group, just add its conditions
                         search_conditions.append(group_sqls[0])
-                
-                # Add global positive conditions (terms outside parens that aren't exclusions)
-                search_conditions.extend(global_positive)
-                # Add global exclusions
-                search_conditions.extend(global_exclusions)
+                    
+                    # Add global positive conditions (terms outside parens that aren't exclusions)
+                    search_conditions.extend(global_positive)
+                    # Add global exclusions
+                    search_conditions.extend(global_exclusions)
             else:
                 # No parenthesized groups - simple search
                 pos_conds, excl_conds = parse_group(search, 'simple')

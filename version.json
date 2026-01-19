@@ -1,6 +1,13 @@
 {
-  "version": "3.111.03",
+  "version": "3.111.04",
   "changelog": [
+    {
+      "version": "3.111.04",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: OR pipe operator now works with mixed (group)|term syntax (e.g. (4624 logontype:3)|4678)"
+      ]
+    },
     {
       "version": "3.111.03",
       "date": "2026-01-19",
