@@ -772,6 +772,13 @@ function showJobModal(job) {
             
             ${job.current_plugin ? `<p class="current-plugin">Currently processing: <strong>${job.current_plugin}</strong></p>` : ''}
             
+            ${job.status === 'running' ? `
+                <div class="snapshot-notice">
+                    <span class="snapshot-icon">📸</span>
+                    This is a snapshot of progress at the time the modal was opened. Close and re-open to refresh.
+                </div>
+            ` : ''}
+            
             ${job.error_message ? `<div class="job-error">Error: ${escapeHtml(job.error_message)}</div>` : ''}
             
             <h4>Selected Plugins (${job.selected_plugins.length})</h4>
@@ -1097,6 +1104,23 @@ function formatDateTime(isoString) {
     border-radius: 8px;
     color: var(--accent-danger);
     margin-bottom: 16px;
+}
+
+.snapshot-notice {
+    padding: 10px 14px;
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid var(--accent-warning);
+    border-radius: 8px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.snapshot-icon {
+    font-size: 1rem;
 }
 
 .plugin-list-summary {
