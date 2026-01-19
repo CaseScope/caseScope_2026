@@ -23,6 +23,13 @@ def ensure_memory_dir(case_uuid):
     """
     case_memory_path = os.path.join(Config.UPLOAD_FOLDER_SFTP, case_uuid, 'memory')
     os.makedirs(case_memory_path, exist_ok=True)
+    
+    # Set proper permissions (group write + setgid) for SFTP/upload access
+    try:
+        os.chmod(case_memory_path, 0o2775)
+    except:
+        pass  # May not have permission to chmod
+    
     return case_memory_path
 
 
