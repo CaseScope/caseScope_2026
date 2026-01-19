@@ -1,6 +1,14 @@
 {
-  "version": "3.117.02",
+  "version": "3.117.03",
   "changelog": [
+    {
+      "version": "3.117.03",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Find IOCs now shows sighting count and hosts where each IOC was seen",
+        "Feature: Results table displays Count and Seen On columns"
+      ]
+    },
     {
       "version": "3.117.02",
       "date": "2026-01-19",

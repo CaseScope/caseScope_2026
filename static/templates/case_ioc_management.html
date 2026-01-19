@@ -765,7 +765,8 @@
                                     </th>
                                     <th class="col-type">Type</th>
                                     <th class="col-value">Value</th>
-                                    <th class="col-context">Context</th>
+                                    <th class="col-count">Count</th>
+                                    <th class="col-hosts">Seen On</th>
                                     <th class="col-status">Status</th>
                                 </tr>
                             </thead>
@@ -2816,7 +2817,7 @@ function renderFindIOCsResults(data) {
     
     const tbody = document.getElementById('findIOCsResultsBody');
     if (iocs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No new IOCs found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No new IOCs found</td></tr>';
     } else {
         tbody.innerHTML = iocs.map((ioc, idx) => {
             let statusBadge = '';
@@ -2829,7 +2830,15 @@ function renderFindIOCsResults(data) {
             }
             
             const value = ioc.value || '';
-            const truncatedValue = value.length > 60 ? value.substring(0, 60) + '...' : value;
+            const truncatedValue = value.length > 50 ? value.substring(0, 50) + '...' : value;
+            
+            // Sighting info
+            const count = ioc.sighting_count || 1;
+            const hosts = ioc.seen_on_hosts || [];
+            const hostsDisplay = hosts.length > 0 
+                ? hosts.slice(0, 3).join(', ') + (hosts.length > 3 ? ` +${hosts.length - 3}` : '')
+                : '-';
+            const hostsTitle = hosts.join(', ');
             
             return `
                 <tr class="ioc-result-row ${ioc.already_linked ? 'already-linked' : ''}">
@@ -2843,7 +2852,8 @@ function renderFindIOCsResults(data) {
                     </td>
                     <td class="col-type"><span class="badge badge-type">${ioc.ioc_type || ''}</span></td>
                     <td class="col-value" title="${value}">${truncatedValue}</td>
-                    <td class="col-context">${ioc.context || ''}</td>
+                    <td class="col-count">${count}</td>
+                    <td class="col-hosts" title="${hostsTitle}">${hostsDisplay}</td>
                     <td class="col-status">${statusBadge}</td>
                 </tr>
             `;

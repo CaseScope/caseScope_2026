@@ -1074,6 +1074,9 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             # Use fast regex extractor
             extractor = RegexIOCExtractor()
             
+            # Track IOC sightings: {(ioc_type, value): {'count': N, 'hosts': set(), 'types': set()}}
+            ioc_sightings = {}
+            
             # Aggregate all extracted IOCs
             all_iocs = {
                 'hashes': [],
@@ -1121,10 +1124,35 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                         # Fast regex extraction
                         extraction = extractor.extract(raw_json)
                         
-                        # Merge extracted IOCs into aggregate
+                        # Merge extracted IOCs into aggregate and track sightings
                         iocs = extraction.get('iocs', {})
                         for key in all_iocs.keys():
                             if key in iocs and iocs[key]:
+                                for ioc_item in iocs[key]:
+                                    # Get value from dict or string
+                                    if isinstance(ioc_item, dict):
+                                        val = ioc_item.get('value', '')
+                                    else:
+                                        val = str(ioc_item)
+                                    
+                                    if not val:
+                                        continue
+                                    
+                                    # Track sighting
+                                    sighting_key = (key, val.lower())
+                                    if sighting_key not in ioc_sightings:
+                                        ioc_sightings[sighting_key] = {
+                                            'count': 0,
+                                            'hosts': set(),
+                                            'artifact_types': set()
+                                        }
+                                    
+                                    ioc_sightings[sighting_key]['count'] += 1
+                                    if source_host:
+                                        ioc_sightings[sighting_key]['hosts'].add(source_host)
+                                    if artifact_type:
+                                        ioc_sightings[sighting_key]['artifact_types'].add(artifact_type)
+                                
                                 all_iocs[key].extend(iocs[key])
                                 found_count += len(iocs[key])
                                 
@@ -1140,6 +1168,17 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                 case_id=case_id,
                 username=username
             )
+            
+            # Enrich processed IOCs with sighting info
+            for ioc_entry in processed.get('iocs_to_import', []):
+                val = (ioc_entry.get('value') or '').lower()
+                # Find matching sighting key
+                for (ioc_cat, ioc_val), sighting in ioc_sightings.items():
+                    if ioc_val == val:
+                        ioc_entry['sighting_count'] = sighting['count']
+                        ioc_entry['seen_on_hosts'] = sorted(list(sighting['hosts']))[:10]  # Limit to 10
+                        ioc_entry['artifact_types'] = sorted(list(sighting['artifact_types']))
+                        break
             
             # Store results in Redis (1 hour expiry)
             results_data = {
