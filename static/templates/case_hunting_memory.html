@@ -99,6 +99,14 @@
                             <span>📋</span> List
                         </button>
                     </div>
+                    <div class="memory-tree-controls" id="tree-controls">
+                        <button class="btn btn-sm" onclick="expandAllProcesses()" title="Expand All">
+                            <span>➕</span> Expand
+                        </button>
+                        <button class="btn btn-sm" onclick="collapseAllProcesses()" title="Collapse All">
+                            <span>➖</span> Collapse
+                        </button>
+                    </div>
                 </div>
                 <div id="process-tree-container" class="process-tree"></div>
                 <div id="process-list-container" class="process-list" style="display: none;"></div>
@@ -456,6 +464,34 @@
     text-align: center;
     cursor: pointer;
     color: var(--text-muted);
+    user-select: none;
+}
+
+.process-toggle:hover {
+    color: var(--accent-primary);
+}
+
+.process-name {
+    cursor: pointer;
+}
+
+.process-name:hover {
+    color: var(--accent-primary);
+    text-decoration: underline;
+}
+
+.process-children {
+    /* Children container for collapse/expand */
+}
+
+.memory-tree-controls {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.memory-tree-controls .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
 }
 
 .process-name {
@@ -1013,22 +1049,63 @@ function buildProcessTreeHTML(nodes, isRoot = false) {
             ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'process', '${node.name}', ${currentJobId})">🧠×${node.cross_memory_count}</span>` 
             : '';
         
+        // Start collapsed (children hidden) unless it's a root node
+        const isCollapsed = !isRoot && hasChildren;
+        const toggleIcon = hasChildren ? (isCollapsed ? '▶' : '▼') : '•';
+        const childrenStyle = isCollapsed ? 'display: none;' : '';
+        
         html += `
             <div class="process-node ${isRoot ? 'root' : ''}">
-                <div class="process-row" onclick="showProcessDetail(${JSON.stringify(node).replace(/"/g, '&quot;')})">
-                    <span class="process-toggle">${hasChildren ? '▼' : '•'}</span>
-                    <span class="process-name">${escapeHtml(node.name)}</span>
+                <div class="process-row">
+                    <span class="process-toggle" onclick="toggleProcessNode(event, this)">${toggleIcon}</span>
+                    <span class="process-name" onclick="showProcessDetail(${JSON.stringify(node).replace(/"/g, '&quot;')})">${escapeHtml(node.name)}</span>
                     <span class="process-pid">(${node.pid})</span>
                     <div class="process-badges">
                         ${crossBadge}
                         <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(node.name)}')" title="Search in Events">🔍 Case</button>
                     </div>
                 </div>
-                ${hasChildren ? buildProcessTreeHTML(node.children) : ''}
+                ${hasChildren ? `<div class="process-children" style="${childrenStyle}">${buildProcessTreeHTML(node.children)}</div>` : ''}
             </div>
         `;
     }
     return html;
+}
+
+function toggleProcessNode(event, toggleEl) {
+    event.stopPropagation();
+    const nodeEl = toggleEl.closest('.process-node');
+    const childrenEl = nodeEl.querySelector(':scope > .process-children');
+    
+    if (!childrenEl) return;
+    
+    const isCollapsed = childrenEl.style.display === 'none';
+    
+    if (isCollapsed) {
+        childrenEl.style.display = 'block';
+        toggleEl.textContent = '▼';
+    } else {
+        childrenEl.style.display = 'none';
+        toggleEl.textContent = '▶';
+    }
+}
+
+function expandAllProcesses() {
+    document.querySelectorAll('.process-children').forEach(el => {
+        el.style.display = 'block';
+    });
+    document.querySelectorAll('.process-toggle').forEach(el => {
+        if (el.textContent === '▶') el.textContent = '▼';
+    });
+}
+
+function collapseAllProcesses() {
+    document.querySelectorAll('.process-children').forEach(el => {
+        el.style.display = 'none';
+    });
+    document.querySelectorAll('.process-toggle').forEach(el => {
+        if (el.textContent === '▼') el.textContent = '▶';
+    });
 }
 
 function renderProcessList() {

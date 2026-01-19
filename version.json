@@ -1,6 +1,16 @@
 {
-  "version": "3.120.02",
+  "version": "3.120.03",
   "changelog": [
+    {
+      "version": "3.120.03",
+      "date": "2026-01-19",
+      "changes": [
+        "UX: Process tree now starts collapsed to root level only",
+        "Added: Click ▶/▼ toggle to expand/collapse child processes",
+        "Added: Expand All / Collapse All buttons in tree toolbar",
+        "Added: Click process name to view details (separate from toggle)"
+      ]
+    },
     {
       "version": "3.120.02",
       "date": "2026-01-19",
