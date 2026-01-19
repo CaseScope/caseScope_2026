@@ -1,6 +1,16 @@
 {
-  "version": "3.118.00",
+  "version": "3.118.01",
   "changelog": [
+    {
+      "version": "3.118.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Memory Forensics - local folder upload system with file scanning",
+        "Added: API routes for memory folder scanning (/api/memory/scan, /api/memory/clear)",
+        "Added: Helper message explaining local-only upload and file retention policy",
+        "Added: Memory dump type detection (raw, DMP, VMware, LiME, hibernation, etc.)"
+      ]
+    },
     {
       "version": "3.118.00",
       "date": "2026-01-19",

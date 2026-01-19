@@ -24,27 +24,149 @@
     {% endif %}
 {% endwith %}
 
-<!-- Placeholder Content -->
-<div class="tile">
+<!-- Important Notice -->
+<div class="upload-helper-box warning-box">
+    <div class="upload-helper-header">
+        <span class="upload-helper-icon">⚠️</span>
+        <h3>Important: Local Folder Upload Only</h3>
+    </div>
+    <div class="upload-helper-content">
+        <p class="upload-helper-intro">
+            Memory forensics requires <strong>local folder upload only</strong>. Web uploads are not supported due to the large file sizes of memory dumps.
+        </p>
+        
+        <div class="upload-helper-note" style="margin-top: 16px; margin-bottom: 16px;">
+            <span class="upload-helper-note-icon">📁</span>
+            <div>
+                <strong>Upload Folder:</strong><br>
+                <code class="folder-path-inline" id="memoryFolderPath">Loading...</code>
+                <button class="btn btn-sm btn-secondary" onclick="copyPath()" title="Copy path" style="margin-left: 8px;">
+                    <span id="copyIcon">📋</span>
+                </button>
+            </div>
+        </div>
+        
+        <div class="upload-helper-note danger-note">
+            <span class="upload-helper-note-icon">🗑️</span>
+            <div>
+                <strong>Files are NOT retained!</strong><br>
+                After analysis, files in this folder will be cleared. <em>You must maintain your own copy of all memory dumps.</em>
+            </div>
+        </div>
+        
+        <p class="upload-helper-intro" style="margin-top: 16px;">
+            <strong>Supported formats:</strong> Raw memory (.raw, .mem), DMP files, VMware (.vmem), LiME (.lime), hibernation files, page files, EnCase images (.E01), AFF images
+        </p>
+    </div>
+</div>
+
+<!-- Folder Upload Card -->
+<div class="card upload-card" style="margin-top: 24px;">
+    <div class="card-header">
+        <span class="card-icon">📂</span>
+        <h3 class="card-title">Local Folder Upload</h3>
+    </div>
+    <div class="card-body">
+        <p class="upload-description">Copy or SFTP memory dump files to the folder above, then scan for files:</p>
+        <div class="folder-actions">
+            <button class="btn btn-primary" id="scanBtn" onclick="scanFolder()">
+                <span class="btn-icon">🔍</span>
+                Scan for Files
+            </button>
+            <button class="btn btn-secondary" id="clearBtn" onclick="confirmClearFolder()" style="margin-left: 8px;">
+                <span class="btn-icon">🗑️</span>
+                Clear Folder
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- File Queue -->
+<div class="card mt-4">
+    <div class="card-header">
+        <span class="card-icon">📋</span>
+        <h3 class="card-title">Memory Dump Files</h3>
+        <span class="queue-count" id="queueCount">0 files</span>
+    </div>
+    <div class="table-container upload-queue-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Size</th>
+                    <th>Type</th>
+                    <th>Modified</th>
+                </tr>
+            </thead>
+            <tbody id="queueBody">
+                <tr class="queue-empty-row" id="emptyRow">
+                    <td colspan="4" class="text-center text-muted" style="padding: 40px;">
+                        No files found. Copy memory dumps to the upload folder and click "Scan for Files".
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="queue-actions" id="queueActions" style="display: none;">
+        <div class="queue-summary">
+            <span id="totalSizeLabel">Total: 0 B</span>
+        </div>
+        <button class="btn btn-success" id="analyzeBtn" disabled>
+            <span class="btn-icon">🔬</span>
+            Analyze Memory (Coming Soon)
+        </button>
+    </div>
+</div>
+
+<!-- Placeholder Features -->
+<div class="tile" style="margin-top: 24px;">
     <div class="tile-header">
-        <h3 class="tile-title">Memory Analysis</h3>
+        <h3 class="tile-title">Planned Features</h3>
     </div>
     <div class="tile-body">
-        <div class="placeholder-content">
-            <div class="placeholder-icon">🧠</div>
-            <h2 class="placeholder-title">Memory Forensics</h2>
-            <p class="placeholder-description">
-                This feature is under development. Memory forensics capabilities will include:
-            </p>
-            <ul class="placeholder-features">
-                <li>Memory dump upload and analysis</li>
-                <li>Process extraction and analysis</li>
-                <li>Network connection enumeration</li>
-                <li>DLL and module inspection</li>
-                <li>Registry hive extraction from memory</li>
-                <li>Malware detection and artifacts</li>
-                <li>Timeline of memory events</li>
-            </ul>
+        <div class="feature-grid">
+            <div class="feature-item">
+                <span class="feature-icon">🔄</span>
+                <div class="feature-content">
+                    <strong>Process Extraction</strong>
+                    <p>List and analyze running processes from memory</p>
+                </div>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">🌐</span>
+                <div class="feature-content">
+                    <strong>Network Connections</strong>
+                    <p>Extract active network connections and listening ports</p>
+                </div>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">📚</span>
+                <div class="feature-content">
+                    <strong>DLL & Module Analysis</strong>
+                    <p>Inspect loaded modules and detect injected code</p>
+                </div>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">🔑</span>
+                <div class="feature-content">
+                    <strong>Registry Extraction</strong>
+                    <p>Recover registry hives from memory dumps</p>
+                </div>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">🦠</span>
+                <div class="feature-content">
+                    <strong>Malware Detection</strong>
+                    <p>Identify suspicious patterns and malware artifacts</p>
+                </div>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">📅</span>
+                <div class="feature-content">
+                    <strong>Timeline Generation</strong>
+                    <p>Build timeline of memory-based events</p>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -54,67 +176,307 @@
 <script>
 const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
+let memoryFiles = [];
+let folderPath = '';
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Memory Forensics page loaded for case:', caseUuid);
+    loadFolderPath();
 });
+
+// Load the folder path from the server
+function loadFolderPath() {
+    fetch(`/api/memory/folder/${caseUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                folderPath = data.folder_path;
+                document.getElementById('memoryFolderPath').textContent = folderPath;
+            } else {
+                document.getElementById('memoryFolderPath').textContent = 'Error loading path';
+            }
+        })
+        .catch(err => {
+            console.error('Error loading folder path:', err);
+            document.getElementById('memoryFolderPath').textContent = 'Error loading path';
+        });
+}
+
+// Copy folder path to clipboard
+function copyPath() {
+    const path = document.getElementById('memoryFolderPath').textContent;
+    navigator.clipboard.writeText(path).then(() => {
+        const icon = document.getElementById('copyIcon');
+        icon.textContent = '✓';
+        setTimeout(() => { icon.textContent = '📋'; }, 2000);
+    });
+}
+
+// Scan folder for files
+async function scanFolder() {
+    const btn = document.getElementById('scanBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
+    
+    try {
+        const response = await fetch(`/api/memory/scan/${caseUuid}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            memoryFiles = data.files;
+            renderFileList(memoryFiles);
+            
+            if (data.files.length === 0) {
+                showMessage('No files found in the upload folder.', 'info');
+            } else {
+                showMessage(`Found ${data.files.length} file(s)`, 'success');
+            }
+        } else {
+            showMessage('Error scanning folder: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (err) {
+        console.error('Scan error:', err);
+        showMessage('Error scanning folder. Please try again.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔍</span> Scan for Files';
+    }
+}
+
+// Render file list
+function renderFileList(files) {
+    const tbody = document.getElementById('queueBody');
+    const queueActions = document.getElementById('queueActions');
+    const queueCount = document.getElementById('queueCount');
+    
+    queueCount.textContent = `${files.length} file${files.length !== 1 ? 's' : ''}`;
+    
+    if (files.length === 0) {
+        tbody.innerHTML = `
+            <tr class="queue-empty-row">
+                <td colspan="4" class="text-center text-muted" style="padding: 40px;">
+                    No files found. Copy memory dumps to the upload folder and click "Scan for Files".
+                </td>
+            </tr>
+        `;
+        queueActions.style.display = 'none';
+        return;
+    }
+    
+    queueActions.style.display = 'flex';
+    
+    let totalSize = 0;
+    let html = '';
+    
+    for (const file of files) {
+        totalSize += file.size;
+        const typeClass = getTypeClass(file.type);
+        
+        html += `
+            <tr class="queue-row">
+                <td class="queue-filename">
+                    <span class="filename-text">${escapeHtml(file.name)}</span>
+                    ${file.relative_path !== file.name ? `<span class="filename-path text-muted">${escapeHtml(file.relative_path)}</span>` : ''}
+                </td>
+                <td class="queue-size">${formatSize(file.size)}</td>
+                <td class="queue-type">
+                    <span class="badge ${typeClass}">${file.type}</span>
+                </td>
+                <td class="queue-modified">${formatDate(file.modified)}</td>
+            </tr>
+        `;
+    }
+    
+    tbody.innerHTML = html;
+    document.getElementById('totalSizeLabel').textContent = `Total: ${formatSize(totalSize)}`;
+}
+
+// Get badge class for file type
+function getTypeClass(type) {
+    switch (type) {
+        case 'Raw Memory':
+        case 'Memory Dump':
+            return 'badge-primary';
+        case 'VMware Memory':
+        case 'LiME Dump':
+            return 'badge-success';
+        case 'Hibernation File':
+        case 'Page File':
+        case 'Swap File':
+            return 'badge-warning';
+        case 'Minidump':
+        case 'Kernel Dump':
+        case 'Complete Dump':
+            return 'badge-info';
+        case 'EnCase Image':
+        case 'AFF Image':
+            return 'badge-secondary';
+        default:
+            return 'badge-muted';
+    }
+}
+
+// Confirm clear folder
+function confirmClearFolder() {
+    if (memoryFiles.length === 0) {
+        showMessage('Folder is already empty.', 'info');
+        return;
+    }
+    
+    if (confirm(`Are you sure you want to delete ${memoryFiles.length} file(s) from the upload folder?\n\nThis action cannot be undone!`)) {
+        clearFolder();
+    }
+}
+
+// Clear folder
+async function clearFolder() {
+    const btn = document.getElementById('clearBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Clearing...';
+    
+    try {
+        const response = await fetch(`/api/memory/clear/${caseUuid}`, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage(`Deleted ${data.deleted_count} file(s)`, 'success');
+            memoryFiles = [];
+            renderFileList([]);
+        } else {
+            showMessage('Error clearing folder: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (err) {
+        console.error('Clear error:', err);
+        showMessage('Error clearing folder. Please try again.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🗑️</span> Clear Folder';
+    }
+}
+
+// Utility functions
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatDate(isoString) {
+    if (!isoString) return '-';
+    const d = new Date(isoString);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function showMessage(message, type) {
+    // Simple alert for now - could be enhanced with toast notifications
+    if (type === 'error') {
+        alert('Error: ' + message);
+    } else if (type === 'info') {
+        alert(message);
+    }
+    // Success messages can be silent or shown briefly
+}
 </script>
 
 <style>
-.placeholder-content {
+/* Warning box variant */
+.warning-box {
+    border-color: var(--accent-warning);
+    background: linear-gradient(135deg, 
+        rgba(var(--accent-warning-rgb, 255, 193, 7), 0.05) 0%, 
+        rgba(var(--accent-warning-rgb, 255, 193, 7), 0.02) 100%);
+}
+
+.warning-box .upload-helper-header h3 {
+    color: var(--accent-warning);
+}
+
+.danger-note {
+    background-color: rgba(var(--accent-danger-rgb, 220, 53, 69), 0.1);
+    border-color: var(--accent-danger);
+}
+
+.danger-note .upload-helper-note-icon {
+    color: var(--accent-danger);
+}
+
+.folder-path-inline {
+    background: var(--bg-secondary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 13px;
+    display: inline-block;
+    user-select: all;
+}
+
+.folder-actions {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
-    text-align: center;
+    gap: 8px;
+    margin-top: 16px;
 }
 
-.placeholder-icon {
-    font-size: 72px;
-    margin-bottom: 20px;
-    opacity: 0.7;
+.queue-summary {
+    color: var(--text-secondary);
+    font-size: 14px;
 }
 
-.placeholder-title {
+.filename-path {
+    display: block;
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+/* Feature grid for planned features */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.feature-item {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border-primary);
+}
+
+.feature-icon {
     font-size: 28px;
-    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.feature-content strong {
+    display: block;
     color: var(--text-primary);
-    margin-bottom: 16px;
+    margin-bottom: 4px;
 }
 
-.placeholder-description {
-    font-size: 16px;
-    color: var(--text-secondary);
-    max-width: 500px;
-    margin-bottom: 24px;
-}
-
-.placeholder-features {
-    list-style: none;
-    padding: 0;
+.feature-content p {
     margin: 0;
-    text-align: left;
-    max-width: 400px;
-}
-
-.placeholder-features li {
-    padding: 8px 0;
+    font-size: 13px;
     color: var(--text-secondary);
-    border-bottom: 1px solid var(--border-primary);
-    display: flex;
-    align-items: center;
-    gap: 10px;
 }
 
-.placeholder-features li::before {
-    content: "•";
-    color: var(--accent-primary);
-    font-weight: bold;
+/* Badge variants */
+.badge-primary {
+    background-color: var(--accent-primary);
+    color: white;
 }
 
-.placeholder-features li:last-child {
-    border-bottom: none;
+.badge-secondary {
+    background-color: var(--text-muted);
+    color: white;
 }
 </style>
 {% endblock %}
