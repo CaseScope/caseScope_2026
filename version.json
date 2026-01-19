@@ -1,6 +1,13 @@
 {
-  "version": "3.111.01",
+  "version": "3.111.02",
   "changelog": [
+    {
+      "version": "3.111.02",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: NOT/exclusion operator now properly parses field:value syntax (e.g. -eventid:4624)"
+      ]
+    },
     {
       "version": "3.111.01",
       "date": "2026-01-19",

@@ -1879,9 +1879,18 @@ def get_hunting_events(case_id):
                     if excl_match:
                         excl_term = excl_match.group(1) or excl_match.group(2)
                         if excl_term:
-                            param_name = f'{prefix}_excl'
-                            params[param_name] = f'%{excl_term}%'
-                            return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
+                            # Check if exclusion term is field:value syntax
+                            excl_fv_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', excl_term)
+                            if excl_fv_match and '://' not in excl_term:
+                                # Parse as field:value and negate
+                                cond = parse_field_value(excl_fv_match.group(1), excl_fv_match.group(2), f'{prefix}_excl')
+                                if cond:
+                                    return ([f"NOT ({cond})"], True)
+                            else:
+                                # Generic search_blob exclusion
+                                param_name = f'{prefix}_excl'
+                                params[param_name] = f'%{excl_term}%'
+                                return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
                     return ([], False)
                 
                 # Check for field:value syntax (but not URLs with ://)
