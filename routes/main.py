@@ -269,6 +269,15 @@ def case_evidence():
     return render_template('case_evidence.html', page_title='Evidence', case=case)
 
 
+@main_bp.route('/case/memory-forensics')
+@login_required
+@case_required
+def case_memory_forensics():
+    """Memory Forensics - analyze memory dumps and artifacts"""
+    case = get_active_case()
+    return render_template('case_memory_forensics.html', page_title='Memory Forensics', case=case)
+
+
 @main_bp.route('/case/edr-report', methods=['GET', 'POST'])
 @login_required
 @case_required

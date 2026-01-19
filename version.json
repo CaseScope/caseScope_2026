@@ -1,6 +1,14 @@
 {
-  "version": "3.117.05",
+  "version": "3.118.00",
   "changelog": [
+    {
+      "version": "3.118.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Memory Forensics - new placeholder page for memory analysis",
+        "Added: Memory Forensics menu item in left sidebar under Cases section"
+      ]
+    },
     {
       "version": "3.117.05",
       "date": "2026-01-19",
