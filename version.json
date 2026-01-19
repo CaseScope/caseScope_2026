@@ -1,6 +1,13 @@
 {
-  "version": "3.114.01",
+  "version": "3.114.02",
   "changelog": [
+    {
+      "version": "3.114.02",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: Ask AI queries now use correct ClickHouse column names (source_host, src_ip, command_line)"
+      ]
+    },
     {
       "version": "3.114.01",
       "date": "2026-01-19",

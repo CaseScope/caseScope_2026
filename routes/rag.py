@@ -1059,12 +1059,12 @@ def ask_ai():
                     timestamp_utc, 
                     event_id, 
                     channel, 
-                    computer_name,
+                    source_host,
                     username,
                     rule_title,
                     rule_level,
                     process_name,
-                    commandline
+                    command_line
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND rule_level IN ('high', 'critical')
@@ -1077,7 +1077,7 @@ def ask_ai():
                     context_parts.append(f"\nHIGH SEVERITY EVENTS ({len(result.result_rows)} events):")
                     for row in result.result_rows:
                         ts, eid, ch, comp, user, title, level, proc, cmd = row
-                        event_line = f"  [{ts}] {level.upper()}: {title or 'No title'}"
+                        event_line = f"  [{ts}] {level.upper() if level else 'INFO'}: {title or 'No title'}"
                         if comp:
                             event_line += f" | Host: {comp}"
                         if user:
@@ -1101,15 +1101,15 @@ def ask_ai():
                 failed_login_query = """
                 SELECT 
                     username,
-                    computer_name,
+                    source_host,
                     count() as fail_count,
                     min(timestamp_utc) as first_fail,
                     max(timestamp_utc) as last_fail,
-                    groupUniqArray(10)(source_ip) as source_ips
+                    groupUniqArray(10)(src_ip) as source_ips
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND event_id IN ('4625', '4771', '529', '530', '531', '532', '533', '534', '535', '536', '537', '539')
-                GROUP BY username, computer_name
+                GROUP BY username, source_host
                 ORDER BY fail_count DESC
                 LIMIT 30
                 """
@@ -1122,7 +1122,7 @@ def ask_ai():
                     context_parts.append("  " + "-" * 80)
                     for row in result.result_rows:
                         user, host, count, first, last, ips = row
-                        ip_list = ', '.join(ips[:3]) if ips else 'N/A'
+                        ip_list = ', '.join(str(ip) for ip in ips[:3]) if ips else 'N/A'
                         context_parts.append(f"  {user or 'Unknown'} | {host or 'Unknown'} | {count} | {first} | {last} | {ip_list}")
                     
                     # Flag potential brute force (many failures in short time)
@@ -1142,16 +1142,18 @@ def ask_ai():
                 pth_query = """
                 SELECT 
                     username,
-                    computer_name,
-                    source_ip,
+                    source_host,
+                    src_ip,
+                    logon_type,
+                    auth_package,
                     count() as logon_count,
                     min(timestamp_utc) as first_seen,
                     max(timestamp_utc) as last_seen
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND event_id = '4624'
-                AND (lower(details) LIKE '%ntlm%' OR lower(details) LIKE '%logon type: 9%' OR lower(details) LIKE '%logon type: 3%')
-                GROUP BY username, computer_name, source_ip
+                AND (auth_package = 'NTLM' OR logon_type IN ('3', '9'))
+                GROUP BY username, source_host, src_ip, logon_type, auth_package
                 ORDER BY logon_count DESC
                 LIMIT 30
                 """
@@ -1160,10 +1162,10 @@ def ask_ai():
                 if result.result_rows:
                     context_parts.append(f"\nNTLM/NETWORK LOGON ANALYSIS ({len(result.result_rows)} user-host combinations):")
                     for row in result.result_rows:
-                        user, host, src_ip, count, first, last = row
-                        context_parts.append(f"  {user} -> {host} from {src_ip or 'local'}: {count} logons ({first} to {last})")
+                        user, host, src_ip, logon_type, auth_pkg, count, first, last = row
+                        context_parts.append(f"  {user} -> {host} from {src_ip or 'local'} | Type:{logon_type} Auth:{auth_pkg} | {count}x ({first})")
                 else:
-                    context_parts.append("\nNTLM LOGON ANALYSIS: No NTLM network logons (4624) found.")
+                    context_parts.append("\nNTLM LOGON ANALYSIS: No NTLM network logons (4624 Type 3/9) found.")
                     
                 search_terms.extend(['4624', 'ntlm'])
             except Exception as e:
@@ -1175,17 +1177,18 @@ def ask_ai():
                 lateral_query = """
                 SELECT 
                     username,
-                    computer_name,
-                    source_ip,
+                    source_host,
+                    src_ip,
                     event_id,
+                    logon_type,
                     count() as logon_count,
                     min(timestamp_utc) as first_seen,
                     max(timestamp_utc) as last_seen
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND event_id IN ('4624', '4625', '4648')
-                AND source_ip != '' AND source_ip IS NOT NULL
-                GROUP BY username, computer_name, source_ip, event_id
+                AND src_ip != '' AND src_ip IS NOT NULL
+                GROUP BY username, source_host, src_ip, event_id, logon_type
                 ORDER BY logon_count DESC
                 LIMIT 40
                 """
@@ -1194,9 +1197,9 @@ def ask_ai():
                 if result.result_rows:
                     context_parts.append(f"\nREMOTE/LATERAL LOGON ANALYSIS:")
                     for row in result.result_rows:
-                        user, host, src_ip, eid, count, first, last = row
+                        user, host, src_ip, eid, logon_type, count, first, last = row
                         status = "SUCCESS" if eid == '4624' else "FAILED" if eid == '4625' else "EXPLICIT"
-                        context_parts.append(f"  [{status}] {user} -> {host} from {src_ip}: {count}x ({first})")
+                        context_parts.append(f"  [{status}] {user} -> {host} from {src_ip} | Type:{logon_type} | {count}x ({first})")
                 else:
                     context_parts.append("\nLATERAL MOVEMENT ANALYSIS: No remote logon events with source IPs found.")
                     
@@ -1210,10 +1213,10 @@ def ask_ai():
                 ps_query = """
                 SELECT 
                     timestamp_utc,
-                    computer_name,
+                    source_host,
                     username,
                     rule_title,
-                    substring(commandline, 1, 300) as cmd_preview
+                    substring(command_line, 1, 300) as cmd_preview
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND (event_id IN ('4103', '4104', '400', '403', '600') OR lower(process_name) LIKE '%powershell%')
@@ -1259,20 +1262,20 @@ def ask_ai():
                     if term.isdigit():
                         conditions.append(f"event_id = '{term}'")
                     else:
-                        conditions.append(f"(lower(rule_title) LIKE '%{term}%' OR lower(commandline) LIKE '%{term}%' OR lower(channel) LIKE '%{term}%')")
+                        conditions.append(f"(lower(rule_title) LIKE '%{term}%' OR lower(command_line) LIKE '%{term}%' OR lower(channel) LIKE '%{term}%')")
                 
                 search_query = f"""
                 SELECT 
                     timestamp_utc, 
                     event_id, 
                     channel, 
-                    computer_name,
+                    source_host,
                     username,
-                    source_ip,
+                    src_ip,
                     rule_title,
                     rule_level,
                     process_name,
-                    substring(commandline, 1, 200) as cmd
+                    substring(command_line, 1, 200) as cmd
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
                 AND ({' OR '.join(conditions)})
@@ -1308,7 +1311,7 @@ def ask_ai():
                 countIf(rule_level = 'medium') as medium,
                 min(timestamp_utc) as first_event,
                 max(timestamp_utc) as last_event,
-                count(DISTINCT computer_name) as hosts,
+                count(DISTINCT source_host) as hosts,
                 count(DISTINCT username) as users
             FROM events 
             WHERE case_id = {case_id:UInt32}
