@@ -1,6 +1,14 @@
 {
-  "version": "3.117.04",
+  "version": "3.117.05",
   "changelog": [
+    {
+      "version": "3.117.05",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Find IOCs now extracts hostnames from event data",
+        "Feature: Hostnames are added as IOCs and matched to Known Systems"
+      ]
+    },
     {
       "version": "3.117.04",
       "date": "2026-01-19",

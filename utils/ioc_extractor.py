@@ -552,6 +552,39 @@ class RegexIOCExtractor:
                 if tool.title() not in results['extraction_summary']['severity_indicators']:
                     results['extraction_summary']['severity_indicators'].append(f"Rogue {tool.title()}")
         
+        # Extract hostnames from JSON fields
+        # Common Windows event log fields that contain hostnames
+        hostname_fields = [
+            r'"Computer"\s*:\s*"([^"]+)"',
+            r'"Hostname"\s*:\s*"([^"]+)"',
+            r'"hostname"\s*:\s*"([^"]+)"',
+            r'"WorkstationName"\s*:\s*"([^"]+)"',
+            r'"SourceHostname"\s*:\s*"([^"]+)"',
+            r'"DestinationHostname"\s*:\s*"([^"]+)"',
+            r'"TargetServerName"\s*:\s*"([^"]+)"',
+            r'"host"\s*:\s*"([^"]+)"',
+            r'"ComputerName"\s*:\s*"([^"]+)"',
+            r'"source_host"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in hostname_fields:
+            for match in re.findall(pattern, original_text, re.IGNORECASE):
+                hostname = match.strip()
+                # Validate hostname format (not empty, not just IP, reasonable length)
+                if hostname and len(hostname) <= 255 and len(hostname) >= 2:
+                    # Skip if it looks like an IP address
+                    if self.PATTERNS['ip_v4'].match(hostname):
+                        continue
+                    # Skip common non-hostname values
+                    if hostname.lower() in ('-', 'localhost', 'unknown', 'n/a', 'none', 'null'):
+                        continue
+                    # Extract NetBIOS name if FQDN
+                    netbios = hostname.split('.')[0].upper()
+                    results['iocs']['hostnames'].append({
+                        'value': netbios,
+                        'fqdn': hostname if '.' in hostname else None,
+                        'context': ''
+                    })
+        
         # Deduplicate
         results['iocs']['hashes'] = self._dedupe_list_of_dicts(results['iocs']['hashes'], 'value')
         results['iocs']['ip_addresses'] = self._dedupe_list_of_dicts(results['iocs']['ip_addresses'], 'value')
@@ -561,6 +594,7 @@ class RegexIOCExtractor:
         results['iocs']['network_shares'] = self._dedupe_list_of_dicts(results['iocs']['network_shares'], 'value')
         results['iocs']['registry_keys'] = self._dedupe_list_of_dicts(results['iocs']['registry_keys'], 'value')
         results['iocs']['services'] = self._dedupe_list_of_dicts(results['iocs']['services'], 'name')
+        results['iocs']['hostnames'] = self._dedupe_list_of_dicts(results['iocs']['hostnames'], 'value')
         results['iocs']['sids'] = list(set(results['iocs']['sids']))
         results['iocs']['email_addresses'] = list(set(results['iocs']['email_addresses']))
         results['iocs']['cves'] = list(set(results['iocs']['cves']))
@@ -1435,16 +1469,32 @@ def process_extraction_for_import(
         if user_result:
             known_users_results.append(user_result)
     
-    # Process hostnames (for Known Systems integration)
+    # Process hostnames (for Known Systems integration AND IOC creation)
     for hostname in iocs_data.get('hostnames', []):
         if isinstance(hostname, dict):
             hostname_val = hostname.get('value', '') if isinstance(hostname, dict) else str(hostname)
+            context = hostname.get('context', '')
+            fqdn = hostname.get('fqdn', '')
         else:
             hostname_val = str(hostname)
+            context = ''
+            fqdn = ''
         hostname_val = hostname_val.strip()
         
-        if not hostname_val:
+        if not hostname_val or hostname_val.lower() in seen_values:
             continue
+        seen_values.add(hostname_val.lower())
+        
+        # Create IOC entry for the hostname
+        ioc_entry = _create_ioc_entry(
+            value=hostname_val,
+            ioc_type='Hostname',
+            category='Network',
+            context=f"FQDN: {fqdn}" if fqdn else context,
+            case_id=case_id
+        )
+        if ioc_entry:
+            iocs_to_import.append(ioc_entry)
         
         # Find or create known system
         system_result = _process_known_system(hostname_val, case_id, username)
