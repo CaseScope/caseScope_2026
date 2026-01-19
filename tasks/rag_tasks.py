@@ -255,6 +255,8 @@ def rag_sync_mitre_attack(
                         # Update existing pattern
                         existing.name = pattern_data['name']
                         existing.description = pattern_data['description']
+                        existing.detection_guidance = pattern_data.get('detection_guidance')
+                        existing.procedure_examples = pattern_data.get('procedure_examples')
                         existing.mitre_tactic = pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None
                         existing.mitre_technique = pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None
                         existing.clickhouse_query = pattern_data['detection_query']
@@ -262,6 +264,7 @@ def rag_sync_mitre_attack(
                         existing.pattern_definition = {
                             'indicators': pattern_data['indicators'],
                             'event_ids': pattern_data.get('event_ids', []),
+                            'data_components': pattern_data.get('data_components', []),
                             'thresholds': pattern_data.get('thresholds', {})
                         }
                         existing.last_synced_at = datetime.utcnow()
@@ -271,6 +274,8 @@ def rag_sync_mitre_attack(
                         new_pattern = AttackPattern(
                             name=pattern_data['name'],
                             description=pattern_data['description'],
+                            detection_guidance=pattern_data.get('detection_guidance'),
+                            procedure_examples=pattern_data.get('procedure_examples'),
                             mitre_tactic=pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None,
                             mitre_technique=pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None,
                             source='mitre_attack_v18',
@@ -281,6 +286,7 @@ def rag_sync_mitre_attack(
                             pattern_definition={
                                 'indicators': pattern_data['indicators'],
                                 'event_ids': pattern_data.get('event_ids', []),
+                                'data_components': pattern_data.get('data_components', []),
                                 'thresholds': pattern_data.get('thresholds', {})
                             },
                             required_artifact_types=['evtx'],

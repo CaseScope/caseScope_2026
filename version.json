@@ -1,6 +1,18 @@
 {
-  "version": "3.115.00",
+  "version": "3.115.01",
   "changelog": [
+    {
+      "version": "3.115.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: MITRE sync now includes deprecated data sources (still useful for component mapping)",
+        "Fixed: Data component matching uses multi-strategy approach (prefix, first-word, manual mapping)",
+        "Fixed: Windows technique filter no longer requires x_mitre_data_sources (deprecated by MITRE)",
+        "Data: Synced 38 MITRE data sources, 103 data components to database",
+        "Data: Created 472 MITRE ATT&CK patterns with full descriptions",
+        "Data: Regenerated 3740 pattern embeddings in Qdrant"
+      ]
+    },
     {
       "version": "3.115.00",
       "date": "2026-01-19",

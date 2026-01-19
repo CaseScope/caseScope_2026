@@ -268,14 +268,19 @@ class MitreAttackSync:
             return False
     
     def _parse_data_sources(self):
-        """Parse x-mitre-data-source objects from STIX bundle"""
+        """Parse x-mitre-data-source objects from STIX bundle
+        
+        Note: MITRE has deprecated data source objects, but we still parse them
+        because data components reference them and they're useful for our mapping.
+        """
         if not self.attack_data:
             return
         
         count = 0
         for obj in self.attack_data.get('objects', []):
             if obj.get('type') == 'x-mitre-data-source':
-                if obj.get('revoked') or obj.get('x_mitre_deprecated'):
+                # Only skip if revoked, NOT if deprecated (most are deprecated but still useful)
+                if obj.get('revoked'):
                     continue
                 
                 self.data_sources[obj.get('id')] = {
@@ -290,19 +295,69 @@ class MitreAttackSync:
         logger.info(f"Parsed {count} data sources")
     
     def _parse_data_components(self):
-        """Parse x-mitre-data-component objects from STIX bundle"""
+        """Parse x-mitre-data-component objects from STIX bundle
+        
+        Note: x_mitre_data_source_ref is often empty in current STIX data.
+        We use name-based matching with multiple strategies.
+        """
         if not self.attack_data:
             return
         
+        # Build data source name to stix_id mapping
+        ds_name_to_id = {ds['name']: stix_id for stix_id, ds in self.data_sources.items()}
+        
+        # Sort data source names by length (longest first) to match more specific names first
+        ds_names_sorted = sorted(ds_name_to_id.keys(), key=len, reverse=True)
+        
+        # Manual mappings for non-obvious component -> source relationships
+        COMPONENT_TO_SOURCE = {
+            'Network Connection Creation': 'Network Traffic',
+            'Network Traffic Flow': 'Network Traffic',
+            'Network Traffic Content': 'Network Traffic',
+            'Response Content': 'Network Traffic',
+            'Response Metadata': 'Network Traffic',
+            'Active DNS': 'Domain Name',
+            'Passive DNS': 'Domain Name',
+            'Domain Registration': 'Domain Name',
+            'Social Media': 'Persona',
+            'Host Status': 'Sensor Health',
+        }
+        
         count = 0
+        matched = 0
         for obj in self.attack_data.get('objects', []):
             if obj.get('type') == 'x-mitre-data-component':
                 if obj.get('revoked') or obj.get('x_mitre_deprecated'):
                     continue
                 
-                # Find parent data source
-                data_source_ref = obj.get('x_mitre_data_source_ref')
                 component_name = obj.get('name', '')
+                
+                # Try explicit ref first
+                data_source_ref = obj.get('x_mitre_data_source_ref')
+                
+                # If empty, try name-based matching strategies
+                if not data_source_ref:
+                    # Strategy 1: Manual mapping
+                    if component_name in COMPONENT_TO_SOURCE:
+                        ds_name = COMPONENT_TO_SOURCE[component_name]
+                        if ds_name in ds_name_to_id:
+                            data_source_ref = ds_name_to_id[ds_name]
+                            matched += 1
+                    
+                    # Strategy 2: Prefix match (longest data source name first)
+                    if not data_source_ref:
+                        for ds_name in ds_names_sorted:
+                            if component_name.startswith(ds_name + ' ') or component_name == ds_name:
+                                data_source_ref = ds_name_to_id[ds_name]
+                                matched += 1
+                                break
+                    
+                    # Strategy 3: First word match (e.g., "File" in "File Creation")
+                    if not data_source_ref:
+                        first_word = component_name.split()[0] if component_name else ''
+                        if first_word in ds_name_to_id:
+                            data_source_ref = ds_name_to_id[first_word]
+                            matched += 1
                 
                 # Look up event IDs from our mapping
                 windows_event_ids = []
@@ -322,7 +377,7 @@ class MitreAttackSync:
                 }
                 count += 1
         
-        logger.info(f"Parsed {count} data components")
+        logger.info(f"Parsed {count} data components ({matched} matched to sources)")
     
     def _parse_relationships(self):
         """Parse relationship objects linking techniques to data components"""
@@ -387,7 +442,12 @@ class MitreAttackSync:
         return sorted(list(windows_ids)), sorted(list(sysmon_ids))
     
     def filter_windows_techniques(self) -> List[Dict[str, Any]]:
-        """Filter for Windows-applicable techniques with Event Log data sources"""
+        """Filter for Windows-applicable techniques
+        
+        Note: MITRE has deprecated x_mitre_data_sources on techniques.
+        We now include all Windows techniques and use the data component
+        relationships for event ID mapping.
+        """
         if not self.attack_data:
             return []
         
@@ -406,17 +466,8 @@ class MitreAttackSync:
             if 'Windows' not in platforms:
                 continue
             
-            # Check for Windows Event Log data sources
-            data_sources = obj.get('x_mitre_data_sources', [])
-            has_event_logs = any(
-                'Windows Event Log' in str(ds) or
-                'Event Log' in str(ds) or
-                any(event_id in str(ds) for event_id in self.EVENT_ID_MAPPING.keys())
-                for ds in data_sources
-            )
-            
-            if has_event_logs or data_sources:  # Include if has any data sources
-                filtered.append(obj)
+            # Include all Windows techniques (data sources are now in relationships)
+            filtered.append(obj)
         
         self.techniques = filtered
         logger.info(f"Filtered {len(filtered)} Windows-applicable techniques")
@@ -840,7 +891,9 @@ def sync_data_sources_to_db() -> Dict[str, int]:
     
     counts = {
         'data_sources': 0,
+        'data_sources_updated': 0,
         'data_components': 0,
+        'data_components_updated': 0,
         'technique_maps': 0
     }
     
@@ -853,6 +906,7 @@ def sync_data_sources_to_db() -> Dict[str, int]:
             existing.platforms = ds.get('platforms')
             existing.collection_layers = ds.get('collection_layers')
             existing.last_synced_at = datetime.utcnow()
+            counts['data_sources_updated'] += 1
         else:
             new_ds = MitreDataSource(
                 stix_id=stix_id,
@@ -867,15 +921,56 @@ def sync_data_sources_to_db() -> Dict[str, int]:
     db.session.flush()  # Get IDs for foreign keys
     
     # Build stix_id to db_id map for data sources
-    ds_id_map = {ds.stix_id: ds.id for ds in MitreDataSource.query.all()}
+    ds_stix_id_map = {ds.stix_id: ds.id for ds in MitreDataSource.query.all()}
+    ds_name_map = {ds.name: ds.id for ds in MitreDataSource.query.all()}
+    ds_names_sorted = sorted(ds_name_map.keys(), key=len, reverse=True)
+    
+    # Manual mappings for non-obvious component -> source relationships
+    COMPONENT_TO_SOURCE = {
+        'Network Connection Creation': 'Network Traffic',
+        'Network Traffic Flow': 'Network Traffic',
+        'Network Traffic Content': 'Network Traffic',
+        'Response Content': 'Network Traffic',
+        'Response Metadata': 'Network Traffic',
+        'Active DNS': 'Domain Name',
+        'Passive DNS': 'Domain Name',
+        'Domain Registration': 'Domain Name',
+        'Social Media': 'Persona',
+        'Host Status': 'Sensor Health',
+    }
     
     # Sync Data Components
+    orphaned = 0
     for stix_id, dc in syncer.data_components.items():
         ds_ref = dc.get('data_source_ref')
-        ds_db_id = ds_id_map.get(ds_ref)
+        ds_db_id = None
+        component_name = dc['name']
+        
+        # Try STIX ID lookup first
+        if ds_ref and ds_ref.startswith('x-mitre-data-source--'):
+            ds_db_id = ds_stix_id_map.get(ds_ref)
+        
+        # Strategy 1: Manual mapping
+        if not ds_db_id and component_name in COMPONENT_TO_SOURCE:
+            ds_name = COMPONENT_TO_SOURCE[component_name]
+            if ds_name in ds_name_map:
+                ds_db_id = ds_name_map[ds_name]
+        
+        # Strategy 2: Prefix match (longest first)
+        if not ds_db_id:
+            for ds_name in ds_names_sorted:
+                if component_name.startswith(ds_name + ' ') or component_name == ds_name:
+                    ds_db_id = ds_name_map[ds_name]
+                    break
+        
+        # Strategy 3: First word match
+        if not ds_db_id:
+            first_word = component_name.split()[0] if component_name else ''
+            if first_word in ds_name_map:
+                ds_db_id = ds_name_map[first_word]
         
         if not ds_db_id:
-            logger.warning(f"No data source found for component {dc['name']}")
+            orphaned += 1
             continue
         
         existing = MitreDataComponent.query.filter_by(stix_id=stix_id).first()
@@ -884,7 +979,9 @@ def sync_data_sources_to_db() -> Dict[str, int]:
             existing.description = dc.get('description')
             existing.windows_event_ids = dc.get('windows_event_ids')
             existing.sysmon_event_ids = dc.get('sysmon_event_ids')
+            existing.data_source_id = ds_db_id
             existing.last_synced_at = datetime.utcnow()
+            counts['data_components_updated'] += 1
         else:
             new_dc = MitreDataComponent(
                 stix_id=stix_id,
@@ -896,6 +993,9 @@ def sync_data_sources_to_db() -> Dict[str, int]:
             )
             db.session.add(new_dc)
             counts['data_components'] += 1
+    
+    if orphaned:
+        logger.warning(f"{orphaned} data components could not be matched to a data source")
     
     db.session.flush()
     
@@ -939,8 +1039,8 @@ def sync_data_sources_to_db() -> Dict[str, int]:
     
     db.session.commit()
     
-    logger.info(f"Synced: {counts['data_sources']} data sources, "
-                f"{counts['data_components']} data components, "
+    logger.info(f"Synced: {counts['data_sources']} new + {counts['data_sources_updated']} updated data sources, "
+                f"{counts['data_components']} new + {counts['data_components_updated']} updated data components, "
                 f"{counts['technique_maps']} technique mappings")
     
     return counts
