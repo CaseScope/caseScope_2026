@@ -169,6 +169,23 @@
         </div>
     </div>
 </div>
+
+<!-- Search Guide Modal -->
+<div class="modal-overlay" id="search-guide-modal" style="display: none;" onclick="closeSearchGuideModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="search-guide-title">🔍 Search Guide</h3>
+            <button class="modal-close" onclick="closeSearchGuideModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="search-guide-body">
+            <!-- Content populated by JS -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeSearchGuideModal()">Cancel</button>
+            <button class="btn btn-primary" id="search-guide-continue" onclick="continueSearchFromGuide()">Continue Search</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -471,7 +488,35 @@ const preconfiguredSearches = {
             {
                 label: 'Pass the Hash',
                 search: '(4648|4634|4023)|(4624|4625 ntlm|ntlmssp logontype:3 keylenght:0) security -dwm -umfd -$ -health',
-                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType']
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType'],
+                description: {
+                    title: '🔐 Pass the Hash Detection',
+                    content: `
+                        <p>This search returns events commonly associated with <strong>Pass the Hash (PtH)</strong> attacks:</p>
+                        <ul>
+                            <li><strong>4648</strong> - Explicit credential logon</li>
+                            <li><strong>4634</strong> - Logoff event</li>
+                            <li><strong>4023</strong> - Audit policy change</li>
+                            <li><strong>4624/4625</strong> - Logon success/failure with NTLM, LogonType 3, KeyLength 0</li>
+                        </ul>
+                        <p>Noise from service accounts (DWM, UMFD, health, machine accounts) is excluded.</p>
+                        
+                        <h4>🎯 Best Pattern to Confirm PtH</h4>
+                        <p>Look for <strong>4648</strong> (explicit credential use) on source machine → shortly followed by <strong>4624</strong> with the above signature on target machine.</p>
+                        
+                        <h4>✅ Quick Checklist</h4>
+                        <ul>
+                            <li>Privileged accounts only</li>
+                            <li>Same source IP → many targets</li>
+                            <li>Unusual source hostnames</li>
+                            <li>Process = psexec / wmic / powershell / cmd</li>
+                        </ul>
+                        
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>⚠️ High Suspicion:</strong> Treat NULL SID + KeyLength 0 on network NTLM as very suspicious PtH until proven otherwise.
+                        </div>
+                    `
+                }
             }
         ]
     },
@@ -487,6 +532,9 @@ const preconfiguredSearches = {
     activity: {}
 };
 
+// Store pending search config for modal flow
+let pendingSearchConfig = null;
+
 // Execute a preconfigured search
 // Preserves time filter, auto-adds columns, fills search bar, and executes
 function executePreconfiguredSearch(searchConfig) {
@@ -498,6 +546,18 @@ function executePreconfiguredSearch(searchConfig) {
         return;
     }
     
+    // If search has a description, show the guide modal first
+    if (searchConfig.description) {
+        showSearchGuideModal(searchConfig);
+        return;
+    }
+    
+    // Execute the search directly
+    executeSearchDirect(searchConfig);
+}
+
+// Execute search without showing modal
+function executeSearchDirect(searchConfig) {
     // Add columns if specified (uses same mechanism as clicking + in raw data)
     if (searchConfig.columns && searchConfig.columns.length > 0) {
         const currentColumns = getCustomColumns();
@@ -524,6 +584,36 @@ function executePreconfiguredSearch(searchConfig) {
     
     // Execute the search (this preserves time filter settings)
     searchEvents();
+}
+
+// Show the search guide modal
+function showSearchGuideModal(searchConfig) {
+    pendingSearchConfig = searchConfig;
+    
+    const modal = document.getElementById('search-guide-modal');
+    const title = document.getElementById('search-guide-title');
+    const body = document.getElementById('search-guide-body');
+    
+    title.innerHTML = searchConfig.description.title || '🔍 Search Guide';
+    body.innerHTML = searchConfig.description.content || '';
+    
+    modal.style.display = 'flex';
+}
+
+// Close search guide modal
+function closeSearchGuideModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('search-guide-modal').style.display = 'none';
+    pendingSearchConfig = null;
+}
+
+// Continue with the search after reading the guide
+function continueSearchFromGuide() {
+    const config = pendingSearchConfig;
+    closeSearchGuideModal();
+    if (config) {
+        executeSearchDirect(config);
+    }
 }
 
 // Render the preconfigured searches dropdown for a given tab

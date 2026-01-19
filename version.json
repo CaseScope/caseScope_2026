@@ -1,6 +1,14 @@
 {
-  "version": "3.110.06",
+  "version": "3.111.00",
   "changelog": [
+    {
+      "version": "3.111.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Added: Search Guide modal for preconfigured searches with analyst guidance",
+        "Added: Pass the Hash detection guide with pattern checklist"
+      ]
+    },
     {
       "version": "3.110.06",
       "date": "2026-01-19",
