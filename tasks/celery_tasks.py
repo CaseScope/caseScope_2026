@@ -993,9 +993,11 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
 def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Dict[str, Any]:
     """Find additional IOCs in events that are already tagged with IOCs.
     
+    Uses FAST regex extraction (not AI) for speed - processes events in batches.
+    
     This task:
     1. Queries all events where ioc_types is not empty
-    2. Extracts IOCs from each event's raw_json using AI
+    2. Extracts IOCs from each event's raw_json using fast regex patterns
     3. Compares against existing IOCs, known systems/users
     4. Returns deduplicated results for analyst review
     
@@ -1036,13 +1038,13 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
         app = get_flask_app()
         with app.app_context():
             from utils.clickhouse import get_fresh_client
-            from utils.ioc_extractor import extract_iocs_with_ai, process_extraction_for_import
+            from utils.ioc_extractor import RegexIOCExtractor, process_extraction_for_import
             from models.ioc import IOC
             
             client = get_fresh_client()
             
-            # Get all events tagged with IOCs (limit to prevent overload)
-            max_events = 500
+            # Get all events tagged with IOCs
+            max_events = 2000  # Can handle more with regex (fast)
             query = f"""
                 SELECT event_id, raw_json, artifact_type, source_host, timestamp
                 FROM events 
@@ -1056,7 +1058,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             events = result.result_rows
             total_events = len(events)
             
-            logger.info(f"Found {total_events} tagged events to process")
+            logger.info(f"Found {total_events} tagged events to process with regex extraction")
             
             if total_events == 0:
                 update_progress(0, 0, 0, '', 'complete')
@@ -1069,7 +1071,10 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                 }))
                 return {'success': True, 'events_processed': 0}
             
-            update_progress(0, total_events, 0, 'Initializing...')
+            update_progress(0, total_events, 0, 'Initializing regex extractor...')
+            
+            # Use fast regex extractor
+            extractor = RegexIOCExtractor()
             
             # Aggregate all extracted IOCs
             all_iocs = {
@@ -1096,33 +1101,40 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                 'threat_names': [],
             }
             
-            used_ai = False
             found_count = 0
+            batch_size = 100  # Process in batches for progress updates
             
             # Process events in batches
-            for idx, event in enumerate(events):
-                event_id, raw_json, artifact_type, source_host, timestamp = event
+            for batch_start in range(0, total_events, batch_size):
+                batch_end = min(batch_start + batch_size, total_events)
+                batch = events[batch_start:batch_end]
                 
-                # Update progress
-                preview = raw_json[:60] + '...' if len(raw_json) > 60 else raw_json
-                update_progress(idx + 1, total_events, found_count, preview)
+                # Update progress at batch level (not per-event for speed)
+                update_progress(batch_end, total_events, found_count, f'Processing batch {batch_start//batch_size + 1}...')
                 
-                # Extract IOCs from raw_json
-                try:
-                    extraction, ai_used = extract_iocs_with_ai(raw_json)
-                    if ai_used:
-                        used_ai = True
+                # Process each event in batch
+                for event in batch:
+                    event_id, raw_json, artifact_type, source_host, timestamp = event
                     
-                    # Merge extracted IOCs into aggregate
-                    iocs = extraction.get('iocs', {})
-                    for key in all_iocs.keys():
-                        if key in iocs and iocs[key]:
-                            all_iocs[key].extend(iocs[key])
-                            found_count += len(iocs[key])
-                            
-                except Exception as e:
-                    logger.warning(f"Error extracting from event {event_id}: {e}")
-                    continue
+                    if not raw_json:
+                        continue
+                    
+                    try:
+                        # Fast regex extraction
+                        extraction = extractor.extract(raw_json)
+                        
+                        # Merge extracted IOCs into aggregate
+                        iocs = extraction.get('iocs', {})
+                        for key in all_iocs.keys():
+                            if key in iocs and iocs[key]:
+                                all_iocs[key].extend(iocs[key])
+                                found_count += len(iocs[key])
+                                
+                    except Exception as e:
+                        # Skip problematic events silently for speed
+                        continue
+            
+            update_progress(total_events, total_events, found_count, 'Deduplicating and matching...')
             
             # Process aggregated IOCs for import (dedup, match against existing)
             processed = process_extraction_for_import(
@@ -1134,7 +1146,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             # Store results in Redis (1 hour expiry)
             results_data = {
                 'events_processed': total_events,
-                'used_ai': used_ai,
+                'used_ai': False,  # Using regex, not AI
                 'iocs_to_import': processed.get('iocs_to_import', []),
                 'known_systems_results': processed.get('known_systems_results', []),
                 'known_users_results': processed.get('known_users_results', [])
@@ -1147,7 +1159,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             
             logger.info(
                 f"Find IOCs complete for case {case_id}: "
-                f"processed {total_events} events, found {final_count} potential IOCs"
+                f"processed {total_events} events, found {final_count} potential IOCs (regex)"
             )
             
             return {

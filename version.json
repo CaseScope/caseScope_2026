@@ -1,6 +1,15 @@
 {
-  "version": "3.117.00",
+  "version": "3.117.01",
   "changelog": [
+    {
+      "version": "3.117.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Performance: Find IOCs now uses fast regex extraction instead of slow AI calls per event",
+        "Performance: Batch processing with progress updates every 100 events",
+        "Performance: Can now process up to 2000 tagged events quickly"
+      ]
+    },
     {
       "version": "3.117.00",
       "date": "2026-01-19",
