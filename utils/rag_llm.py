@@ -19,7 +19,7 @@ class OllamaClient:
     def __init__(self, host: str = None, model: str = None):
         self.host = host or Config.OLLAMA_HOST
         self.model = model or Config.OLLAMA_MODEL
-        self.timeout = 120  # 2 minutes for long responses
+        self.timeout = 180  # 3 minutes for long responses
     
     def generate(
         self,

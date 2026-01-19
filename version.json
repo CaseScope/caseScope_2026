@@ -1,6 +1,13 @@
 {
-  "version": "3.114.03",
+  "version": "3.114.04",
   "changelog": [
+    {
+      "version": "3.114.04",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: Ask AI timeout increased to 180s, context truncated to 10K chars to fit token limit"
+      ]
+    },
     {
       "version": "3.114.03",
       "date": "2026-01-19",

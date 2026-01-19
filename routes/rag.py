@@ -1004,7 +1004,7 @@ def ask_ai():
     question = data.get('question', '').strip()
     include_patterns = data.get('include_patterns', True)
     include_high_severity = data.get('include_high_severity', True)
-    max_events = data.get('max_events', 50)
+    max_events = data.get('max_events', 20)  # Reduced to stay within token limits
     
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
@@ -1330,8 +1330,11 @@ def ask_ai():
         except Exception as e:
             logger.warning(f"[Ask AI] Stats query failed: {e}")
         
-        # Build the full prompt
+        # Build the full prompt - truncate to stay within token limits (~4 chars per token, 3000 tokens max for context)
         context_text = "\n".join(context_parts) if context_parts else "No relevant data found in the case."
+        max_context_chars = 10000  # ~2500 tokens for context, leaving room for system prompt and response
+        if len(context_text) > max_context_chars:
+            context_text = context_text[:max_context_chars] + "\n... [Context truncated for token limit]"
         
         user_prompt = f"""Based on the following data from the investigation, please answer this question:
 
