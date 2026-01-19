@@ -1,6 +1,14 @@
 {
-  "version": "3.120.01",
+  "version": "3.120.02",
   "changelog": [
+    {
+      "version": "3.120.02",
+      "date": "2026-01-19",
+      "changes": [
+        "Fix: Memory Hunting dropdown now uses standard site styling",
+        "Fix: Only jobs with ingested data appear in dropdown (no empty/failed jobs)"
+      ]
+    },
     {
       "version": "3.120.01",
       "date": "2026-01-19",

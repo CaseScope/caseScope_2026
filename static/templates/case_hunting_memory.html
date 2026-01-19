@@ -253,6 +253,30 @@
 
 .memory-job-selector select {
     min-width: 300px;
+    padding: 8px 12px;
+    font-size: 13px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.memory-job-selector select:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
+.memory-job-selector select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.memory-job-selector select option {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 6px 12px;
 }
 
 .job-info-badge {
@@ -798,25 +822,26 @@ async function loadJobsList() {
             const select = document.getElementById('jobSelect');
             select.innerHTML = '<option value="">Select a memory dump...</option>';
             
-            if (data.jobs.length === 0) {
-                select.innerHTML = '<option value="">No completed memory jobs</option>';
+            // Only show jobs that have ingested data
+            const jobsWithData = data.jobs.filter(j => j.has_data);
+            
+            if (jobsWithData.length === 0) {
+                select.innerHTML = '<option value="">No memory jobs with data available</option>';
                 return;
             }
             
-            data.jobs.forEach(job => {
+            jobsWithData.forEach(job => {
                 const option = document.createElement('option');
                 option.value = job.id;
                 const time = job.memory_timestamp ? new Date(job.memory_timestamp).toLocaleString() : 'Unknown time';
-                const dataStatus = job.has_data ? '✓' : '○';
-                option.textContent = `${dataStatus} ${job.hostname} - ${time}`;
+                option.textContent = `${job.hostname} - ${time}`;
                 option.dataset.job = JSON.stringify(job);
                 select.appendChild(option);
             });
             
-            // Auto-select first job with data
-            const firstWithData = data.jobs.find(j => j.has_data);
-            if (firstWithData) {
-                select.value = firstWithData.id;
+            // Auto-select first job
+            if (jobsWithData.length > 0) {
+                select.value = jobsWithData[0].id;
                 loadJobData();
             }
         }
