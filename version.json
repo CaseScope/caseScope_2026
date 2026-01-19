@@ -1,6 +1,13 @@
 {
-  "version": "3.112.01",
+  "version": "3.113.00",
   "changelog": [
+    {
+      "version": "3.113.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Added: AI Hunting toolbar with Ask AI, Create Timeline, Create Report placeholders"
+      ]
+    },
     {
       "version": "3.112.01",
       "date": "2026-01-19",
