@@ -1,6 +1,13 @@
 {
-  "version": "3.111.02",
+  "version": "3.111.03",
   "changelog": [
+    {
+      "version": "3.111.03",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: Pass the Hash predefined search typo (keylenght -> keylength)"
+      ]
+    },
     {
       "version": "3.111.02",
       "date": "2026-01-19",
