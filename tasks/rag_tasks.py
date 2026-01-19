@@ -10,7 +10,7 @@ Provides Celery tasks for:
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from tasks.celery_tasks import celery_app, get_flask_app
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
@@ -336,22 +336,146 @@ def rag_sync_mitre_attack(
             }
 
 
+def _get_semantic_pattern_suggestions(
+    case_id: int,
+    client,
+    limit: int = 30,
+    score_threshold: float = 0.45
+) -> Tuple[List[int], Dict[str, Any]]:
+    """
+    Use semantic search to find patterns relevant to case events.
+    
+    Samples high-severity and diverse events from the case, embeds them,
+    and finds semantically similar attack patterns.
+    
+    Args:
+        case_id: Case ID to analyze
+        client: ClickHouse client
+        limit: Max patterns to return
+        score_threshold: Minimum similarity score
+        
+    Returns:
+        Tuple of (pattern_ids, metadata dict with scores and timing)
+    """
+    import time
+    from utils.rag_embeddings import embed_event_context
+    from utils.rag_vectorstore import search_similar_patterns
+    
+    metadata = {
+        'method': 'semantic',
+        'events_sampled': 0,
+        'patterns_found': 0,
+        'avg_score': None,
+        'duration_ms': 0
+    }
+    
+    start_time = time.time()
+    
+    try:
+        # Sample diverse events for embedding
+        # Priority: high-severity rules, then diverse event types
+        sample_query = """
+        SELECT 
+            event_id,
+            channel,
+            rule_title,
+            rule_level,
+            process_name,
+            command_line,
+            username
+        FROM events
+        WHERE case_id = {case_id:UInt32}
+            AND (noise_matched = false OR noise_matched IS NULL)
+        ORDER BY 
+            CASE 
+                WHEN rule_level = 'critical' THEN 1
+                WHEN rule_level = 'high' THEN 2
+                WHEN rule_level = 'medium' THEN 3
+                ELSE 4
+            END,
+            rand()
+        LIMIT 25
+        """
+        
+        result = client.query(sample_query, parameters={'case_id': case_id})
+        
+        if not result.result_rows:
+            logger.info(f"[Semantic] No events to sample for case {case_id}")
+            return [], metadata
+        
+        # Convert to event dicts for embedding
+        events = []
+        for row in result.result_rows:
+            events.append({
+                'event_id': row[0],
+                'channel': row[1],
+                'rule_title': row[2],
+                'rule_level': row[3],
+                'process_name': row[4],
+                'command_line': row[5][:200] if row[5] else None,
+                'username': row[6]
+            })
+        
+        metadata['events_sampled'] = len(events)
+        
+        # Embed event context
+        event_embedding = embed_event_context(events)
+        
+        # Search for similar patterns
+        similar_patterns = search_similar_patterns(
+            event_embedding,
+            limit=limit,
+            score_threshold=score_threshold
+        )
+        
+        if not similar_patterns:
+            logger.info(f"[Semantic] No patterns matched above threshold {score_threshold}")
+            return [], metadata
+        
+        # Extract pattern IDs and calculate scores
+        pattern_ids = [p['id'] for p in similar_patterns]
+        scores = [p['score'] for p in similar_patterns]
+        
+        metadata['patterns_found'] = len(pattern_ids)
+        metadata['avg_score'] = sum(scores) / len(scores) if scores else None
+        metadata['top_score'] = max(scores) if scores else None
+        metadata['min_score'] = min(scores) if scores else None
+        metadata['duration_ms'] = int((time.time() - start_time) * 1000)
+        
+        logger.info(f"[Semantic] Found {len(pattern_ids)} patterns for case {case_id} "
+                   f"(avg score: {metadata['avg_score']:.3f})")
+        
+        return pattern_ids, metadata
+        
+    except Exception as e:
+        logger.warning(f"[Semantic] Pattern suggestion failed: {e}")
+        metadata['error'] = str(e)
+        metadata['duration_ms'] = int((time.time() - start_time) * 1000)
+        return [], metadata
+
+
 @celery_app.task(bind=True, name='tasks.rag_discover_patterns')
 def rag_discover_patterns(
     self,
     case_id: int,
     case_uuid: str,
-    pattern_ids: List[int] = None
+    pattern_ids: List[int] = None,
+    use_semantic: bool = True,
+    semantic_only: bool = False
 ) -> Dict[str, Any]:
     """
     Scan case events for matching attack patterns
     
-    Uses SQL-based pattern matching for efficiency with large datasets.
+    Uses a hybrid approach:
+    1. Semantic search to find patterns relevant to case events (prioritized)
+    2. SQL-based pattern matching to verify and find additional matches
     
     Args:
         case_id: PostgreSQL case.id (used as ClickHouse case_id)
         case_uuid: Case UUID
         pattern_ids: Optional list of specific pattern IDs to check
+        use_semantic: Whether to use semantic search to prioritize patterns (default True)
+        semantic_only: If True, only check semantically-matched patterns (faster but may miss some)
         
     Returns:
         Dict with discovery results
@@ -366,6 +490,8 @@ def rag_discover_patterns(
         
         client = get_fresh_client()
         
+        semantic_metadata = {'method': 'sql_only'}
+        
         # Get event count
         count_result = client.query(
             "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
@@ -379,13 +505,57 @@ def rag_discover_patterns(
             'total_events': total_events
         })
         
-        # Get patterns to check
+        # Step 1: Try semantic discovery first (if enabled and no specific patterns requested)
+        semantic_pattern_ids = []
+        if use_semantic and not pattern_ids and total_events > 0:
+            self.update_state(state='PROGRESS', meta={
+                'progress': 5,
+                'status': 'Analyzing events with semantic search...',
+                'total_events': total_events
+            })
+            
+            semantic_pattern_ids, semantic_metadata = _get_semantic_pattern_suggestions(
+                case_id=case_id,
+                client=client,
+                limit=50,
+                score_threshold=0.40
+            )
+            
+            if semantic_pattern_ids:
+                logger.info(f"[RAG] Semantic search found {len(semantic_pattern_ids)} relevant patterns")
+        
+        # Step 2: Get patterns to check
         if pattern_ids:
+            # User specified exact patterns
             patterns = AttackPattern.query.filter(
                 AttackPattern.id.in_(pattern_ids),
                 AttackPattern.enabled == True
             ).all()
+        elif semantic_pattern_ids and semantic_only:
+            # Only use semantically-matched patterns (faster)
+            patterns = AttackPattern.query.filter(
+                AttackPattern.id.in_(semantic_pattern_ids),
+                AttackPattern.enabled == True
+            ).all()
+            logger.info(f"[RAG] Semantic-only mode: checking {len(patterns)} patterns")
+        elif semantic_pattern_ids:
+            # Prioritize semantic patterns, but also check others
+            # Get semantic matches first, then remaining patterns
+            semantic_patterns = AttackPattern.query.filter(
+                AttackPattern.id.in_(semantic_pattern_ids),
+                AttackPattern.enabled == True
+            ).all()
+            
+            remaining_patterns = AttackPattern.query.filter(
+                ~AttackPattern.id.in_(semantic_pattern_ids),
+                AttackPattern.enabled == True
+            ).all()
+            
+            # Order: semantic first (by score), then remaining
+            patterns = semantic_patterns + remaining_patterns
+            logger.info(f"[RAG] Hybrid mode: {len(semantic_patterns)} semantic + {len(remaining_patterns)} fallback patterns")
         else:
+            # No semantic results or disabled - check all patterns
             patterns = AttackPattern.query.filter_by(enabled=True).all()
         
         # Filter to patterns with ClickHouse queries
@@ -506,7 +676,8 @@ def rag_discover_patterns(
             'patterns_total': len(patterns),
             'matches_found': len(matches_found),
             'matches': matches_found[:50],  # Limit response size
-            'errors': errors[:10] if errors else None
+            'errors': errors[:10] if errors else None,
+            'semantic': semantic_metadata
         }
 
 

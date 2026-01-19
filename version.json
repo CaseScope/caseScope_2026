@@ -1,6 +1,17 @@
 {
-  "version": "3.115.01",
+  "version": "3.116.00",
   "changelog": [
+    {
+      "version": "3.116.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Semantic pattern discovery integrated into rag_discover_patterns task",
+        "Feature: Hybrid approach - semantic search prioritizes patterns, SQL verifies matches",
+        "Feature: Event sampling (high-severity first) for semantic embedding",
+        "Feature: use_semantic and semantic_only parameters for discovery control",
+        "Feature: Semantic metadata returned with discovery results (scores, timing, patterns found)"
+      ]
+    },
     {
       "version": "3.115.01",
       "date": "2026-01-19",
