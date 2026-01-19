@@ -1,6 +1,13 @@
 {
-  "version": "3.114.02",
+  "version": "3.114.03",
   "changelog": [
+    {
+      "version": "3.114.03",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: Ask AI logon_type comparisons use integers, src_ip uses toString() for IPv4 type"
+      ]
+    },
     {
       "version": "3.114.02",
       "date": "2026-01-19",

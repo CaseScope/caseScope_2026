@@ -1105,7 +1105,7 @@ def ask_ai():
                     count() as fail_count,
                     min(timestamp_utc) as first_fail,
                     max(timestamp_utc) as last_fail,
-                    groupUniqArray(10)(src_ip) as source_ips
+                    groupUniqArray(10)(toString(src_ip)) as source_ips
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND event_id IN ('4625', '4771', '529', '530', '531', '532', '533', '534', '535', '536', '537', '539')
@@ -1122,7 +1122,7 @@ def ask_ai():
                     context_parts.append("  " + "-" * 80)
                     for row in result.result_rows:
                         user, host, count, first, last, ips = row
-                        ip_list = ', '.join(str(ip) for ip in ips[:3]) if ips else 'N/A'
+                        ip_list = ', '.join(str(ip) for ip in ips[:3] if ip) if ips else 'N/A'
                         context_parts.append(f"  {user or 'Unknown'} | {host or 'Unknown'} | {count} | {first} | {last} | {ip_list}")
                     
                     # Flag potential brute force (many failures in short time)
@@ -1143,7 +1143,7 @@ def ask_ai():
                 SELECT 
                     username,
                     source_host,
-                    src_ip,
+                    toString(src_ip) as src_ip_str,
                     logon_type,
                     auth_package,
                     count() as logon_count,
@@ -1152,7 +1152,7 @@ def ask_ai():
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND event_id = '4624'
-                AND (auth_package = 'NTLM' OR logon_type IN ('3', '9'))
+                AND (auth_package = 'NTLM' OR logon_type IN (3, 9))
                 GROUP BY username, source_host, src_ip, logon_type, auth_package
                 ORDER BY logon_count DESC
                 LIMIT 30
@@ -1178,7 +1178,7 @@ def ask_ai():
                 SELECT 
                     username,
                     source_host,
-                    src_ip,
+                    toString(src_ip) as src_ip_str,
                     event_id,
                     logon_type,
                     count() as logon_count,
@@ -1187,7 +1187,7 @@ def ask_ai():
                 FROM events 
                 WHERE case_id = {case_id:UInt32} 
                 AND event_id IN ('4624', '4625', '4648')
-                AND src_ip != '' AND src_ip IS NOT NULL
+                AND src_ip IS NOT NULL
                 GROUP BY username, source_host, src_ip, event_id, logon_type
                 ORDER BY logon_count DESC
                 LIMIT 40
@@ -1271,7 +1271,7 @@ def ask_ai():
                     channel, 
                     source_host,
                     username,
-                    src_ip,
+                    toString(src_ip) as src_ip_str,
                     rule_title,
                     rule_level,
                     process_name,
