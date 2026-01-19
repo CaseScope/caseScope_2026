@@ -217,6 +217,7 @@ def case_hunting():
 @case_required
 def case_ioc_management():
     """IOC Management - manage indicators of compromise"""
+    from models.system_settings import SystemSettings, SettingKeys
     case = get_active_case()
     ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
     return render_template('case_ioc_management.html', page_title='IOC Management', case=case, ai_enabled=ai_enabled)
