@@ -38,6 +38,7 @@ from tasks.rag_tasks import (
     rag_seed_builtin_patterns,
     rag_sync_external_patterns,
 )
+from tasks.memory_tasks import process_memory_dump
 
 __all__ = [
     'celery_app',
@@ -55,4 +56,5 @@ __all__ = [
     'rag_generate_timeline',
     'rag_seed_builtin_patterns',
     'rag_sync_external_patterns',
+    'process_memory_dump',
 ]

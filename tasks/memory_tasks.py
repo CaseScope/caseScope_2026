@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import re
+import zipfile
 from datetime import datetime
 from celery import shared_task
 import redis
@@ -86,6 +87,22 @@ def process_memory_dump(self, job_id: int):
             job.output_folder = output_base
             db.session.commit()
             
+            # Handle ZIP files - extract first
+            memory_file = job.source_file
+            cleanup_extracted = False
+            
+            if job.source_file.lower().endswith('.zip'):
+                update_job_progress(job_id, 0, current_plugin='Extracting ZIP...', status='running')
+                job.current_plugin = 'Extracting ZIP...'
+                db.session.commit()
+                
+                extracted_file = extract_memory_from_zip(job.source_file, extracted_folder)
+                if not extracted_file:
+                    raise Exception("No valid memory dump found in ZIP file. Expected: .raw, .dmp, .vmem, .mem, .lime, .bin")
+                
+                memory_file = extracted_file
+                cleanup_extracted = True
+            
             # Process each selected plugin
             plugins = job.selected_plugins or []
             total_plugins = len(plugins)
@@ -101,7 +118,7 @@ def process_memory_dump(self, job_id: int):
                 
                 # Run volatility3 for this plugin
                 success, output_file, error = run_volatility_plugin(
-                    job.source_file,
+                    memory_file,
                     plugin_name,
                     vol3_output,
                     job.os_type
@@ -134,8 +151,15 @@ def process_memory_dump(self, job_id: int):
             if os.path.exists(job.source_file):
                 try:
                     os.remove(job.source_file)
-                except Exception as e:
+                except Exception:
                     pass  # Don't fail job if cleanup fails
+            
+            # Clean up extracted file if we extracted from ZIP
+            if cleanup_extracted and memory_file and os.path.exists(memory_file):
+                try:
+                    os.remove(memory_file)
+                except Exception:
+                    pass
             
             # Mark as completed
             job.status = 'completed'
@@ -232,6 +256,61 @@ def extract_timestamp_from_info(info_file: str) -> datetime:
                                 continue
         return None
     except:
+        return None
+
+
+def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
+    """
+    Extract memory dump from a ZIP file
+    
+    Args:
+        zip_path: Path to the ZIP file
+        extract_to: Directory to extract to
+        
+    Returns:
+        Path to extracted memory file, or None if no valid memory found
+    """
+    memory_extensions = ['.raw', '.dmp', '.vmem', '.mem', '.lime', '.bin']
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Find memory files in the archive
+            memory_files = []
+            for name in zf.namelist():
+                lower_name = name.lower()
+                if any(lower_name.endswith(ext) for ext in memory_extensions):
+                    memory_files.append(name)
+            
+            if not memory_files:
+                return None
+            
+            # Extract the largest memory file (most likely the main dump)
+            largest_file = max(memory_files, key=lambda x: zf.getinfo(x).file_size)
+            
+            # Extract just this file
+            zf.extract(largest_file, extract_to)
+            extracted_path = os.path.join(extract_to, largest_file)
+            
+            # Flatten the path if it was in subdirectories
+            base_name = os.path.basename(largest_file)
+            final_path = os.path.join(extract_to, base_name)
+            
+            if extracted_path != final_path:
+                shutil.move(extracted_path, final_path)
+                # Clean up empty directories
+                try:
+                    subdir = os.path.dirname(extracted_path)
+                    while subdir != extract_to:
+                        os.rmdir(subdir)
+                        subdir = os.path.dirname(subdir)
+                except:
+                    pass
+                    
+            return final_path
+            
+    except zipfile.BadZipFile:
+        return None
+    except Exception as e:
         return None
 
 
