@@ -1,6 +1,14 @@
 {
-  "version": "3.120.00",
+  "version": "3.120.01",
   "changelog": [
+    {
+      "version": "3.120.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Fix: Memory data ingestion now runs automatically after Volatility3 processing completes",
+        "Changed: No manual ingest step required - data is ready for hunting immediately"
+      ]
+    },
     {
       "version": "3.120.00",
       "date": "2026-01-19",

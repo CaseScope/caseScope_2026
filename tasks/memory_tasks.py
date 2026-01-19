@@ -161,6 +161,13 @@ def process_memory_dump(self, job_id: int):
                 except Exception:
                     pass
             
+            # Ingest parsed data into database tables for hunting
+            job.current_plugin = 'Ingesting data...'
+            db.session.commit()
+            update_job_progress(job_id, 95, current_plugin='Ingesting data...')
+            
+            ingest_result = ingest_memory_data(job_id)
+            
             # Mark as completed
             job.status = 'completed'
             job.progress = 100
@@ -174,7 +181,8 @@ def process_memory_dump(self, job_id: int):
                 'job_id': job_id,
                 'completed': len(completed_plugins),
                 'failed': len(failed_plugins),
-                'output_folder': output_base
+                'output_folder': output_base,
+                'ingestion': ingest_result
             }
             
         except Exception as e:
@@ -312,6 +320,25 @@ def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
         return None
     except Exception as e:
         return None
+
+
+def ingest_memory_data(job_id: int) -> dict:
+    """
+    Ingest Vol3 JSON output into database tables for hunting
+    
+    Args:
+        job_id: ID of the MemoryJob record
+        
+    Returns:
+        Dict with ingestion results
+    """
+    from parsers.memory_parser import ingest_memory_job
+    
+    try:
+        result = ingest_memory_job(job_id)
+        return result
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
 
 def extract_timestamp_from_filename(filename: str) -> datetime:
