@@ -218,7 +218,8 @@ def case_hunting():
 def case_ioc_management():
     """IOC Management - manage indicators of compromise"""
     case = get_active_case()
-    return render_template('case_ioc_management.html', page_title='IOC Management', case=case)
+    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    return render_template('case_ioc_management.html', page_title='IOC Management', case=case, ai_enabled=ai_enabled)
 
 
 @main_bp.route('/help/search')

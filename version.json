@@ -1,6 +1,17 @@
 {
-  "version": "3.116.00",
+  "version": "3.117.00",
   "changelog": [
+    {
+      "version": "3.117.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Find IOCs button on IOC Management page - scans IOC-tagged events for additional indicators",
+        "Feature: AI-powered extraction from tagged events with regex fallback",
+        "Feature: Batch processing via Celery with real-time progress tracking",
+        "Feature: Analyst review modal with Merge/Ignore options for found IOCs, systems, and users",
+        "Feature: Deduplication against existing IOCs and known entities"
+      ]
+    },
     {
       "version": "3.116.00",
       "date": "2026-01-19",

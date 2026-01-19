@@ -989,6 +989,192 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
         }
 
 
+@celery_app.task(bind=True, name='tasks.find_iocs_in_events')
+def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Dict[str, Any]:
+    """Find additional IOCs in events that are already tagged with IOCs.
+    
+    This task:
+    1. Queries all events where ioc_types is not empty
+    2. Extracts IOCs from each event's raw_json using AI
+    3. Compares against existing IOCs, known systems/users
+    4. Returns deduplicated results for analyst review
+    
+    Args:
+        case_id: PostgreSQL case.id
+        username: User running the extraction
+        
+    Returns:
+        Dict with extraction results
+    """
+    import redis
+    import json
+    from config import Config
+    
+    logger.info(f"Starting Find IOCs in Events for case {case_id}")
+    
+    # Redis for progress tracking
+    r = redis.Redis(
+        host=Config.REDIS_HOST,
+        port=Config.REDIS_PORT,
+        db=Config.REDIS_DB,
+        decode_responses=True
+    )
+    
+    progress_key = f"find_iocs_progress:{case_id}:{self.request.id}"
+    results_key = f"find_iocs_results:{case_id}:{self.request.id}"
+    
+    def update_progress(current, total, found_count, current_value='', status='processing'):
+        r.setex(progress_key, 600, json.dumps({
+            'status': status,
+            'current': current,
+            'total': total,
+            'found_count': found_count,
+            'current_value': current_value[:100] if current_value else ''
+        }))
+    
+    try:
+        app = get_flask_app()
+        with app.app_context():
+            from utils.clickhouse import get_fresh_client
+            from utils.ioc_extractor import extract_iocs_with_ai, process_extraction_for_import
+            from models.ioc import IOC
+            
+            client = get_fresh_client()
+            
+            # Get all events tagged with IOCs (limit to prevent overload)
+            max_events = 500
+            query = f"""
+                SELECT event_id, raw_json, artifact_type, source_host, timestamp
+                FROM events 
+                WHERE case_id = {{case_id:UInt32}} 
+                  AND length(ioc_types) > 0
+                ORDER BY timestamp DESC
+                LIMIT {max_events}
+            """
+            
+            result = client.query(query, parameters={'case_id': case_id})
+            events = result.result_rows
+            total_events = len(events)
+            
+            logger.info(f"Found {total_events} tagged events to process")
+            
+            if total_events == 0:
+                update_progress(0, 0, 0, '', 'complete')
+                r.setex(results_key, 3600, json.dumps({
+                    'events_processed': 0,
+                    'used_ai': False,
+                    'iocs_to_import': [],
+                    'known_systems_results': [],
+                    'known_users_results': []
+                }))
+                return {'success': True, 'events_processed': 0}
+            
+            update_progress(0, total_events, 0, 'Initializing...')
+            
+            # Aggregate all extracted IOCs
+            all_iocs = {
+                'hashes': [],
+                'ip_addresses': [],
+                'domains': [],
+                'urls': [],
+                'file_paths': [],
+                'file_names': [],
+                'users': [],
+                'sids': [],
+                'registry_keys': [],
+                'commands': [],
+                'processes': [],
+                'credentials': [],
+                'hostnames': [],
+                'timestamps': [],
+                'network_shares': [],
+                'email_addresses': [],
+                'mitre_indicators': [],
+                'services': [],
+                'scheduled_tasks': [],
+                'cves': [],
+                'threat_names': [],
+            }
+            
+            used_ai = False
+            found_count = 0
+            
+            # Process events in batches
+            for idx, event in enumerate(events):
+                event_id, raw_json, artifact_type, source_host, timestamp = event
+                
+                # Update progress
+                preview = raw_json[:60] + '...' if len(raw_json) > 60 else raw_json
+                update_progress(idx + 1, total_events, found_count, preview)
+                
+                # Extract IOCs from raw_json
+                try:
+                    extraction, ai_used = extract_iocs_with_ai(raw_json)
+                    if ai_used:
+                        used_ai = True
+                    
+                    # Merge extracted IOCs into aggregate
+                    iocs = extraction.get('iocs', {})
+                    for key in all_iocs.keys():
+                        if key in iocs and iocs[key]:
+                            all_iocs[key].extend(iocs[key])
+                            found_count += len(iocs[key])
+                            
+                except Exception as e:
+                    logger.warning(f"Error extracting from event {event_id}: {e}")
+                    continue
+            
+            # Process aggregated IOCs for import (dedup, match against existing)
+            processed = process_extraction_for_import(
+                extraction={'iocs': all_iocs, 'extraction_summary': {}},
+                case_id=case_id,
+                username=username
+            )
+            
+            # Store results in Redis (1 hour expiry)
+            results_data = {
+                'events_processed': total_events,
+                'used_ai': used_ai,
+                'iocs_to_import': processed.get('iocs_to_import', []),
+                'known_systems_results': processed.get('known_systems_results', []),
+                'known_users_results': processed.get('known_users_results', [])
+            }
+            r.setex(results_key, 3600, json.dumps(results_data))
+            
+            # Mark complete
+            final_count = len(processed.get('iocs_to_import', []))
+            update_progress(total_events, total_events, final_count, '', 'complete')
+            
+            logger.info(
+                f"Find IOCs complete for case {case_id}: "
+                f"processed {total_events} events, found {final_count} potential IOCs"
+            )
+            
+            return {
+                'success': True,
+                'case_id': case_id,
+                'events_processed': total_events,
+                'iocs_found': final_count
+            }
+            
+    except Exception as e:
+        logger.error(f"Error finding IOCs in events for case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Update progress with error
+        r.setex(progress_key, 600, json.dumps({
+            'status': 'failed',
+            'error': str(e)
+        }))
+        
+        return {
+            'success': False,
+            'case_id': case_id,
+            'error': str(e)
+        }
+
+
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
     'update-hayabusa-rules-weekly': {

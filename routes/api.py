@@ -5629,6 +5629,213 @@ def save_extracted_iocs_api(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================
+# Find IOCs in Tagged Events
+# ============================================
+
+@api_bp.route('/iocs/find-in-events/stats/<case_uuid>')
+@login_required
+def get_find_iocs_stats(case_uuid):
+    """Get stats for Find IOCs feature - tagged event count and IOC count"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        from utils.clickhouse import get_fresh_client
+        from models.ioc import IOC
+        
+        # Get count of events tagged with IOCs
+        client = get_fresh_client()
+        result = client.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND length(ioc_types) > 0",
+            parameters={'case_id': case.id}
+        )
+        tagged_count = result.result_rows[0][0] if result.result_rows else 0
+        
+        # Get IOC count for this case
+        ioc_count = IOC.query.filter_by(case_id=case.id, active=True).count()
+        
+        return jsonify({
+            'success': True,
+            'tagged_event_count': tagged_count,
+            'ioc_count': ioc_count
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/find-in-events/start/<case_uuid>', methods=['POST'])
+@login_required
+def start_find_iocs_in_events(case_uuid):
+    """Start async task to find IOCs in tagged events"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        # Check if AI is enabled
+        ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+        if not ai_enabled:
+            return jsonify({'success': False, 'error': 'AI is not enabled'}), 400
+        
+        from tasks.celery_tasks import find_iocs_in_events_task
+        
+        # Start the Celery task
+        task = find_iocs_in_events_task.delay(case.id, current_user.username)
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/find-in-events/progress/<case_uuid>/<task_id>')
+@login_required
+def get_find_iocs_progress(case_uuid, task_id):
+    """Get progress of find IOCs task"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        import redis
+        import json
+        from config import Config
+        
+        r = redis.Redis(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+            decode_responses=True
+        )
+        
+        key = f"find_iocs_progress:{case.id}:{task_id}"
+        data = r.get(key)
+        
+        if data:
+            progress = json.loads(data)
+            return jsonify({
+                'success': True,
+                'status': progress.get('status', 'processing'),
+                'current': progress.get('current', 0),
+                'total': progress.get('total', 0),
+                'found_count': progress.get('found_count', 0),
+                'current_value': progress.get('current_value', ''),
+                'error': progress.get('error')
+            })
+        else:
+            # Check Celery task status
+            from celery.result import AsyncResult
+            from tasks.celery_tasks import celery_app
+            
+            result = AsyncResult(task_id, app=celery_app)
+            if result.state == 'PENDING':
+                return jsonify({
+                    'success': True,
+                    'status': 'pending',
+                    'current': 0,
+                    'total': 0,
+                    'found_count': 0
+                })
+            elif result.state == 'FAILURE':
+                return jsonify({
+                    'success': True,
+                    'status': 'failed',
+                    'error': str(result.result)
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'status': 'processing',
+                    'current': 0,
+                    'total': 0,
+                    'found_count': 0
+                })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/find-in-events/results/<case_uuid>/<task_id>')
+@login_required
+def get_find_iocs_results(case_uuid, task_id):
+    """Get results of completed find IOCs task"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        import redis
+        import json
+        from config import Config
+        
+        r = redis.Redis(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+            decode_responses=True
+        )
+        
+        key = f"find_iocs_results:{case.id}:{task_id}"
+        data = r.get(key)
+        
+        if data:
+            results = json.loads(data)
+            return jsonify({
+                'success': True,
+                **results
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Results not found or expired'}), 404
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/find-in-events/save/<case_uuid>', methods=['POST'])
+@login_required
+def save_find_iocs_results(case_uuid):
+    """Save selected IOCs from find-in-events results"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        iocs_data = data.get('iocs', [])
+        known_systems = data.get('known_systems', [])
+        known_users = data.get('known_users', [])
+        
+        from utils.ioc_extractor import save_extracted_iocs
+        
+        results = save_extracted_iocs(
+            iocs_data=iocs_data,
+            case_id=case.id,
+            username=current_user.username,
+            known_systems=known_systems,
+            known_users=known_users
+        )
+        
+        return jsonify({
+            'success': True,
+            'results': results
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/iocs/tag-artifacts/<case_uuid>', methods=['POST'])
 @login_required
 def tag_artifacts_for_case(case_uuid):
