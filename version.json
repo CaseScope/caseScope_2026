@@ -1,6 +1,14 @@
 {
-  "version": "3.117.01",
+  "version": "3.117.02",
   "changelog": [
+    {
+      "version": "3.117.02",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: Find IOCs now processes ALL tagged events (removed 2000 limit)",
+        "Fixed: IPv6 regex no longer captures timestamps (09:36:39) as IP addresses"
+      ]
+    },
     {
       "version": "3.117.01",
       "date": "2026-01-19",

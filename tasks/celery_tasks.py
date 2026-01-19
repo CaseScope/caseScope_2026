@@ -1043,15 +1043,13 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             
             client = get_fresh_client()
             
-            # Get all events tagged with IOCs
-            max_events = 2000  # Can handle more with regex (fast)
-            query = f"""
+            # Get ALL events tagged with IOCs (no limit - regex is fast)
+            query = """
                 SELECT event_id, raw_json, artifact_type, source_host, timestamp
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}} 
+                WHERE case_id = {case_id:UInt32} 
                   AND length(ioc_types) > 0
                 ORDER BY timestamp DESC
-                LIMIT {max_events}
             """
             
             result = client.query(query, parameters={'case_id': case_id})

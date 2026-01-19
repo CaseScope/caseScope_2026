@@ -395,6 +395,11 @@ class RegexIOCExtractor:
                 })
         
         for match in self.PATTERNS['ip_v6'].findall(clean_text):
+            # Filter out timestamps that look like IPv6 (e.g., 09:36:39, 12:30:45)
+            # Valid IPv6 has at least 4 colons or fe80:: prefix
+            if match.count(':') < 4 and not match.lower().startswith('fe80'):
+                # Likely a timestamp, not IPv6
+                continue
             results['iocs']['ip_addresses'].append({
                 'value': match, 
                 'port': None, 
