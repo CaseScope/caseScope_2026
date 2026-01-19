@@ -12,8 +12,11 @@ memory_bp = Blueprint('memory', __name__, url_prefix='/api/memory')
 
 
 def ensure_memory_dir(case_uuid):
-    """Ensure the memory upload directory exists for a case"""
-    case_memory_path = os.path.join(Config.MEMORY_UPLOAD_FOLDER, case_uuid)
+    """Ensure the memory upload directory exists for a case
+    
+    Uses the same folder structure as file uploads: /opt/casescope/uploads/sftp/{case_uuid}/memory/
+    """
+    case_memory_path = os.path.join(Config.UPLOAD_FOLDER_SFTP, case_uuid, 'memory')
     os.makedirs(case_memory_path, exist_ok=True)
     return case_memory_path
 

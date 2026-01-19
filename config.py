@@ -30,9 +30,6 @@ class Config:
     EVIDENCE_FOLDER = os.path.join(BASE_DIR, 'evidence')
     EVIDENCE_BULK_FOLDER = os.path.join(BASE_DIR, 'evidence_uploads')
     
-    # Memory Forensics uploads (local folder only - files not retained after analysis)
-    MEMORY_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads', 'memory')
-    
     # SSL
     SSL_CERT = os.environ.get('SSL_CERT') or '/opt/casescope/ssl/cert.pem'
     SSL_KEY = os.environ.get('SSL_KEY') or '/opt/casescope/ssl/key.pem'
