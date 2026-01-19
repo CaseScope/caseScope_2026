@@ -1,6 +1,13 @@
 {
-  "version": "3.111.00",
+  "version": "3.111.01",
   "changelog": [
+    {
+      "version": "3.111.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Fixed: OR pipe operator now works with field:value|field:value syntax (e.g. eventid:4624|eventid:4625)"
+      ]
+    },
     {
       "version": "3.111.00",
       "date": "2026-01-19",

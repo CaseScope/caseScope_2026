@@ -1890,13 +1890,20 @@ def get_hunting_events(case_id):
                     field = field_value_match.group(1)
                     value = field_value_match.group(2)
                     
-                    # Handle OR within value (field:val1|val2)
+                    # Handle OR within value (field:val1|val2 or field:val1|field2:val2)
                     if '|' in value:
                         or_parts = [p.strip() for p in value.split('|') if p.strip()]
                         if or_parts:
                             or_conds = []
                             for k, part in enumerate(or_parts):
-                                cond = parse_field_value(field, part, f'{prefix}_or{k}')
+                                # Check if this part is itself a field:value pair
+                                part_fv_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$', part)
+                                if part_fv_match and '://' not in part:
+                                    # Use this part's field and value
+                                    cond = parse_field_value(part_fv_match.group(1), part_fv_match.group(2), f'{prefix}_or{k}')
+                                else:
+                                    # Use original field with this part as value
+                                    cond = parse_field_value(field, part, f'{prefix}_or{k}')
                                 if cond:
                                     or_conds.append(cond)
                             if or_conds:
