@@ -1,6 +1,13 @@
 {
-  "version": "3.112.00",
+  "version": "3.112.01",
   "changelog": [
+    {
+      "version": "3.112.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Updated: Pass the Ticket search excludes NTLM to focus on Kerberos-only"
+      ]
+    },
     {
       "version": "3.112.00",
       "date": "2026-01-19",

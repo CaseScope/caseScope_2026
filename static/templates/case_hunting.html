@@ -520,7 +520,7 @@ const preconfiguredSearches = {
             },
             {
                 label: 'Pass the Ticket',
-                search: '4768|4769|4770|(4624 logontype:3) -dwm -$ -health',
+                search: '4768|4769|4770|(4624 logontype:3 -ntlm -ntlmssp) -dwm -$ -health',
                 columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType', 'raw_json.EventData.ServiceName'],
                 description: {
                     title: '🎫 Pass the Ticket Detection',
