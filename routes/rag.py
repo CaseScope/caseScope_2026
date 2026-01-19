@@ -1090,40 +1090,176 @@ def ask_ai():
             except Exception as e:
                 logger.warning(f"[Ask AI] High severity query failed: {e}")
         
-        # 3. Semantic search for events related to the question
-        # Extract key terms from question for targeted search
-        search_terms = []
+        # 3. Run specialized queries based on question type
         question_lower = question.lower()
+        search_terms = []
         
-        # Common DFIR keywords to look for
-        dfir_keywords = {
-            'brute force': ['4625', '4771', 'logon', 'failed'],
-            'pass the hash': ['4624', 'ntlm', 'logon type 9', 'logon type 3'],
-            'pass the ticket': ['4768', '4769', 'kerberos', 'ticket'],
-            'lateral movement': ['4624', 'logon type 3', 'remote', 'psexec'],
-            'privilege escalation': ['4672', '4673', 'privilege', 'admin'],
-            'failed login': ['4625', '4771', 'failed', 'logon'],
-            'rdp': ['4624', '4625', 'logon type 10', 'remote desktop'],
-            'powershell': ['4103', '4104', 'powershell', 'script'],
-            'credential': ['credential', 'lsass', 'password', 'hash'],
-            'persistence': ['registry', 'scheduled task', 'service', 'autorun'],
-            'exfiltration': ['upload', 'transfer', 'data', 'cloud'],
-        }
+        # BRUTE FORCE / FAILED LOGINS - specialized aggregation query
+        if any(kw in question_lower for kw in ['brute', 'failed login', 'failed logon', 'password spray', 'lockout']):
+            try:
+                # Get failed login summary by user
+                failed_login_query = """
+                SELECT 
+                    username,
+                    computer_name,
+                    count() as fail_count,
+                    min(timestamp_utc) as first_fail,
+                    max(timestamp_utc) as last_fail,
+                    groupUniqArray(10)(source_ip) as source_ips
+                FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                AND event_id IN ('4625', '4771', '529', '530', '531', '532', '533', '534', '535', '536', '537', '539')
+                GROUP BY username, computer_name
+                ORDER BY fail_count DESC
+                LIMIT 30
+                """
+                result = client.query(failed_login_query, parameters={'case_id': case_id})
+                
+                if result.result_rows:
+                    total_failures = sum(row[2] for row in result.result_rows)
+                    context_parts.append(f"\nFAILED LOGIN ANALYSIS ({total_failures} total failures):")
+                    context_parts.append("  User | Host | Failures | First | Last | Source IPs")
+                    context_parts.append("  " + "-" * 80)
+                    for row in result.result_rows:
+                        user, host, count, first, last, ips = row
+                        ip_list = ', '.join(ips[:3]) if ips else 'N/A'
+                        context_parts.append(f"  {user or 'Unknown'} | {host or 'Unknown'} | {count} | {first} | {last} | {ip_list}")
+                    
+                    # Flag potential brute force (many failures in short time)
+                    for row in result.result_rows:
+                        if row[2] >= 5:  # 5+ failures
+                            context_parts.append(f"\n  ⚠️ POTENTIAL BRUTE FORCE: {row[0]} has {row[2]} failures on {row[1]}")
+                else:
+                    context_parts.append("\nFAILED LOGIN ANALYSIS: No failed login events (4625, 4771) found in case data.")
+                    
+                search_terms.extend(['4625', '4771', 'failed'])
+            except Exception as e:
+                logger.warning(f"[Ask AI] Failed login query error: {e}")
         
-        for keyword, terms in dfir_keywords.items():
-            if keyword in question_lower:
-                search_terms.extend(terms)
+        # PASS THE HASH - look for NTLM logons
+        elif any(kw in question_lower for kw in ['pass the hash', 'pth', 'ntlm']):
+            try:
+                pth_query = """
+                SELECT 
+                    username,
+                    computer_name,
+                    source_ip,
+                    count() as logon_count,
+                    min(timestamp_utc) as first_seen,
+                    max(timestamp_utc) as last_seen
+                FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                AND event_id = '4624'
+                AND (lower(details) LIKE '%ntlm%' OR lower(details) LIKE '%logon type: 9%' OR lower(details) LIKE '%logon type: 3%')
+                GROUP BY username, computer_name, source_ip
+                ORDER BY logon_count DESC
+                LIMIT 30
+                """
+                result = client.query(pth_query, parameters={'case_id': case_id})
+                
+                if result.result_rows:
+                    context_parts.append(f"\nNTLM/NETWORK LOGON ANALYSIS ({len(result.result_rows)} user-host combinations):")
+                    for row in result.result_rows:
+                        user, host, src_ip, count, first, last = row
+                        context_parts.append(f"  {user} -> {host} from {src_ip or 'local'}: {count} logons ({first} to {last})")
+                else:
+                    context_parts.append("\nNTLM LOGON ANALYSIS: No NTLM network logons (4624) found.")
+                    
+                search_terms.extend(['4624', 'ntlm'])
+            except Exception as e:
+                logger.warning(f"[Ask AI] PTH query error: {e}")
         
-        # 4. If we have search terms, query for related events
+        # LATERAL MOVEMENT - RDP, SMB, remote logons
+        elif any(kw in question_lower for kw in ['lateral', 'movement', 'rdp', 'remote', 'smb']):
+            try:
+                lateral_query = """
+                SELECT 
+                    username,
+                    computer_name,
+                    source_ip,
+                    event_id,
+                    count() as logon_count,
+                    min(timestamp_utc) as first_seen,
+                    max(timestamp_utc) as last_seen
+                FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                AND event_id IN ('4624', '4625', '4648')
+                AND source_ip != '' AND source_ip IS NOT NULL
+                GROUP BY username, computer_name, source_ip, event_id
+                ORDER BY logon_count DESC
+                LIMIT 40
+                """
+                result = client.query(lateral_query, parameters={'case_id': case_id})
+                
+                if result.result_rows:
+                    context_parts.append(f"\nREMOTE/LATERAL LOGON ANALYSIS:")
+                    for row in result.result_rows:
+                        user, host, src_ip, eid, count, first, last = row
+                        status = "SUCCESS" if eid == '4624' else "FAILED" if eid == '4625' else "EXPLICIT"
+                        context_parts.append(f"  [{status}] {user} -> {host} from {src_ip}: {count}x ({first})")
+                else:
+                    context_parts.append("\nLATERAL MOVEMENT ANALYSIS: No remote logon events with source IPs found.")
+                    
+                search_terms.extend(['4624', '4625', 'remote'])
+            except Exception as e:
+                logger.warning(f"[Ask AI] Lateral movement query error: {e}")
+        
+        # POWERSHELL activity
+        elif 'powershell' in question_lower:
+            try:
+                ps_query = """
+                SELECT 
+                    timestamp_utc,
+                    computer_name,
+                    username,
+                    rule_title,
+                    substring(commandline, 1, 300) as cmd_preview
+                FROM events 
+                WHERE case_id = {case_id:UInt32} 
+                AND (event_id IN ('4103', '4104', '400', '403', '600') OR lower(process_name) LIKE '%powershell%')
+                ORDER BY timestamp_utc DESC
+                LIMIT 50
+                """
+                result = client.query(ps_query, parameters={'case_id': case_id})
+                
+                if result.result_rows:
+                    context_parts.append(f"\nPOWERSHELL ACTIVITY ({len(result.result_rows)} events):")
+                    for row in result.result_rows:
+                        ts, host, user, title, cmd = row
+                        context_parts.append(f"  [{ts}] {host} | {user} | {title or 'PowerShell'}")
+                        if cmd:
+                            context_parts.append(f"    > {cmd[:200]}")
+                else:
+                    context_parts.append("\nPOWERSHELL ANALYSIS: No PowerShell events found.")
+                    
+                search_terms.extend(['4103', '4104', 'powershell'])
+            except Exception as e:
+                logger.warning(f"[Ask AI] PowerShell query error: {e}")
+        
+        # Generic keyword search for other questions
+        else:
+            dfir_keywords = {
+                'privilege': ['4672', '4673', 'privilege', 'admin'],
+                'credential': ['credential', 'lsass', 'password', 'mimikatz', 'sekurlsa'],
+                'persistence': ['registry', 'scheduled', 'service', 'run key', 'startup'],
+                'exfil': ['upload', 'transfer', 'compress', 'archive'],
+                'kerberos': ['4768', '4769', '4770', 'kerberos', 'ticket'],
+            }
+            
+            for keyword, terms in dfir_keywords.items():
+                if keyword in question_lower:
+                    search_terms.extend(terms)
+        
+        # 4. If we have search terms, query for sample events
         if search_terms:
             try:
                 # Build OR conditions for search
                 conditions = []
-                for term in search_terms[:5]:  # Limit to 5 terms
+                for term in list(set(search_terms))[:6]:  # Dedupe and limit
                     if term.isdigit():
                         conditions.append(f"event_id = '{term}'")
                     else:
-                        conditions.append(f"(lower(rule_title) LIKE '%{term}%' OR lower(commandline) LIKE '%{term}%' OR lower(process_name) LIKE '%{term}%')")
+                        conditions.append(f"(lower(rule_title) LIKE '%{term}%' OR lower(commandline) LIKE '%{term}%' OR lower(channel) LIKE '%{term}%')")
                 
                 search_query = f"""
                 SELECT 
@@ -1136,7 +1272,7 @@ def ask_ai():
                     rule_title,
                     rule_level,
                     process_name,
-                    commandline
+                    substring(commandline, 1, 200) as cmd
                 FROM events 
                 WHERE case_id = {{case_id:UInt32}} 
                 AND ({' OR '.join(conditions)})
@@ -1146,8 +1282,8 @@ def ask_ai():
                 result = client.query(search_query, parameters={'case_id': case_id, 'limit': max_events})
                 
                 if result.result_rows:
-                    context_parts.append(f"\nRELEVANT EVENTS MATCHING QUERY ({len(result.result_rows)} events):")
-                    for row in result.result_rows:
+                    context_parts.append(f"\nSAMPLE MATCHING EVENTS ({len(result.result_rows)} events):")
+                    for row in result.result_rows[:30]:
                         ts, eid, ch, comp, user, src_ip, title, level, proc, cmd = row
                         event_line = f"  [{ts}] EventID:{eid}"
                         if title:
@@ -1158,11 +1294,7 @@ def ask_ai():
                             event_line += f" | User: {user}"
                         if src_ip:
                             event_line += f" | Source: {src_ip}"
-                        if proc:
-                            event_line += f" | Process: {proc}"
                         context_parts.append(event_line)
-                        if cmd and len(cmd) < 200:
-                            context_parts.append(f"    Command: {cmd}")
             except Exception as e:
                 logger.warning(f"[Ask AI] Related events query failed: {e}")
         

@@ -1,6 +1,13 @@
 {
-  "version": "3.114.00",
+  "version": "3.114.01",
   "changelog": [
+    {
+      "version": "3.114.01",
+      "date": "2026-01-19",
+      "changes": [
+        "Improved: Ask AI now runs specialized aggregation queries for brute force, PTH, lateral movement, PowerShell"
+      ]
+    },
     {
       "version": "3.114.00",
       "date": "2026-01-19",
