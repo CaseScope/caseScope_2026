@@ -470,7 +470,7 @@ const preconfiguredSearches = {
         'Common Patterns': [
             {
                 label: 'Pass the Hash',
-                search: '(4648|4634|4023)|(4624|4625 ntlm|ntlmssp "logontype 3") security',
+                search: '(4648|4634|4023)|(4624|4625 ntlm|ntlmssp logontype:3 keylenght:0) security -dwm -umfd -$ -health',
                 columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType']
             }
         ]

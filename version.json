@@ -1,6 +1,13 @@
 {
-  "version": "3.110.05",
+  "version": "3.110.06",
   "changelog": [
+    {
+      "version": "3.110.06",
+      "date": "2026-01-19",
+      "changes": [
+        "Updated: Pass the Hash prefilled search with improved detection query"
+      ]
+    },
     {
       "version": "3.110.05",
       "date": "2026-01-18",
