@@ -1,0 +1,1518 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🧠</span>
+            Memory Hunting
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary">
+            <span class="btn-icon">🎯</span> Back to Hunting
+        </a>
+    </div>
+</div>
+
+<div class="tile-row">
+    <div class="tile tile-memory-hunting">
+        <!-- Job Selector and Cross-Search -->
+        <div class="tile-header memory-header">
+            <div class="memory-job-selector">
+                <label for="jobSelect">Memory Dump:</label>
+                <select id="jobSelect" class="form-select" onchange="loadJobData()">
+                    <option value="">Select a memory dump...</option>
+                </select>
+                <span id="jobInfo" class="job-info-badge"></span>
+            </div>
+            <div class="memory-cross-search">
+                <button class="btn btn-primary" onclick="openCrossSearch()">
+                    <span class="btn-icon">🔍</span> Cross-Memory Search
+                </button>
+            </div>
+        </div>
+        
+        <!-- Sub-tabs -->
+        <div class="memory-tabs">
+            <button class="memory-tab active" data-tab="processes" onclick="switchMemoryTab('processes')">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-text">Processes</span>
+                <span class="tab-count" id="count-processes">-</span>
+            </button>
+            <button class="memory-tab" data-tab="network" onclick="switchMemoryTab('network')">
+                <span class="tab-icon">🌐</span>
+                <span class="tab-text">Network</span>
+                <span class="tab-count" id="count-network">-</span>
+            </button>
+            <button class="memory-tab" data-tab="services" onclick="switchMemoryTab('services')">
+                <span class="tab-icon">🔧</span>
+                <span class="tab-text">Services</span>
+                <span class="tab-count" id="count-services">-</span>
+            </button>
+            <button class="memory-tab" data-tab="malfind" onclick="switchMemoryTab('malfind')">
+                <span class="tab-icon">⚠️</span>
+                <span class="tab-text">Injections</span>
+                <span class="tab-count" id="count-malfind">-</span>
+            </button>
+            <button class="memory-tab" data-tab="credentials" onclick="switchMemoryTab('credentials')">
+                <span class="tab-icon">🔐</span>
+                <span class="tab-text">Credentials</span>
+                <span class="tab-count" id="count-credentials">-</span>
+            </button>
+            <button class="memory-tab" data-tab="info" onclick="switchMemoryTab('info')">
+                <span class="tab-icon">ℹ️</span>
+                <span class="tab-text">System Info</span>
+            </button>
+        </div>
+        
+        <div class="tile-body memory-content">
+            <!-- No Job Selected -->
+            <div id="no-job-message" class="memory-empty-state">
+                <div class="empty-icon">🧠</div>
+                <h3>Select a Memory Dump</h3>
+                <p>Choose a completed memory job from the dropdown above to view its artifacts.</p>
+                <a href="{{ url_for('main.case_memory_forensics') }}" class="btn btn-primary">
+                    <span class="btn-icon">➕</span> Process Memory Dumps
+                </a>
+            </div>
+            
+            <!-- Loading State -->
+            <div id="loading-state" class="memory-loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Loading memory data...</p>
+            </div>
+            
+            <!-- Tab Contents -->
+            <div id="tab-processes" class="memory-tab-content" style="display: none;">
+                <div class="memory-toolbar">
+                    <div class="memory-search">
+                        <input type="text" id="search-processes" class="form-input" 
+                               placeholder="Search processes..." onkeyup="filterProcesses()">
+                    </div>
+                    <div class="memory-view-toggle">
+                        <button class="btn btn-sm btn-active" id="btn-tree-view" onclick="setProcessView('tree')">
+                            <span>🌳</span> Tree
+                        </button>
+                        <button class="btn btn-sm" id="btn-list-view" onclick="setProcessView('list')">
+                            <span>📋</span> List
+                        </button>
+                    </div>
+                </div>
+                <div id="process-tree-container" class="process-tree"></div>
+                <div id="process-list-container" class="process-list" style="display: none;"></div>
+            </div>
+            
+            <div id="tab-network" class="memory-tab-content" style="display: none;">
+                <div class="memory-toolbar">
+                    <div class="memory-search">
+                        <input type="text" id="search-network" class="form-input" 
+                               placeholder="Search IP, port, process..." onkeyup="filterNetwork()">
+                    </div>
+                    <div class="memory-filters">
+                        <select id="filter-network-state" class="form-select" onchange="filterNetwork()">
+                            <option value="">All States</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="network-container" class="memory-table-container"></div>
+            </div>
+            
+            <div id="tab-services" class="memory-tab-content" style="display: none;">
+                <div class="memory-toolbar">
+                    <div class="memory-search">
+                        <input type="text" id="search-services" class="form-input" 
+                               placeholder="Search services..." onkeyup="filterServices()">
+                    </div>
+                    <div class="memory-filters">
+                        <select id="filter-service-state" class="form-select" onchange="filterServices()">
+                            <option value="">All States</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="services-container" class="memory-table-container"></div>
+            </div>
+            
+            <div id="tab-malfind" class="memory-tab-content" style="display: none;">
+                <div class="memory-toolbar">
+                    <div class="memory-search">
+                        <input type="text" id="search-malfind" class="form-input" 
+                               placeholder="Search by process..." onkeyup="filterMalfind()">
+                    </div>
+                </div>
+                <div id="malfind-container" class="memory-cards-container"></div>
+            </div>
+            
+            <div id="tab-credentials" class="memory-tab-content" style="display: none;">
+                <div class="memory-toolbar">
+                    <div class="memory-filters">
+                        <select id="filter-cred-source" class="form-select" onchange="filterCredentials()">
+                            <option value="">All Sources</option>
+                            <option value="hashdump">SAM Hashes</option>
+                            <option value="cachedump">Cached Credentials</option>
+                            <option value="lsadump">LSA Secrets</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="credentials-container" class="memory-table-container"></div>
+            </div>
+            
+            <div id="tab-info" class="memory-tab-content" style="display: none;">
+                <div id="info-container" class="memory-info-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cross-Memory Search Modal -->
+<div class="modal-overlay" id="cross-search-modal" style="display: none;" onclick="closeCrossSearch(event)">
+    <div class="modal-container modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">🔍 Cross-Memory Search</h3>
+            <button class="modal-close" onclick="closeCrossSearch()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="cross-search-form">
+                <div class="form-group">
+                    <label>Search Term</label>
+                    <input type="text" id="cross-search-input" class="form-input" 
+                           placeholder="Enter process name, IP address, service, or path...">
+                </div>
+                <div class="form-group">
+                    <label>Search Type</label>
+                    <div class="search-type-buttons">
+                        <button class="btn btn-sm btn-active" data-type="process" onclick="setCrossSearchType('process')">
+                            ⚙️ Process
+                        </button>
+                        <button class="btn btn-sm" data-type="network" onclick="setCrossSearchType('network')">
+                            🌐 IP Address
+                        </button>
+                        <button class="btn btn-sm" data-type="service" onclick="setCrossSearchType('service')">
+                            🔧 Service
+                        </button>
+                        <button class="btn btn-sm" data-type="path" onclick="setCrossSearchType('path')">
+                            📁 Path
+                        </button>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="executeCrossSearch()">
+                    <span class="btn-icon">🔍</span> Search All Memory Dumps
+                </button>
+            </div>
+            <div id="cross-search-results" class="cross-search-results" style="display: none;">
+                <h4>Results</h4>
+                <div id="cross-search-results-content"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Process Detail Modal -->
+<div class="modal-overlay" id="process-detail-modal" style="display: none;" onclick="closeProcessDetail(event)">
+    <div class="modal-container modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="process-detail-title">Process Details</h3>
+            <button class="modal-close" onclick="closeProcessDetail()">&times;</button>
+        </div>
+        <div class="modal-body" id="process-detail-content"></div>
+    </div>
+</div>
+
+<!-- Cross-Reference Popover (for badges) -->
+<div id="cross-ref-popover" class="cross-ref-popover" style="display: none;">
+    <div class="cross-ref-header">
+        <span class="cross-ref-title">Also found in:</span>
+        <button class="cross-ref-close" onclick="closeCrossRefPopover()">&times;</button>
+    </div>
+    <div class="cross-ref-content" id="cross-ref-content"></div>
+</div>
+
+<style>
+/* Memory Hunting Specific Styles */
+.memory-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.memory-job-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.memory-job-selector label {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.memory-job-selector select {
+    min-width: 300px;
+}
+
+.job-info-badge {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.memory-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+}
+
+.memory-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.memory-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.memory-tab.active {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+}
+
+.tab-count {
+    font-size: 0.75rem;
+    padding: 0.125rem 0.375rem;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    min-width: 1.5rem;
+    text-align: center;
+}
+
+.memory-tab.active .tab-count {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.memory-content {
+    padding: 0;
+    min-height: 500px;
+}
+
+.memory-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.memory-empty-state .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.memory-empty-state h3 {
+    margin: 0 0 0.5rem;
+    color: var(--text-primary);
+}
+
+.memory-empty-state p {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+}
+
+.memory-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem;
+}
+
+.memory-loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.memory-tab-content {
+    padding: 1rem;
+}
+
+.memory-toolbar {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.memory-search {
+    flex: 1;
+    min-width: 200px;
+}
+
+.memory-search input {
+    width: 100%;
+}
+
+.memory-filters select {
+    min-width: 150px;
+}
+
+.memory-view-toggle {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.memory-view-toggle .btn {
+    padding: 0.375rem 0.75rem;
+}
+
+.memory-view-toggle .btn-active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+/* Process Tree */
+.process-tree {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+
+.process-node {
+    margin-left: 1.5rem;
+}
+
+.process-node.root {
+    margin-left: 0;
+}
+
+.process-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.process-row:hover {
+    background: var(--bg-hover);
+}
+
+.process-toggle {
+    width: 1rem;
+    text-align: center;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
+.process-name {
+    font-weight: 500;
+}
+
+.process-pid {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.process-badges {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+
+.cross-mem-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    background: var(--accent-secondary);
+    color: white;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+.cross-mem-badge:hover {
+    opacity: 0.9;
+}
+
+.pivot-btn {
+    padding: 0.125rem 0.375rem;
+    background: var(--bg-tertiary);
+    border: none;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.pivot-btn:hover {
+    background: var(--accent-primary);
+    color: white;
+}
+
+/* Memory Tables */
+.memory-table-container {
+    overflow-x: auto;
+}
+
+.memory-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.memory-table th,
+.memory-table td {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.memory-table th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+}
+
+.memory-table tr:hover td {
+    background: var(--bg-hover);
+}
+
+.memory-table .mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.memory-table .text-muted {
+    color: var(--text-muted);
+}
+
+.state-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.state-running, .state-established {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
+.state-stopped, .state-listening {
+    background: rgba(100, 116, 139, 0.2);
+    color: #94a3b8;
+}
+
+.state-close-wait, .state-time-wait {
+    background: rgba(234, 179, 8, 0.2);
+    color: #eab308;
+}
+
+/* Malfind Cards */
+.memory-cards-container {
+    display: grid;
+    gap: 1rem;
+}
+
+.malfind-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    border-left: 4px solid #ef4444;
+}
+
+.malfind-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+}
+
+.malfind-process {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.malfind-pid {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.malfind-protection {
+    padding: 0.25rem 0.5rem;
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.malfind-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+}
+
+.malfind-hexdump {
+    background: var(--bg-tertiary);
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+/* Credentials Table */
+.cred-masked {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+}
+
+/* System Info */
+.memory-info-container {
+    padding: 1rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.info-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.info-card h4 {
+    margin: 0 0 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    color: var(--text-muted);
+}
+
+.info-value {
+    font-weight: 500;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Cross-Search Modal */
+.cross-search-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.search-type-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.search-type-buttons .btn-active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.cross-search-results {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+}
+
+.cross-search-result-group {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.cross-search-result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    cursor: pointer;
+}
+
+.cross-search-result-header:hover {
+    background: var(--bg-hover);
+}
+
+.cross-search-result-matches {
+    padding: 0.5rem;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.cross-search-match-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.85rem;
+}
+
+.cross-search-match-item:last-child {
+    border-bottom: none;
+}
+
+/* Cross-Reference Popover */
+.cross-ref-popover {
+    position: fixed;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    min-width: 280px;
+    max-width: 400px;
+    z-index: 1000;
+}
+
+.cross-ref-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-radius: 8px 8px 0 0;
+}
+
+.cross-ref-title {
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+
+.cross-ref-close {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
+.cross-ref-content {
+    padding: 0.5rem;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.cross-ref-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.cross-ref-item:hover {
+    background: var(--bg-hover);
+}
+
+.cross-ref-hostname {
+    font-weight: 500;
+}
+
+.cross-ref-time {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+</style>
+
+<script>
+const caseUuid = '{{ case.uuid }}';
+let currentJobId = null;
+let currentTab = 'processes';
+let processData = [];
+let processView = 'tree';
+let crossSearchType = 'process';
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadJobsList();
+});
+
+// Load available memory jobs
+async function loadJobsList() {
+    try {
+        const response = await fetch(`/api/memory/hunting/${caseUuid}/jobs`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const select = document.getElementById('jobSelect');
+            select.innerHTML = '<option value="">Select a memory dump...</option>';
+            
+            if (data.jobs.length === 0) {
+                select.innerHTML = '<option value="">No completed memory jobs</option>';
+                return;
+            }
+            
+            data.jobs.forEach(job => {
+                const option = document.createElement('option');
+                option.value = job.id;
+                const time = job.memory_timestamp ? new Date(job.memory_timestamp).toLocaleString() : 'Unknown time';
+                const dataStatus = job.has_data ? '✓' : '○';
+                option.textContent = `${dataStatus} ${job.hostname} - ${time}`;
+                option.dataset.job = JSON.stringify(job);
+                select.appendChild(option);
+            });
+            
+            // Auto-select first job with data
+            const firstWithData = data.jobs.find(j => j.has_data);
+            if (firstWithData) {
+                select.value = firstWithData.id;
+                loadJobData();
+            }
+        }
+    } catch (error) {
+        console.error('Error loading jobs:', error);
+    }
+}
+
+// Load data for selected job
+async function loadJobData() {
+    const select = document.getElementById('jobSelect');
+    const jobId = select.value;
+    
+    if (!jobId) {
+        document.getElementById('no-job-message').style.display = 'flex';
+        document.querySelectorAll('.memory-tab-content').forEach(el => el.style.display = 'none');
+        return;
+    }
+    
+    currentJobId = parseInt(jobId);
+    
+    // Get job info
+    const selectedOption = select.options[select.selectedIndex];
+    const jobData = JSON.parse(selectedOption.dataset.job || '{}');
+    
+    // Update info badge
+    const infoBadge = document.getElementById('jobInfo');
+    if (jobData.data_counts) {
+        const counts = jobData.data_counts;
+        infoBadge.textContent = `${counts.processes} procs | ${counts.network} conns | ${counts.services} svcs`;
+    }
+    
+    // Update tab counts
+    if (jobData.data_counts) {
+        document.getElementById('count-processes').textContent = jobData.data_counts.processes || '-';
+        document.getElementById('count-network').textContent = jobData.data_counts.network || '-';
+        document.getElementById('count-services').textContent = jobData.data_counts.services || '-';
+        document.getElementById('count-malfind').textContent = jobData.data_counts.malfind || '-';
+        document.getElementById('count-credentials').textContent = jobData.data_counts.credentials || '-';
+    }
+    
+    // Check if job has data, if not offer to ingest
+    if (!jobData.has_data) {
+        if (confirm('This memory job has not been ingested yet. Would you like to ingest it now?')) {
+            await ingestJob(currentJobId);
+        }
+        return;
+    }
+    
+    // Hide empty state, show current tab
+    document.getElementById('no-job-message').style.display = 'none';
+    
+    // Load current tab data
+    switchMemoryTab(currentTab);
+}
+
+// Ingest job data
+async function ingestJob(jobId) {
+    try {
+        document.getElementById('no-job-message').style.display = 'none';
+        document.getElementById('loading-state').style.display = 'flex';
+        
+        const response = await fetch(`/api/memory/job/${jobId}/ingest`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        document.getElementById('loading-state').style.display = 'none';
+        
+        if (data.success) {
+            alert('Memory data ingested successfully!');
+            loadJobsList();
+        } else {
+            alert('Error ingesting data: ' + data.error);
+        }
+    } catch (error) {
+        document.getElementById('loading-state').style.display = 'none';
+        alert('Error: ' + error.message);
+    }
+}
+
+// Switch between tabs
+function switchMemoryTab(tab) {
+    currentTab = tab;
+    
+    // Update tab buttons
+    document.querySelectorAll('.memory-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    
+    // Hide all tab contents
+    document.querySelectorAll('.memory-tab-content').forEach(el => {
+        el.style.display = 'none';
+    });
+    
+    // Show selected tab
+    const tabContent = document.getElementById(`tab-${tab}`);
+    if (tabContent) {
+        tabContent.style.display = 'block';
+    }
+    
+    // Load tab data
+    if (currentJobId) {
+        loadTabData(tab);
+    }
+}
+
+// Load data for specific tab
+async function loadTabData(tab) {
+    if (!currentJobId) return;
+    
+    try {
+        switch (tab) {
+            case 'processes':
+                await loadProcesses();
+                break;
+            case 'network':
+                await loadNetwork();
+                break;
+            case 'services':
+                await loadServices();
+                break;
+            case 'malfind':
+                await loadMalfind();
+                break;
+            case 'credentials':
+                await loadCredentials();
+                break;
+            case 'info':
+                await loadInfo();
+                break;
+        }
+    } catch (error) {
+        console.error(`Error loading ${tab}:`, error);
+    }
+}
+
+// Process Tree/List Loading
+async function loadProcesses() {
+    const response = await fetch(`/api/memory/hunting/${currentJobId}/process-tree`);
+    const data = await response.json();
+    
+    if (data.success) {
+        processData = data.tree;
+        renderProcesses();
+    }
+}
+
+function renderProcesses() {
+    if (processView === 'tree') {
+        renderProcessTree();
+    } else {
+        renderProcessList();
+    }
+}
+
+function renderProcessTree() {
+    const container = document.getElementById('process-tree-container');
+    container.innerHTML = buildProcessTreeHTML(processData, true);
+    document.getElementById('process-tree-container').style.display = 'block';
+    document.getElementById('process-list-container').style.display = 'none';
+}
+
+function buildProcessTreeHTML(nodes, isRoot = false) {
+    let html = '';
+    for (const node of nodes) {
+        const hasChildren = node.children && node.children.length > 0;
+        const crossBadge = node.cross_memory_count > 1 
+            ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'process', '${node.name}', ${currentJobId})">🧠×${node.cross_memory_count}</span>` 
+            : '';
+        
+        html += `
+            <div class="process-node ${isRoot ? 'root' : ''}">
+                <div class="process-row" onclick="showProcessDetail(${JSON.stringify(node).replace(/"/g, '&quot;')})">
+                    <span class="process-toggle">${hasChildren ? '▼' : '•'}</span>
+                    <span class="process-name">${escapeHtml(node.name)}</span>
+                    <span class="process-pid">(${node.pid})</span>
+                    <div class="process-badges">
+                        ${crossBadge}
+                        <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(node.name)}')" title="Search in Events">🔍 Case</button>
+                    </div>
+                </div>
+                ${hasChildren ? buildProcessTreeHTML(node.children) : ''}
+            </div>
+        `;
+    }
+    return html;
+}
+
+function renderProcessList() {
+    // Flatten tree for list view
+    const flat = [];
+    function flatten(nodes) {
+        for (const node of nodes) {
+            flat.push(node);
+            if (node.children) flatten(node.children);
+        }
+    }
+    flatten(processData);
+    
+    const container = document.getElementById('process-list-container');
+    container.innerHTML = `
+        <table class="memory-table">
+            <thead>
+                <tr>
+                    <th>PID</th>
+                    <th>PPID</th>
+                    <th>Name</th>
+                    <th>Command Line</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${flat.map(p => `
+                    <tr>
+                        <td class="mono">${p.pid}</td>
+                        <td class="mono text-muted">${p.ppid || '-'}</td>
+                        <td><strong>${escapeHtml(p.name)}</strong></td>
+                        <td class="mono" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p.cmdline || '-')}</td>
+                        <td class="text-muted">${p.create_time ? new Date(p.create_time).toLocaleString() : '-'}</td>
+                        <td>
+                            ${p.cross_memory_count > 1 ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'process', '${p.name}', ${currentJobId})">🧠×${p.cross_memory_count}</span>` : ''}
+                            <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(p.name)}')">🔍</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+    
+    document.getElementById('process-tree-container').style.display = 'none';
+    document.getElementById('process-list-container').style.display = 'block';
+}
+
+function setProcessView(view) {
+    processView = view;
+    document.getElementById('btn-tree-view').classList.toggle('btn-active', view === 'tree');
+    document.getElementById('btn-list-view').classList.toggle('btn-active', view === 'list');
+    renderProcesses();
+}
+
+function filterProcesses() {
+    const search = document.getElementById('search-processes').value.toLowerCase();
+    // Filter and re-render (simplified - could be optimized)
+    loadProcesses();
+}
+
+// Network Loading
+async function loadNetwork() {
+    const state = document.getElementById('filter-network-state').value;
+    const search = document.getElementById('search-network').value;
+    
+    let url = `/api/memory/hunting/${currentJobId}/network?`;
+    if (state) url += `state=${encodeURIComponent(state)}&`;
+    if (search) url += `search=${encodeURIComponent(search)}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.success) {
+        // Populate state filter
+        const stateSelect = document.getElementById('filter-network-state');
+        if (stateSelect.options.length <= 1 && data.states) {
+            data.states.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                stateSelect.appendChild(opt);
+            });
+        }
+        
+        renderNetwork(data.connections);
+    }
+}
+
+function renderNetwork(connections) {
+    const container = document.getElementById('network-container');
+    container.innerHTML = `
+        <table class="memory-table">
+            <thead>
+                <tr>
+                    <th>Proto</th>
+                    <th>Local Address</th>
+                    <th>Foreign Address</th>
+                    <th>State</th>
+                    <th>PID</th>
+                    <th>Process</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${connections.map(c => `
+                    <tr>
+                        <td>${c.protocol || '-'}</td>
+                        <td class="mono">${c.local_addr || '*'}:${c.local_port || '*'}</td>
+                        <td class="mono">${c.foreign_addr || '*'}:${c.foreign_port || '*'}</td>
+                        <td><span class="state-badge state-${(c.state || '').toLowerCase().replace('_', '-')}">${c.state || '-'}</span></td>
+                        <td class="mono">${c.pid || '-'}</td>
+                        <td>${escapeHtml(c.owner || '-')}</td>
+                        <td>
+                            ${c.cross_memory_count > 1 ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'ip', '${c.foreign_addr}', ${currentJobId})">🧠×${c.cross_memory_count}</span>` : ''}
+                            <button class="pivot-btn" onclick="pivotToEvents(event, '${c.foreign_addr}')" title="Search IP in Events">🔍</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function filterNetwork() {
+    loadNetwork();
+}
+
+// Services Loading
+async function loadServices() {
+    const state = document.getElementById('filter-service-state').value;
+    const search = document.getElementById('search-services').value;
+    
+    let url = `/api/memory/hunting/${currentJobId}/services?`;
+    if (state) url += `state=${encodeURIComponent(state)}&`;
+    if (search) url += `search=${encodeURIComponent(search)}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.success) {
+        // Populate state filter
+        const stateSelect = document.getElementById('filter-service-state');
+        if (stateSelect.options.length <= 1 && data.states) {
+            data.states.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s.replace('SERVICE_', '');
+                stateSelect.appendChild(opt);
+            });
+        }
+        
+        renderServices(data.services);
+    }
+}
+
+function renderServices(services) {
+    const container = document.getElementById('services-container');
+    container.innerHTML = `
+        <table class="memory-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Display Name</th>
+                    <th>State</th>
+                    <th>Start Type</th>
+                    <th>Binary</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${services.map(s => `
+                    <tr>
+                        <td><strong>${escapeHtml(s.name)}</strong></td>
+                        <td class="text-muted">${escapeHtml(s.display_name || '-')}</td>
+                        <td><span class="state-badge state-${(s.state || '').toLowerCase().includes('running') ? 'running' : 'stopped'}">${(s.state || '').replace('SERVICE_', '')}</span></td>
+                        <td class="text-muted">${(s.start_type || '').replace('SERVICE_', '')}</td>
+                        <td class="mono" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(s.binary_path || '')}">${escapeHtml(s.binary_path || '-')}</td>
+                        <td>
+                            ${s.cross_memory_count > 1 ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'service', '${s.name}', ${currentJobId})">🧠×${s.cross_memory_count}</span>` : ''}
+                            <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(s.name)}')">🔍</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function filterServices() {
+    loadServices();
+}
+
+// Malfind Loading
+async function loadMalfind() {
+    const search = document.getElementById('search-malfind').value;
+    
+    let url = `/api/memory/hunting/${currentJobId}/malfind?`;
+    if (search) url += `search=${encodeURIComponent(search)}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.success) {
+        renderMalfind(data.findings);
+    }
+}
+
+function renderMalfind(findings) {
+    const container = document.getElementById('malfind-container');
+    
+    if (findings.length === 0) {
+        container.innerHTML = '<div class="memory-empty-state"><div class="empty-icon">✅</div><h3>No Suspicious Memory Regions</h3><p>No PAGE_EXECUTE_READWRITE regions found.</p></div>';
+        return;
+    }
+    
+    container.innerHTML = findings.map(f => `
+        <div class="malfind-card">
+            <div class="malfind-header">
+                <div>
+                    <span class="malfind-process">${escapeHtml(f.process_name || 'Unknown')}</span>
+                    <span class="malfind-pid">PID: ${f.pid}</span>
+                </div>
+                <span class="malfind-protection">${f.protection || 'Unknown'}</span>
+            </div>
+            <div class="malfind-details">
+                <div><strong>Start VPN:</strong> 0x${(f.start_vpn || 0).toString(16)}</div>
+                <div><strong>End VPN:</strong> 0x${(f.end_vpn || 0).toString(16)}</div>
+            </div>
+            ${f.hexdump ? `<div class="malfind-hexdump">${escapeHtml(f.hexdump)}</div>` : ''}
+            <div style="margin-top: 0.75rem;">
+                <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(f.process_name || '')}')">🔍 Search in Events</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterMalfind() {
+    loadMalfind();
+}
+
+// Credentials Loading
+async function loadCredentials() {
+    const source = document.getElementById('filter-cred-source').value;
+    
+    let url = `/api/memory/hunting/${currentJobId}/credentials?`;
+    if (source) url += `source=${encodeURIComponent(source)}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.success) {
+        renderCredentials(data.credentials);
+    }
+}
+
+function renderCredentials(creds) {
+    const container = document.getElementById('credentials-container');
+    
+    if (creds.length === 0) {
+        container.innerHTML = '<div class="memory-empty-state"><div class="empty-icon">🔐</div><h3>No Credentials Found</h3></div>';
+        return;
+    }
+    
+    container.innerHTML = `
+        <table class="memory-table">
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Username</th>
+                    <th>Domain</th>
+                    <th>Hash/Secret</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${creds.map(c => `
+                    <tr>
+                        <td><span class="state-badge">${c.source_plugin}</span></td>
+                        <td><strong>${escapeHtml(c.username || c.lsa_key || '-')}</strong></td>
+                        <td class="text-muted">${escapeHtml(c.domain || '-')}</td>
+                        <td class="mono cred-masked">${escapeHtml(c.nt_hash || c.cached_hash || (c.has_secret ? '[LSA Secret]' : '-'))}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function filterCredentials() {
+    loadCredentials();
+}
+
+// System Info Loading
+async function loadInfo() {
+    const response = await fetch(`/api/memory/hunting/${currentJobId}/info`);
+    const data = await response.json();
+    
+    if (data.success && data.info) {
+        renderInfo(data.info);
+    } else {
+        document.getElementById('info-container').innerHTML = '<div class="memory-empty-state"><div class="empty-icon">ℹ️</div><h3>No System Info Available</h3></div>';
+    }
+}
+
+function renderInfo(info) {
+    const container = document.getElementById('info-container');
+    container.innerHTML = `
+        <div class="info-grid">
+            <div class="info-card">
+                <h4>System</h4>
+                <div class="info-row"><span class="info-label">Hostname</span><span class="info-value">${info.hostname}</span></div>
+                <div class="info-row"><span class="info-label">Architecture</span><span class="info-value">${info.is_64bit ? '64-bit' : '32-bit'}</span></div>
+                <div class="info-row"><span class="info-label">Processors</span><span class="info-value">${info.num_processors || '-'}</span></div>
+                <div class="info-row"><span class="info-label">System Root</span><span class="info-value">${info.nt_system_root || '-'}</span></div>
+            </div>
+            <div class="info-card">
+                <h4>Windows Version</h4>
+                <div class="info-row"><span class="info-label">Version</span><span class="info-value">${info.nt_major}.${info.nt_minor}</span></div>
+                <div class="info-row"><span class="info-label">Build</span><span class="info-value">${info.major_minor || '-'}</span></div>
+                <div class="info-row"><span class="info-label">Product Type</span><span class="info-value">${info.nt_product_type || '-'}</span></div>
+            </div>
+            <div class="info-card">
+                <h4>Memory Capture</h4>
+                <div class="info-row"><span class="info-label">System Time</span><span class="info-value">${info.system_time ? new Date(info.system_time).toLocaleString() : '-'}</span></div>
+            </div>
+        </div>
+    `;
+}
+
+// Cross-Memory Search (Option 2)
+function openCrossSearch() {
+    document.getElementById('cross-search-modal').style.display = 'flex';
+    document.getElementById('cross-search-input').focus();
+}
+
+function closeCrossSearch(event) {
+    if (!event || event.target.id === 'cross-search-modal') {
+        document.getElementById('cross-search-modal').style.display = 'none';
+    }
+}
+
+function setCrossSearchType(type) {
+    crossSearchType = type;
+    document.querySelectorAll('.search-type-buttons .btn').forEach(btn => {
+        btn.classList.toggle('btn-active', btn.dataset.type === type);
+    });
+}
+
+async function executeCrossSearch() {
+    const search = document.getElementById('cross-search-input').value.trim();
+    if (!search) {
+        alert('Please enter a search term');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/memory/hunting/${caseUuid}/search?q=${encodeURIComponent(search)}&type=${crossSearchType}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            renderCrossSearchResults(data);
+        } else {
+            alert('Search error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function renderCrossSearchResults(data) {
+    const container = document.getElementById('cross-search-results');
+    const content = document.getElementById('cross-search-results-content');
+    
+    container.style.display = 'block';
+    
+    if (data.results.length === 0) {
+        content.innerHTML = `<p>No matches found for "${escapeHtml(data.search)}" in ${data.total_jobs} memory dumps.</p>`;
+        return;
+    }
+    
+    content.innerHTML = `
+        <p>Found in <strong>${data.jobs_matched}</strong> of ${data.total_jobs} memory dumps:</p>
+        ${data.results.map(group => `
+            <div class="cross-search-result-group">
+                <div class="cross-search-result-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+                    <div>
+                        <strong>${group.hostname}</strong>
+                        <span class="text-muted">${group.memory_time ? new Date(group.memory_time).toLocaleString() : ''}</span>
+                    </div>
+                    <span>${group.matches ? group.matches.length : 0} matches</span>
+                </div>
+                <div class="cross-search-result-matches">
+                    ${(group.matches || []).slice(0, 10).map(m => `
+                        <div class="cross-search-match-item">
+                            ${crossSearchType === 'process' ? `<strong>${m.name}</strong> (PID: ${m.pid}) - ${m.cmdline || 'No cmdline'}` : ''}
+                            ${crossSearchType === 'network' ? `${m.protocol} ${m.local_addr}:${m.local_port} → ${m.foreign_addr}:${m.foreign_port} (${m.owner})` : ''}
+                            ${crossSearchType === 'service' ? `<strong>${m.name}</strong> - ${m.display_name || ''} [${m.state}]` : ''}
+                        </div>
+                    `).join('')}
+                    ${(group.matches || []).length > 10 ? `<div class="cross-search-match-item text-muted">...and ${group.matches.length - 10} more</div>` : ''}
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+// Cross-Reference Popover (Option 1 - Badges)
+async function showCrossRefs(event, artifactType, artifactValue, excludeJobId) {
+    event.stopPropagation();
+    
+    try {
+        const response = await fetch(`/api/memory/hunting/${caseUuid}/cross-reference/${artifactType}/${encodeURIComponent(artifactValue)}?exclude_job=${excludeJobId}`);
+        const data = await response.json();
+        
+        if (data.success && data.references.length > 0) {
+            const popover = document.getElementById('cross-ref-popover');
+            const content = document.getElementById('cross-ref-content');
+            
+            content.innerHTML = data.references.map(ref => `
+                <div class="cross-ref-item" onclick="navigateToJob(${ref.job_id})">
+                    <div>
+                        <div class="cross-ref-hostname">${ref.hostname}</div>
+                        <div class="cross-ref-time">${ref.memory_time ? new Date(ref.memory_time).toLocaleString() : 'Unknown time'}</div>
+                    </div>
+                    <span class="pivot-btn">View →</span>
+                </div>
+            `).join('');
+            
+            // Position popover near click
+            const rect = event.target.getBoundingClientRect();
+            popover.style.left = `${rect.left}px`;
+            popover.style.top = `${rect.bottom + 5}px`;
+            popover.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Error loading cross-refs:', error);
+    }
+}
+
+function closeCrossRefPopover() {
+    document.getElementById('cross-ref-popover').style.display = 'none';
+}
+
+// Close popover when clicking elsewhere
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.cross-mem-badge') && !e.target.closest('.cross-ref-popover')) {
+        closeCrossRefPopover();
+    }
+});
+
+function navigateToJob(jobId) {
+    document.getElementById('jobSelect').value = jobId;
+    loadJobData();
+    closeCrossRefPopover();
+}
+
+// Pivot to main hunting page
+function pivotToEvents(event, searchTerm) {
+    event.stopPropagation();
+    // Open hunting page with search pre-filled
+    window.open(`/case/hunting?search=${encodeURIComponent(searchTerm)}`, '_blank');
+}
+
+// Process Detail Modal
+function showProcessDetail(proc) {
+    const modal = document.getElementById('process-detail-modal');
+    const title = document.getElementById('process-detail-title');
+    const content = document.getElementById('process-detail-content');
+    
+    title.textContent = `${proc.name} (PID: ${proc.pid})`;
+    content.innerHTML = `
+        <div class="info-grid">
+            <div class="info-card">
+                <h4>Process Info</h4>
+                <div class="info-row"><span class="info-label">PID</span><span class="info-value">${proc.pid}</span></div>
+                <div class="info-row"><span class="info-label">PPID</span><span class="info-value">${proc.ppid || '-'}</span></div>
+                <div class="info-row"><span class="info-label">Name</span><span class="info-value">${proc.name}</span></div>
+                <div class="info-row"><span class="info-label">Session</span><span class="info-value">${proc.session_id ?? '-'}</span></div>
+                <div class="info-row"><span class="info-label">Threads</span><span class="info-value">${proc.threads || '-'}</span></div>
+                <div class="info-row"><span class="info-label">WoW64</span><span class="info-value">${proc.wow64 ? 'Yes' : 'No'}</span></div>
+            </div>
+            <div class="info-card">
+                <h4>Timestamps</h4>
+                <div class="info-row"><span class="info-label">Created</span><span class="info-value">${proc.create_time ? new Date(proc.create_time).toLocaleString() : '-'}</span></div>
+                <div class="info-row"><span class="info-label">Exited</span><span class="info-value">${proc.exit_time ? new Date(proc.exit_time).toLocaleString() : 'Running'}</span></div>
+            </div>
+        </div>
+        ${proc.path ? `<div class="info-card" style="margin-top: 1rem;"><h4>Path</h4><code style="word-break: break-all;">${escapeHtml(proc.path)}</code></div>` : ''}
+        ${proc.cmdline ? `<div class="info-card" style="margin-top: 1rem;"><h4>Command Line</h4><code style="word-break: break-all;">${escapeHtml(proc.cmdline)}</code></div>` : ''}
+        <div style="margin-top: 1.5rem;">
+            <button class="btn btn-primary" onclick="pivotToEvents(event, '${escapeHtml(proc.name)}')">🔍 Search in Case Events</button>
+        </div>
+    `;
+    
+    modal.style.display = 'flex';
+}
+
+function closeProcessDetail(event) {
+    if (!event || event.target.id === 'process-detail-modal') {
+        document.getElementById('process-detail-modal').style.display = 'none';
+    }
+}
+
+// Utility functions
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

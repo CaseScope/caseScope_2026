@@ -1,6 +1,24 @@
 {
-  "version": "3.119.00",
+  "version": "3.120.00",
   "changelog": [
+    {
+      "version": "3.120.00",
+      "date": "2026-01-19",
+      "changes": [
+        "Feature: Memory Hunting - dedicated page for analyzing memory forensics artifacts",
+        "Added: Memory data models (MemoryProcess, MemoryNetwork, MemoryService, MemoryMalfind, MemoryModule, MemoryCredential, MemorySID, MemoryInfo)",
+        "Added: Memory parser to ingest Volatility3 JSON output into database tables",
+        "Added: Process tree visualization with collapsible hierarchy",
+        "Added: Network connections viewer with state filtering",
+        "Added: Services viewer with running/stopped filters",
+        "Added: Malfind (injection detection) cards with hexdump display",
+        "Added: Credentials viewer (hashdump, cachedump, lsadump) with masked secrets",
+        "Added: System info display from windows.info plugin",
+        "Added: Cross-Memory Search - search across all memory dumps for process names, IPs, services, paths",
+        "Added: Cross-memory badges showing when artifact appears in multiple memory dumps",
+        "Added: Pivot actions to search artifacts in main hunting page events"
+      ]
+    },
     {
       "version": "3.119.00",
       "date": "2026-01-19",

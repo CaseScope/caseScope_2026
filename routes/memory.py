@@ -451,3 +451,651 @@ def get_memory_types():
         'success': True,
         'memory_types': MemoryType.choices()
     })
+
+
+# ============================================================================
+# MEMORY HUNTING DATA ROUTES
+# ============================================================================
+
+from models.memory_data import (
+    MemoryProcess, MemoryNetwork, MemoryService, MemoryMalfind,
+    MemoryModule, MemoryCredential, MemorySID, MemoryInfo
+)
+
+
+@memory_bp.route('/job/<int:job_id>/ingest', methods=['POST'])
+@login_required
+def ingest_job(job_id):
+    """Ingest Vol3 JSON output into database tables"""
+    try:
+        from parsers.memory_parser import ingest_memory_job
+        result = ingest_memory_job(job_id)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<case_uuid>/jobs', methods=['GET'])
+@login_required
+def get_hunting_jobs(case_uuid):
+    """Get all completed memory jobs for hunting view"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get completed jobs with ingested data
+        jobs = MemoryJob.query.filter_by(
+            case_id=case.id,
+            status='completed'
+        ).order_by(MemoryJob.hostname, MemoryJob.created_at.desc()).all()
+        
+        # Add data counts for each job
+        job_list = []
+        for job in jobs:
+            job_dict = job.to_dict()
+            job_dict['data_counts'] = {
+                'processes': MemoryProcess.query.filter_by(job_id=job.id).count(),
+                'network': MemoryNetwork.query.filter_by(job_id=job.id).count(),
+                'services': MemoryService.query.filter_by(job_id=job.id).count(),
+                'malfind': MemoryMalfind.query.filter_by(job_id=job.id).count(),
+                'modules': MemoryModule.query.filter_by(job_id=job.id).count(),
+                'credentials': MemoryCredential.query.filter_by(job_id=job.id).count(),
+            }
+            job_dict['has_data'] = sum(job_dict['data_counts'].values()) > 0
+            job_list.append(job_dict)
+        
+        return jsonify({
+            'success': True,
+            'jobs': job_list
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/processes', methods=['GET'])
+@login_required
+def get_processes(job_id):
+    """Get process list for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        # Get filter params
+        search = request.args.get('search', '').lower()
+        
+        query = MemoryProcess.query.filter_by(job_id=job_id)
+        
+        if search:
+            query = query.filter(
+                db.or_(
+                    MemoryProcess.name_lower.contains(search),
+                    MemoryProcess.cmdline.ilike(f'%{search}%'),
+                    MemoryProcess.path.ilike(f'%{search}%')
+                )
+            )
+        
+        processes = query.order_by(MemoryProcess.pid).all()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'memory_time': job.memory_timestamp.isoformat() if job.memory_timestamp else None,
+            'processes': [p.to_dict() for p in processes],
+            'total': len(processes)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/process-tree', methods=['GET'])
+@login_required
+def get_process_tree(job_id):
+    """Get process tree structure for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        processes = MemoryProcess.query.filter_by(job_id=job_id).all()
+        
+        # Build tree structure
+        pid_map = {p.pid: p.to_dict() for p in processes}
+        root_processes = []
+        
+        for proc in processes:
+            proc_dict = pid_map[proc.pid]
+            proc_dict['children'] = []
+            
+            if proc.ppid and proc.ppid in pid_map:
+                # Has parent - will be added as child
+                pass
+            else:
+                # Root process
+                root_processes.append(proc_dict)
+        
+        # Add children to parents
+        for proc in processes:
+            if proc.ppid and proc.ppid in pid_map:
+                pid_map[proc.ppid]['children'].append(pid_map[proc.pid])
+        
+        # Sort children by PID
+        def sort_children(node):
+            node['children'].sort(key=lambda x: x['pid'])
+            for child in node['children']:
+                sort_children(child)
+        
+        for root in root_processes:
+            sort_children(root)
+        
+        root_processes.sort(key=lambda x: x['pid'])
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'tree': root_processes,
+            'total': len(processes)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/network', methods=['GET'])
+@login_required
+def get_network(job_id):
+    """Get network connections for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        # Get filter params
+        search = request.args.get('search', '').lower()
+        state = request.args.get('state', '')
+        
+        query = MemoryNetwork.query.filter_by(job_id=job_id)
+        
+        if search:
+            query = query.filter(
+                db.or_(
+                    MemoryNetwork.local_addr.contains(search),
+                    MemoryNetwork.foreign_addr.contains(search),
+                    MemoryNetwork.owner.ilike(f'%{search}%')
+                )
+            )
+        
+        if state:
+            query = query.filter(MemoryNetwork.state == state)
+        
+        connections = query.order_by(MemoryNetwork.pid).all()
+        
+        # Get unique states for filter dropdown
+        states = db.session.query(MemoryNetwork.state).filter_by(
+            job_id=job_id
+        ).distinct().all()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'connections': [c.to_dict() for c in connections],
+            'total': len(connections),
+            'states': [s[0] for s in states if s[0]]
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/services', methods=['GET'])
+@login_required
+def get_services(job_id):
+    """Get services for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        # Get filter params
+        search = request.args.get('search', '').lower()
+        state = request.args.get('state', '')
+        
+        query = MemoryService.query.filter_by(job_id=job_id)
+        
+        if search:
+            query = query.filter(
+                db.or_(
+                    MemoryService.name_lower.contains(search),
+                    MemoryService.display_name.ilike(f'%{search}%'),
+                    MemoryService.binary_path.ilike(f'%{search}%'),
+                    MemoryService.binary_path_registry.ilike(f'%{search}%')
+                )
+            )
+        
+        if state:
+            query = query.filter(MemoryService.state == state)
+        
+        services = query.order_by(MemoryService.name).all()
+        
+        # Get unique states
+        states = db.session.query(MemoryService.state).filter_by(
+            job_id=job_id
+        ).distinct().all()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'services': [s.to_dict() for s in services],
+            'total': len(services),
+            'states': [s[0] for s in states if s[0]]
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/malfind', methods=['GET'])
+@login_required
+def get_malfind(job_id):
+    """Get malfind results for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        search = request.args.get('search', '').lower()
+        
+        query = MemoryMalfind.query.filter_by(job_id=job_id)
+        
+        if search:
+            query = query.filter(
+                MemoryMalfind.process_name.ilike(f'%{search}%')
+            )
+        
+        findings = query.order_by(MemoryMalfind.pid).all()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'findings': [f.to_dict() for f in findings],
+            'total': len(findings)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/modules', methods=['GET'])
+@login_required
+def get_modules(job_id):
+    """Get loaded modules for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        search = request.args.get('search', '').lower()
+        unlinked_only = request.args.get('unlinked', 'false').lower() == 'true'
+        pid = request.args.get('pid', type=int)
+        
+        query = MemoryModule.query.filter_by(job_id=job_id)
+        
+        if search:
+            query = query.filter(
+                db.or_(
+                    MemoryModule.mapped_path.ilike(f'%{search}%'),
+                    MemoryModule.process_name.ilike(f'%{search}%')
+                )
+            )
+        
+        if unlinked_only:
+            query = query.filter(
+                MemoryModule.in_init == False,
+                MemoryModule.in_load == False,
+                MemoryModule.in_mem == False
+            )
+        
+        if pid:
+            query = query.filter(MemoryModule.pid == pid)
+        
+        modules = query.order_by(MemoryModule.pid, MemoryModule.mapped_path).all()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'modules': [m.to_dict() for m in modules],
+            'total': len(modules)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/credentials', methods=['GET'])
+@login_required
+def get_credentials(job_id):
+    """Get credentials for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        source = request.args.get('source', '')  # hashdump, cachedump, lsadump
+        
+        query = MemoryCredential.query.filter_by(job_id=job_id)
+        
+        if source:
+            query = query.filter(MemoryCredential.source_plugin == source)
+        
+        creds = query.order_by(MemoryCredential.source_plugin, MemoryCredential.username).all()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'credentials': [c.to_dict(mask_secrets=True) for c in creds],
+            'total': len(creds)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<int:job_id>/info', methods=['GET'])
+@login_required
+def get_info(job_id):
+    """Get system info for a memory job"""
+    try:
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+        
+        info = MemoryInfo.query.filter_by(job_id=job_id).first()
+        
+        return jsonify({
+            'success': True,
+            'hostname': job.hostname,
+            'info': info.to_dict() if info else None
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# CROSS-MEMORY SEARCH (Option 2)
+# ============================================================================
+
+@memory_bp.route('/hunting/<case_uuid>/search', methods=['GET'])
+@login_required
+def cross_memory_search(case_uuid):
+    """Search across all memory dumps in a case"""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        search = request.args.get('q', '').strip()
+        search_type = request.args.get('type', 'process')  # process, network, service, path
+        
+        if not search or len(search) < 2:
+            return jsonify({'success': False, 'error': 'Search term too short'}), 400
+        
+        search_lower = search.lower()
+        results = []
+        
+        if search_type == 'process':
+            # Search processes by name
+            matches = MemoryProcess.query.filter(
+                MemoryProcess.case_id == case.id,
+                MemoryProcess.name_lower.contains(search_lower)
+            ).order_by(MemoryProcess.job_id, MemoryProcess.pid).all()
+            
+            # Group by job
+            job_groups = {}
+            for proc in matches:
+                if proc.job_id not in job_groups:
+                    job = MemoryJob.query.get(proc.job_id)
+                    job_groups[proc.job_id] = {
+                        'job_id': proc.job_id,
+                        'hostname': job.hostname if job else 'Unknown',
+                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
+                        'matches': []
+                    }
+                job_groups[proc.job_id]['matches'].append(proc.to_dict())
+            
+            results = list(job_groups.values())
+            
+        elif search_type == 'network':
+            # Search by IP address
+            matches = MemoryNetwork.query.filter(
+                MemoryNetwork.case_id == case.id,
+                db.or_(
+                    MemoryNetwork.foreign_addr.contains(search),
+                    MemoryNetwork.local_addr.contains(search)
+                )
+            ).order_by(MemoryNetwork.job_id).all()
+            
+            job_groups = {}
+            for net in matches:
+                if net.job_id not in job_groups:
+                    job = MemoryJob.query.get(net.job_id)
+                    job_groups[net.job_id] = {
+                        'job_id': net.job_id,
+                        'hostname': job.hostname if job else 'Unknown',
+                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
+                        'matches': []
+                    }
+                job_groups[net.job_id]['matches'].append(net.to_dict())
+            
+            results = list(job_groups.values())
+            
+        elif search_type == 'service':
+            # Search services by name
+            matches = MemoryService.query.filter(
+                MemoryService.case_id == case.id,
+                db.or_(
+                    MemoryService.name_lower.contains(search_lower),
+                    MemoryService.display_name.ilike(f'%{search}%')
+                )
+            ).order_by(MemoryService.job_id).all()
+            
+            job_groups = {}
+            for svc in matches:
+                if svc.job_id not in job_groups:
+                    job = MemoryJob.query.get(svc.job_id)
+                    job_groups[svc.job_id] = {
+                        'job_id': svc.job_id,
+                        'hostname': job.hostname if job else 'Unknown',
+                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
+                        'matches': []
+                    }
+                job_groups[svc.job_id]['matches'].append(svc.to_dict())
+            
+            results = list(job_groups.values())
+            
+        elif search_type == 'path':
+            # Search by file path (processes, modules)
+            proc_matches = MemoryProcess.query.filter(
+                MemoryProcess.case_id == case.id,
+                db.or_(
+                    MemoryProcess.path.ilike(f'%{search}%'),
+                    MemoryProcess.cmdline.ilike(f'%{search}%')
+                )
+            ).all()
+            
+            mod_matches = MemoryModule.query.filter(
+                MemoryModule.case_id == case.id,
+                MemoryModule.mapped_path.ilike(f'%{search}%')
+            ).all()
+            
+            job_groups = {}
+            
+            for proc in proc_matches:
+                if proc.job_id not in job_groups:
+                    job = MemoryJob.query.get(proc.job_id)
+                    job_groups[proc.job_id] = {
+                        'job_id': proc.job_id,
+                        'hostname': job.hostname if job else 'Unknown',
+                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
+                        'process_matches': [],
+                        'module_matches': []
+                    }
+                job_groups[proc.job_id]['process_matches'].append(proc.to_dict())
+            
+            for mod in mod_matches:
+                if mod.job_id not in job_groups:
+                    job = MemoryJob.query.get(mod.job_id)
+                    job_groups[mod.job_id] = {
+                        'job_id': mod.job_id,
+                        'hostname': job.hostname if job else 'Unknown',
+                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
+                        'process_matches': [],
+                        'module_matches': []
+                    }
+                job_groups[mod.job_id]['module_matches'].append(mod.to_dict())
+            
+            results = list(job_groups.values())
+        
+        # Get total job count for context
+        total_jobs = MemoryJob.query.filter_by(case_id=case.id, status='completed').count()
+        
+        return jsonify({
+            'success': True,
+            'search': search,
+            'search_type': search_type,
+            'results': results,
+            'jobs_matched': len(results),
+            'total_jobs': total_jobs
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/hunting/<case_uuid>/cross-reference/<artifact_type>/<artifact_value>', methods=['GET'])
+@login_required
+def get_cross_references(case_uuid, artifact_type, artifact_value):
+    """Get cross-memory references for a specific artifact
+    
+    Used to populate the [🧠×N] badges - shows where else this artifact appears
+    """
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        exclude_job = request.args.get('exclude_job', type=int)
+        artifact_lower = artifact_value.lower()
+        
+        refs = []
+        
+        if artifact_type == 'process':
+            # Find other jobs with this process name
+            matches = db.session.query(
+                MemoryProcess.job_id,
+                MemoryJob.hostname,
+                MemoryJob.memory_timestamp,
+                db.func.count(MemoryProcess.id).label('count')
+            ).join(
+                MemoryJob, MemoryProcess.job_id == MemoryJob.id
+            ).filter(
+                MemoryProcess.case_id == case.id,
+                MemoryProcess.name_lower == artifact_lower
+            )
+            
+            if exclude_job:
+                matches = matches.filter(MemoryProcess.job_id != exclude_job)
+            
+            matches = matches.group_by(
+                MemoryProcess.job_id,
+                MemoryJob.hostname,
+                MemoryJob.memory_timestamp
+            ).all()
+            
+            refs = [{
+                'job_id': m[0],
+                'hostname': m[1],
+                'memory_time': m[2].isoformat() if m[2] else None,
+                'count': m[3]
+            } for m in matches]
+            
+        elif artifact_type == 'ip':
+            # Find other jobs with this IP
+            matches = db.session.query(
+                MemoryNetwork.job_id,
+                MemoryJob.hostname,
+                MemoryJob.memory_timestamp,
+                db.func.count(MemoryNetwork.id).label('count')
+            ).join(
+                MemoryJob, MemoryNetwork.job_id == MemoryJob.id
+            ).filter(
+                MemoryNetwork.case_id == case.id,
+                db.or_(
+                    MemoryNetwork.foreign_addr == artifact_value,
+                    MemoryNetwork.local_addr == artifact_value
+                )
+            )
+            
+            if exclude_job:
+                matches = matches.filter(MemoryNetwork.job_id != exclude_job)
+            
+            matches = matches.group_by(
+                MemoryNetwork.job_id,
+                MemoryJob.hostname,
+                MemoryJob.memory_timestamp
+            ).all()
+            
+            refs = [{
+                'job_id': m[0],
+                'hostname': m[1],
+                'memory_time': m[2].isoformat() if m[2] else None,
+                'count': m[3]
+            } for m in matches]
+            
+        elif artifact_type == 'service':
+            # Find other jobs with this service
+            matches = db.session.query(
+                MemoryService.job_id,
+                MemoryJob.hostname,
+                MemoryJob.memory_timestamp
+            ).join(
+                MemoryJob, MemoryService.job_id == MemoryJob.id
+            ).filter(
+                MemoryService.case_id == case.id,
+                MemoryService.name_lower == artifact_lower
+            )
+            
+            if exclude_job:
+                matches = matches.filter(MemoryService.job_id != exclude_job)
+            
+            matches = matches.group_by(
+                MemoryService.job_id,
+                MemoryJob.hostname,
+                MemoryJob.memory_timestamp
+            ).all()
+            
+            refs = [{
+                'job_id': m[0],
+                'hostname': m[1],
+                'memory_time': m[2].isoformat() if m[2] else None,
+                'count': 1
+            } for m in matches]
+        
+        return jsonify({
+            'success': True,
+            'artifact_type': artifact_type,
+            'artifact_value': artifact_value,
+            'references': refs,
+            'total_refs': len(refs)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

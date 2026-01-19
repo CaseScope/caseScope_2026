@@ -25,6 +25,10 @@ from models.event_description import EventDescription
 from models.evidence_file import EvidenceFile
 from models.file_audit_log import FileAuditLog, FileAction
 from models.field_enhancer import FieldEnhancer, seed_field_enhancers
+from models.memory_data import (
+    MemoryProcess, MemoryNetwork, MemoryService, MemoryMalfind,
+    MemoryModule, MemoryCredential, MemorySID, MemoryInfo
+)
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -41,5 +45,7 @@ __all__ = [
     'EventDescription',
     'EvidenceFile',
     'FileAuditLog', 'FileAction',
-    'FieldEnhancer', 'seed_field_enhancers'
+    'FieldEnhancer', 'seed_field_enhancers',
+    'MemoryProcess', 'MemoryNetwork', 'MemoryService', 'MemoryMalfind',
+    'MemoryModule', 'MemoryCredential', 'MemorySID', 'MemoryInfo'
 ]

@@ -212,6 +212,19 @@ def case_hunting():
     )
 
 
+@main_bp.route('/case/hunting/memory')
+@login_required
+@case_required
+def case_hunting_memory():
+    """Memory Hunting - analyze memory forensics artifacts"""
+    case = get_active_case()
+    return render_template(
+        'case_hunting_memory.html',
+        page_title='Memory Hunting',
+        case=case
+    )
+
+
 @main_bp.route('/case/ioc-management')
 @login_required
 @case_required
