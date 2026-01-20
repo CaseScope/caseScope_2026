@@ -209,40 +209,30 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[Tuple[str, bool]
     return unique_terms
 
 
-def build_token_match_clause(value: str, column: str = 'raw_json') -> str:
+def build_token_match_clause(value: str, columns: list = None) -> str:
     """Build hasTokenCaseInsensitive clause for token matching.
     
     Token matching ensures 'ltsvc' matches 'c:\\ltsvc\\' but NOT 'altsvc'.
-    Uses raw_json for full event data coverage.
+    Searches both raw_json and search_blob for full event data coverage.
     
     Args:
         value: The IOC value to match as a token
-        column: Column to search (default: raw_json)
+        columns: List of columns to search (default: ['raw_json', 'search_blob'])
     
     Returns: SQL clause string
     """
+    if columns is None:
+        columns = ['raw_json', 'search_blob']
+    elif isinstance(columns, str):
+        columns = ['raw_json', 'search_blob']
+    
     escaped = value.replace("'", "''")
-    return f"hasTokenCaseInsensitive({column}, '{escaped}')"
+    clauses = [f"hasTokenCaseInsensitive({col}, '{escaped}')" for col in columns]
+    return f"({' OR '.join(clauses)})"
 
 
-def build_substring_match_clause(value: str, column: str = 'raw_json') -> str:
-    """Build LIKE clause for substring matching.
-    
-    Substring matching finds any occurrence of the value.
-    Uses raw_json for full event data coverage.
-    
-    For paths (containing backslashes), uses wildcards between path segments
-    to handle JSON escaping variations in ClickHouse.
-    
-    For command lines and complex strings with spaces, uses wildcards between 
-    words to handle whitespace variations (single vs double spaces).
-    
-    Args:
-        value: The IOC value to match as substring
-        column: Column to search (default: raw_json)
-    
-    Returns: SQL clause string
-    """
+def _build_substring_for_column(value: str, column: str) -> str:
+    """Build a single LIKE clause for one column."""
     value_lower = value.lower()
     
     # Check if this looks like a path (contains backslashes or is a registry key)
@@ -289,22 +279,57 @@ def build_substring_match_clause(value: str, column: str = 'raw_json') -> str:
     return f"lower({column}) LIKE '%{escaped}%'"
 
 
-def build_regex_match_clause(value: str, column: str = 'raw_json') -> str:
-    """Build regex match clause.
+def build_substring_match_clause(value: str, columns: list = None) -> str:
+    """Build LIKE clause for substring matching across multiple columns.
+    
+    Substring matching finds any occurrence of the value.
+    Searches both raw_json and search_blob for full event data coverage.
+    
+    For paths (containing backslashes), uses wildcards between path segments
+    to handle JSON escaping variations in ClickHouse.
+    
+    For command lines and complex strings with spaces, uses wildcards between 
+    words to handle whitespace variations (single vs double spaces).
     
     Args:
-        value: The regex pattern to match
-        column: Column to search (default: raw_json)
+        value: The IOC value to match as substring
+        columns: List of columns to search (default: ['raw_json', 'search_blob'])
     
     Returns: SQL clause string
     """
+    if columns is None:
+        columns = ['raw_json', 'search_blob']
+    elif isinstance(columns, str):
+        columns = ['raw_json', 'search_blob']
+    
+    clauses = [_build_substring_for_column(value, col) for col in columns]
+    return f"({' OR '.join(clauses)})"
+
+
+def build_regex_match_clause(value: str, columns: list = None) -> str:
+    """Build regex match clause across multiple columns.
+    
+    Args:
+        value: The regex pattern to match
+        columns: List of columns to search (default: ['raw_json', 'search_blob'])
+    
+    Returns: SQL clause string
+    """
+    if columns is None:
+        columns = ['raw_json', 'search_blob']
+    elif isinstance(columns, str):
+        columns = ['raw_json', 'search_blob']
+    
     escaped = value.replace("'", "\\'").replace("\\", "\\\\")
-    return f"match(lower({column}), '{escaped}')"
+    clauses = [f"match(lower({col}), '{escaped}')" for col in columns]
+    return f"({' OR '.join(clauses)})"
 
 
 def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str, 
                            aliases: List[str] = None) -> str:
     """Build the complete WHERE clause for an IOC based on its match type.
+    
+    Searches both raw_json and search_blob for comprehensive matching.
     
     Args:
         ioc_value: The IOC value
@@ -315,12 +340,13 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
     Returns: SQL WHERE clause (without 'WHERE')
     """
     # Build primary match clause based on match_type
+    # All functions now search both raw_json and search_blob by default
     if match_type == 'token':
-        primary_clause = build_token_match_clause(ioc_value, 'raw_json')
+        primary_clause = build_token_match_clause(ioc_value)
     elif match_type == 'regex':
-        primary_clause = build_regex_match_clause(ioc_value, 'raw_json')
+        primary_clause = build_regex_match_clause(ioc_value)
     else:  # substring (default)
-        primary_clause = build_substring_match_clause(ioc_value, 'raw_json')
+        primary_clause = build_substring_match_clause(ioc_value)
     
     # If aliases exist, add alias validation (any alias must also match)
     if aliases and len(aliases) > 0:
@@ -328,7 +354,7 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
         for alias in aliases:
             if alias:
                 # Aliases always use substring matching for flexibility
-                alias_clauses.append(build_substring_match_clause(alias, 'raw_json'))
+                alias_clauses.append(build_substring_match_clause(alias))
         
         if alias_clauses:
             alias_clause = ' OR '.join(alias_clauses)
@@ -485,13 +511,16 @@ def reset_ioc_types_for_case(case_id: int) -> bool:
     """Reset all ioc_types arrays to empty for a case.
     
     This is called before re-tagging to ensure clean state.
+    Uses mutations_sync=1 to wait for completion before returning.
     """
     client = get_fresh_client()
     
     try:
-        # Use ALTER TABLE UPDATE for MergeTree
+        # Use ALTER TABLE UPDATE for MergeTree with synchronous mutation
         client.command(
-            f"ALTER TABLE events UPDATE ioc_types = [] WHERE case_id = {case_id}"
+            f"ALTER TABLE events UPDATE ioc_types = [] "
+            f"WHERE case_id = {case_id} "
+            f"SETTINGS mutations_sync = 1"
         )
         logger.info(f"Reset ioc_types for case {case_id}")
         return True
@@ -542,13 +571,14 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str,
         update_count = count_result.result_rows[0][0] if count_result.result_rows else 0
         
         if update_count > 0:
-            # Update events to add IOC type
+            # Update events to add IOC type (synchronous mutation)
             inline_query = f"""
                 ALTER TABLE events UPDATE 
                     ioc_types = arrayPushBack(ioc_types, '{short_type}')
                 WHERE case_id = {case_id}
                   AND ({full_where})
                   AND NOT has(ioc_types, '{short_type}')
+                SETTINGS mutations_sync = 1
             """
             
             client.command(inline_query)
