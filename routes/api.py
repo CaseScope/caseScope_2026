@@ -271,12 +271,13 @@ def dashboard_stats():
             except PackageNotFoundError:
                 return 'Not installed'
         
-        # Hayabusa version from binary
-        hayabusa_ver = get_software_version('/opt/casescope/bin/hayabusa --version')
+        # Hayabusa version from binary (uses 'help' command, version in first line)
+        hayabusa_ver = get_software_version('/opt/casescope/bin/hayabusa help 2>/dev/null | head -1')
         if hayabusa_ver and hayabusa_ver != 'Not installed':
-            # Extract version from output like "hayabusa 3.7.0"
-            parts = hayabusa_ver.split()
-            hayabusa_ver = parts[-1] if parts else hayabusa_ver
+            # Extract version from output like "Hayabusa v3.7.0 - CODE BLUE Release"
+            import re
+            match = re.search(r'v(\d+\.\d+\.\d+)', hayabusa_ver)
+            hayabusa_ver = match.group(1) if match else 'Not installed'
         
         # Zeek version from binary
         zeek_ver = get_software_version('zeek --version')
