@@ -343,10 +343,19 @@ def dashboard_stats():
             'sqlalchemy': safe_pkg_version('sqlalchemy'),
         }
         
-        # Case statistics (placeholder until cases are implemented)
-        total_cases = 0
-        total_events = 0
+        # Case statistics - pulled live from database and ClickHouse
+        total_cases = Case.query.count()
         total_users = User.query.count()
+        
+        # Total events from ClickHouse
+        total_events = 0
+        try:
+            from utils.clickhouse import get_client
+            ch_client = get_client()
+            result = ch_client.query("SELECT count() FROM events")
+            total_events = result.result_rows[0][0] if result.result_rows else 0
+        except Exception:
+            pass
         
         return jsonify({
             'timestamp': datetime.utcnow().isoformat(),
