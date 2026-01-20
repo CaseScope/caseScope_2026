@@ -4,6 +4,7 @@ Manages noise filtering rules to hide known-good software/tools from event searc
 Analysts can add/edit/toggle rules to customize filtering for their client's environment.
 
 Uses keyword-based token matching with hasTokenCaseInsensitive() on raw_json.
+Keywords containing separators (like huntress.io) use positionCaseInsensitive() instead.
 """
 
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
@@ -13,6 +14,7 @@ from models.database import db
 from models.noise import (
     NoiseCategory, NoiseRule, NoiseRuleAudit, seed_noise_defaults
 )
+from utils.noise_keywords import build_keyword_clause, build_keyword_not_clause
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,32 +32,6 @@ def analyst_required_api(f):
             return jsonify({'success': False, 'error': 'Analyst or Administrator access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
-
-
-def build_keyword_clause(keywords: list, column: str = 'raw_json') -> str:
-    """Build ClickHouse hasTokenCaseInsensitive OR clause for keywords"""
-    if not keywords:
-        return ""
-    
-    clauses = []
-    for keyword in keywords:
-        escaped = keyword.replace("'", "''")
-        clauses.append(f"hasTokenCaseInsensitive({column}, '{escaped}')")
-    
-    return f"({' OR '.join(clauses)})"
-
-
-def build_keyword_not_clause(keywords: list, column: str = 'raw_json') -> str:
-    """Build ClickHouse NOT clause for keywords"""
-    if not keywords:
-        return ""
-    
-    clauses = []
-    for keyword in keywords:
-        escaped = keyword.replace("'", "''")
-        clauses.append(f"NOT hasTokenCaseInsensitive({column}, '{escaped}')")
-    
-    return " AND ".join(clauses)
 
 
 # ============================================================================

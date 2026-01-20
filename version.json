@@ -1,6 +1,16 @@
 {
-  "version": "3.122.00",
+  "version": "3.122.01",
   "changelog": [
+    {
+      "version": "3.122.01",
+      "date": "2026-01-20",
+      "changes": [
+        "Fix: Noise filtering now supports keywords with separator characters (periods, hyphens, etc.)",
+        "Noise: Keywords like 'huntress.io' now work correctly using positionCaseInsensitive()",
+        "Noise: Clean alphanumeric keywords still use fast hasTokenCaseInsensitive() matching",
+        "Noise: Created shared utils/noise_keywords.py to eliminate code duplication"
+      ]
+    },
     {
       "version": "3.122.00",
       "date": "2026-01-20",

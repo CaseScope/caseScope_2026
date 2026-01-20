@@ -2,61 +2,21 @@
 
 Tags events in ClickHouse as noise based on active noise filter rules.
 Uses keyword-based token matching with hasTokenCaseInsensitive() on raw_json.
+Keywords containing separators (like huntress.io) use positionCaseInsensitive() instead.
 
 This ensures whole-word matching:
 - 'ltsvc' matches 'c:\\windows\\ltsvc\\agent.exe' 
 - 'ltsvc' does NOT match 'altsvc'
+- 'huntress.io' works correctly for exclusion patterns
 """
 import logging
 import time
 from datetime import datetime
 
 from tasks.celery_tasks import celery_app, get_flask_app
+from utils.noise_keywords import build_keyword_clause, build_keyword_not_clause
 
 logger = logging.getLogger(__name__)
-
-
-def build_keyword_clause(keywords: list, column: str = 'raw_json') -> str:
-    """Build ClickHouse hasTokenCaseInsensitive OR clause for keywords
-    
-    Args:
-        keywords: List of keywords to match as tokens
-        column: Column to search in (default: raw_json)
-        
-    Returns:
-        SQL clause string like "(hasTokenCaseInsensitive(col, 'kw1') OR hasTokenCaseInsensitive(col, 'kw2'))"
-    """
-    if not keywords:
-        return ""
-    
-    clauses = []
-    for keyword in keywords:
-        # Escape single quotes for SQL
-        escaped = keyword.replace("'", "''")
-        clauses.append(f"hasTokenCaseInsensitive({column}, '{escaped}')")
-    
-    return f"({' OR '.join(clauses)})"
-
-
-def build_keyword_not_clause(keywords: list, column: str = 'raw_json') -> str:
-    """Build ClickHouse NOT clause for keywords (exclude if ANY match)
-    
-    Args:
-        keywords: List of keywords - event excluded if any found
-        column: Column to search in (default: raw_json)
-        
-    Returns:
-        SQL clause string like "NOT hasTokenCaseInsensitive(col, 'kw1') AND NOT hasTokenCaseInsensitive(col, 'kw2')"
-    """
-    if not keywords:
-        return ""
-    
-    clauses = []
-    for keyword in keywords:
-        escaped = keyword.replace("'", "''")
-        clauses.append(f"NOT hasTokenCaseInsensitive({column}, '{escaped}')")
-    
-    return " AND ".join(clauses)
 
 
 @celery_app.task(bind=True, name='tasks.noise_tagger.tag_noise_events')
