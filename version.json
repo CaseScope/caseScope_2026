@@ -1,6 +1,14 @@
 {
-  "version": "3.120.05",
+  "version": "3.120.06",
   "changelog": [
+    {
+      "version": "3.120.06",
+      "date": "2026-01-19",
+      "changes": [
+        "UI: Renamed 'Memory Forensics' to 'Memory Files' in left menu",
+        "UI: Memory Hunting now at same level as other menu items (not nested)"
+      ]
+    },
     {
       "version": "3.120.05",
       "date": "2026-01-19",
