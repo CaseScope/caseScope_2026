@@ -1,6 +1,19 @@
 {
-  "version": "3.120.06",
+  "version": "3.121.00",
   "changelog": [
+    {
+      "version": "3.121.00",
+      "date": "2026-01-20",
+      "changes": [
+        "Feature: PCAP Files - new page for uploading and managing network capture files",
+        "PCAP: Support for web upload and folder-based upload (like case files)",
+        "PCAP: ZIP archive extraction support for bundled PCAP files",
+        "PCAP: Auto-detection of PCAP/PCAPNG file types by magic bytes",
+        "PCAP: Hostname detection from filename patterns",
+        "PCAP: Storage at /storage/case_uuid/pcap, uploads at /uploads/pcap/case_uuid",
+        "PCAP: Foundation for Zeek/zeek-cut parsing (coming soon)"
+      ]
+    },
     {
       "version": "3.120.06",
       "date": "2026-01-19",

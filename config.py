@@ -30,6 +30,10 @@ class Config:
     EVIDENCE_FOLDER = os.path.join(BASE_DIR, 'evidence')
     EVIDENCE_BULK_FOLDER = os.path.join(BASE_DIR, 'evidence_uploads')
     
+    # PCAP file storage for Zeek analysis
+    PCAP_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads', 'pcap')
+    PCAP_STORAGE_FOLDER = os.path.join(STORAGE_FOLDER)  # Storage at /storage/case_uuid/pcap
+    
     # SSL
     SSL_CERT = os.environ.get('SSL_CERT') or '/opt/casescope/ssl/cert.pem'
     SSL_KEY = os.environ.get('SSL_KEY') or '/opt/casescope/ssl/key.pem'

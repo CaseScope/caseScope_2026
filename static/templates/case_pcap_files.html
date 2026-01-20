@@ -1,0 +1,896 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📡</span>
+            PCAP Files
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+</div>
+
+<!-- Info Box -->
+<div class="upload-helper-box">
+    <div class="upload-helper-header">
+        <span class="upload-helper-icon">ℹ️</span>
+        <h3>Network Capture Analysis</h3>
+    </div>
+    <div class="upload-helper-content">
+        <p class="upload-helper-intro">Upload and manage PCAP/PCAPNG files for network traffic analysis using Zeek.</p>
+        
+        <div class="upload-helper-grid">
+            <div class="upload-helper-item">
+                <strong>Supported Formats</strong>
+                <span class="upload-helper-desc">PCAP, PCAPNG, CAP files (or ZIP archives containing them)</span>
+            </div>
+            <div class="upload-helper-item">
+                <strong>Analysis Engine</strong>
+                <span class="upload-helper-desc">Zeek (formerly Bro) with zeek-cut for log extraction</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Methods -->
+<div class="grid grid-2">
+    <!-- Web Upload Card -->
+    <div class="card upload-card">
+        <div class="card-header">
+            <span class="card-icon">🌐</span>
+            <h3 class="card-title">Web Upload</h3>
+        </div>
+        <div class="card-body">
+            <p class="upload-description">Upload PCAP files directly from your browser. Supports large files with chunked uploads.</p>
+            <div class="upload-dropzone" id="dropzone">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">📁</span>
+                    <p class="dropzone-text">Drag & drop PCAP/ZIP files here</p>
+                    <p class="dropzone-subtext">or click to browse</p>
+                </div>
+                <input type="file" id="fileInput" multiple accept=".pcap,.pcapng,.cap,.zip" style="display: none;">
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder Upload Card -->
+    <div class="card upload-card">
+        <div class="card-header">
+            <span class="card-icon">📂</span>
+            <h3 class="card-title">Local Folder Upload</h3>
+        </div>
+        <div class="card-body">
+            <p class="upload-description">Upload files via SFTP or direct copy to the server folder below:</p>
+            <div class="folder-path-box">
+                <code class="folder-path" id="folderPath">Loading...</code>
+                <button class="btn btn-sm btn-secondary" onclick="copyPath()" title="Copy path">
+                    <span id="copyIcon">📋</span>
+                </button>
+            </div>
+            <button class="btn btn-primary scan-btn" id="scanBtn" onclick="scanFolder()">
+                <span class="btn-icon">🔍</span>
+                Scan for Files
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Queue -->
+<div class="card mt-4">
+    <div class="card-header">
+        <span class="card-icon">📋</span>
+        <h3 class="card-title">Upload Queue</h3>
+        <span class="queue-count" id="queueCount">0 files</span>
+    </div>
+    <div class="table-container upload-queue-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Size</th>
+                    <th>Type</th>
+                    <th>Host</th>
+                    <th class="text-center">Remove</th>
+                    <th class="text-center">Status</th>
+                </tr>
+            </thead>
+            <tbody id="queueBody">
+                <tr class="queue-empty-row" id="emptyRow">
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                        No files in queue. Add files using Web Upload or scan a folder.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="queue-actions" id="queueActions" style="display: none;">
+        <button class="btn btn-secondary" onclick="clearQueue()">
+            <span class="btn-icon">🗑️</span>
+            Clear Queue
+        </button>
+        <button class="btn btn-success" id="ingestBtn" onclick="startIngestion()">
+            <span class="btn-icon">⚡</span>
+            Ingest Files
+        </button>
+    </div>
+</div>
+
+<!-- File Statistics -->
+<div class="tile-row mt-4">
+    <div class="tile tile-stats">
+        <div class="tile-header">
+            <h3 class="tile-title">📊 File Statistics</h3>
+            <button class="btn btn-sm btn-secondary" onclick="loadStats()">Refresh</button>
+        </div>
+        <div class="tile-body">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-value" id="stat-total">-</span>
+                    <span class="stat-label">Total Files</span>
+                </div>
+                <div class="stat-item stat-success">
+                    <span class="stat-value" id="stat-done">-</span>
+                    <span class="stat-label">Processed</span>
+                </div>
+                <div class="stat-item stat-info">
+                    <span class="stat-value" id="stat-pending">-</span>
+                    <span class="stat-label">Pending</span>
+                </div>
+                <div class="stat-item stat-danger">
+                    <span class="stat-value" id="stat-error">-</span>
+                    <span class="stat-label">Errors</span>
+                </div>
+                <div class="stat-item stat-muted">
+                    <span class="stat-value" id="stat-logs">-</span>
+                    <span class="stat-label">Zeek Logs</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- File List -->
+<div class="tile-row">
+    <div class="tile tile-files">
+        <div class="tile-header">
+            <h3 class="tile-title">📁 Ingested PCAP Files</h3>
+            <div class="tile-controls">
+                <input type="text" class="table-search" placeholder="Search files..." id="file-search" onkeyup="debounceSearch()">
+            </div>
+        </div>
+        <div class="tile-body file-table-container">
+            <table class="file-table" id="file-table">
+                <thead>
+                    <tr>
+                        <th>Parent</th>
+                        <th>Filename</th>
+                        <th>Size</th>
+                        <th>Hostname</th>
+                        <th>Type</th>
+                        <th>Uploaded</th>
+                        <th>Status</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="file-tbody">
+                    <tr>
+                        <td colspan="8" class="text-center text-muted" style="padding: 40px;">
+                            Loading files...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="tile-footer">
+            <div class="pagination-info">
+                Showing <span id="showing-start">0</span> - <span id="showing-end">0</span> of <span id="total-files">0</span> files
+            </div>
+            <div class="pagination-controls">
+                <button class="btn btn-secondary btn-sm" id="btn-prev" onclick="prevPage()" disabled>← Prev</button>
+                <span class="page-indicator">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
+                <button class="btn btn-secondary btn-sm" id="btn-next" onclick="nextPage()" disabled>Next →</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress Modal -->
+<div class="modal-overlay" id="progressModal" style="display: none;">
+    <div class="modal-container modal-progress">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalTitle">Processing Files</h3>
+        </div>
+        <div class="modal-body">
+            <div class="progress-stages" id="progressStages">
+                <div class="progress-stage" data-stage="upload">
+                    <span class="stage-icon">📤</span>
+                    <span class="stage-label">Upload</span>
+                </div>
+                <div class="progress-stage" data-stage="extract">
+                    <span class="stage-icon">📦</span>
+                    <span class="stage-label">Extract</span>
+                </div>
+                <div class="progress-stage" data-stage="move">
+                    <span class="stage-icon">📁</span>
+                    <span class="stage-label">Store</span>
+                </div>
+                <div class="progress-stage" data-stage="cleanup">
+                    <span class="stage-icon">🧹</span>
+                    <span class="stage-label">Cleanup</span>
+                </div>
+            </div>
+            
+            <div class="progress-content" id="progressContent">
+                <div class="progress-section" id="stageUpload" style="display: none;">
+                    <p class="progress-heading">Uploading Files to Server</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">File:</span>
+                        <span class="progress-value" id="uploadFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>File <span id="uploadFileNum">0</span> of <span id="uploadFileTotal">0</span></span>
+                            <span id="uploadFilePercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" id="uploadFileBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="progress-section" id="stageExtract" style="display: none;">
+                    <p class="progress-heading">Extracting ZIP Archives</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">Archive:</span>
+                        <span class="progress-value" id="extractFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>Archive <span id="extractFileNum">0</span> of <span id="extractFileTotal">0</span></span>
+                            <span id="extractPercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar bg-warning" id="extractBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="progress-section" id="stageMove" style="display: none;">
+                    <p class="progress-heading">Moving Files to Storage</p>
+                    <div class="progress-detail">
+                        <span class="progress-label">File:</span>
+                        <span class="progress-value" id="moveFileName">-</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar-label">
+                            <span>File <span id="moveFileNum">0</span> of <span id="moveFileTotal">0</span></span>
+                            <span id="movePercent">0%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar bg-success" id="moveBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="progress-section" id="stageCleanup" style="display: none;">
+                    <p class="progress-heading">Cleaning Up</p>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress">
+                            <div class="progress-bar bg-info progress-bar-animated" style="width: 100%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="progress-section" id="stageComplete" style="display: none;">
+                    <div class="progress-complete">
+                        <span class="complete-icon">✓</span>
+                        <p class="progress-heading">Ingestion Complete!</p>
+                        <div class="complete-stats" id="completeStats"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" id="modalFooter" style="display: none;">
+            <button class="btn btn-primary" onclick="closeProgressModal()">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CASE_UUID = '{{ case.uuid }}';
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+
+let uploadQueue = [];
+let isIngesting = false;
+let queueIdCounter = 0;
+let currentPage = 1;
+let perPage = 50;
+let searchQuery = '';
+let searchTimeout = null;
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadFolderPath();
+    loadStats();
+    loadFiles();
+    setupDropzone();
+});
+
+// Load folder path
+function loadFolderPath() {
+    fetch(`/api/pcap/folder/${CASE_UUID}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('folderPath').textContent = data.folder_path;
+            }
+        })
+        .catch(err => console.error('Error loading folder path:', err));
+}
+
+// Copy path to clipboard
+function copyPath() {
+    const path = document.getElementById('folderPath').textContent;
+    navigator.clipboard.writeText(path).then(() => {
+        const icon = document.getElementById('copyIcon');
+        icon.textContent = '✓';
+        setTimeout(() => { icon.textContent = '📋'; }, 2000);
+    });
+}
+
+// Load statistics
+function loadStats() {
+    fetch(`/api/pcap/stats/${CASE_UUID}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('stat-total').textContent = data.total;
+                document.getElementById('stat-done').textContent = data.done;
+                document.getElementById('stat-pending').textContent = data.pending;
+                document.getElementById('stat-error').textContent = data.error;
+                document.getElementById('stat-logs').textContent = data.total_logs;
+            }
+        })
+        .catch(err => console.error('Error loading stats:', err));
+}
+
+// Load file list
+function loadFiles() {
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: perPage,
+        search: searchQuery
+    });
+    
+    fetch(`/api/pcap/list/${CASE_UUID}?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderFileTable(data.files);
+                updatePagination(data);
+            }
+        })
+        .catch(err => console.error('Error loading files:', err));
+}
+
+// Render file table
+function renderFileTable(files) {
+    const tbody = document.getElementById('file-tbody');
+    
+    if (files.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center text-muted" style="padding: 40px;">
+                    ${searchQuery ? 'No files match your search' : 'No PCAP files ingested yet.'}
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = files.map(f => `
+        <tr class="file-row" data-file-id="${f.id}">
+            <td class="text-muted text-small">${f.parent_filename || '-'}</td>
+            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 50)}</td>
+            <td>${formatSize(f.file_size)}</td>
+            <td>${f.hostname || '-'}</td>
+            <td>${f.pcap_type || '-'}</td>
+            <td>${formatDate(f.uploaded_at)}</td>
+            <td>${getStatusBadge(f.status)}</td>
+            <td class="text-center">
+                <button class="btn btn-sm btn-secondary" onclick="editFile(${f.id})" title="Edit">✏️</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Update pagination
+function updatePagination(data) {
+    document.getElementById('current-page').textContent = data.page;
+    document.getElementById('total-pages').textContent = data.total_pages;
+    document.getElementById('total-files').textContent = data.total;
+    
+    const start = data.total > 0 ? ((data.page - 1) * data.per_page) + 1 : 0;
+    const end = Math.min(data.page * data.per_page, data.total);
+    document.getElementById('showing-start').textContent = start;
+    document.getElementById('showing-end').textContent = end;
+    
+    document.getElementById('btn-prev').disabled = data.page <= 1;
+    document.getElementById('btn-next').disabled = data.page >= data.total_pages;
+}
+
+function prevPage() { if (currentPage > 1) { currentPage--; loadFiles(); } }
+function nextPage() { currentPage++; loadFiles(); }
+
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        searchQuery = document.getElementById('file-search').value.trim();
+        currentPage = 1;
+        loadFiles();
+    }, 300);
+}
+
+// Helpers
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatDate(isoString) {
+    if (!isoString) return '-';
+    const d = new Date(isoString);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function truncateFilename(filename, maxLen) {
+    if (filename.length <= maxLen) return filename;
+    const ext = filename.includes('.') ? '.' + filename.split('.').pop() : '';
+    const name = filename.substring(0, filename.length - ext.length);
+    return name.substring(0, maxLen - ext.length - 3) + '...' + ext;
+}
+
+function getStatusBadge(status) {
+    const badges = {
+        'new': '<span class="badge badge-info">New</span>',
+        'queued': '<span class="badge badge-warning">Queued</span>',
+        'processing': '<span class="badge badge-warning">Processing</span>',
+        'done': '<span class="badge badge-success">Done</span>',
+        'error': '<span class="badge badge-danger">Error</span>'
+    };
+    return badges[status] || `<span class="badge badge-muted">${status}</span>`;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Queue management
+function addToQueue(file, source = 'web') {
+    const id = queueIdCounter++;
+    const queueItem = {
+        id: id,
+        file: file,
+        name: file.name,
+        size: file.size,
+        hostname: detectHostname(file.name),
+        source: source,
+        status: 'Queued'
+    };
+    
+    uploadQueue.push(queueItem);
+    renderQueue();
+}
+
+function addFolderFileToQueue(fileInfo) {
+    const id = queueIdCounter++;
+    const queueItem = {
+        id: id,
+        file: null,
+        name: fileInfo.name,
+        size: fileInfo.size,
+        hostname: fileInfo.detected_hostname || detectHostname(fileInfo.name),
+        source: 'folder',
+        path: fileInfo.path,
+        is_pcap: fileInfo.is_pcap,
+        is_zip: fileInfo.is_zip,
+        status: 'Ready'
+    };
+    
+    uploadQueue.push(queueItem);
+    renderQueue();
+}
+
+function detectHostname(filename) {
+    const patterns = [
+        /^([A-Za-z0-9_-]+?)[-_](?:pcap|capture|network|\d{8})/i,
+        /^([A-Za-z0-9_-]+?)[-_]\d{4}[-_]\d{2}/i,
+        /^([A-Za-z0-9_-]+?)_/i,
+    ];
+    
+    for (const pattern of patterns) {
+        const match = filename.match(pattern);
+        if (match && match[1]) {
+            const hostname = match[1].toUpperCase();
+            if (!['PCAP', 'CAPTURE', 'NETWORK', 'DUMP', 'TRAFFIC'].includes(hostname)) {
+                return hostname;
+            }
+        }
+    }
+    return '';
+}
+
+function removeFromQueue(id) {
+    if (isIngesting) return;
+    uploadQueue = uploadQueue.filter(item => item.id !== id);
+    renderQueue();
+}
+
+function updateQueueItem(id, field, value) {
+    const item = uploadQueue.find(i => i.id === id);
+    if (item) item[field] = value;
+}
+
+function clearQueue() {
+    if (isIngesting) return;
+    if (confirm('Clear all files from the queue?')) {
+        uploadQueue = [];
+        renderQueue();
+    }
+}
+
+function renderQueue() {
+    const tbody = document.getElementById('queueBody');
+    const queueActions = document.getElementById('queueActions');
+    const queueCount = document.getElementById('queueCount');
+    
+    queueCount.textContent = `${uploadQueue.length} file${uploadQueue.length !== 1 ? 's' : ''}`;
+    
+    if (uploadQueue.length === 0) {
+        tbody.innerHTML = `
+            <tr class="queue-empty-row">
+                <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                    No files in queue. Add files using Web Upload or scan a folder.
+                </td>
+            </tr>
+        `;
+        queueActions.style.display = 'none';
+        return;
+    }
+    
+    queueActions.style.display = 'flex';
+    
+    tbody.innerHTML = uploadQueue.map(item => {
+        const statusClass = item.status === 'Queued' ? 'badge-info' : item.status === 'Ready' ? 'badge-success' : 'badge-muted';
+        const typeLabel = item.is_zip ? 'ZIP' : item.is_pcap ? 'PCAP' : 'File';
+        const removeDisabled = isIngesting ? 'disabled' : '';
+        
+        return `
+            <tr class="queue-row" data-id="${item.id}">
+                <td class="queue-filename">
+                    <span class="filename-text">${escapeHtml(item.name)}</span>
+                    <span class="filename-source badge badge-muted">${item.source}</span>
+                </td>
+                <td class="queue-size">${formatSize(item.size)}</td>
+                <td>${typeLabel}</td>
+                <td class="queue-host">
+                    <input type="text" class="form-input queue-input" 
+                           value="${escapeHtml(item.hostname)}" 
+                           placeholder="Enter hostname"
+                           onchange="updateQueueItem(${item.id}, 'hostname', this.value)">
+                </td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-danger" onclick="removeFromQueue(${item.id})" ${removeDisabled}>✕</button>
+                </td>
+                <td class="text-center">
+                    <span class="badge ${statusClass}">${item.status}</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Scan folder
+async function scanFolder() {
+    const btn = document.getElementById('scanBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
+    
+    try {
+        const response = await fetch(`/api/pcap/scan/${CASE_UUID}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.files.length === 0) {
+                alert('No files found in the upload folder.');
+            } else {
+                for (const fileInfo of data.files) {
+                    const exists = uploadQueue.some(item => item.source === 'folder' && item.path === fileInfo.path);
+                    if (!exists) {
+                        addFolderFileToQueue(fileInfo);
+                    }
+                }
+            }
+        } else {
+            alert('Error scanning folder: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Scan error:', err);
+        alert('Error scanning folder.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔍</span> Scan for Files';
+    }
+}
+
+// Dropzone setup
+function setupDropzone() {
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    
+    dropzone.addEventListener('click', () => fileInput.click());
+    
+    fileInput.addEventListener('change', (e) => {
+        Array.from(e.target.files).forEach(file => addToQueue(file, 'web'));
+        fileInput.value = '';
+    });
+    
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+    });
+    
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        Array.from(e.dataTransfer.files).forEach(file => addToQueue(file, 'web'));
+    });
+}
+
+// Progress modal
+function showProgressModal() {
+    document.getElementById('progressModal').style.display = 'flex';
+    document.getElementById('modalFooter').style.display = 'none';
+    hideAllStages();
+}
+
+function closeProgressModal() {
+    document.getElementById('progressModal').style.display = 'none';
+    hideAllStages();
+    loadStats();
+    loadFiles();
+}
+
+function hideAllStages() {
+    ['stageUpload', 'stageExtract', 'stageMove', 'stageCleanup', 'stageComplete'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    document.querySelectorAll('.progress-stage').forEach(el => el.classList.remove('active', 'completed'));
+}
+
+function showStage(stageName) {
+    hideAllStages();
+    const stageId = 'stage' + stageName.charAt(0).toUpperCase() + stageName.slice(1);
+    const el = document.getElementById(stageId);
+    if (el) el.style.display = 'block';
+    
+    const stageOrder = ['upload', 'extract', 'move', 'cleanup'];
+    const currentIndex = stageOrder.indexOf(stageName);
+    
+    document.querySelectorAll('.progress-stage').forEach((el, idx) => {
+        el.classList.remove('active', 'completed');
+        if (idx < currentIndex) el.classList.add('completed');
+        else if (idx === currentIndex) el.classList.add('active');
+    });
+}
+
+function showComplete(stats) {
+    hideAllStages();
+    document.querySelectorAll('.progress-stage').forEach(el => el.classList.add('completed'));
+    document.getElementById('stageComplete').style.display = 'block';
+    document.getElementById('completeStats').innerHTML = stats;
+    document.getElementById('modalFooter').style.display = 'flex';
+}
+
+// Chunk upload
+async function uploadChunk(file, chunkIndex, totalChunks, uploadId) {
+    const start = chunkIndex * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+    
+    const formData = new FormData();
+    formData.append('chunk', chunk);
+    formData.append('chunkIndex', chunkIndex);
+    formData.append('totalChunks', totalChunks);
+    formData.append('uploadId', uploadId);
+    formData.append('filename', file.name);
+    formData.append('caseUuid', CASE_UUID);
+    
+    const response = await fetch('/api/pcap/upload/chunk', {
+        method: 'POST',
+        body: formData
+    });
+    
+    return response.json();
+}
+
+// Main ingestion
+async function startIngestion() {
+    if (isIngesting || uploadQueue.length === 0) return;
+    
+    isIngesting = true;
+    const ingestBtn = document.getElementById('ingestBtn');
+    ingestBtn.disabled = true;
+    ingestBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+    
+    const webFiles = uploadQueue.filter(f => f.source === 'web' && f.status === 'Queued');
+    
+    try {
+        showProgressModal();
+        
+        // Upload web files first
+        if (webFiles.length > 0) {
+            showStage('upload');
+            
+            for (let fileIdx = 0; fileIdx < webFiles.length; fileIdx++) {
+                const item = webFiles[fileIdx];
+                const file = item.file;
+                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+                const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                item.status = 'Uploading';
+                renderQueue();
+                
+                document.getElementById('uploadFileName').textContent = file.name;
+                document.getElementById('uploadFileNum').textContent = fileIdx + 1;
+                document.getElementById('uploadFileTotal').textContent = webFiles.length;
+                
+                for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                    const percent = Math.round(((fileIdx * totalChunks + chunkIdx) / (webFiles.length * totalChunks)) * 100);
+                    document.getElementById('uploadFilePercent').textContent = percent + '%';
+                    document.getElementById('uploadFileBar').style.width = percent + '%';
+                    
+                    const result = await uploadChunk(file, chunkIdx, totalChunks, uploadId);
+                    if (!result.success) throw new Error(result.error || 'Upload failed');
+                }
+                
+                item.status = 'Ready';
+                item.path = `/opt/casescope/uploads/pcap/${CASE_UUID}/${file.name}`;
+                renderQueue();
+            }
+        }
+        
+        // Prepare file list for server
+        const allFiles = uploadQueue.map(item => ({
+            name: item.name,
+            path: item.path || null,
+            hostname: item.hostname
+        }));
+        
+        // Call ingest endpoint
+        const response = await fetch(`/api/pcap/ingest/${CASE_UUID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: allFiles })
+        });
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    const update = JSON.parse(line);
+                    handleProgressUpdate(update);
+                } catch (e) {
+                    console.log('Parse error:', line);
+                }
+            }
+        }
+        
+        if (buffer.trim()) {
+            try {
+                handleProgressUpdate(JSON.parse(buffer));
+            } catch (e) {}
+        }
+        
+    } catch (err) {
+        console.error('Ingestion error:', err);
+        alert('Error during ingestion: ' + err.message);
+        closeProgressModal();
+    } finally {
+        isIngesting = false;
+        ingestBtn.disabled = false;
+        ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
+    }
+}
+
+function handleProgressUpdate(update) {
+    switch (update.stage) {
+        case 'extract':
+            showStage('extract');
+            document.getElementById('extractFileName').textContent = update.filename;
+            document.getElementById('extractFileNum').textContent = update.current;
+            document.getElementById('extractFileTotal').textContent = update.total;
+            const extractPercent = Math.round((update.current / update.total) * 100);
+            document.getElementById('extractPercent').textContent = extractPercent + '%';
+            document.getElementById('extractBar').style.width = extractPercent + '%';
+            break;
+            
+        case 'move':
+            showStage('move');
+            document.getElementById('moveFileName').textContent = update.filename;
+            document.getElementById('moveFileNum').textContent = update.current;
+            document.getElementById('moveFileTotal').textContent = update.total;
+            const movePercent = Math.round((update.current / update.total) * 100);
+            document.getElementById('movePercent').textContent = movePercent + '%';
+            document.getElementById('moveBar').style.width = movePercent + '%';
+            break;
+            
+        case 'cleanup':
+            showStage('cleanup');
+            break;
+            
+        case 'complete':
+            uploadQueue = [];
+            renderQueue();
+            
+            let statsHtml = `<p><strong>${update.ingested}</strong> PCAP files ingested</p>`;
+            if (update.extracted > 0) {
+                statsHtml += `<p><strong>${update.extracted}</strong> files extracted from archives</p>`;
+            }
+            if (update.errors && update.errors.length > 0) {
+                statsHtml += `<p class="text-warning"><strong>${update.errors.length}</strong> errors</p>`;
+            }
+            
+            showComplete(statsHtml);
+            break;
+            
+        case 'error':
+            alert('Error: ' + update.message);
+            closeProgressModal();
+            break;
+    }
+}
+
+function editFile(id) {
+    // Simple edit - could be expanded to modal
+    const hostname = prompt('Enter hostname:');
+    if (hostname !== null) {
+        fetch(`/api/pcap/${id}/edit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hostname: hostname })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadFiles();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

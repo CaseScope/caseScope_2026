@@ -225,6 +225,19 @@ def case_hunting_memory():
     )
 
 
+@main_bp.route('/case/pcap-files')
+@login_required
+@case_required
+def case_pcap_files():
+    """PCAP Files - upload and manage network capture files"""
+    case = get_active_case()
+    return render_template(
+        'case_pcap_files.html',
+        page_title='PCAP Files',
+        case=case
+    )
+
+
 @main_bp.route('/case/ioc-management')
 @login_required
 @case_required

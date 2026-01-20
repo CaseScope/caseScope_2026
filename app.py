@@ -330,6 +330,7 @@ def create_app():
     from routes.evidence import evidence_bp
     from routes.rag import rag_bp
     from routes.memory import memory_bp
+    from routes.pcap import pcap_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
@@ -339,6 +340,7 @@ def create_app():
     app.register_blueprint(evidence_bp)
     app.register_blueprint(rag_bp)
     app.register_blueprint(memory_bp)
+    app.register_blueprint(pcap_bp)
     
     # Create database tables
     with app.app_context():
@@ -371,6 +373,7 @@ def create_app():
         from models.audit_log import AuditLog
         from models.field_enhancer import FieldEnhancer, seed_field_enhancers
         from models.memory_job import MemoryJob
+        from models.pcap_file import PcapFile
         db.create_all()
         
         # Run schema migrations for new columns

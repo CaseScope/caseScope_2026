@@ -29,6 +29,7 @@ from models.memory_data import (
     MemoryProcess, MemoryNetwork, MemoryService, MemoryMalfind,
     MemoryModule, MemoryCredential, MemorySID, MemoryInfo
 )
+from models.pcap_file import PcapFile, PcapFileStatus
 
 __all__ = [
     'db', 'User', 'Case', 'CaseStatus',
@@ -47,5 +48,6 @@ __all__ = [
     'FileAuditLog', 'FileAction',
     'FieldEnhancer', 'seed_field_enhancers',
     'MemoryProcess', 'MemoryNetwork', 'MemoryService', 'MemoryMalfind',
-    'MemoryModule', 'MemoryCredential', 'MemorySID', 'MemoryInfo'
+    'MemoryModule', 'MemoryCredential', 'MemorySID', 'MemoryInfo',
+    'PcapFile', 'PcapFileStatus'
 ]
