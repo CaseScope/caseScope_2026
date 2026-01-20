@@ -4,6 +4,8 @@ Provides ClickHouse SQL clause builders for noise filter keyword matching.
 Supports both token-based matching (hasTokenCaseInsensitive) for clean keywords
 and substring matching (positionCaseInsensitive) for keywords with separators.
 
+Searches both raw_json and search_blob by default to catch all event data.
+
 Separator characters include: . - / \ : @ and whitespace
 These characters cause hasTokenCaseInsensitive() to fail, so we automatically
 switch to positionCaseInsensitive() when they're detected.
@@ -21,6 +23,9 @@ logger = logging.getLogger(__name__)
 # Matches any non-alphanumeric character
 SEPARATOR_PATTERN = re.compile(r'[^a-zA-Z0-9]')
 
+# Default columns to search for noise matching
+DEFAULT_SEARCH_COLUMNS = ['raw_json', 'search_blob']
+
 
 def has_separator(keyword: str) -> bool:
     """Check if keyword contains separator characters
@@ -37,66 +42,87 @@ def has_separator(keyword: str) -> bool:
     return bool(SEPARATOR_PATTERN.search(keyword))
 
 
-def build_keyword_clause(keywords: list, column: str = 'raw_json') -> str:
-    """Build ClickHouse OR clause for keyword matching
+def _build_keyword_match(keyword: str, column: str) -> str:
+    """Build a single keyword match clause for one column"""
+    escaped = keyword.replace("'", "''")
+    
+    if has_separator(keyword):
+        return f"positionCaseInsensitive({column}, '{escaped}') > 0"
+    else:
+        return f"hasTokenCaseInsensitive({column}, '{escaped}')"
+
+
+def _build_keyword_not_match(keyword: str, column: str) -> str:
+    """Build a single keyword NOT match clause for one column"""
+    escaped = keyword.replace("'", "''")
+    
+    if has_separator(keyword):
+        return f"positionCaseInsensitive({column}, '{escaped}') = 0"
+    else:
+        return f"NOT hasTokenCaseInsensitive({column}, '{escaped}')"
+
+
+def build_keyword_clause(keywords: list, columns: list = None) -> str:
+    """Build ClickHouse OR clause for keyword matching across multiple columns
     
     Automatically selects the appropriate matching function:
     - hasTokenCaseInsensitive() for clean alphanumeric tokens (fast, indexed)
     - positionCaseInsensitive() for keywords with separators (substring match)
     
+    Searches both raw_json and search_blob by default to catch all event data.
+    
     Args:
         keywords: List of keywords to match (any match = true)
-        column: Column to search in (default: raw_json)
+        columns: List of columns to search (default: ['raw_json', 'search_blob'])
         
     Returns:
-        SQL clause string like "(hasTokenCaseInsensitive(col, 'kw1') OR positionCaseInsensitive(col, 'kw2') > 0)"
+        SQL clause string matching if ANY keyword found in ANY column
     """
     if not keywords:
         return ""
     
-    clauses = []
-    for keyword in keywords:
-        # Escape single quotes for SQL
-        escaped = keyword.replace("'", "''")
-        
-        if has_separator(keyword):
-            # Use substring matching for keywords with separators
-            clauses.append(f"positionCaseInsensitive({column}, '{escaped}') > 0")
-        else:
-            # Use fast token matching for clean keywords
-            clauses.append(f"hasTokenCaseInsensitive({column}, '{escaped}')")
+    if columns is None:
+        columns = DEFAULT_SEARCH_COLUMNS
     
-    return f"({' OR '.join(clauses)})"
+    # For each keyword, check all columns (keyword found in ANY column = match)
+    keyword_clauses = []
+    for keyword in keywords:
+        column_matches = [_build_keyword_match(keyword, col) for col in columns]
+        keyword_clauses.append(f"({' OR '.join(column_matches)})")
+    
+    # Any keyword match = overall match
+    return f"({' OR '.join(keyword_clauses)})"
 
 
-def build_keyword_not_clause(keywords: list, column: str = 'raw_json') -> str:
-    """Build ClickHouse NOT clause for keyword exclusion
+def build_keyword_not_clause(keywords: list, columns: list = None) -> str:
+    """Build ClickHouse NOT clause for keyword exclusion across multiple columns
     
     Automatically selects the appropriate matching function:
     - NOT hasTokenCaseInsensitive() for clean alphanumeric tokens
     - positionCaseInsensitive() = 0 for keywords with separators
     
+    Searches both raw_json and search_blob by default.
+    Keyword must NOT be found in ANY column to pass the exclusion.
+    
     Args:
-        keywords: List of keywords - event excluded if ANY found
-        column: Column to search in (default: raw_json)
+        keywords: List of keywords - event excluded if ANY keyword found in ANY column
+        columns: List of columns to search (default: ['raw_json', 'search_blob'])
         
     Returns:
-        SQL clause string like "NOT hasTokenCaseInsensitive(col, 'kw1') AND positionCaseInsensitive(col, 'kw2') = 0"
+        SQL clause string excluding if ANY keyword found in ANY column
     """
     if not keywords:
         return ""
     
-    clauses = []
-    for keyword in keywords:
-        # Escape single quotes for SQL
-        escaped = keyword.replace("'", "''")
-        
-        if has_separator(keyword):
-            # Use substring matching for keywords with separators
-            # positionCaseInsensitive returns 0 if not found
-            clauses.append(f"positionCaseInsensitive({column}, '{escaped}') = 0")
-        else:
-            # Use fast token matching for clean keywords
-            clauses.append(f"NOT hasTokenCaseInsensitive({column}, '{escaped}')")
+    if columns is None:
+        columns = DEFAULT_SEARCH_COLUMNS
     
-    return " AND ".join(clauses)
+    # For each keyword, must NOT be in ANY column
+    keyword_clauses = []
+    for keyword in keywords:
+        # All columns must NOT contain the keyword
+        column_not_matches = [_build_keyword_not_match(keyword, col) for col in columns]
+        keyword_clauses.append(f"({' AND '.join(column_not_matches)})")
+    
+    # ALL exclusion keywords must pass (none of them found)
+    return " AND ".join(keyword_clauses)

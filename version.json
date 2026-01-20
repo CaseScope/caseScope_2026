@@ -1,6 +1,15 @@
 {
-  "version": "3.122.02",
+  "version": "3.122.03",
   "changelog": [
+    {
+      "version": "3.122.03",
+      "date": "2026-01-20",
+      "changes": [
+        "Fix: Noise filtering now searches both raw_json AND search_blob columns",
+        "Noise: Catches 15,729 additional events that were previously missed",
+        "Noise: UserData fields like ProcessImageName now properly matched"
+      ]
+    },
     {
       "version": "3.122.02",
       "date": "2026-01-20",
