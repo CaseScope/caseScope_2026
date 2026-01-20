@@ -1,6 +1,15 @@
 {
-  "version": "3.120.04",
+  "version": "3.120.05",
   "changelog": [
+    {
+      "version": "3.120.05",
+      "date": "2026-01-19",
+      "changes": [
+        "Fix: Process tree now starts fully collapsed (all levels)",
+        "Fix: Removed duplicate processes caused by ingesting both pslist and psscan",
+        "Changed: Parser skips psscan/netstat as pslist/netscan provide same data"
+      ]
+    },
     {
       "version": "3.120.04",
       "date": "2026-01-19",

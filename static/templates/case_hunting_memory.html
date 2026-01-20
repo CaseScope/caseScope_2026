@@ -1068,10 +1068,10 @@ function buildProcessTreeHTML(nodes, isRoot = false) {
             ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'process', '${node.name}', ${currentJobId})">🧠×${node.cross_memory_count}</span>` 
             : '';
         
-        // Start collapsed (children hidden) unless it's a root node
-        const isCollapsed = !isRoot && hasChildren;
-        const toggleIcon = hasChildren ? (isCollapsed ? '▶' : '▼') : '•';
-        const childrenStyle = isCollapsed ? 'display: none;' : '';
+        // Start ALL items collapsed (children hidden)
+        const isCollapsed = hasChildren;
+        const toggleIcon = hasChildren ? '▶' : '•';
+        const childrenStyle = 'display: none;';
         
         html += `
             <div class="process-node ${isRoot ? 'root' : ''}">

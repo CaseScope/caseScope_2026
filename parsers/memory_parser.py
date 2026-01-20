@@ -25,13 +25,15 @@ class MemoryParser:
     VERSION = '1.0.0'
     
     # Plugin to parser method mapping
+    # Note: psscan skipped as pslist provides same data (psscan finds hidden processes but creates duplicates)
+    # Note: netstat skipped as netscan provides same data with more info
     PLUGIN_HANDLERS = {
         'windows_pslist': 'parse_pslist',
-        'windows_psscan': 'parse_pslist',  # Same format as pslist
+        # 'windows_psscan': 'parse_pslist',  # Skipped - would create duplicates with pslist
         'windows_pstree': 'parse_pstree',
         'windows_cmdline': 'parse_cmdline',
         'windows_netscan': 'parse_network',
-        'windows_netstat': 'parse_network',  # Similar format
+        # 'windows_netstat': 'parse_network',  # Skipped - netscan is more comprehensive
         'windows_svcscan': 'parse_services',
         'windows_malfind': 'parse_malfind',
         'windows_ldrmodules': 'parse_ldrmodules',
