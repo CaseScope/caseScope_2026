@@ -633,3 +633,233 @@ def upload_chunk():
     except Exception as e:
         logger.exception("Chunk upload error")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# ZEEK PROCESSING ENDPOINTS
+# =============================================================================
+
+@pcap_bp.route('/<int:pcap_id>/process', methods=['POST'])
+@login_required
+def process_pcap(pcap_id):
+    """Queue a single PCAP file for Zeek processing"""
+    if current_user.permission_level == 'viewer':
+        return jsonify({'success': False, 'error': 'Viewers cannot process files'}), 403
+    
+    try:
+        pcap_file = db.session.get(PcapFile, pcap_id)
+        if not pcap_file:
+            return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
+        
+        if pcap_file.is_archive:
+            return jsonify({'success': False, 'error': 'Cannot process archive files directly'}), 400
+        
+        # Update status to queued
+        pcap_file.status = PcapFileStatus.QUEUED
+        db.session.commit()
+        
+        # Queue Celery task
+        from tasks.pcap_tasks import process_pcap_with_zeek
+        task = process_pcap_with_zeek.delay(pcap_id)
+        
+        return jsonify({
+            'success': True,
+            'pcap_id': pcap_id,
+            'task_id': task.id,
+            'message': 'Queued for Zeek processing'
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error queuing PCAP {pcap_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pcap_bp.route('/process-all/<case_uuid>', methods=['POST'])
+@login_required
+def process_all_pcaps(case_uuid):
+    """Queue all pending PCAP files for a case for Zeek processing"""
+    if current_user.permission_level == 'viewer':
+        return jsonify({'success': False, 'error': 'Viewers cannot process files'}), 403
+    
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Get pending PCAP files
+        pending = PcapFile.query.filter(
+            PcapFile.case_uuid == case_uuid,
+            PcapFile.is_archive == False,
+            PcapFile.status == PcapFileStatus.NEW
+        ).all()
+        
+        if not pending:
+            return jsonify({'success': False, 'error': 'No pending PCAP files to process'}), 400
+        
+        # Queue each for processing
+        from tasks.pcap_tasks import process_pcap_with_zeek
+        queued = []
+        
+        for pcap in pending:
+            pcap.status = PcapFileStatus.QUEUED
+            db.session.commit()
+            
+            task = process_pcap_with_zeek.delay(pcap.id)
+            queued.append({
+                'pcap_id': pcap.id,
+                'filename': pcap.filename,
+                'task_id': task.id
+            })
+        
+        return jsonify({
+            'success': True,
+            'queued_count': len(queued),
+            'queued': queued
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error queuing PCAPs for case {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pcap_bp.route('/<int:pcap_id>/logs', methods=['GET'])
+@login_required
+def get_pcap_logs(pcap_id):
+    """Get list of Zeek log files for a processed PCAP"""
+    try:
+        pcap_file = db.session.get(PcapFile, pcap_id)
+        if not pcap_file:
+            return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
+        
+        if not pcap_file.zeek_output_path or not os.path.exists(pcap_file.zeek_output_path):
+            return jsonify({
+                'success': True,
+                'pcap_id': pcap_id,
+                'logs': [],
+                'message': 'No Zeek output available'
+            })
+        
+        logs = []
+        for item in os.listdir(pcap_file.zeek_output_path):
+            if item.endswith('.log'):
+                log_path = os.path.join(pcap_file.zeek_output_path, item)
+                stat = os.stat(log_path)
+                
+                # Count lines (excluding headers)
+                line_count = 0
+                with open(log_path, 'r') as f:
+                    for line in f:
+                        if not line.startswith('#'):
+                            line_count += 1
+                
+                logs.append({
+                    'name': item,
+                    'size': stat.st_size,
+                    'lines': line_count,
+                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+        
+        # Sort by name
+        logs.sort(key=lambda x: x['name'])
+        
+        return jsonify({
+            'success': True,
+            'pcap_id': pcap_id,
+            'filename': pcap_file.filename,
+            'output_path': pcap_file.zeek_output_path,
+            'logs': logs,
+            'total_logs': len(logs)
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting logs for PCAP {pcap_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pcap_bp.route('/<int:pcap_id>/log/<log_name>', methods=['GET'])
+@login_required
+def get_log_content(pcap_id, log_name):
+    """Get content of a specific Zeek log file"""
+    try:
+        pcap_file = db.session.get(PcapFile, pcap_id)
+        if not pcap_file:
+            return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
+        
+        if not pcap_file.zeek_output_path:
+            return jsonify({'success': False, 'error': 'No Zeek output available'}), 404
+        
+        # Sanitize log_name to prevent path traversal
+        if '/' in log_name or '..' in log_name:
+            return jsonify({'success': False, 'error': 'Invalid log name'}), 400
+        
+        log_path = os.path.join(pcap_file.zeek_output_path, log_name)
+        if not os.path.exists(log_path):
+            return jsonify({'success': False, 'error': f'Log file {log_name} not found'}), 404
+        
+        # Get query params
+        limit = request.args.get('limit', 500, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        columns = request.args.get('columns', '')
+        
+        # Parse headers and content
+        headers = []
+        types = []
+        lines = []
+        total_lines = 0
+        
+        with open(log_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                
+                if line.startswith('#'):
+                    # Parse header metadata
+                    if line.startswith('#fields'):
+                        headers = line.replace('#fields\t', '').split('\t')
+                    elif line.startswith('#types'):
+                        types = line.replace('#types\t', '').split('\t')
+                    continue
+                
+                total_lines += 1
+                
+                if total_lines > offset and len(lines) < limit:
+                    lines.append(line.split('\t'))
+        
+        return jsonify({
+            'success': True,
+            'pcap_id': pcap_id,
+            'log_name': log_name,
+            'headers': headers,
+            'types': types,
+            'lines': lines,
+            'offset': offset,
+            'limit': limit,
+            'returned': len(lines),
+            'total_lines': total_lines
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error reading log {log_name} for PCAP {pcap_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pcap_bp.route('/<int:pcap_id>/status', methods=['GET'])
+@login_required
+def get_pcap_status(pcap_id):
+    """Get processing status of a PCAP file"""
+    try:
+        pcap_file = db.session.get(PcapFile, pcap_id)
+        if not pcap_file:
+            return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'pcap_id': pcap_id,
+            'filename': pcap_file.filename,
+            'status': pcap_file.status,
+            'logs_generated': pcap_file.logs_generated,
+            'processed_at': pcap_file.processed_at.isoformat() if pcap_file.processed_at else None,
+            'error_message': pcap_file.error_message
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

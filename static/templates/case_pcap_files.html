@@ -121,7 +121,12 @@
     <div class="tile tile-stats">
         <div class="tile-header">
             <h3 class="tile-title">📊 File Statistics</h3>
-            <button class="btn btn-sm btn-secondary" onclick="loadStats()">Refresh</button>
+            <div class="tile-actions">
+                <button class="btn btn-sm btn-primary" id="processAllBtn" onclick="processAllPcaps()">
+                    🔬 Process All with Zeek
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="loadStats()">Refresh</button>
+            </div>
         </div>
         <div class="tile-body">
             <div class="stats-grid">
@@ -168,7 +173,7 @@
                         <th>Size</th>
                         <th>Hostname</th>
                         <th>Type</th>
-                        <th>Uploaded</th>
+                        <th>Logs</th>
                         <th>Status</th>
                         <th class="text-center">Actions</th>
                     </tr>
@@ -394,18 +399,41 @@ function renderFileTable(files) {
     tbody.innerHTML = files.map(f => `
         <tr class="file-row" data-file-id="${f.id}">
             <td class="text-muted text-small">${f.parent_filename || '-'}</td>
-            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 50)}</td>
+            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 40)}</td>
             <td>${formatSize(f.file_size)}</td>
             <td>${f.hostname || '-'}</td>
             <td>${f.pcap_type || '-'}</td>
-            <td>${formatDate(f.uploaded_at)}</td>
+            <td>${getLogsDisplay(f)}</td>
             <td>${getStatusBadge(f.status)}</td>
-            <td class="text-center">
-                <button class="btn btn-sm btn-secondary" onclick="editFile(${f.id})" title="Edit">✏️</button>
-            </td>
+            <td class="text-center">${getActionButtons(f)}</td>
         </tr>
     `).join('');
 }
+
+// Get logs display for file
+function getLogsDisplay(f) {
+    if (f.status === 'done' && f.logs_generated > 0) {
+        return `<a href="javascript:void(0)" onclick="viewLogs(${f.id})" class="text-success">${f.logs_generated} logs</a>`;
+    } else if (f.status === 'done') {
+        return '<span class="text-muted">0</span>';
+    } else if (f.status === 'processing' || f.status === 'queued') {
+        return '<span class="text-muted">...</span>';
+    }
+    return '<span class="text-muted">-</span>';
+}
+
+// Get action buttons based on status
+function getActionButtons(f) {
+    let buttons = '';
+    if (f.status === 'new') {
+        buttons += `<button class="btn btn-sm btn-primary" onclick="processFile(${f.id})" title="Process with Zeek">🔬</button> `;
+    } else if (f.status === 'done' && f.logs_generated > 0) {
+        buttons += `<button class="btn btn-sm btn-success" onclick="viewLogs(${f.id})" title="View Logs">📊</button> `;
+    } else if (f.status === 'error') {
+        buttons += `<button class="btn btn-sm btn-warning" onclick="processFile(${f.id})" title="Retry">🔄</button> `;
+    }
+    buttons += `<button class="btn btn-sm btn-secondary" onclick="editFile(${f.id})" title="Edit">✏️</button>`;
+    return buttons;
 
 // Update pagination
 function updatePagination(data) {
@@ -874,7 +902,6 @@ function handleProgressUpdate(update) {
 }
 
 function editFile(id) {
-    // Simple edit - could be expanded to modal
     const hostname = prompt('Enter hostname:');
     if (hostname !== null) {
         fetch(`/api/pcap/${id}/edit`, {
@@ -891,6 +918,92 @@ function editFile(id) {
             }
         });
     }
+}
+
+// Zeek Processing Functions
+let statusPollInterval = null;
+
+function processFile(id) {
+    fetch(`/api/pcap/${id}/process`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) { loadFiles(); loadStats(); startStatusPolling(); }
+            else { alert('Error: ' + data.error); }
+        });
+}
+
+function processAllPcaps() {
+    const btn = document.getElementById('processAllBtn');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Processing...';
+    fetch(`/api/pcap/process-all/${CASE_UUID}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) { alert(`Queued ${data.queued_count} files for Zeek processing`); loadFiles(); loadStats(); startStatusPolling(); }
+            else { alert('Error: ' + data.error); }
+        })
+        .finally(() => { btn.disabled = false; btn.innerHTML = '🔬 Process All with Zeek'; });
+}
+
+function startStatusPolling() {
+    if (statusPollInterval) return;
+    statusPollInterval = setInterval(() => {
+        loadFiles(); loadStats();
+        fetch(`/api/pcap/stats/${CASE_UUID}`).then(r => r.json()).then(data => {
+            if (data.success && data.pending === 0) { clearInterval(statusPollInterval); statusPollInterval = null; }
+        });
+    }, 3000);
+}
+
+let currentPcapId = null;
+
+function viewLogs(pcapId) {
+    currentPcapId = pcapId;
+    fetch(`/api/pcap/${pcapId}/logs`).then(r => r.json()).then(data => {
+        if (data.success) { showLogsModal(data); } else { alert('Error: ' + data.error); }
+    });
+}
+
+function showLogsModal(data) {
+    let logsHtml = '<h4>Zeek Logs: ' + escapeHtml(data.filename) + '</h4>';
+    if (data.logs.length === 0) {
+        logsHtml += '<p class="text-muted">No log files generated</p>';
+    } else {
+        logsHtml += '<table class="file-table"><thead><tr><th>Log</th><th>Lines</th><th>Size</th><th></th></tr></thead><tbody>';
+        for (const log of data.logs) {
+            logsHtml += '<tr><td>' + log.name + '</td><td>' + log.lines + '</td><td>' + formatSize(log.size) + '</td><td><button class="btn btn-sm btn-primary" onclick="viewLogContent(\'' + log.name + '\')">View</button></td></tr>';
+        }
+        logsHtml += '</tbody></table>';
+    }
+    logsHtml += '<div id="logContentArea"></div>';
+    
+    const modal = document.createElement('div');
+    modal.id = 'logsModal';
+    modal.className = 'modal-overlay';
+    modal.style.display = 'flex';
+    modal.innerHTML = '<div class="modal-container" style="max-width:900px;max-height:80vh;"><div class="modal-header"><h3>📊 Zeek Logs</h3><button class="btn btn-sm btn-secondary" onclick="closeLogsModal()">✕</button></div><div class="modal-body" style="overflow-y:auto;max-height:60vh;">' + logsHtml + '</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeLogsModal()">Close</button></div></div>';
+    document.body.appendChild(modal);
+}
+
+function closeLogsModal() { const m = document.getElementById('logsModal'); if (m) m.remove(); }
+
+function viewLogContent(logName) {
+    document.getElementById('logContentArea').innerHTML = '<p>Loading...</p>';
+    fetch(`/api/pcap/${currentPcapId}/log/${logName}?limit=200`).then(r => r.json()).then(data => {
+        if (!data.success) { document.getElementById('logContentArea').innerHTML = '<p class="text-danger">Error loading log</p>'; return; }
+        let html = '<h5 style="margin-top:16px">' + logName + ' (' + data.total_lines + ' lines)</h5>';
+        html += '<div style="max-height:300px;overflow:auto"><table class="file-table" style="font-size:12px"><thead><tr>';
+        for (const h of data.headers) html += '<th>' + h + '</th>';
+        html += '</tr></thead><tbody>';
+        for (const row of data.lines) {
+            html += '<tr>';
+            for (const c of row) html += '<td style="white-space:nowrap">' + (c === '-' ? '<span class="text-muted">-</span>' : escapeHtml(c)) + '</td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        if (data.returned < data.total_lines) html += '<p class="text-muted">Showing ' + data.returned + ' of ' + data.total_lines + '</p>';
+        document.getElementById('logContentArea').innerHTML = html;
+    });
 }
 </script>
 {% endblock %}
