@@ -70,7 +70,7 @@
             <h2 class="card-title">Software Versions</h2>
         </div>
         <div class="card-body">
-            <div class="grid grid-2" id="softwareVersions">
+            <div class="grid grid-3" id="softwareVersions">
                 <div class="text-center text-muted">Loading...</div>
             </div>
         </div>
@@ -174,37 +174,31 @@ async function updateDashboard() {
         document.getElementById('totalEvents').textContent = cases.total_events.toLocaleString();
         document.getElementById('totalUsers').textContent = cases.total_users.toLocaleString();
         
-        // TILE 3: Software Versions (2 columns)
+        // TILE 3: Software Versions (3 columns for professional layout)
         const software = data.software;
         let softwareHTML = '';
         const softwareEntries = Object.entries(software);
-        const halfPoint = Math.ceil(softwareEntries.length / 2);
+        const itemsPerColumn = Math.ceil(softwareEntries.length / 3);
         
-        // Column 1
-        softwareHTML += '<div>';
-        for (let i = 0; i < halfPoint; i++) {
-            const [name, version] = softwareEntries[i];
-            softwareHTML += `
-                <div class="mb-3">
-                    <div class="text-muted text-small mb-1">${name.toUpperCase()}</div>
-                    <div class="fw-bold">${version}</div>
-                </div>
-            `;
+        // Create 3 columns
+        for (let col = 0; col < 3; col++) {
+            softwareHTML += '<div>';
+            const startIdx = col * itemsPerColumn;
+            const endIdx = Math.min(startIdx + itemsPerColumn, softwareEntries.length);
+            
+            for (let i = startIdx; i < endIdx; i++) {
+                const [name, version] = softwareEntries[i];
+                // Format display name (handle special cases)
+                const displayName = name.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
+                softwareHTML += `
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">${displayName}</div>
+                        <div class="fw-bold">${version}</div>
+                    </div>
+                `;
+            }
+            softwareHTML += '</div>';
         }
-        softwareHTML += '</div>';
-        
-        // Column 2
-        softwareHTML += '<div>';
-        for (let i = halfPoint; i < softwareEntries.length; i++) {
-            const [name, version] = softwareEntries[i];
-            softwareHTML += `
-                <div class="mb-3">
-                    <div class="text-muted text-small mb-1">${name.toUpperCase()}</div>
-                    <div class="fw-bold">${version}</div>
-                </div>
-            `;
-        }
-        softwareHTML += '</div>';
         
         document.getElementById('softwareVersions').innerHTML = softwareHTML;
         

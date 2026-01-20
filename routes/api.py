@@ -262,18 +262,33 @@ def dashboard_stats():
             pass
         
         # Get software versions using importlib.metadata (gunicorn restricts shell commands)
-        from importlib.metadata import version as pkg_version
+        from importlib.metadata import version as pkg_version, PackageNotFoundError
         
-        # Hayabusa version from file (shell commands blocked by gunicorn caps)
-        hayabusa_ver = 'v3.7.0'
+        def safe_pkg_version(package_name):
+            """Safely get package version, return 'Not installed' if not found"""
+            try:
+                return pkg_version(package_name)
+            except PackageNotFoundError:
+                return 'Not installed'
+        
+        # Hayabusa version from file (binary version cached at install/update time)
+        hayabusa_ver = 'Not installed'
         try:
             with open('/opt/casescope/bin/hayabusa_version.txt', 'r') as f:
                 hayabusa_ver = f.read().strip()
         except Exception:
             pass
         
+        # Zeek version from file (binary version cached at install/update time)
+        zeek_ver = 'Not installed'
+        try:
+            with open('/opt/casescope/bin/zeek_version.txt', 'r') as f:
+                zeek_ver = f.read().strip()
+        except Exception:
+            pass
+        
         # ClickHouse server version via Python client
-        clickhouse_ver = 'Unknown'
+        clickhouse_ver = 'Not available'
         try:
             import clickhouse_connect
             ch_client = clickhouse_connect.get_client(host='localhost')
@@ -282,17 +297,51 @@ def dashboard_stats():
         except Exception:
             pass
         
+        # PostgreSQL server version via database query
+        postgres_ver = 'Not available'
+        try:
+            result = db.session.execute(db.text("SELECT version()"))
+            pg_version_str = result.scalar()
+            # Extract version number from string like "PostgreSQL 15.4 (Ubuntu 15.4-1.pgdg22.04+1) on x86_64..."
+            if pg_version_str:
+                import re
+                match = re.search(r'PostgreSQL (\d+\.\d+(?:\.\d+)?)', pg_version_str)
+                postgres_ver = match.group(1) if match else pg_version_str.split()[1]
+        except Exception:
+            pass
+        
+        # Qdrant server version via client
+        qdrant_ver = 'Not available'
+        try:
+            from qdrant_client import QdrantClient
+            qdrant = QdrantClient(host='localhost', port=6333, timeout=2)
+            info = qdrant.get_collections()
+            # If we can connect, try to get version from server info
+            try:
+                import requests
+                resp = requests.get('http://localhost:6333/', timeout=2)
+                if resp.ok:
+                    qdrant_ver = resp.json().get('version', 'Connected')
+            except Exception:
+                qdrant_ver = 'Connected'
+        except Exception:
+            pass
+        
         software = {
             'casescope': casescope_version,
             'python': platform.python_version(),
-            'flask': pkg_version('flask'),
-            'celery': pkg_version('celery'),
-            'gunicorn': pkg_version('gunicorn'),
+            'flask': safe_pkg_version('flask'),
+            'celery': safe_pkg_version('celery'),
+            'gunicorn': safe_pkg_version('gunicorn'),
+            'postgresql': postgres_ver,
             'clickhouse': clickhouse_ver,
-            'redis': pkg_version('redis'),
+            'redis': safe_pkg_version('redis'),
+            'qdrant': qdrant_ver,
             'hayabusa': hayabusa_ver,
-            'dissect': pkg_version('dissect.util'),
-            'sqlalchemy': pkg_version('sqlalchemy'),
+            'zeek': zeek_ver,
+            'volatility3': safe_pkg_version('volatility3'),
+            'dissect': safe_pkg_version('dissect.util'),
+            'sqlalchemy': safe_pkg_version('sqlalchemy'),
         }
         
         # Case statistics (placeholder until cases are implemented)
