@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title"><span class="page-title-icon">🌐</span>Network Hunting</h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary"><span class="btn-icon">🎯</span> Back to Hunting</a>
+        <a href="{{ url_for('main.case_pcap_files') }}" class="btn btn-secondary"><span class="btn-icon">📡</span> PCAP Files</a>
+    </div>
+</div>
+
+<div class="tile-row">
+    <div class="tile tile-network-hunting">
+        <div class="tile-header network-header">
+            <div class="network-pcap-selector">
+                <label for="pcapSelect">PCAP Source:</label>
+                <select id="pcapSelect" class="form-select" onchange="loadNetworkData()"><option value="">All PCAPs</option></select>
+                <span id="pcapInfo" class="pcap-info-badge"></span>
+            </div>
+            <div class="network-actions">
+                <button class="btn btn-primary" id="btnIndexAll" onclick="indexAllPcaps()"><span class="btn-icon">📥</span> Index All</button>
+            </div>
+        </div>
+        <div class="network-tabs">
+            <button class="network-tab active" data-tab="conn" onclick="switchNetworkTab('conn')"><span class="tab-icon">🔗</span><span class="tab-text">Connections</span><span class="tab-count" id="count-conn">-</span></button>
+            <button class="network-tab" data-tab="dns" onclick="switchNetworkTab('dns')"><span class="tab-icon">🌍</span><span class="tab-text">DNS</span><span class="tab-count" id="count-dns">-</span></button>
+            <button class="network-tab" data-tab="http" onclick="switchNetworkTab('http')"><span class="tab-icon">🌐</span><span class="tab-text">HTTP</span><span class="tab-count" id="count-http">-</span></button>
+            <button class="network-tab" data-tab="ssl" onclick="switchNetworkTab('ssl')"><span class="tab-icon">🔒</span><span class="tab-text">SSL/TLS</span><span class="tab-count" id="count-ssl">-</span></button>
+            <button class="network-tab" data-tab="files" onclick="switchNetworkTab('files')"><span class="tab-icon">📁</span><span class="tab-text">Files</span><span class="tab-count" id="count-files">-</span></button>
+            <button class="network-tab" data-tab="search" onclick="switchNetworkTab('search')"><span class="tab-icon">🔍</span><span class="tab-text">Search All</span></button>
+        </div>
+        <div class="tile-body network-content">
+            <div id="no-data-message" class="network-empty-state" style="display: none;"><div class="empty-icon">🌐</div><h3>No Network Data</h3><p>Process and index PCAP files to view network artifacts.</p><a href="{{ url_for('main.case_pcap_files') }}" class="btn btn-primary"><span class="btn-icon">📡</span> Manage PCAP Files</a></div>
+            <div id="loading-state" class="network-loading" style="display: none;"><div class="spinner"></div><p>Loading...</p></div>
+            <div id="tab-conn" class="network-tab-content"><div class="network-toolbar"><div class="network-search"><input type="text" id="search-conn" class="form-input" placeholder="Search connections..." onkeyup="debounceSearch('conn')"></div><div class="network-filters"><input type="text" id="filter-src-ip" class="form-input form-input-sm" placeholder="Source IP" onchange="loadTabData('conn')"><input type="text" id="filter-dst-ip" class="form-input form-input-sm" placeholder="Dest IP" onchange="loadTabData('conn')"></div></div><div id="conn-container" class="network-table-container"></div><div class="network-pagination" id="pagination-conn"></div></div>
+            <div id="tab-dns" class="network-tab-content" style="display: none;"><div class="network-toolbar"><div class="network-search"><input type="text" id="search-dns" class="form-input" placeholder="Search DNS..." onkeyup="debounceSearch('dns')"></div></div><div id="dns-container" class="network-table-container"></div><div class="network-pagination" id="pagination-dns"></div></div>
+            <div id="tab-http" class="network-tab-content" style="display: none;"><div class="network-toolbar"><div class="network-search"><input type="text" id="search-http" class="form-input" placeholder="Search HTTP..." onkeyup="debounceSearch('http')"></div></div><div id="http-container" class="network-table-container"></div><div class="network-pagination" id="pagination-http"></div></div>
+            <div id="tab-ssl" class="network-tab-content" style="display: none;"><div class="network-toolbar"><div class="network-search"><input type="text" id="search-ssl" class="form-input" placeholder="Search SSL..." onkeyup="debounceSearch('ssl')"></div></div><div id="ssl-container" class="network-table-container"></div><div class="network-pagination" id="pagination-ssl"></div></div>
+            <div id="tab-files" class="network-tab-content" style="display: none;"><div class="network-toolbar"><div class="network-search"><input type="text" id="search-files" class="form-input" placeholder="Search files..." onkeyup="debounceSearch('files')"></div></div><div id="files-container" class="network-table-container"></div><div class="network-pagination" id="pagination-files"></div></div>
+            <div id="tab-search" class="network-tab-content" style="display: none;"><div class="network-toolbar"><div class="network-search" style="flex: 1;"><input type="text" id="search-all" class="form-input" placeholder="Search all logs..."></div><button class="btn btn-primary" onclick="executeGlobalSearch()"><span class="btn-icon">🔍</span> Search</button></div><div id="search-results-container" class="network-table-container"></div><div class="network-pagination" id="pagination-search"></div></div>
+        </div>
+    </div>
+</div>
+<div class="modal-overlay" id="detail-modal" style="display: none;" onclick="closeDetailModal(event)"><div class="modal-container modal-lg" onclick="event.stopPropagation()"><div class="modal-header"><h3 class="modal-title" id="detail-modal-title">Log Details</h3><button class="modal-close" onclick="closeDetailModal()">&times;</button></div><div class="modal-body" id="detail-modal-content"></div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseUuid = '{{ case.uuid }}';
+let currentTab = 'conn', currentPage = {conn:1,dns:1,http:1,ssl:1,files:1,search:1}, perPage = 50, searchTimeouts = {}, searchTerms = {conn:'',dns:'',http:'',ssl:'',files:'',search:''}, selectedPcapId = null;
+
+document.addEventListener('DOMContentLoaded', function() { loadPcapList(); loadStats(); loadTabData('conn'); });
+
+async function loadPcapList() {
+    try {
+        const r = await fetch(`/api/network/hunting/${caseUuid}/pcaps`);
+        const d = await r.json();
+        if (d.success) {
+            const sel = document.getElementById('pcapSelect');
+            sel.innerHTML = '<option value="">All PCAPs</option>';
+            d.pcaps.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = `${p.filename} ${p.hostname?'('+p.hostname+')':''} - ${p.logs_indexed||0} logs`; sel.appendChild(o); });
+            if (d.total === 0) { document.getElementById('no-data-message').style.display = 'flex'; document.querySelectorAll('.network-tab-content').forEach(el => el.style.display = 'none'); }
+        }
+    } catch(e) { console.error(e); }
+}
+
+async function loadStats() {
+    try {
+        const r = await fetch(`/api/network/hunting/${caseUuid}/stats`);
+        const d = await r.json();
+        if (d.success && d.by_type) {
+            ['conn','dns','http','ssl','files'].forEach(t => { const el = document.getElementById(`count-${t}`); if(el) el.textContent = formatCount(d.by_type[t]||0); });
+            const info = document.getElementById('pcapInfo');
+            if (d.total > 0) info.textContent = `${formatCount(d.total)} total | ${d.unique_src_ips} src | ${d.unique_dst_ips} dst`;
+        }
+    } catch(e) { console.error(e); }
+}
+
+function formatCount(n) { if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return n.toString(); }
+function loadNetworkData() { selectedPcapId = document.getElementById('pcapSelect').value || null; loadStats(); loadTabData(currentTab); }
+function switchNetworkTab(tab) { currentTab = tab; document.querySelectorAll('.network-tab').forEach(b => b.classList.toggle('active', b.dataset.tab===tab)); document.querySelectorAll('.network-tab-content').forEach(el => el.style.display = 'none'); document.getElementById(`tab-${tab}`).style.display = 'block'; if(tab!=='search') loadTabData(tab); }
+function debounceSearch(tab) { clearTimeout(searchTimeouts[tab]); searchTimeouts[tab] = setTimeout(() => { searchTerms[tab] = document.getElementById(`search-${tab}`)?.value.trim()||''; currentPage[tab] = 1; loadTabData(tab); }, 300); }
+
+async function loadTabData(tab) {
+    if(tab==='search') return;
+    const c = document.getElementById(`${tab}-container`);
+    c.innerHTML = '<div class="network-loading"><div class="spinner"></div></div>';
+    let url = `/api/network/hunting/${caseUuid}/logs?log_type=${tab}&page=${currentPage[tab]}&per_page=${perPage}`;
+    if(searchTerms[tab]) url += `&search=${encodeURIComponent(searchTerms[tab])}`;
+    if(selectedPcapId) url += `&pcap_id=${selectedPcapId}`;
+    if(tab==='conn') { const s = document.getElementById('filter-src-ip')?.value.trim(), d = document.getElementById('filter-dst-ip')?.value.trim(); if(s) url+=`&src_ip=${encodeURIComponent(s)}`; if(d) url+=`&dst_ip=${encodeURIComponent(d)}`; }
+    try {
+        const r = await fetch(url);
+        const data = await r.json();
+        if(data.success) { renderTable(tab, data); renderPagination(tab, data); }
+        else c.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
+    } catch(e) { c.innerHTML = '<p class="text-danger">Error loading</p>'; }
+}
+
+function renderTable(tab, data) {
+    const c = document.getElementById(`${tab}-container`);
+    if(!data.logs?.length) { c.innerHTML = '<p class="text-muted" style="padding:2rem;text-align:center;">No data</p>'; return; }
+    const cols = data.columns||[];
+    let h = '<table class="network-table"><thead><tr>';
+    cols.forEach(col => h+=`<th>${formatCol(col)}</th>`);
+    h += '<th>Actions</th></tr></thead><tbody>';
+    data.logs.forEach(log => {
+        h += '<tr>';
+        cols.forEach(col => {
+            let v = log[col]; if(v===null||v===undefined) v='-'; else if(Array.isArray(v)) v=v.join(', ')||'-'; else if(col==='timestamp'&&v) v=formatTs(v); else if(typeof v==='number'&&col.includes('bytes')) v=formatBytes(v); else if(typeof v==='number'&&col==='duration') v=v.toFixed(3)+'s';
+            const cls = ['src_ip','dst_ip','src_port','dst_port','uid','md5','sha256','ja3'].includes(col)?'mono':'';
+            const trunc = ['uri','user_agent','query','answers','subject','issuer'].includes(col)?'truncate':'';
+            h += `<td class="${cls} ${trunc}" title="${escHtml(String(v))}">${escHtml(String(v))}</td>`;
+        });
+        h += `<td><button class="pivot-btn" onclick='showDetail(${JSON.stringify(log)})'>📋</button>`;
+        if(log.dst_ip) h+=` <button class="pivot-btn" onclick="pivotToEvents('${log.dst_ip}')" title="Search in Events">🔍</button>`;
+        h += '</td></tr>';
+    });
+    h += '</tbody></table>';
+    c.innerHTML = h;
+}
+
+function renderPagination(tab, d) {
+    const c = document.getElementById(`pagination-${tab}`);
+    const st = d.total>0?((d.page-1)*d.per_page)+1:0, en = Math.min(d.page*d.per_page, d.total);
+    c.innerHTML = `<div class="pagination-info">Showing ${st}-${en} of ${d.total}</div><div class="pagination-controls"><button class="btn btn-sm btn-secondary" onclick="changePage('${tab}',-1)" ${d.page<=1?'disabled':''}>← Prev</button><span>Page ${d.page}/${d.total_pages}</span><button class="btn btn-sm btn-secondary" onclick="changePage('${tab}',1)" ${d.page>=d.total_pages?'disabled':''}>Next →</button></div>`;
+}
+
+function changePage(tab, delta) { currentPage[tab] += delta; loadTabData(tab); }
+
+async function executeGlobalSearch() {
+    const s = document.getElementById('search-all').value.trim();
+    if(!s) { alert('Enter search term'); return; }
+    searchTerms.search = s;
+    const c = document.getElementById('search-results-container');
+    c.innerHTML = '<div class="network-loading"><div class="spinner"></div></div>';
+    let url = `/api/network/hunting/${caseUuid}/search?q=${encodeURIComponent(s)}&page=${currentPage.search}&per_page=${perPage}`;
+    if(selectedPcapId) url += `&pcap_id=${selectedPcapId}`;
+    try {
+        const r = await fetch(url);
+        const d = await r.json();
+        if(d.success) { renderSearchResults(d); renderPagination('search', d); }
+        else c.innerHTML = `<p class="text-danger">${d.error}</p>`;
+    } catch(e) { c.innerHTML = '<p class="text-danger">Error</p>'; }
+}
+
+function renderSearchResults(d) {
+    const c = document.getElementById('search-results-container');
+    if(!d.logs?.length) { c.innerHTML = '<p class="text-muted" style="padding:2rem;text-align:center;">No results</p>'; return; }
+    let h = '<table class="network-table"><thead><tr><th>Type</th><th>Time</th><th>Source</th><th>Dest</th><th>UID</th><th>Host</th><th>Actions</th></tr></thead><tbody>';
+    d.logs.forEach(l => {
+        h += '<tr>';
+        h += `<td><span class="badge-log-type badge-${l.log_type}">${l.log_type}</span></td>`;
+        h += `<td>${formatTs(l.timestamp)}</td>`;
+        h += `<td class="mono">${l.src_ip||'-'}:${l.src_port||'*'}</td>`;
+        h += `<td class="mono">${l.dst_ip||'-'}:${l.dst_port||'*'}</td>`;
+        h += `<td class="mono">${l.uid||'-'}</td>`;
+        h += `<td>${l.source_host||'-'}</td>`;
+        h += `<td><button class="pivot-btn" onclick='showDetail(${JSON.stringify(l)})'>📋</button></td>`;
+        h += '</tr>';
+    });
+    h += '</tbody></table>';
+    c.innerHTML = h;
+}
+
+function showDetail(log) {
+    document.getElementById('detail-modal-title').textContent = `${(log.log_type||'Log').toUpperCase()} Details`;
+    let raw = {}; try { raw = typeof log.raw_json==='string'?JSON.parse(log.raw_json):log.raw_json||log; } catch(e) { raw = log; }
+    let h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">';
+    for(const [k,v] of Object.entries(raw)) { if(v&&v!=='-') h+=`<div style="display:flex;gap:0.5rem;"><span style="color:var(--text-muted);min-width:120px;">${k}:</span><span class="mono" style="word-break:break-all;">${escHtml(String(v))}</span></div>`; }
+    h += '</div>';
+    document.getElementById('detail-modal-content').innerHTML = h;
+    document.getElementById('detail-modal').style.display = 'flex';
+}
+
+function closeDetailModal(e) { if(!e||e.target.id==='detail-modal') document.getElementById('detail-modal').style.display = 'none'; }
+function pivotToEvents(term) { window.open(`/case/hunting?search=${encodeURIComponent(term)}`, '_blank'); }
+
+async function indexAllPcaps() {
+    const btn = document.getElementById('btnIndexAll');
+    btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Indexing...';
+    try {
+        const r = await fetch(`/api/network/hunting/${caseUuid}/index-all`, {method:'POST'});
+        const d = await r.json();
+        alert(d.success?`Queued ${d.queued_count} PCAPs`:(d.error||'No PCAPs'));
+    } catch(e) { alert('Error: '+e.message); }
+    finally { btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All'; }
+}
+
+function formatCol(c) { const m = {timestamp:'Time',src_ip:'Src IP',dst_ip:'Dst IP',src_port:'Src Port',dst_port:'Dst Port',proto:'Proto',service:'Service',duration:'Duration',conn_state:'State',orig_bytes:'Orig Bytes',resp_bytes:'Resp Bytes',query:'Query',qtype_name:'Type',rcode_name:'Response',answers:'Answers',method:'Method',host:'Host',uri:'URI',status_code:'Status',user_agent:'User Agent',server_name:'SNI',ssl_version:'Version',cipher:'Cipher',ja3:'JA3',validation_status:'Valid',filename:'Filename',mime_type:'MIME',file_size:'Size',md5:'MD5',sha256:'SHA256'}; return m[c]||c.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase()); }
+function formatTs(t) { if(!t) return '-'; try { return new Date(t).toISOString().replace('T',' ').substring(0,19); } catch(e) { return t; } }
+function formatBytes(b) { if(!b) return '0 B'; const k=1024, s=['B','KB','MB','GB'], i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]; }
+function escHtml(t) { if(!t) return ''; const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+</script>
+
+<style>
+.network-header{display:flex;justify-content:space-between;align-items:center;padding:1rem;border-bottom:1px solid var(--border-color);flex-wrap:wrap;gap:1rem}
+.network-pcap-selector{display:flex;align-items:center;gap:0.75rem}
+.network-pcap-selector label{font-weight:500;white-space:nowrap}
+.network-pcap-selector select{min-width:280px;padding:8px 12px;font-size:13px;background-color:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:var(--border-radius);cursor:pointer}
+.pcap-info-badge{font-size:0.85rem;color:var(--text-muted);padding:0.25rem 0.5rem;background:var(--bg-tertiary);border-radius:4px}
+.network-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-color);overflow-x:auto}
+.network-tab{display:flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;transition:all 0.2s;white-space:nowrap}
+.network-tab:hover{color:var(--text-primary);background:var(--bg-hover)}
+.network-tab.active{color:var(--accent-primary);border-bottom-color:var(--accent-primary)}
+.tab-count{font-size:0.75rem;padding:0.125rem 0.375rem;background:var(--bg-tertiary);border-radius:10px;min-width:1.5rem;text-align:center}
+.network-tab.active .tab-count{background:var(--accent-primary);color:white}
+.network-content{padding:0;min-height:500px}
+.network-empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 2rem;text-align:center}
+.network-empty-state .empty-icon{font-size:4rem;margin-bottom:1rem;opacity:0.5}
+.network-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem}
+.network-loading .spinner{width:40px;height:40px;border:3px solid var(--border-color);border-top-color:var(--accent-primary);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.network-tab-content{padding:1rem}
+.network-toolbar{display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center}
+.network-search{flex:1;min-width:200px}
+.network-search input{width:100%}
+.network-filters{display:flex;gap:0.5rem}
+.network-filters input{width:120px}
+.network-table-container{overflow-x:auto;max-height:600px;overflow-y:auto}
+.network-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.network-table th,.network-table td{padding:0.5rem 0.75rem;text-align:left;border-bottom:1px solid var(--border-color);white-space:nowrap}
+.network-table th{background:var(--bg-secondary);font-weight:600;position:sticky;top:0;z-index:1}
+.network-table tr:hover td{background:var(--bg-hover)}
+.network-table .mono{font-family:'JetBrains Mono',monospace;font-size:0.8rem}
+.network-table .truncate{max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.network-pagination{display:flex;justify-content:space-between;align-items:center;padding:1rem;border-top:1px solid var(--border-color)}
+.pagination-info{color:var(--text-muted);font-size:0.875rem}
+.pagination-controls{display:flex;align-items:center;gap:0.5rem}
+.pivot-btn{padding:0.2rem 0.4rem;background:var(--bg-tertiary);border:none;border-radius:4px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)}
+.pivot-btn:hover{background:var(--accent-primary);color:white}
+.badge-log-type{display:inline-block;padding:0.125rem 0.5rem;border-radius:10px;font-size:0.7rem;font-weight:500;text-transform:uppercase}
+.badge-conn{background:rgba(59,130,246,0.2);color:#3b82f6}
+.badge-dns{background:rgba(16,185,129,0.2);color:#10b981}
+.badge-http{background:rgba(245,158,11,0.2);color:#f59e0b}
+.badge-ssl{background:rgba(139,92,246,0.2);color:#8b5cf6}
+.badge-files{background:rgba(236,72,153,0.2);color:#ec4899}
+</style>
+{% endblock %}

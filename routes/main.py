@@ -225,6 +225,19 @@ def case_hunting_memory():
     )
 
 
+@main_bp.route('/case/hunting/network')
+@login_required
+@case_required
+def case_hunting_network():
+    """Network Hunting - analyze PCAP/Zeek network artifacts"""
+    case = get_active_case()
+    return render_template(
+        'case_hunting_network.html',
+        page_title='Network Hunting',
+        case=case
+    )
+
+
 @main_bp.route('/case/pcap-files')
 @login_required
 @case_required

@@ -74,6 +74,10 @@ class PcapFile(db.Model):
     zeek_output_path = db.Column(db.String(1024), nullable=True)  # Path to zeek logs output directory
     logs_generated = db.Column(db.Integer, nullable=False, default=0)  # Number of log files generated
     
+    # ClickHouse indexing results
+    indexed_at = db.Column(db.DateTime, nullable=True)  # When logs were indexed to ClickHouse
+    logs_indexed = db.Column(db.Integer, nullable=False, default=0)  # Total log entries indexed
+    
     # Error message if parsing failed
     error_message = db.Column(db.Text, nullable=True)
     
@@ -111,6 +115,8 @@ class PcapFile(db.Model):
             'pcap_type': self.pcap_type,
             'zeek_output_path': self.zeek_output_path,
             'logs_generated': self.logs_generated,
+            'indexed_at': self.indexed_at.isoformat() if self.indexed_at else None,
+            'logs_indexed': self.logs_indexed,
             'error_message': self.error_message,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'processed_at': self.processed_at.isoformat() if self.processed_at else None,
