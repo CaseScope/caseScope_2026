@@ -157,6 +157,68 @@
                 </div>
             </div>
 
+            <!-- PCAP Processing -->
+            <div class="stats-section">
+                <div class="stats-section-header">
+                    <span class="stats-icon">🌐</span> Network Captures (PCAP)
+                </div>
+                <div class="stats-flow-grid">
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Total PCAP Files</span>
+                        <span class="stats-flow-value" id="stat-pcap-total">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Processed <span class="help-tooltip" title="PCAP files successfully parsed by Zeek">?</span></span>
+                        <span class="stats-flow-value stat-success" id="stat-pcap-done">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Errors <span class="help-tooltip" title="PCAP files that failed processing">?</span></span>
+                        <span class="stats-flow-value stat-danger" id="stat-pcap-error">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Pending <span class="help-tooltip" title="PCAP files awaiting or currently in processing">?</span></span>
+                        <span class="stats-flow-value" id="stat-pcap-pending">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Total Logs Generated <span class="help-tooltip" title="Number of Zeek log files generated from PCAP processing">?</span></span>
+                        <span class="stats-flow-value stat-highlight" id="stat-pcap-logs">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory Forensics -->
+            <div class="stats-section">
+                <div class="stats-section-header">
+                    <span class="stats-icon">💾</span> Memory Forensics
+                </div>
+                <div class="stats-flow-grid">
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Memory Images</span>
+                        <span class="stats-flow-value" id="stat-memory-total">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Completed <span class="help-tooltip" title="Memory images successfully analyzed by Volatility3">?</span></span>
+                        <span class="stats-flow-value stat-success" id="stat-memory-completed">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Running <span class="help-tooltip" title="Memory images currently being processed">?</span></span>
+                        <span class="stats-flow-value stat-warning" id="stat-memory-running">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Pending <span class="help-tooltip" title="Memory images queued for analysis">?</span></span>
+                        <span class="stats-flow-value" id="stat-memory-pending">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Failed <span class="help-tooltip" title="Memory images that failed analysis">?</span></span>
+                        <span class="stats-flow-value stat-danger" id="stat-memory-failed">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Plugins Executed <span class="help-tooltip" title="Total Volatility3 plugins successfully run across all images">?</span></span>
+                        <span class="stats-flow-value stat-highlight" id="stat-memory-plugins">-</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Case Entities -->
             <div class="stats-section">
                 <div class="stats-section-header">
@@ -304,6 +366,23 @@ function displayStatistics(data) {
             `;
         }
     }
+    
+    // PCAP Statistics
+    const ps = data.pcap_stats || {};
+    document.getElementById('stat-pcap-total').textContent = formatNumber(ps.total || 0);
+    document.getElementById('stat-pcap-done').textContent = formatNumber(ps.done || 0);
+    document.getElementById('stat-pcap-error').textContent = formatNumber(ps.error || 0);
+    document.getElementById('stat-pcap-pending').textContent = formatNumber(ps.pending || 0);
+    document.getElementById('stat-pcap-logs').textContent = formatNumber(ps.total_logs || 0);
+    
+    // Memory Statistics
+    const ms = data.memory_stats || {};
+    document.getElementById('stat-memory-total').textContent = formatNumber(ms.total || 0);
+    document.getElementById('stat-memory-completed').textContent = formatNumber(ms.completed || 0);
+    document.getElementById('stat-memory-running').textContent = formatNumber(ms.running || 0);
+    document.getElementById('stat-memory-pending').textContent = formatNumber(ms.pending || 0);
+    document.getElementById('stat-memory-failed').textContent = formatNumber(ms.failed || 0);
+    document.getElementById('stat-memory-plugins').textContent = formatNumber(ms.total_plugins_run || 0);
     
     // Artifact Statistics
     const as = data.artifact_stats;

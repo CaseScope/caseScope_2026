@@ -1026,13 +1026,16 @@ def get_file_stats(case_uuid):
 def get_case_statistics(case_uuid):
     """Get comprehensive statistics for a case dashboard
     
-    Returns file statistics, artifact statistics, and entity counts.
+    Returns file statistics, artifact statistics, entity counts,
+    memory forensics stats, and PCAP processing stats.
     """
     try:
         from models.case_file import CaseFile
         from models.ioc import IOC
         from models.known_system import KnownSystem
         from models.known_user import KnownUser
+        from models.pcap_file import PcapFile
+        from models.memory_job import MemoryJob
         from utils.clickhouse import get_client
         
         # Verify case exists
@@ -1127,6 +1130,39 @@ def get_case_statistics(case_uuid):
         system_count = KnownSystem.query.filter_by(case_id=case.id).count()
         user_count = KnownUser.query.filter_by(case_id=case.id).count()
         
+        # === PCAP STATISTICS ===
+        pcap_stats = PcapFile.get_stats(case_uuid)
+        
+        # === MEMORY FORENSICS STATISTICS ===
+        memory_stats = {
+            'total': 0,
+            'completed': 0,
+            'running': 0,
+            'pending': 0,
+            'failed': 0,
+            'total_plugins_run': 0
+        }
+        
+        try:
+            memory_jobs = MemoryJob.query.filter_by(case_id=case.id).all()
+            memory_stats['total'] = len(memory_jobs)
+            
+            for job in memory_jobs:
+                if job.status == 'completed':
+                    memory_stats['completed'] += 1
+                    # Count completed plugins
+                    if job.plugins_completed:
+                        memory_stats['total_plugins_run'] += len(job.plugins_completed)
+                elif job.status == 'running':
+                    memory_stats['running'] += 1
+                elif job.status == 'pending':
+                    memory_stats['pending'] += 1
+                elif job.status == 'failed':
+                    memory_stats['failed'] += 1
+        except Exception:
+            # Memory jobs table may not exist yet
+            pass
+        
         return jsonify({
             'success': True,
             'case_uuid': case_uuid,
@@ -1145,7 +1181,9 @@ def get_case_statistics(case_uuid):
                 'iocs': ioc_count,
                 'systems': system_count,
                 'users': user_count
-            }
+            },
+            'pcap_stats': pcap_stats,
+            'memory_stats': memory_stats
         })
         
     except Exception as e:
