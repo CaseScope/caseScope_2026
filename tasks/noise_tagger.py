@@ -19,6 +19,40 @@ from utils.noise_keywords import build_keyword_clause, build_keyword_not_clause
 logger = logging.getLogger(__name__)
 
 
+def wait_for_mutations(client, table: str = 'events', timeout: int = 300, poll_interval: float = 1.0):
+    """Wait for all pending ClickHouse mutations to complete
+    
+    Polls system.mutations table until no pending mutations remain for the table.
+    
+    Args:
+        client: ClickHouse client instance
+        table: Table name to check mutations for
+        timeout: Maximum seconds to wait (default 5 minutes)
+        poll_interval: Seconds between polls (default 1 second)
+        
+    Returns:
+        True if all mutations completed, False if timeout reached
+    """
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        result = client.query(
+            "SELECT count() FROM system.mutations "
+            "WHERE database = 'casescope' AND table = {table:String} AND is_done = 0",
+            parameters={'table': table}
+        )
+        pending = result.result_rows[0][0] if result.result_rows else 0
+        
+        if pending == 0:
+            return True
+        
+        logger.debug(f"Waiting for {pending} pending mutations on {table}...")
+        time.sleep(poll_interval)
+    
+    logger.warning(f"Timeout waiting for mutations on {table} after {timeout}s")
+    return False
+
+
 @celery_app.task(bind=True, name='tasks.noise_tagger.tag_noise_events')
 def tag_noise_events(self, case_id: int, username: str = 'system'):
     """Tag events matching noise filter rules using keyword token matching
@@ -97,8 +131,12 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             f"WHERE case_id = {case_id}"
         )
         
-        # Wait for mutations to complete
-        time.sleep(2)
+        # Wait for reset mutation to complete
+        self.update_state(state='PROGRESS', meta={
+            'progress': 10,
+            'status': 'Waiting for reset to complete...'
+        })
+        wait_for_mutations(client, 'events', timeout=120)
         
         rule_matches = []
         total_tagged = 0
@@ -170,8 +208,12 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
                 logger.error(f"Error processing rule '{rule.name}': {e}")
                 continue
         
-        # Wait for mutations to complete
-        time.sleep(2)
+        # Wait for all tagging mutations to complete before counting
+        self.update_state(state='PROGRESS', meta={
+            'progress': 97,
+            'status': 'Waiting for database to sync...'
+        })
+        wait_for_mutations(client, 'events', timeout=300)
         
         # Get actual tagged count (some events may match multiple rules)
         final_result = client.query(

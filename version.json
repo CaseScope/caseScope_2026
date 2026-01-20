@@ -1,6 +1,15 @@
 {
-  "version": "3.122.01",
+  "version": "3.122.02",
   "changelog": [
+    {
+      "version": "3.122.02",
+      "date": "2026-01-20",
+      "changes": [
+        "Fix: Noise tagger now waits for ClickHouse mutations to complete before reporting counts",
+        "Noise: Replaced fixed 2-second sleep with proper mutation polling via system.mutations",
+        "Noise: Accurate tagged counts now reported even on large datasets (32M+ events)"
+      ]
+    },
     {
       "version": "3.122.01",
       "date": "2026-01-20",
