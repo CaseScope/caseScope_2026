@@ -99,14 +99,16 @@ These parsers produce timestamps in an **unknown or local timezone**. The case t
 ┌─────────────────────┐     ┌──────────────────────┐
 │ Is artifact type in │─Yes─▶ timestamp_source_tz = │
 │ UTC_SOURCE_ARTIFACTS│      │ 'UTC'                │
+│ (utils/timezone.py) │      │                      │
 └──────────┬──────────┘     └──────────────────────┘
            │ No
            ▼
 ┌─────────────────────┐     ┌──────────────────────┐
 │ Is artifact type in │─Yes─▶ timestamp_source_tz = │
 │ AMBIGUOUS_ARTIFACTS │      │ case_tz (e.g.,       │
-└──────────┬──────────┘      │ 'America/New_York')  │
-           │ No              └──────────────────────┘
+│ (utils/timezone.py) │      │ 'America/New_York')  │
+└──────────┬──────────┘      └──────────────────────┘
+           │ No
            ▼
 ┌─────────────────────┐
 │ Default to 'UTC'    │
@@ -114,8 +116,9 @@ These parsers produce timestamps in an **unknown or local timezone**. The case t
            │
            ▼
 ┌─────────────────────────────────────────────┐
-│ compute_utc_timestamp()                      │
-│ - If source_tz != UTC: convert to UTC        │
+│ ParsedEvent.compute_utc_timestamp()          │
+│ (parsers/base.py)                            │
+│ - If source_tz != UTC: convert via to_utc()  │
 │ - Store result in timestamp_utc              │
 │ - Handles DST automatically via zoneinfo     │
 └──────────────────────────────────────────────┘
@@ -173,6 +176,14 @@ These parsers produce timestamps in an **unknown or local timezone**. The case t
 | `parse_time_window(from_str, to_str, case_tz)` | Parse user-entered time range and convert to UTC for queries |
 | `get_source_tz_for_artifact(artifact_type, case_tz)` | Determine source timezone based on artifact type |
 | `is_valid_timezone(tz_name)` | Validate IANA timezone identifier |
+| `get_tz(tz_name)` | Get a timezone object by IANA name (uses zoneinfo or pytz) |
+
+### `parsers/base.py` (ParsedEvent class)
+
+| Method | Purpose |
+|--------|---------|
+| `compute_utc_timestamp()` | Computes `timestamp_utc` from `timestamp` and `timestamp_source_tz` |
+| `__post_init__()` | Auto-calls `compute_utc_timestamp()` after event creation |
 
 ---
 
@@ -310,6 +321,8 @@ The backfill script:
 ---
 
 ## Version History
+
+*Note: This documents the initial timezone feature implementation. Current application version is higher - see `version.json` for full changelog.*
 
 | Version | Date | Changes |
 |---------|------|---------|

@@ -12,7 +12,7 @@ File → ParserRegistry.detect_type() → Parser.can_parse() → Parser.parse() 
 
 1. **ParserRegistry** - Central registry that auto-detects file types and routes to appropriate parsers
 2. **BaseParser** - Abstract base class all parsers inherit from
-3. **ParsedEvent** - Standardized event dataclass for ClickHouse insertion
+3. **ParsedEvent** - Standardized event dataclass for ClickHouse insertion (includes `compute_utc_timestamp()` for timezone normalization)
 4. **BatchProcessor** - Handles batched inserts to ClickHouse
 
 ### File Locations
@@ -22,11 +22,12 @@ File → ParserRegistry.detect_type() → Parser.can_parse() → Parser.parse() 
 | `parsers/__init__.py` | Package exports |
 | `parsers/base.py` | BaseParser class, ParsedEvent dataclass |
 | `parsers/registry.py` | ParserRegistry, detection, batch processing |
-| `parsers/evtx_parser.py` | Windows Event Log parser |
+| `parsers/evtx_parser.py` | Windows Event Log parser (EvtxECmd + Hayabusa) |
 | `parsers/dissect_parsers.py` | Prefetch, Registry, LNK, JumpList, MFT, SRUM |
 | `parsers/log_parsers.py` | IIS, Firewall, Huntress, JSON, CSV, SonicWall |
 | `parsers/browser_parsers.py` | Firefox, Chrome, Edge SQLite and JSONLZ4 |
 | `parsers/windows_parsers.py` | Scheduled Tasks, ActivitiesCache, WebCache |
+| `parsers/memory_parser.py` | Memory forensics (Volatility3 JSON output ingestion) |
 
 ---
 
@@ -50,8 +51,8 @@ Parses Windows Event Log files using Eric Zimmerman's EvtxECmd for complete even
 #### Extracted Fields
 - Event metadata: timestamp, event_id, channel, provider, record_id, level
 - User: username, domain, SID, logon_type, logon_id
-- Logon details: remote_host, workstation_name, auth_package, logon_process
-- Process: process_name, process_path, process_id, parent_process, command_line
+- Logon details: remote_host, workstation_name, auth_package, logon_process, elevated_token
+- Process: process_name, process_path, process_id, parent_process, command_line, thread_id, executable_info
 - Network: src_ip, dst_ip, src_port, dst_port
 - Detection: rule_title, rule_level, rule_file, mitre_tactics, mitre_tags
 - Maps payload: payload_data1-6 (EvtxECmd extracted summaries)
@@ -62,7 +63,7 @@ EVTX timestamps are **always UTC** (FILETIME format). No timezone conversion nee
 #### Dependencies
 - `/opt/casescope/bin/evtxecmd` - EZ Tools wrapper script
 - `/opt/casescope/bin/hayabusa` - Hayabusa binary
-- `/opt/casescope/rules/hayabusa-rules` - SIGMA rules
+- `/opt/casescope/rules/hayabusa-rules` - SIGMA/Hayabusa rules
 
 #### Fallback
 `EvtxFallbackParser` uses pyevtx-rs if EvtxECmd unavailable (no Maps, no detection).
@@ -612,16 +613,20 @@ class MyParser(BaseParser):
 ## Dependencies
 
 ### Python Packages
+- `dissect` - Core dissect framework
 - `dissect.target` - Prefetch parsing
 - `dissect.regf` - Registry hive parsing
 - `dissect.shellitem` - LNK parsing
-- `dissect.ole` - JumpList OLE parsing
 - `dissect.ntfs` - MFT parsing
 - `dissect.esedb` - SRUM and WebCache ESE parsing
+- `dissect.eventlog` - Event log utilities
+- `olefile` - JumpList OLE parsing
 - `lz4` - Firefox JSONLZ4 decompression
 - `evtx` (pyevtx-rs) - Fallback EVTX parsing
 
 ### External Tools
-- **EvtxECmd** - `/opt/casescope/bin/evtxecmd`
+- **EvtxECmd** - `/opt/casescope/bin/evtxecmd` (wrapper script)
 - **Hayabusa** - `/opt/casescope/bin/hayabusa`
 - **.NET Runtime** - Required for EvtxECmd
+- **Volatility3** - Memory forensics (for memory_parser.py)
+- **Zeek** - Network capture analysis (for PCAP processing)
