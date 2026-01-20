@@ -508,6 +508,14 @@ def get_hunting_jobs(case_uuid):
                 'credentials': MemoryCredential.query.filter_by(job_id=job.id).count(),
             }
             job_dict['has_data'] = sum(job_dict['data_counts'].values()) > 0
+            
+            # Get system time from memory_info if available
+            info = MemoryInfo.query.filter_by(job_id=job.id).first()
+            if info and info.system_time:
+                job_dict['system_time'] = info.system_time.isoformat()
+            else:
+                job_dict['system_time'] = None
+            
             job_list.append(job_dict)
         
         return jsonify({

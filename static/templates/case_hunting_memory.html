@@ -92,19 +92,19 @@
                                placeholder="Search processes..." onkeyup="filterProcesses()">
                     </div>
                     <div class="memory-view-toggle">
-                        <button class="btn btn-sm btn-active" id="btn-tree-view" onclick="setProcessView('tree')">
-                            <span>🌳</span> Tree
+                        <button class="btn btn-sm btn-secondary active" id="btn-tree-view" onclick="setProcessView('tree')">
+                            🌳 Tree
                         </button>
-                        <button class="btn btn-sm" id="btn-list-view" onclick="setProcessView('list')">
-                            <span>📋</span> List
+                        <button class="btn btn-sm btn-secondary" id="btn-list-view" onclick="setProcessView('list')">
+                            📋 List
                         </button>
                     </div>
                     <div class="memory-tree-controls" id="tree-controls">
-                        <button class="btn btn-sm" onclick="expandAllProcesses()" title="Expand All">
-                            <span>➕</span> Expand
+                        <button class="btn btn-sm btn-secondary" onclick="expandAllProcesses()" title="Expand All">
+                            ➕ Expand
                         </button>
-                        <button class="btn btn-sm" onclick="collapseAllProcesses()" title="Collapse All">
-                            <span>➖</span> Collapse
+                        <button class="btn btn-sm btn-secondary" onclick="collapseAllProcesses()" title="Collapse All">
+                            ➖ Collapse
                         </button>
                     </div>
                 </div>
@@ -190,16 +190,16 @@
                 <div class="form-group">
                     <label>Search Type</label>
                     <div class="search-type-buttons">
-                        <button class="btn btn-sm btn-active" data-type="process" onclick="setCrossSearchType('process')">
+                        <button class="btn btn-sm btn-secondary active" data-type="process" onclick="setCrossSearchType('process')">
                             ⚙️ Process
                         </button>
-                        <button class="btn btn-sm" data-type="network" onclick="setCrossSearchType('network')">
+                        <button class="btn btn-sm btn-secondary" data-type="network" onclick="setCrossSearchType('network')">
                             🌐 IP Address
                         </button>
-                        <button class="btn btn-sm" data-type="service" onclick="setCrossSearchType('service')">
+                        <button class="btn btn-sm btn-secondary" data-type="service" onclick="setCrossSearchType('service')">
                             🔧 Service
                         </button>
-                        <button class="btn btn-sm" data-type="path" onclick="setCrossSearchType('path')">
+                        <button class="btn btn-sm btn-secondary" data-type="path" onclick="setCrossSearchType('path')">
                             📁 Path
                         </button>
                     </div>
@@ -414,6 +414,29 @@
 
 .memory-filters select {
     min-width: 150px;
+    padding: 8px 12px;
+    font-size: 13px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.memory-filters select:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
+.memory-filters select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.memory-filters select option {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
 }
 
 .memory-view-toggle {
@@ -421,13 +444,11 @@
     gap: 0.25rem;
 }
 
-.memory-view-toggle .btn {
-    padding: 0.375rem 0.75rem;
-}
-
-.memory-view-toggle .btn-active {
+.memory-view-toggle .btn.active,
+.memory-tree-controls .btn.active {
     background: var(--accent-primary);
     color: white;
+    border-color: var(--accent-primary);
 }
 
 /* Process Tree */
@@ -487,11 +508,6 @@
 .memory-tree-controls {
     display: flex;
     gap: 0.25rem;
-}
-
-.memory-tree-controls .btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
 }
 
 .process-name {
@@ -724,9 +740,10 @@
     flex-wrap: wrap;
 }
 
-.search-type-buttons .btn-active {
+.search-type-buttons .btn.active {
     background: var(--accent-primary);
     color: white;
+    border-color: var(--accent-primary);
 }
 
 .cross-search-results {
@@ -869,7 +886,9 @@ async function loadJobsList() {
             jobsWithData.forEach(job => {
                 const option = document.createElement('option');
                 option.value = job.id;
-                const time = job.memory_timestamp ? new Date(job.memory_timestamp).toLocaleString() : 'Unknown time';
+                // Prefer system_time from memory_info, fallback to memory_timestamp
+                const timeSource = job.system_time || job.memory_timestamp;
+                const time = timeSource ? new Date(timeSource).toLocaleString() : 'Unknown time';
                 option.textContent = `${job.hostname} - ${time}`;
                 option.dataset.job = JSON.stringify(job);
                 select.appendChild(option);
@@ -1156,8 +1175,8 @@ function renderProcessList() {
 
 function setProcessView(view) {
     processView = view;
-    document.getElementById('btn-tree-view').classList.toggle('btn-active', view === 'tree');
-    document.getElementById('btn-list-view').classList.toggle('btn-active', view === 'list');
+    document.getElementById('btn-tree-view').classList.toggle('active', view === 'tree');
+    document.getElementById('btn-list-view').classList.toggle('active', view === 'list');
     renderProcesses();
 }
 
@@ -1450,7 +1469,7 @@ function closeCrossSearch(event) {
 function setCrossSearchType(type) {
     crossSearchType = type;
     document.querySelectorAll('.search-type-buttons .btn').forEach(btn => {
-        btn.classList.toggle('btn-active', btn.dataset.type === type);
+        btn.classList.toggle('active', btn.dataset.type === type);
     });
 }
 
