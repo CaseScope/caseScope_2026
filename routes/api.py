@@ -271,21 +271,19 @@ def dashboard_stats():
             except PackageNotFoundError:
                 return 'Not installed'
         
-        # Hayabusa version from file (binary version cached at install/update time)
-        hayabusa_ver = 'Not installed'
-        try:
-            with open('/opt/casescope/bin/hayabusa_version.txt', 'r') as f:
-                hayabusa_ver = f.read().strip()
-        except Exception:
-            pass
+        # Hayabusa version from binary
+        hayabusa_ver = get_software_version('/opt/casescope/bin/hayabusa --version')
+        if hayabusa_ver and hayabusa_ver != 'Not installed':
+            # Extract version from output like "hayabusa 3.7.0"
+            parts = hayabusa_ver.split()
+            hayabusa_ver = parts[-1] if parts else hayabusa_ver
         
-        # Zeek version from file (binary version cached at install/update time)
-        zeek_ver = 'Not installed'
-        try:
-            with open('/opt/casescope/bin/zeek_version.txt', 'r') as f:
-                zeek_ver = f.read().strip()
-        except Exception:
-            pass
+        # Zeek version from binary
+        zeek_ver = get_software_version('zeek --version')
+        if zeek_ver and zeek_ver != 'Not installed':
+            # Extract version from output like "zeek version 8.0.5"
+            parts = zeek_ver.replace('zeek version ', '').strip()
+            zeek_ver = parts if parts else zeek_ver
         
         # ClickHouse server version via Python client
         clickhouse_ver = 'Not available'
