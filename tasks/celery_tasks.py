@@ -1243,3 +1243,6 @@ celery_app.conf.beat_schedule = {
 #     'tasks.update_hayabusa_rules': {'queue': 'maintenance'},
 #     'tasks.get_case_stats': {'queue': 'default'},
 # }
+
+# Import additional task modules to register their tasks
+import tasks.pcap_tasks  # noqa: F401 - PCAP/Zeek processing tasks
