@@ -1,6 +1,18 @@
 {
-  "version": "3.121.00",
+  "version": "3.122.00",
   "changelog": [
+    {
+      "version": "3.122.00",
+      "date": "2026-01-20",
+      "changes": [
+        "Feature: Network Hunting - new hunting page for PCAP/Zeek network artifacts",
+        "Network: Zeek logs indexed to ClickHouse network_logs table",
+        "Network: Tabs for Connections, DNS, HTTP, SSL/TLS, Files",
+        "Network: Cross-log search across all network log types",
+        "Network: PCAP-specific filtering and pagination",
+        "Network: Pivot to Events for IP/domain lookups"
+      ]
+    },
     {
       "version": "3.121.00",
       "date": "2026-01-20",
