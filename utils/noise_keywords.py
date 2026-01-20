@@ -62,7 +62,7 @@ def _build_keyword_not_match(keyword: str, column: str) -> str:
         return f"NOT hasTokenCaseInsensitive({column}, '{escaped}')"
 
 
-def build_keyword_clause(keywords: list, columns: list = None) -> str:
+def build_keyword_clause(keywords: list, columns = None) -> str:
     """Build ClickHouse OR clause for keyword matching across multiple columns
     
     Automatically selects the appropriate matching function:
@@ -73,7 +73,8 @@ def build_keyword_clause(keywords: list, columns: list = None) -> str:
     
     Args:
         keywords: List of keywords to match (any match = true)
-        columns: List of columns to search (default: ['raw_json', 'search_blob'])
+        columns: List of columns to search, or single column string
+                 (default: ['raw_json', 'search_blob'])
         
     Returns:
         SQL clause string matching if ANY keyword found in ANY column
@@ -82,6 +83,9 @@ def build_keyword_clause(keywords: list, columns: list = None) -> str:
         return ""
     
     if columns is None:
+        columns = DEFAULT_SEARCH_COLUMNS
+    elif isinstance(columns, str):
+        # Handle legacy single column string - convert to list with both columns
         columns = DEFAULT_SEARCH_COLUMNS
     
     # For each keyword, check all columns (keyword found in ANY column = match)
@@ -94,7 +98,7 @@ def build_keyword_clause(keywords: list, columns: list = None) -> str:
     return f"({' OR '.join(keyword_clauses)})"
 
 
-def build_keyword_not_clause(keywords: list, columns: list = None) -> str:
+def build_keyword_not_clause(keywords: list, columns = None) -> str:
     """Build ClickHouse NOT clause for keyword exclusion across multiple columns
     
     Automatically selects the appropriate matching function:
@@ -106,7 +110,8 @@ def build_keyword_not_clause(keywords: list, columns: list = None) -> str:
     
     Args:
         keywords: List of keywords - event excluded if ANY keyword found in ANY column
-        columns: List of columns to search (default: ['raw_json', 'search_blob'])
+        columns: List of columns to search, or single column string
+                 (default: ['raw_json', 'search_blob'])
         
     Returns:
         SQL clause string excluding if ANY keyword found in ANY column
@@ -115,6 +120,9 @@ def build_keyword_not_clause(keywords: list, columns: list = None) -> str:
         return ""
     
     if columns is None:
+        columns = DEFAULT_SEARCH_COLUMNS
+    elif isinstance(columns, str):
+        # Handle legacy single column string - convert to list with both columns
         columns = DEFAULT_SEARCH_COLUMNS
     
     # For each keyword, must NOT be in ANY column
