@@ -838,17 +838,19 @@ def settings():
     """System Settings page
     
     Tab permissions:
-    - General, AI, Integrations, Logging, Audit: administrators only
+    - General, AI, Integrations, Logging, Audit, Reports: administrators only
     - EVTX/SIGMA, Noise: analyst or administrator
     
     Note: Audit tab is admin-only to protect the immutable forensic audit trail.
+    Note: Reports tab is admin-only to manage report templates.
     """
     from models.system_settings import SystemSettings, SettingKeys
     
     tab = request.args.get('tab', None)
     
     # Define tab permissions - audit is now admin-only (immutable forensic trail)
-    admin_only_tabs = ['general', 'ai', 'integrations', 'logging', 'audit']
+    # Reports tab is admin-only to manage report templates
+    admin_only_tabs = ['general', 'ai', 'integrations', 'logging', 'audit', 'reports']
     analyst_tabs = ['evtx', 'noise']  # Accessible by analyst or admin
     
     # Determine accessible tabs based on user role

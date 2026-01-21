@@ -68,6 +68,13 @@
                 <span class="tab-text">Audit</span>
             </a>
             {% endif %}
+            {% if is_admin %}
+            <a href="{{ url_for('main.settings', tab='reports') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'reports' else '' }}">
+                <span class="tab-icon">📄</span>
+                <span class="tab-text">Reports</span>
+            </a>
+            {% endif %}
         </div>
     </div>
     <div class="card-body" style="padding: 24px;">
@@ -3339,6 +3346,269 @@
             border: 1px solid var(--border-color);
             text-transform: uppercase;
         }
+        </style>
+        {% endif %}
+
+        <!-- Reports Tab -->
+        {% if active_tab == 'reports' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Report Templates</h3>
+            <p class="text-muted">Manage Word document templates for AI-powered report generation.</p>
+            
+            <div class="settings-section" style="margin-top: 24px;">
+                <!-- Actions Bar -->
+                <div class="report-actions" style="display: flex; gap: 12px; margin-bottom: 24px;">
+                    <button class="btn btn-primary" onclick="scanReportTemplates()">
+                        <span class="btn-icon">🔄</span> Scan Templates Folder
+                    </button>
+                    <span class="text-muted" style="align-self: center;">
+                        Templates folder: <code>/opt/casescope/static/templates/report_templates/</code>
+                    </span>
+                </div>
+                
+                <!-- Status Messages -->
+                <div id="reportTemplateStatus" style="display: none; margin-bottom: 16px;"></div>
+                
+                <!-- Templates Table -->
+                <div id="reportTemplatesContainer">
+                    <div class="info-loading">Loading templates...</div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadReportTemplates();
+        });
+        
+        function loadReportTemplates() {
+            const container = document.getElementById('reportTemplatesContainer');
+            
+            fetch('/api/reports/templates')
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        container.innerHTML = `<div class="flash-message flash-error">${data.error}</div>`;
+                        return;
+                    }
+                    
+                    if (data.templates.length === 0) {
+                        container.innerHTML = `
+                            <div class="empty-state" style="text-align: center; padding: 40px;">
+                                <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+                                <h4>No Templates Found</h4>
+                                <p class="text-muted">Add .docx template files to the templates folder and click "Scan Templates Folder".</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    let html = `
+                        <table class="data-table" style="width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>Filename</th>
+                                    <th>Display Name</th>
+                                    <th>Description</th>
+                                    <th style="width: 80px;">Active</th>
+                                    <th style="width: 80px;">Default</th>
+                                    <th style="width: 80px;">Status</th>
+                                    <th style="width: 100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    
+                    data.templates.forEach(template => {
+                        const statusClass = template.file_exists ? 'text-success' : 'text-error';
+                        const statusIcon = template.file_exists ? '✓' : '⚠';
+                        const statusText = template.file_exists ? 'On Disk' : 'Missing';
+                        
+                        html += `
+                            <tr data-id="${template.id}">
+                                <td><code>${template.filename}</code></td>
+                                <td>
+                                    <input type="text" class="form-input form-input-inline" 
+                                           value="${escapeHtml(template.display_name)}"
+                                           data-field="display_name"
+                                           onchange="updateTemplate(${template.id}, 'display_name', this.value)"
+                                           style="width: 200px;">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-input form-input-inline" 
+                                           value="${escapeHtml(template.description || '')}"
+                                           data-field="description"
+                                           placeholder="Optional description..."
+                                           onchange="updateTemplate(${template.id}, 'description', this.value)"
+                                           style="width: 200px;">
+                                </td>
+                                <td style="text-align: center;">
+                                    <input type="checkbox" ${template.is_active ? 'checked' : ''}
+                                           onchange="updateTemplate(${template.id}, 'is_active', this.checked)">
+                                </td>
+                                <td style="text-align: center;">
+                                    <input type="radio" name="default_template" ${template.is_default ? 'checked' : ''}
+                                           onchange="setDefaultTemplate(${template.id})">
+                                </td>
+                                <td class="${statusClass}" style="text-align: center;">
+                                    <span title="${statusText}">${statusIcon} ${statusText}</span>
+                                </td>
+                                <td style="text-align: center;">
+                                    <button class="btn btn-secondary btn-small" 
+                                            onclick="viewPlaceholders(${template.id})"
+                                            ${!template.file_exists ? 'disabled' : ''}>
+                                        View Fields
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                })
+                .catch(err => {
+                    container.innerHTML = `<div class="flash-message flash-error">Failed to load templates: ${err}</div>`;
+                });
+        }
+        
+        function scanReportTemplates() {
+            const statusDiv = document.getElementById('reportTemplateStatus');
+            statusDiv.innerHTML = '<div class="info-loading">Scanning templates folder...</div>';
+            statusDiv.style.display = 'block';
+            
+            fetch('/api/reports/templates/scan', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        statusDiv.innerHTML = `<div class="flash-message flash-error">${data.error}</div>`;
+                        return;
+                    }
+                    
+                    let message = `Scan complete: ${data.total_on_disk} template(s) on disk`;
+                    if (data.added > 0) message += `, ${data.added} new`;
+                    if (data.removed > 0) message += `, ${data.removed} missing`;
+                    
+                    statusDiv.innerHTML = `<div class="flash-message flash-success">${message}</div>`;
+                    
+                    // Reload the table
+                    loadReportTemplates();
+                    
+                    // Hide status after 5 seconds
+                    setTimeout(() => {
+                        statusDiv.style.display = 'none';
+                    }, 5000);
+                })
+                .catch(err => {
+                    statusDiv.innerHTML = `<div class="flash-message flash-error">Scan failed: ${err}</div>`;
+                });
+        }
+        
+        function updateTemplate(id, field, value) {
+            const data = {};
+            data[field] = value;
+            
+            fetch(`/api/reports/templates/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    showTemplateStatus(`Failed to update: ${data.error}`, 'error');
+                }
+            })
+            .catch(err => {
+                showTemplateStatus(`Failed to update: ${err}`, 'error');
+            });
+        }
+        
+        function setDefaultTemplate(id) {
+            fetch(`/api/reports/templates/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_default: true })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    showTemplateStatus(`Failed to set default: ${data.error}`, 'error');
+                    loadReportTemplates(); // Reload to reset radio buttons
+                }
+            })
+            .catch(err => {
+                showTemplateStatus(`Failed to set default: ${err}`, 'error');
+                loadReportTemplates();
+            });
+        }
+        
+        function viewPlaceholders(id) {
+            fetch(`/api/reports/templates/${id}/placeholders`)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert(`Error: ${data.error}`);
+                        return;
+                    }
+                    
+                    if (data.placeholders.length === 0) {
+                        alert('No placeholders found in this template.\n\nAdd placeholders using Jinja2 syntax: {{ variable_name }}');
+                        return;
+                    }
+                    
+                    const list = data.placeholders.map(p => `  • {{ ${p} }}`).join('\n');
+                    alert(`Template Placeholders:\n\n${list}\n\nThese variables can be filled when generating reports.`);
+                })
+                .catch(err => {
+                    alert(`Failed to get placeholders: ${err}`);
+                });
+        }
+        
+        function showTemplateStatus(message, type) {
+            const statusDiv = document.getElementById('reportTemplateStatus');
+            statusDiv.innerHTML = `<div class="flash-message flash-${type}">${message}</div>`;
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        </script>
+        
+        <style>
+        .form-input-inline {
+            padding: 4px 8px;
+            font-size: 13px;
+        }
+        .data-table {
+            border-collapse: collapse;
+        }
+        .data-table th,
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+        .data-table th {
+            background: var(--bg-secondary);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
+        .data-table tbody tr:hover {
+            background: var(--bg-secondary);
+        }
+        .text-success { color: var(--accent-success); }
+        .text-error { color: var(--accent-error); }
         </style>
         {% endif %}
     </div>

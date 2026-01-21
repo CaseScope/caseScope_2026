@@ -7278,3 +7278,313 @@ def get_field_enhancers():
     except Exception as e:
         logger.error(f"Error fetching field enhancers: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Report Templates API
+# ============================================
+
+@api_bp.route('/reports/templates')
+@login_required
+def list_report_templates():
+    """List all report templates
+    
+    Returns templates with metadata from database and file existence status.
+    """
+    try:
+        from models.report_template import ReportTemplate
+        
+        templates = ReportTemplate.query.order_by(
+            ReportTemplate.is_default.desc(),
+            ReportTemplate.display_name
+        ).all()
+        
+        return jsonify({
+            'success': True,
+            'templates': [t.to_dict() for t in templates]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing report templates: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/templates/active')
+@login_required
+def list_active_report_templates():
+    """List only active templates that exist on disk
+    
+    Used for template selection dropdowns in report generation.
+    """
+    try:
+        from models.report_template import ReportTemplate
+        
+        templates = ReportTemplate.get_active_templates()
+        
+        return jsonify({
+            'success': True,
+            'templates': [t.to_dict() for t in templates]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing active report templates: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/templates/scan', methods=['POST'])
+@login_required
+def scan_report_templates():
+    """Scan templates folder and sync with database
+    
+    Admin only. Discovers new templates and marks missing ones.
+    """
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from models.report_template import ReportTemplate
+        
+        result = ReportTemplate.scan_templates(updated_by=current_user.username)
+        
+        return jsonify({
+            'success': True,
+            'added': result['added'],
+            'removed': result['removed'],
+            'existing': result['existing'],
+            'total_on_disk': result['total_on_disk']
+        })
+        
+    except Exception as e:
+        logger.error(f"Error scanning report templates: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/templates/<int:template_id>', methods=['PUT'])
+@login_required
+def update_report_template(template_id):
+    """Update report template metadata
+    
+    Admin only. Updates display_name, description, is_active, is_default.
+    """
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from models.report_template import ReportTemplate
+        
+        template = ReportTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'success': False, 'error': 'Template not found'}), 404
+        
+        data = request.get_json() or {}
+        
+        # Update fields if provided
+        if 'display_name' in data:
+            display_name = data['display_name'].strip()
+            if display_name:
+                template.display_name = display_name
+        
+        if 'description' in data:
+            template.description = data['description'].strip() or None
+        
+        if 'is_active' in data:
+            template.is_active = bool(data['is_active'])
+        
+        if 'is_default' in data and data['is_default']:
+            # Unset all other defaults first
+            ReportTemplate.query.filter(ReportTemplate.id != template_id).update(
+                {ReportTemplate.is_default: False}
+            )
+            template.is_default = True
+        elif 'is_default' in data and not data['is_default']:
+            template.is_default = False
+        
+        template.updated_by = current_user.username
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'template': template.to_dict()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating report template: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/templates/<int:template_id>/placeholders')
+@login_required
+def get_template_placeholders(template_id):
+    """Get available placeholders in a template
+    
+    Extracts Jinja2 variable names from the template.
+    """
+    try:
+        from models.report_template import ReportTemplate
+        from utils.report_generator import ReportGenerator
+        
+        template = ReportTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'success': False, 'error': 'Template not found'}), 404
+        
+        if not template.file_exists:
+            return jsonify({'success': False, 'error': 'Template file not found on disk'}), 404
+        
+        template_path = ReportTemplate.get_template_path(template.filename)
+        generator = ReportGenerator(template_path)
+        placeholders = generator.get_available_placeholders()
+        
+        return jsonify({
+            'success': True,
+            'placeholders': placeholders
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting template placeholders: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/generate/<case_uuid>', methods=['POST'])
+@login_required
+def generate_report(case_uuid):
+    """Generate a report for a case
+    
+    Request body:
+    {
+        "template_id": 1,
+        "context": {
+            "executive_summary": "...",
+            "findings": "...",
+            ...
+        }
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "report_path": "/storage/.../reports/CaseReport_2026-01-21_143052.docx",
+        "filename": "CaseReport_2026-01-21_143052.docx"
+    }
+    """
+    try:
+        from models.report_template import ReportTemplate
+        from utils.report_generator import (
+            generate_case_report, 
+            get_base_case_context
+        )
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json() or {}
+        
+        # Get template - use provided or default
+        template_id = data.get('template_id')
+        if template_id:
+            template = ReportTemplate.query.get(template_id)
+        else:
+            template = ReportTemplate.get_default_template()
+        
+        if not template:
+            return jsonify({
+                'success': False, 
+                'error': 'No template specified and no default template set'
+            }), 400
+        
+        if not template.file_exists:
+            return jsonify({
+                'success': False, 
+                'error': 'Template file not found on disk'
+            }), 400
+        
+        # Build context - start with base case info
+        context = get_base_case_context(case)
+        
+        # Merge in any provided context
+        if 'context' in data:
+            context.update(data['context'])
+        
+        # Generate the report
+        report_path = generate_case_report(
+            case_uuid=case_uuid,
+            template_id=template.id,
+            context=context
+        )
+        
+        if not report_path:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to generate report'
+            }), 500
+        
+        filename = os.path.basename(report_path)
+        
+        return jsonify({
+            'success': True,
+            'report_path': report_path,
+            'filename': filename
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating report: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/list/<case_uuid>')
+@login_required
+def list_case_reports(case_uuid):
+    """List all generated reports for a case"""
+    try:
+        from utils.report_generator import list_case_reports as get_reports
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        reports = get_reports(case_uuid)
+        
+        return jsonify({
+            'success': True,
+            'reports': reports
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing case reports: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/download/<case_uuid>/<filename>')
+@login_required
+def download_report(case_uuid, filename):
+    """Download a generated report"""
+    try:
+        from flask import send_file
+        from utils.report_generator import get_case_reports_folder
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Sanitize filename to prevent path traversal
+        safe_filename = os.path.basename(filename)
+        if not safe_filename.lower().endswith('.docx'):
+            return jsonify({'success': False, 'error': 'Invalid file type'}), 400
+        
+        reports_folder = get_case_reports_folder(case_uuid)
+        file_path = os.path.join(reports_folder, safe_filename)
+        
+        if not os.path.isfile(file_path):
+            return jsonify({'success': False, 'error': 'Report not found'}), 404
+        
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=safe_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error downloading report: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
