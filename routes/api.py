@@ -1135,7 +1135,7 @@ def get_case_statistics(case_uuid):
     """Get comprehensive statistics for a case dashboard
     
     Returns file statistics, artifact statistics, entity counts,
-    memory forensics stats, and PCAP processing stats.
+    memory forensics stats, PCAP processing stats, network logs, and evidence files.
     """
     try:
         from models.case_file import CaseFile
@@ -1144,6 +1144,8 @@ def get_case_statistics(case_uuid):
         from models.known_user import KnownUser
         from models.pcap_file import PcapFile
         from models.memory_job import MemoryJob
+        from models.evidence_file import EvidenceFile
+        from models import network_log
         from utils.clickhouse import get_client
         
         # Verify case exists
@@ -1241,6 +1243,24 @@ def get_case_statistics(case_uuid):
         # === PCAP STATISTICS ===
         pcap_stats = PcapFile.get_stats(case_uuid)
         
+        # === NETWORK LOGS STATISTICS (Zeek indexed data in ClickHouse) ===
+        network_stats = {
+            'total': 0,
+            'by_type': {},
+            'unique_src_ips': 0,
+            'unique_dst_ips': 0
+        }
+        
+        try:
+            net_stats = network_log.get_network_stats(case.id)
+            network_stats['total'] = net_stats.get('total', 0)
+            network_stats['by_type'] = net_stats.get('by_type', {})
+            network_stats['unique_src_ips'] = net_stats.get('unique_src_ips', 0)
+            network_stats['unique_dst_ips'] = net_stats.get('unique_dst_ips', 0)
+        except Exception:
+            # Network logs table may not exist or be empty
+            pass
+        
         # === MEMORY FORENSICS STATISTICS ===
         memory_stats = {
             'total': 0,
@@ -1271,6 +1291,33 @@ def get_case_statistics(case_uuid):
             # Memory jobs table may not exist yet
             pass
         
+        # === EVIDENCE FILES STATISTICS (non-processed archival files) ===
+        evidence_stats = {
+            'total_files': 0,
+            'total_size': 0,
+            'total_size_display': '0 B',
+            'by_type': {}
+        }
+        
+        try:
+            ev_stats = EvidenceFile.get_case_stats(case_uuid)
+            evidence_stats['total_files'] = ev_stats.get('total_files', 0)
+            evidence_stats['total_size'] = ev_stats.get('total_size', 0)
+            evidence_stats['by_type'] = ev_stats.get('file_types', {})
+            # Human-readable size
+            size = evidence_stats['total_size']
+            if size < 1024:
+                evidence_stats['total_size_display'] = f"{size} B"
+            elif size < 1024 * 1024:
+                evidence_stats['total_size_display'] = f"{size / 1024:.1f} KB"
+            elif size < 1024 * 1024 * 1024:
+                evidence_stats['total_size_display'] = f"{size / (1024 * 1024):.1f} MB"
+            else:
+                evidence_stats['total_size_display'] = f"{size / (1024 * 1024 * 1024):.2f} GB"
+        except Exception:
+            # Evidence files table may not exist yet
+            pass
+        
         return jsonify({
             'success': True,
             'case_uuid': case_uuid,
@@ -1291,7 +1338,9 @@ def get_case_statistics(case_uuid):
                 'users': user_count
             },
             'pcap_stats': pcap_stats,
-            'memory_stats': memory_stats
+            'network_stats': network_stats,
+            'memory_stats': memory_stats,
+            'evidence_stats': evidence_stats
         })
         
     except Exception as e:

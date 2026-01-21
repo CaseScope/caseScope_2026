@@ -120,16 +120,33 @@
             <p class="text-muted" style="margin-top: 10px;">Loading statistics...</p>
         </div>
         <div id="stats-content" style="display: none;">
+            
+            <!-- Headline Stats -->
+            <div class="stats-headline">
+                <div class="stats-headline-item">
+                    <span class="stats-headline-value" id="stat-total-events">0</span>
+                    <span class="stats-headline-label">Total Events</span>
+                </div>
+                <div class="stats-headline-item">
+                    <span class="stats-headline-value" id="stat-total-files">0</span>
+                    <span class="stats-headline-label">Files Processed</span>
+                </div>
+                <div class="stats-headline-item">
+                    <span class="stats-headline-value" id="stat-iocs">0</span>
+                    <span class="stats-headline-label">IOCs Tracked</span>
+                </div>
+                <div class="stats-headline-item">
+                    <span class="stats-headline-value" id="stat-systems">0</span>
+                    <span class="stats-headline-label">Known Systems</span>
+                </div>
+            </div>
+            
             <!-- File Processing -->
             <div class="stats-section">
                 <div class="stats-section-header">
                     <span class="stats-icon">📁</span> File Processing
                 </div>
                 <div class="stats-flow-grid">
-                    <div class="stats-flow-item">
-                        <span class="stats-flow-label">Total Files</span>
-                        <span class="stats-flow-value" id="stat-total-files">-</span>
-                    </div>
                     <div class="stats-flow-item">
                         <span class="stats-flow-label">Fully Indexed <span class="help-tooltip" title="Files completely parsed with all events indexed">?</span></span>
                         <span class="stats-flow-value stat-success" id="stat-fully-indexed">-</span>
@@ -157,14 +174,14 @@
                 </div>
             </div>
 
-            <!-- PCAP Processing -->
-            <div class="stats-section">
+            <!-- Network Captures (PCAP) -->
+            <div class="stats-section" id="stats-pcap-section">
                 <div class="stats-section-header">
-                    <span class="stats-icon">🌐</span> Network Captures (PCAP)
+                    <span class="stats-icon">📡</span> Network Captures (PCAP)
                 </div>
                 <div class="stats-flow-grid">
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Total PCAP Files</span>
+                        <span class="stats-flow-label">PCAP Files</span>
                         <span class="stats-flow-value" id="stat-pcap-total">-</span>
                     </div>
                     <div class="stats-flow-item">
@@ -172,22 +189,46 @@
                         <span class="stats-flow-value stat-success" id="stat-pcap-done">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Errors <span class="help-tooltip" title="PCAP files that failed processing">?</span></span>
+                        <span class="stats-flow-label">Errors</span>
                         <span class="stats-flow-value stat-danger" id="stat-pcap-error">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Pending <span class="help-tooltip" title="PCAP files awaiting or currently in processing">?</span></span>
+                        <span class="stats-flow-label">Pending</span>
                         <span class="stats-flow-value" id="stat-pcap-pending">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Total Logs Generated <span class="help-tooltip" title="Number of Zeek log files generated from PCAP processing">?</span></span>
+                        <span class="stats-flow-label">Log Files Generated <span class="help-tooltip" title="Zeek log files created from PCAP processing">?</span></span>
                         <span class="stats-flow-value stat-highlight" id="stat-pcap-logs">-</span>
                     </div>
                 </div>
             </div>
 
+            <!-- Network Logs (Zeek indexed) -->
+            <div class="stats-section" id="stats-network-section">
+                <div class="stats-section-header">
+                    <span class="stats-icon">🌐</span> Network Logs (Indexed)
+                </div>
+                <div class="stats-flow-grid">
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Total Network Events</span>
+                        <span class="stats-flow-value stat-highlight" id="stat-network-total">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Unique Source IPs</span>
+                        <span class="stats-flow-value" id="stat-network-src-ips">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Unique Dest IPs</span>
+                        <span class="stats-flow-value" id="stat-network-dst-ips">-</span>
+                    </div>
+                </div>
+                <div class="stats-flow-grid" id="network-types-list" style="margin-top: 8px;">
+                    <span class="stat-muted">No network logs indexed</span>
+                </div>
+            </div>
+
             <!-- Memory Forensics -->
-            <div class="stats-section">
+            <div class="stats-section" id="stats-memory-section">
                 <div class="stats-section-header">
                     <span class="stats-icon">💾</span> Memory Forensics
                 </div>
@@ -201,21 +242,41 @@
                         <span class="stats-flow-value stat-success" id="stat-memory-completed">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Running <span class="help-tooltip" title="Memory images currently being processed">?</span></span>
+                        <span class="stats-flow-label">Running</span>
                         <span class="stats-flow-value stat-warning" id="stat-memory-running">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Pending <span class="help-tooltip" title="Memory images queued for analysis">?</span></span>
+                        <span class="stats-flow-label">Pending</span>
                         <span class="stats-flow-value" id="stat-memory-pending">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Failed <span class="help-tooltip" title="Memory images that failed analysis">?</span></span>
+                        <span class="stats-flow-label">Failed</span>
                         <span class="stats-flow-value stat-danger" id="stat-memory-failed">-</span>
                     </div>
                     <div class="stats-flow-item">
                         <span class="stats-flow-label">Plugins Executed <span class="help-tooltip" title="Total Volatility3 plugins successfully run across all images">?</span></span>
                         <span class="stats-flow-value stat-highlight" id="stat-memory-plugins">-</span>
                     </div>
+                </div>
+            </div>
+
+            <!-- Evidence Files (non-processed archival files) -->
+            <div class="stats-section" id="stats-evidence-section">
+                <div class="stats-section-header">
+                    <span class="stats-icon">📎</span> Evidence Files (Archival)
+                </div>
+                <div class="stats-flow-grid">
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Total Files</span>
+                        <span class="stats-flow-value" id="stat-evidence-total">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Total Size</span>
+                        <span class="stats-flow-value" id="stat-evidence-size">-</span>
+                    </div>
+                </div>
+                <div class="stats-flow-grid" id="evidence-types-list" style="margin-top: 8px;">
+                    <span class="stat-muted">No evidence files uploaded</span>
                 </div>
             </div>
 
@@ -226,18 +287,6 @@
                 </div>
                 <div class="stats-flow-grid">
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Total Artifacts</span>
-                        <span class="stats-flow-value stat-highlight" id="stat-total-artifacts">-</span>
-                    </div>
-                    <div class="stats-flow-item">
-                        <span class="stats-flow-label">IOCs Tracked</span>
-                        <span class="stats-flow-value" id="stat-iocs">-</span>
-                    </div>
-                    <div class="stats-flow-item">
-                        <span class="stats-flow-label">Known Systems</span>
-                        <span class="stats-flow-value" id="stat-systems">-</span>
-                    </div>
-                    <div class="stats-flow-item">
                         <span class="stats-flow-label">Known Users</span>
                         <span class="stats-flow-value" id="stat-users">-</span>
                     </div>
@@ -247,7 +296,7 @@
             <!-- Tagged Events -->
             <div class="stats-section">
                 <div class="stats-section-header">
-                    <span class="stats-icon">🏷️</span> Tagged Events
+                    <span class="stats-icon">🏷️</span> Event Tagging
                 </div>
                 <div class="stats-flow-grid">
                     <div class="stats-flow-item">
@@ -259,7 +308,7 @@
                         <span class="stats-flow-value" id="stat-ioc-tagged">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Sigma Detections <span class="help-tooltip" title="Events matching Sigma rules">?</span></span>
+                        <span class="stats-flow-label">Sigma Detections <span class="help-tooltip" title="Events matching Sigma/Hayabusa rules">?</span></span>
                         <span class="stats-flow-value" id="stat-sigma-tagged">-</span>
                     </div>
                     <div class="stats-flow-item">
@@ -282,7 +331,7 @@
             <!-- Artifacts by Type -->
             <div class="stats-section">
                 <div class="stats-section-header">
-                    <span class="stats-icon">📋</span> Artifacts by Type
+                    <span class="stats-icon">📋</span> Parsed Artifacts by Type
                 </div>
                 <div class="stats-flow-grid" id="artifact-types-list">
                     <span class="stat-muted">No artifacts ingested</span>
@@ -343,9 +392,17 @@ function formatNumber(num) {
 }
 
 function displayStatistics(data) {
-    // File Statistics
+    // === HEADLINE STATS ===
+    const as = data.artifact_stats;
     const fs = data.file_stats;
+    const ec = data.entity_counts;
+    
+    document.getElementById('stat-total-events').textContent = formatNumber(as.total);
     document.getElementById('stat-total-files').textContent = formatNumber(fs.total);
+    document.getElementById('stat-iocs').textContent = formatNumber(ec.iocs);
+    document.getElementById('stat-systems').textContent = formatNumber(ec.systems);
+    
+    // === FILE PROCESSING ===
     document.getElementById('stat-fully-indexed').textContent = formatNumber(fs.fully_indexed);
     document.getElementById('stat-partially-indexed').textContent = formatNumber(fs.partially_indexed);
     document.getElementById('stat-no-parser').textContent = formatNumber(fs.no_parser);
@@ -353,7 +410,7 @@ function displayStatistics(data) {
     document.getElementById('stat-error').textContent = formatNumber(fs.error);
     document.getElementById('stat-pending').textContent = formatNumber(fs.pending);
     
-    // File Types
+    // File Types breakdown
     const fileTypesContainer = document.getElementById('file-types-list');
     if (fs.by_type && Object.keys(fs.by_type).length > 0) {
         fileTypesContainer.innerHTML = '';
@@ -367,32 +424,92 @@ function displayStatistics(data) {
         }
     }
     
-    // PCAP Statistics
+    // === PCAP STATISTICS ===
     const ps = data.pcap_stats || {};
-    document.getElementById('stat-pcap-total').textContent = formatNumber(ps.total || 0);
-    document.getElementById('stat-pcap-done').textContent = formatNumber(ps.done || 0);
-    document.getElementById('stat-pcap-error').textContent = formatNumber(ps.error || 0);
-    document.getElementById('stat-pcap-pending').textContent = formatNumber(ps.pending || 0);
-    document.getElementById('stat-pcap-logs').textContent = formatNumber(ps.total_logs || 0);
+    const pcapSection = document.getElementById('stats-pcap-section');
+    if (ps.total > 0) {
+        document.getElementById('stat-pcap-total').textContent = formatNumber(ps.total);
+        document.getElementById('stat-pcap-done').textContent = formatNumber(ps.done || 0);
+        document.getElementById('stat-pcap-error').textContent = formatNumber(ps.error || 0);
+        document.getElementById('stat-pcap-pending').textContent = formatNumber(ps.pending || 0);
+        document.getElementById('stat-pcap-logs').textContent = formatNumber(ps.total_logs || 0);
+    } else {
+        pcapSection.style.display = 'none';
+    }
     
-    // Memory Statistics
+    // === NETWORK LOGS (Zeek indexed data) ===
+    const ns = data.network_stats || {};
+    const networkSection = document.getElementById('stats-network-section');
+    if (ns.total > 0) {
+        document.getElementById('stat-network-total').textContent = formatNumber(ns.total);
+        document.getElementById('stat-network-src-ips').textContent = formatNumber(ns.unique_src_ips || 0);
+        document.getElementById('stat-network-dst-ips').textContent = formatNumber(ns.unique_dst_ips || 0);
+        
+        // Network log types breakdown
+        const networkTypesContainer = document.getElementById('network-types-list');
+        if (ns.by_type && Object.keys(ns.by_type).length > 0) {
+            networkTypesContainer.innerHTML = '';
+            for (const [type, count] of Object.entries(ns.by_type).sort((a, b) => b[1] - a[1])) {
+                networkTypesContainer.innerHTML += `
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">${type}</span>
+                        <span class="stats-flow-value">${formatNumber(count)}</span>
+                    </div>
+                `;
+            }
+        }
+    } else {
+        networkSection.style.display = 'none';
+    }
+    
+    // === MEMORY FORENSICS ===
     const ms = data.memory_stats || {};
-    document.getElementById('stat-memory-total').textContent = formatNumber(ms.total || 0);
-    document.getElementById('stat-memory-completed').textContent = formatNumber(ms.completed || 0);
-    document.getElementById('stat-memory-running').textContent = formatNumber(ms.running || 0);
-    document.getElementById('stat-memory-pending').textContent = formatNumber(ms.pending || 0);
-    document.getElementById('stat-memory-failed').textContent = formatNumber(ms.failed || 0);
-    document.getElementById('stat-memory-plugins').textContent = formatNumber(ms.total_plugins_run || 0);
+    const memorySection = document.getElementById('stats-memory-section');
+    if (ms.total > 0) {
+        document.getElementById('stat-memory-total').textContent = formatNumber(ms.total);
+        document.getElementById('stat-memory-completed').textContent = formatNumber(ms.completed || 0);
+        document.getElementById('stat-memory-running').textContent = formatNumber(ms.running || 0);
+        document.getElementById('stat-memory-pending').textContent = formatNumber(ms.pending || 0);
+        document.getElementById('stat-memory-failed').textContent = formatNumber(ms.failed || 0);
+        document.getElementById('stat-memory-plugins').textContent = formatNumber(ms.total_plugins_run || 0);
+    } else {
+        memorySection.style.display = 'none';
+    }
     
-    // Artifact Statistics
-    const as = data.artifact_stats;
-    document.getElementById('stat-total-artifacts').textContent = formatNumber(as.total);
+    // === EVIDENCE FILES (Archival) ===
+    const es = data.evidence_stats || {};
+    const evidenceSection = document.getElementById('stats-evidence-section');
+    if (es.total_files > 0) {
+        document.getElementById('stat-evidence-total').textContent = formatNumber(es.total_files);
+        document.getElementById('stat-evidence-size').textContent = es.total_size_display || '0 B';
+        
+        // Evidence file types breakdown
+        const evidenceTypesContainer = document.getElementById('evidence-types-list');
+        if (es.by_type && Object.keys(es.by_type).length > 0) {
+            evidenceTypesContainer.innerHTML = '';
+            for (const [type, count] of Object.entries(es.by_type).sort((a, b) => b[1] - a[1])) {
+                evidenceTypesContainer.innerHTML += `
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">${type.toUpperCase()}</span>
+                        <span class="stats-flow-value">${formatNumber(count)}</span>
+                    </div>
+                `;
+            }
+        }
+    } else {
+        evidenceSection.style.display = 'none';
+    }
+    
+    // === EVENT TAGGING ===
     document.getElementById('stat-analyst-tagged').textContent = formatNumber(as.analyst_tagged);
     document.getElementById('stat-ioc-tagged').textContent = formatNumber(as.ioc_tagged);
     document.getElementById('stat-sigma-tagged').textContent = formatNumber(as.sigma_tagged);
     document.getElementById('stat-noise-matched').textContent = formatNumber(as.noise_matched);
     
-    // Artifact Types - render in multi-column grid
+    // === CASE ENTITIES ===
+    document.getElementById('stat-users').textContent = formatNumber(ec.users);
+    
+    // === ARTIFACT TYPES (parsed events in ClickHouse) ===
     const artifactTypesContainer = document.getElementById('artifact-types-list');
     if (as.by_type && Object.keys(as.by_type).length > 0) {
         artifactTypesContainer.innerHTML = '';
@@ -406,16 +523,46 @@ function displayStatistics(data) {
             `;
         }
     }
-    
-    // Entity Counts
-    const ec = data.entity_counts;
-    document.getElementById('stat-iocs').textContent = formatNumber(ec.iocs);
-    document.getElementById('stat-systems').textContent = formatNumber(ec.systems);
-    document.getElementById('stat-users').textContent = formatNumber(ec.users);
 }
 </script>
 
 <style>
+/* Headline Stats - Key metrics at a glance */
+.stats-headline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.stats-headline-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 12px;
+}
+
+.stats-headline-value {
+    font-size: 2em;
+    font-weight: 700;
+    color: var(--accent-primary);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.stats-headline-label {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+}
+
 /* Stats Section - Horizontal Flow Layout */
 .stats-section {
     background: var(--bg-secondary);

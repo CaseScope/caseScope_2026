@@ -1,6 +1,19 @@
 {
-  "version": "3.127.00",
+  "version": "3.128.00",
   "changelog": [
+    {
+      "version": "3.128.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Enhancement: Case Statistics tile now includes Network Logs section (Zeek indexed data)",
+        "Enhancement: Case Statistics tile now includes Evidence Files section (archival files)",
+        "Enhancement: Added headline stats banner showing Total Events, Files, IOCs, and Systems at a glance",
+        "Enhancement: Sections auto-hide when no data present for cleaner display",
+        "Enhancement: Reorganized statistics layout for better clarity and professional presentation",
+        "Fix: Network log counts now properly pulled from ClickHouse network_logs table",
+        "Fix: Evidence file counts and sizes now included in case statistics"
+      ]
+    },
     {
       "version": "3.127.00",
       "date": "2026-01-21",
