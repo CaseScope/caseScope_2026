@@ -5027,7 +5027,7 @@ def update_ioc(ioc_id):
             return jsonify({'success': False, 'error': 'Field name required'}), 400
         
         # Allowed fields to update
-        allowed_fields = ['notes', 'malicious', 'false_positive', 'active', 'aliases', 'match_type']
+        allowed_fields = ['notes', 'malicious', 'false_positive', 'active', 'hidden', 'aliases', 'match_type']
         if field_name not in allowed_fields:
             return jsonify({'success': False, 'error': f'Cannot update field: {field_name}'}), 400
         

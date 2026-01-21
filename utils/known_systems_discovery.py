@@ -1026,9 +1026,9 @@ def add_share_to_system(system_id: int, share_name: str, share_path: str, userna
 def update_system_field(system_id: int, field_name: str, new_value, username: str) -> bool:
     """Update a system field with audit logging
     
-    Allowed fields: os_type, os_version, system_type, notes, compromised
+    Allowed fields: os_type, os_version, system_type, notes, compromised, hidden
     """
-    allowed_fields = ['os_type', 'os_version', 'system_type', 'notes', 'compromised']
+    allowed_fields = ['os_type', 'os_version', 'system_type', 'notes', 'compromised', 'hidden']
     
     if field_name not in allowed_fields:
         return False

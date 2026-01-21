@@ -695,9 +695,9 @@ def add_alias_to_user(user_id: int, alias: str, changed_by: str) -> bool:
 def update_user_field(user_id: int, field_name: str, new_value, changed_by: str) -> bool:
     """Update a user field with audit logging
     
-    Allowed fields: username, sid, email, notes, compromised
+    Allowed fields: username, sid, email, notes, compromised, hidden
     """
-    allowed_fields = ['username', 'sid', 'email', 'notes', 'compromised']
+    allowed_fields = ['username', 'sid', 'email', 'notes', 'compromised', 'hidden']
     
     if field_name not in allowed_fields:
         return False
