@@ -61,7 +61,7 @@
                 <span class="tab-text">Logging</span>
             </a>
             {% endif %}
-            {% if can_view_audit %}
+            {% if is_admin %}
             <a href="{{ url_for('main.settings', tab='audit') }}" 
                class="settings-tab {{ 'active' if active_tab == 'audit' else '' }}">
                 <span class="tab-icon">🔍</span>
@@ -2886,12 +2886,11 @@
                         </div>
                         
                         <div class="form-group">
-                            <label class="form-label">Audit Log Viewer Access</label>
-                            <select id="auditViewPermission" class="form-input">
-                                <option value="administrator">Administrators Only</option>
-                                <option value="analyst">Analysts and Above</option>
-                            </select>
-                            <span class="form-help">Who can view the forensic audit log</span>
+                            <label class="form-label">Audit Log Access</label>
+                            <div class="form-static-value" style="padding: 8px 12px; background: var(--bg-secondary); border-radius: 6px; display: flex; align-items: center; gap: 8px;">
+                                <span class="badge badge-info">🔒 Administrators Only</span>
+                            </div>
+                            <span class="form-help">Forensic audit log is immutable and restricted to administrators for chain of custody</span>
                         </div>
                     </div>
                     
@@ -2982,7 +2981,6 @@
             document.getElementById('logPath').value = loggingSettings.log_path;
             document.getElementById('logRetentionDays').value = loggingSettings.log_retention_days;
             document.getElementById('logMaxSizeMb').value = loggingSettings.log_max_size_mb;
-            document.getElementById('auditViewPermission').value = loggingSettings.audit_view_permission;
         }
         
         function renderLogFiles(logInfo) {
@@ -3056,8 +3054,7 @@
                 log_level: document.getElementById('logLevel').value,
                 log_path: document.getElementById('logPath').value,
                 log_retention_days: parseInt(document.getElementById('logRetentionDays').value),
-                log_max_size_mb: parseInt(document.getElementById('logMaxSizeMb').value),
-                audit_view_permission: document.getElementById('auditViewPermission').value
+                log_max_size_mb: parseInt(document.getElementById('logMaxSizeMb').value)
             };
             
             status.style.display = 'block';

@@ -102,12 +102,7 @@
                     <span class="nav-item-icon">👥</span>
                     <span class="nav-item-text">Users</span>
                 </a>
-                {% if current_user.is_administrator or current_user.is_analyst %}
-                <a href="{{ url_for('main.logs') }}" class="nav-item {{ 'active' if page_title == 'Logs' else '' }}">
-                    <span class="nav-item-icon">📜</span>
-                    <span class="nav-item-text">Logs</span>
-                </a>
-                {% endif %}
+                {# Logs menu removed - audit log is now in Settings (admin only) #}
             </nav>
         </aside>
 

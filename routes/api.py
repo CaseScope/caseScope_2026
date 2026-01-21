@@ -6967,17 +6967,8 @@ def set_logging_settings():
             except (ValueError, TypeError):
                 return jsonify({'success': False, 'error': 'Invalid max size value'}), 400
         
-        # Validate and save audit view permission
-        if 'audit_view_permission' in data:
-            perm = data['audit_view_permission'].lower()
-            if perm not in ['administrator', 'analyst']:
-                return jsonify({'success': False, 'error': 'Invalid permission level'}), 400
-            
-            old_value = SystemSettings.get(SettingKeys.AUDIT_VIEW_PERMISSION, 'administrator')
-            if old_value != perm:
-                SystemSettings.set(SettingKeys.AUDIT_VIEW_PERMISSION, perm, 
-                                 value_type='string', updated_by=current_user.username)
-                audit_setting_change('audit_view_permission', old_value, perm)
+        # Note: audit_view_permission removed - audit log is now always admin-only
+        # for forensic chain of custody protection
         
         # Invalidate cache and ensure directories exist
         invalidate_settings_cache()
@@ -7093,15 +7084,14 @@ def get_case_logs(case_uuid):
 @api_bp.route('/audit-log', methods=['GET'])
 @login_required
 def get_audit_log():
-    """Get audit log entries with filtering"""
-    from models.system_settings import SystemSettings, SettingKeys
+    """Get audit log entries with filtering
     
-    # Check permission
-    audit_permission = SystemSettings.get(SettingKeys.AUDIT_VIEW_PERMISSION, 'administrator')
-    if audit_permission == 'administrator' and not current_user.is_administrator:
+    Note: This endpoint is restricted to administrators only.
+    The audit log is an immutable forensic trail that must be protected.
+    """
+    # Admin-only access - audit trail is sensitive forensic data
+    if not current_user.is_administrator:
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
-    elif audit_permission == 'analyst' and current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Analyst access required'}), 403
     
     try:
         from models.audit_log import AuditLog, AuditEntityType, AuditAction

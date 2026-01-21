@@ -723,24 +723,21 @@ def settings():
     """System Settings page
     
     Tab permissions:
-    - General, AI, Integrations, Logging: administrators only
+    - General, AI, Integrations, Logging, Audit: administrators only
     - EVTX/SIGMA, Noise: analyst or administrator
-    - Audit: based on audit_view_permission setting
+    
+    Note: Audit tab is admin-only to protect the immutable forensic audit trail.
     """
     from models.system_settings import SystemSettings, SettingKeys
     
     tab = request.args.get('tab', None)
     
-    # Define tab permissions
-    admin_only_tabs = ['general', 'ai', 'integrations', 'logging']
+    # Define tab permissions - audit is now admin-only (immutable forensic trail)
+    admin_only_tabs = ['general', 'ai', 'integrations', 'logging', 'audit']
     analyst_tabs = ['evtx', 'noise']  # Accessible by analyst or admin
     
     # Determine accessible tabs based on user role
     is_admin = current_user.is_administrator
-    
-    # Check audit tab permission based on setting
-    audit_permission = SystemSettings.get(SettingKeys.AUDIT_VIEW_PERMISSION, 'administrator')
-    can_view_audit = is_admin or (audit_permission == 'analyst' and current_user.is_analyst)
     
     # Set default tab based on user role
     if tab is None:
@@ -749,8 +746,6 @@ def settings():
     # Check tab permission
     tab_denied = False
     if tab in admin_only_tabs and not is_admin:
-        tab_denied = True
-    elif tab == 'audit' and not can_view_audit:
         tab_denied = True
     
     # Get AI settings for the AI tab
@@ -762,6 +757,5 @@ def settings():
                            active_tab=tab,
                            tab_denied=tab_denied,
                            is_admin=is_admin,
-                           can_view_audit=can_view_audit,
                            ai_enabled=ai_enabled,
                            ai_default_model=ai_default_model)
