@@ -1,6 +1,17 @@
 {
-  "version": "3.126.01",
+  "version": "3.127.00",
   "changelog": [
+    {
+      "version": "3.127.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Audit logging now active for user, auth, and case operations",
+        "Feature: Login/logout tracked with IP address capture",
+        "Feature: User profile and password changes tracked with before/after values",
+        "Feature: Case creation and updates tracked with full change history",
+        "Feature: Admin user management operations fully audited"
+      ]
+    },
     {
       "version": "3.126.01",
       "date": "2026-01-21",
