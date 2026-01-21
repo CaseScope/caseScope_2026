@@ -108,6 +108,21 @@
     </div>
 </div>
 
+<!-- Description Section -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">📝</span>
+        <span class="card-title">Description</span>
+    </div>
+    <div class="card-body" style="padding: 20px;">
+        {% if case.description %}
+            <div class="description-content">{{ case.description }}</div>
+        {% else %}
+            <p class="text-muted">No description provided for this case.</p>
+        {% endif %}
+    </div>
+</div>
+
 <!-- Case Statistics Section -->
 <div class="card" id="case-statistics-card">
     <div class="card-header">
@@ -341,21 +356,6 @@
         <div id="stats-error" style="display: none; padding: 20px;" class="text-danger text-center">
             Failed to load statistics
         </div>
-    </div>
-</div>
-
-<!-- Description Section -->
-<div class="card">
-    <div class="card-header">
-        <span class="card-icon">📝</span>
-        <span class="card-title">Description</span>
-    </div>
-    <div class="card-body" style="padding: 20px;">
-        {% if case.description %}
-            <div class="description-content">{{ case.description }}</div>
-        {% else %}
-            <p class="text-muted">No description provided for this case.</p>
-        {% endif %}
     </div>
 </div>
 
