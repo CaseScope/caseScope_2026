@@ -13,6 +13,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 
+from config import Config
 from models.database import db
 from models.case import Case
 
