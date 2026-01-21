@@ -2035,6 +2035,10 @@ function showEventDetail(index) {
     currentEventHasIOC = event.ioc_types && event.ioc_types.length > 0;
     console.log('IOC Debug - Event IOC types:', event.ioc_types, 'Has IOC:', currentEventHasIOC, 'IOC values count:', caseIOCValues.length);
     
+    // Parse search terms for highlighting in modal
+    currentSearchTerms = parseSearchTerms(eventsSearch);
+    console.log('Search Debug - Current search:', eventsSearch, 'Parsed terms:', currentSearchTerms);
+    
     // Update modal title with event type and timestamp
     document.getElementById('event-modal-title').textContent = 
         `${event.artifact_type.toUpperCase()} Event - ${event.timestamp}`;
@@ -2066,6 +2070,7 @@ function closeEventModal(e) {
     document.body.style.overflow = '';
     currentModalEvent = null;
     rawDataLoaded = false;
+    currentSearchTerms = [];
 }
 
 // Switch between modal tabs
@@ -2323,8 +2328,8 @@ function buildTreeNode(data, key, isRoot = false, path = '') {
         // For very long strings (>1000 chars), make them expandable
         if (data.length > 1000) {
             const preview = data.substring(0, 500);
-            const previewHighlighted = currentEventHasIOC ? highlightIOCsInText(preview) : escapeHtml(preview);
-            const fullHighlighted = currentEventHasIOC ? highlightIOCsInText(data) : escapeHtml(data);
+            const previewHighlighted = highlightAllInText(preview);
+            const fullHighlighted = highlightAllInText(data);
             const nodeId = `str-${Math.random().toString(36).substr(2, 9)}`;
             return `
                 <span class="tree-value tree-string tree-long-string" id="${nodeId}">
@@ -2333,7 +2338,7 @@ function buildTreeNode(data, key, isRoot = false, path = '') {
                     <button class="btn-expand-string" onclick="toggleLongString('${nodeId}')">[${data.length} chars - click to expand]</button>
                 </span>`;
         }
-        const highlighted = currentEventHasIOC ? highlightIOCsInText(data) : escapeHtml(data);
+        const highlighted = highlightAllInText(data);
         return `<span class="tree-value tree-string">"${highlighted}"</span>`;
     }
     
@@ -2634,6 +2639,13 @@ function buildProcessNode(proc, level, hostname) {
         </div>
     ` : '';
     
+    // Apply search term + IOC highlighting to process details
+    const highlightedName = highlightAllInText(proc.name || 'Unknown');
+    const highlightedPath = proc.path ? highlightAllInText(proc.path) : '';
+    const highlightedCmdline = proc.cmdline ? highlightAllInText(proc.cmdline.length > 150 ? proc.cmdline.substring(0, 150) + '...' : proc.cmdline) : '';
+    const highlightedMd5 = proc.md5 ? highlightAllInText(proc.md5) : '';
+    const highlightedSigner = proc.sig_subject ? highlightAllInText(proc.sig_subject) : '';
+    
     return `
         <div class="process-node ${levelClass}">
             <div class="process-node-header">
@@ -2642,12 +2654,12 @@ function buildProcessNode(proc, level, hostname) {
                 ${proc.sig_valid === false ? '<span class="sig-badge sig-invalid">✗ Invalid Sig</span>' : ''}
             </div>
             <div class="process-node-body">
-                <div class="process-node-name">${escapeHtml(proc.name || 'Unknown')}</div>
+                <div class="process-node-name">${highlightedName}</div>
                 ${proc.pid ? `<div class="process-node-pid">PID: ${proc.pid}</div>` : ''}
-                ${proc.path ? `<div class="process-node-path">${escapeHtml(proc.path)}</div>` : ''}
-                ${proc.cmdline ? `<div class="process-node-cmdline">${escapeHtml(proc.cmdline.length > 150 ? proc.cmdline.substring(0, 150) + '...' : proc.cmdline)}</div>` : ''}
-                ${proc.md5 ? `<div class="process-node-hash">MD5: ${escapeHtml(proc.md5)}</div>` : ''}
-                ${proc.sig_subject ? `<div class="process-node-sig">Signer: ${escapeHtml(proc.sig_subject)}</div>` : ''}
+                ${proc.path ? `<div class="process-node-path">${highlightedPath}</div>` : ''}
+                ${proc.cmdline ? `<div class="process-node-cmdline">${highlightedCmdline}</div>` : ''}
+                ${proc.md5 ? `<div class="process-node-hash">MD5: ${highlightedMd5}</div>` : ''}
+                ${proc.sig_subject ? `<div class="process-node-sig">Signer: ${highlightedSigner}</div>` : ''}
             </div>
             ${actionsHtml}
         </div>
@@ -2818,12 +2830,18 @@ function buildInteractiveTreeNode(proc, hostname, depth) {
         sha256: proc.sha256 || proc.file_hash_sha256 || ''
     })));
     
+    // Apply search term + IOC highlighting
+    const highlightedName = highlightAllInText(proc.process_name || 'Unknown');
+    const highlightedCmdline = proc.command_line 
+        ? highlightAllInText(proc.command_line.length > 200 ? proc.command_line.substring(0, 200) + '...' : proc.command_line) 
+        : '';
+    
     return `
         <div class="tree-node-interactive" id="${nodeId}" style="margin-left: ${indent}px;">
             <div class="tree-node-row">
                 ${hasChildren ? `<button class="tree-expand-btn" onclick="toggleTreeChildren('${nodeId}', '${escapeHtml(hostname)}', ${proc.pid}, '${escapeHtml(proc.process_name)}')">▶</button>` : '<span class="tree-expand-placeholder"></span>'}
                 <span class="tree-node-icon">📦</span>
-                <span class="tree-node-name">${escapeHtml(proc.process_name || 'Unknown')}</span>
+                <span class="tree-node-name">${highlightedName}</span>
                 <span class="tree-node-pid">PID: ${proc.pid || '-'}</span>
                 <span class="tree-node-time">${proc.timestamp || ''}</span>
                 <div class="tree-node-actions-inline">
@@ -2833,7 +2851,7 @@ function buildInteractiveTreeNode(proc, hostname, depth) {
                     <button class="btn-xs" onclick="openProcessAddIOCModalFromB64('${procDataForIOC}')" title="Add as IOC">➕</button>
                 </div>
             </div>
-            ${proc.command_line ? `<div class="tree-node-cmdline">${escapeHtml(proc.command_line.length > 200 ? proc.command_line.substring(0, 200) + '...' : proc.command_line)}</div>` : ''}
+            ${proc.command_line ? `<div class="tree-node-cmdline">${highlightedCmdline}</div>` : ''}
             <div class="tree-children" style="display: none;"></div>
         </div>
     `;
@@ -2945,6 +2963,201 @@ function highlightIOCsInText(text) {
     for (const m of merged) {
         result += escapeHtml(textStr.substring(lastEnd, m.start));
         result += `<span class="ioc-highlight">${escapeHtml(m.text)}</span>`;
+        lastEnd = m.end;
+    }
+    result += escapeHtml(textStr.substring(lastEnd));
+    
+    return result;
+}
+
+// ============================================
+// Search Term Highlighting Functions
+// ============================================
+
+// Parsed search terms for current modal (set when modal opens)
+let currentSearchTerms = [];
+
+// Parse search query into individual terms for highlighting
+// Handles: AND (space), OR (|), exclusions (-term), field syntax (field:value)
+function parseSearchTerms(query) {
+    if (!query || typeof query !== 'string') return [];
+    
+    const terms = [];
+    const queryTrimmed = query.trim();
+    if (!queryTrimmed) return [];
+    
+    // Split by OR groups first, then process each group
+    // Handle both (group1)|(group2) and simple term1|term2
+    const orGroups = queryTrimmed.split(/\|/).map(g => g.trim().replace(/^\(|\)$/g, ''));
+    
+    for (const group of orGroups) {
+        if (!group) continue;
+        
+        // Match quoted strings and individual words
+        // Pattern: "quoted string" or field:value or -excluded or plain_word
+        const tokenRegex = /"([^"]+)"|(\S+)/g;
+        let match;
+        
+        while ((match = tokenRegex.exec(group)) !== null) {
+            let term = match[1] || match[2]; // Quoted or unquoted
+            if (!term) continue;
+            
+            // Skip excluded terms (start with -)
+            if (term.startsWith('-')) continue;
+            
+            // Handle field:value syntax - extract just the value part
+            if (term.includes(':') && !term.startsWith(':')) {
+                const colonIndex = term.indexOf(':');
+                const fieldName = term.substring(0, colonIndex).toLowerCase();
+                const fieldValue = term.substring(colonIndex + 1);
+                
+                // Common field prefixes to strip
+                const knownFields = ['eventid', 'host', 'user', 'process', 'cmd', 'channel', 'provider', 'logontype', 'keylength', 'src', 'dst', 'port'];
+                if (knownFields.includes(fieldName) && fieldValue) {
+                    term = fieldValue;
+                }
+            }
+            
+            // Skip very short terms (less than 2 chars) to avoid noise
+            if (term.length >= 2) {
+                terms.push(term);
+            }
+        }
+    }
+    
+    // Remove duplicates (case-insensitive)
+    const seen = new Set();
+    return terms.filter(t => {
+        const lower = t.toLowerCase();
+        if (seen.has(lower)) return false;
+        seen.add(lower);
+        return true;
+    });
+}
+
+// Highlight search term matches in text (returns HTML with amber spans)
+function highlightSearchTermInText(text) {
+    if (!text || !currentSearchTerms.length) return escapeHtml(String(text));
+    
+    const textStr = String(text);
+    const textLower = textStr.toLowerCase();
+    
+    // Find all matches with their positions
+    const matches = [];
+    
+    for (const term of currentSearchTerms) {
+        if (!term || typeof term !== 'string' || term.length < 2) continue;
+        
+        const termLower = term.toLowerCase();
+        let pos = 0;
+        while ((pos = textLower.indexOf(termLower, pos)) !== -1) {
+            matches.push({
+                start: pos,
+                end: pos + term.length,
+                text: textStr.substring(pos, pos + term.length)
+            });
+            pos += 1;
+        }
+    }
+    
+    if (matches.length === 0) return escapeHtml(textStr);
+    
+    // Sort by start position, merge overlapping ranges
+    matches.sort((a, b) => a.start - b.start);
+    const merged = [matches[0]];
+    for (let i = 1; i < matches.length; i++) {
+        const last = merged[merged.length - 1];
+        if (matches[i].start <= last.end) {
+            last.end = Math.max(last.end, matches[i].end);
+            last.text = textStr.substring(last.start, last.end);
+        } else {
+            merged.push(matches[i]);
+        }
+    }
+    
+    // Build result with highlights
+    let result = '';
+    let lastEnd = 0;
+    for (const m of merged) {
+        result += escapeHtml(textStr.substring(lastEnd, m.start));
+        result += `<span class="search-highlight">${escapeHtml(m.text)}</span>`;
+        lastEnd = m.end;
+    }
+    result += escapeHtml(textStr.substring(lastEnd));
+    
+    return result;
+}
+
+// Combined highlighting: applies both IOC and search term highlighting
+// IOC highlighting takes visual precedence when overlapping
+function highlightAllInText(text, skipIOC = false) {
+    if (!text) return '';
+    
+    const textStr = String(text);
+    const hasIOC = currentEventHasIOC && caseIOCValues.length > 0;
+    const hasSearch = currentSearchTerms.length > 0;
+    
+    if (!hasIOC && !hasSearch) return escapeHtml(textStr);
+    
+    // If only one type, use the simpler function
+    if (hasIOC && !hasSearch) return skipIOC ? escapeHtml(textStr) : highlightIOCsInText(textStr);
+    if (hasSearch && !hasIOC) return highlightSearchTermInText(textStr);
+    if (skipIOC) return highlightSearchTermInText(textStr);
+    
+    // Both IOC and search highlighting needed - collect all matches
+    const textLower = textStr.toLowerCase();
+    const matches = [];
+    
+    // Collect IOC matches (priority: 'ioc')
+    for (const ioc of caseIOCValues) {
+        if (!ioc || typeof ioc !== 'string' || ioc.length < 2) continue;
+        const iocLower = ioc.toLowerCase();
+        let pos = 0;
+        while ((pos = textLower.indexOf(iocLower, pos)) !== -1) {
+            matches.push({ start: pos, end: pos + ioc.length, type: 'ioc' });
+            pos += 1;
+        }
+    }
+    
+    // Collect search matches (priority: 'search')
+    for (const term of currentSearchTerms) {
+        if (!term || typeof term !== 'string' || term.length < 2) continue;
+        const termLower = term.toLowerCase();
+        let pos = 0;
+        while ((pos = textLower.indexOf(termLower, pos)) !== -1) {
+            matches.push({ start: pos, end: pos + term.length, type: 'search' });
+            pos += 1;
+        }
+    }
+    
+    if (matches.length === 0) return escapeHtml(textStr);
+    
+    // Sort by start position, merge overlapping (IOC takes precedence)
+    matches.sort((a, b) => a.start - b.start || (a.type === 'ioc' ? -1 : 1));
+    
+    const merged = [];
+    for (const m of matches) {
+        if (merged.length === 0) {
+            merged.push({ start: m.start, end: m.end, type: m.type });
+        } else {
+            const last = merged[merged.length - 1];
+            if (m.start < last.end) {
+                // Overlapping - extend and keep IOC type if either is IOC
+                last.end = Math.max(last.end, m.end);
+                if (m.type === 'ioc') last.type = 'ioc';
+            } else {
+                merged.push({ start: m.start, end: m.end, type: m.type });
+            }
+        }
+    }
+    
+    // Build result with appropriate highlights
+    let result = '';
+    let lastEnd = 0;
+    for (const m of merged) {
+        result += escapeHtml(textStr.substring(lastEnd, m.start));
+        const cls = m.type === 'ioc' ? 'ioc-highlight' : 'search-highlight';
+        result += `<span class="${cls}">${escapeHtml(textStr.substring(m.start, m.end))}</span>`;
         lastEnd = m.end;
     }
     result += escapeHtml(textStr.substring(lastEnd));
@@ -3288,9 +3501,7 @@ function buildEventDetailHTML(event) {
         
         // Command line gets its own full-width section if present
         if (event.command_line) {
-            const cmdDisplay = currentEventHasIOC 
-                ? highlightIOCsInText(event.command_line)
-                : escapeHtml(event.command_line);
+            const cmdDisplay = highlightAllInText(event.command_line);
             html += `
                 <div class="event-detail-section full-width">
                     <h4>💻 Command Line</h4>
@@ -3456,10 +3667,10 @@ function detailRow(label, value, skipHighlight = false) {
         `;
     }
     
-    // Use IOC highlighting if current event has IOC matches (unless skipped)
-    const displayValue = (currentEventHasIOC && !skipHighlight)
-        ? highlightIOCsInText(String(value))
-        : escapeHtml(String(value));
+    // Use combined IOC + search term highlighting (unless skipped)
+    const displayValue = skipHighlight
+        ? escapeHtml(String(value))
+        : highlightAllInText(String(value), false);
     
     return `
         <div class="event-detail-row">

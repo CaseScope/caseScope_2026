@@ -6900,6 +6900,21 @@ input:checked + .slider:before {
   border-radius: 2px;
 }
 
+/* Search term highlighting in event modal */
+.search-highlight {
+  color: #f59e0b;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* When both IOC and search match, IOC takes precedence (applied via JS order) */
+.search-highlight.ioc-highlight {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+}
+
 /* ========================================
    Analyst Tagging Styles
    ======================================== */

@@ -1,6 +1,16 @@
 {
-  "version": "3.122.04",
+  "version": "3.123.00",
   "changelog": [
+    {
+      "version": "3.123.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Search term highlighting in event detail modal",
+        "Highlight: Search terms highlighted in amber across all tabs (Info, Raw Data, Process Analysis)",
+        "Highlight: Works alongside existing IOC highlighting (IOC in red, search in amber)",
+        "Highlight: Parses complex search syntax including OR groups, field:value, and exclusions"
+      ]
+    },
     {
       "version": "3.122.04",
       "date": "2026-01-20",
