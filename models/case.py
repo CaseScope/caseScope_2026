@@ -116,6 +116,9 @@ class Case(db.Model):
     assigned_to = db.Column(db.String(80), nullable=True, index=True)  # Username assigned to
     assigned_at = db.Column(db.DateTime, nullable=True)  # When assignment was made
     
+    # Noise detection tracking
+    noise_last_scan = db.Column(db.DateTime, nullable=True)  # Last noise scan timestamp
+    
     def __repr__(self):
         return f'<Case {self.uuid}: {self.name}>'
     

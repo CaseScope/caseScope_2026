@@ -183,6 +183,14 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             'status': 'Completed'
         })
         
+        # Update case with last scan timestamp
+        from models.case import Case
+        from models.database import db
+        case = Case.query.get(case_id)
+        if case:
+            case.noise_last_scan = datetime.utcnow()
+            db.session.commit()
+        
         result = {
             'success': True,
             'total_events': total_events,

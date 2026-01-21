@@ -6388,13 +6388,17 @@ def get_noise_stats(case_id):
         )
         total_count = total_result.result_rows[0][0] if total_result.result_rows else 0
         
+        # Get last scan time from case metadata
+        case = Case.query.get(case_id)
+        last_scan = case.noise_last_scan.isoformat() if case and case.noise_last_scan else None
+        
         return jsonify({
             'success': True,
             'case_id': case_id,
             'noise_count': noise_count,
             'total_count': total_count,
             'noise_percentage': round((noise_count / total_count * 100), 2) if total_count > 0 else 0,
-            'last_scan': None  # TODO: Track last scan time in case metadata
+            'last_scan': last_scan
         })
         
     except Exception as e:
