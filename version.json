@@ -1,6 +1,27 @@
 {
-  "version": "3.128.01",
+  "version": "3.130.00",
   "changelog": [
+    {
+      "version": "3.130.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Hidden field added to Known Systems, Known Users, and IOCs for report exclusion",
+        "Feature: Hidden toggle slider in edit modals for all three entity types",
+        "Feature: Hidden badge displayed in listing tables when items are marked hidden"
+      ]
+    },
+    {
+      "version": "3.129.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Report template system for AI-powered Word document generation",
+        "Feature: Admin Reports tab in Settings for template management",
+        "Feature: Template scanner discovers .docx files in /static/templates/report_templates/",
+        "Feature: Configurable display names, descriptions, and default template selection",
+        "Feature: Report generation API with Jinja2 placeholder substitution",
+        "Feature: Generated reports stored in /storage/{case_uuid}/reports/"
+      ]
+    },
     {
       "version": "3.128.01",
       "date": "2026-01-21",
