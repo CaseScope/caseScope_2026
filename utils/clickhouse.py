@@ -230,6 +230,42 @@ def search_events(case_id, search_term, limit=500):
     )
 
 
+def delete_file_events(case_file_id):
+    """Delete all events for a specific case file
+    
+    Uses ALTER TABLE DELETE for MergeTree tables.
+    Note: This is an async operation in ClickHouse.
+    
+    Args:
+        case_file_id: The case_file_id to delete events for
+    
+    Returns:
+        True if delete command was issued
+    """
+    client = get_client()
+    client.command(
+        f"ALTER TABLE events DELETE WHERE case_file_id = {case_file_id}"
+    )
+    return True
+
+
+def count_file_events(case_file_id):
+    """Get event count for a specific case file
+    
+    Args:
+        case_file_id: The case_file_id to count
+    
+    Returns:
+        Integer count of events
+    """
+    client = get_client()
+    result = client.query(
+        "SELECT count() FROM events WHERE case_file_id = {case_file_id:UInt32}",
+        parameters={'case_file_id': case_file_id}
+    )
+    return result.result_rows[0][0] if result.result_rows else 0
+
+
 def health_check():
     """Check ClickHouse connectivity
     

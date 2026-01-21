@@ -6,19 +6,17 @@ from models.database import db
 class FileAction:
     """File action types for audit logging"""
     DELETED_DUPLICATE = 'deleted_duplicate'  # True duplicate (same filename + hash) deleted
-    # Future actions can be added here:
-    # UPLOADED = 'uploaded'
-    # MOVED = 'moved'
-    # DELETED_MANUAL = 'deleted_manual'
+    DELETED_MANUAL = 'deleted_manual'  # Manually deleted by administrator
     
     @classmethod
     def all(cls):
-        return [cls.DELETED_DUPLICATE]
+        return [cls.DELETED_DUPLICATE, cls.DELETED_MANUAL]
     
     @classmethod
     def choices(cls):
         return [
             (cls.DELETED_DUPLICATE, 'Deleted (Duplicate)'),
+            (cls.DELETED_MANUAL, 'Deleted (Manual)'),
         ]
 
 

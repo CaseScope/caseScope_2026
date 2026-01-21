@@ -139,11 +139,14 @@
                         <th>Uploaded</th>
                         <th>Artifacts</th>
                         <th>Status</th>
+                        {% if current_user.permission_level == 'administrator' %}
+                        <th style="width: 70px; text-align: center;">Actions</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="file-tbody">
                     <tr>
-                        <td colspan="8" class="text-center text-muted" style="padding: 40px;">
+                        <td colspan="{{ 9 if current_user.permission_level == 'administrator' else 8 }}" class="text-center text-muted" style="padding: 40px;">
                             Loading files...
                         </td>
                     </tr>
@@ -191,11 +194,44 @@
         </div>
     </div>
 </div>
+
+{% if current_user.permission_level == 'administrator' %}
+<!-- Delete File Confirmation Modal -->
+<div class="modal-overlay" id="deleteFileModal" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Delete File</h3>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to <strong class="text-danger">permanently delete</strong> this file?</p>
+            <div style="background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 16px 0;">
+                <strong id="deleteFileName">-</strong>
+                <div class="text-muted text-small" id="deleteFileInfo">-</div>
+            </div>
+            <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+            <ul class="text-muted" style="margin: 16px 0; padding-left: 20px;">
+                <li>All indexed events will be deleted from ClickHouse</li>
+                <li>The file will be removed from disk</li>
+                <li>Database records will be permanently removed</li>
+                <li>Any extracted child files will also be deleted</li>
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+            <button class="btn btn-danger" id="deleteConfirmBtn" onclick="confirmDeleteFile()">
+                <span>🗑️ Delete File</span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 const caseUuid = '{{ case.uuid }}';
+const isAdmin = {{ 'true' if current_user.permission_level == 'administrator' else 'false' }};
+const colSpan = isAdmin ? 9 : 8;
 let currentPage = 1;
 let perPage = 25;
 let searchQuery = '';
@@ -204,6 +240,7 @@ let statsInterval = null;
 let progressInterval = null;
 let lastProcessedCount = -1;  // Track for detecting file completions
 let wasProcessing = false;    // Track if we were previously processing
+let deleteFileId = null;      // Track file to delete
 
 // Format file size
 function formatSize(bytes) {
@@ -461,13 +498,15 @@ function renderFileTable(files) {
     if (files.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" class="text-center text-muted" style="padding: 40px;">
+                <td colspan="${colSpan}" class="text-center text-muted" style="padding: 40px;">
                     ${searchQuery ? 'No files match your search' : 'No files found. Upload files to get started.'}
                 </td>
             </tr>
         `;
         return;
     }
+    
+    const deleteColumn = isAdmin ? '<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, \'${escapeHtml(f.filename)}\', ${f.events_indexed})" title="Delete file">🗑️</button></td>' : '';
     
     tbody.innerHTML = files.map(f => `
         <tr class="file-row" data-file-id="${f.id}" title="${f.error_message || ''}">
@@ -479,6 +518,7 @@ function renderFileTable(files) {
             <td>${f.uploaded_at}</td>
             <td class="artifacts-cell">${f.events_indexed > 0 ? f.events_indexed.toLocaleString() : '-'}</td>
             <td>${getCombinedStatusBadge(f.status, f.ingestion_status)}</td>
+            ${isAdmin ? `<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, '${escapeHtml(f.filename)}', ${f.events_indexed})" title="Delete file">🗑️</button></td>` : ''}
         </tr>
     `).join('');
 }
@@ -512,11 +552,22 @@ function showError(message) {
     const tbody = document.getElementById('file-tbody');
     tbody.innerHTML = `
         <tr>
-            <td colspan="8" class="text-center text-danger" style="padding: 40px;">
+            <td colspan="${colSpan}" class="text-center text-danger" style="padding: 40px;">
                 ${message}
             </td>
         </tr>
     `;
+}
+
+// Escape HTML to prevent XSS in filenames
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 // Pagination functions
@@ -711,6 +762,59 @@ function deleteOrphans() {
     .catch(err => {
         console.error('Delete error:', err);
         actions.innerHTML = '<span class="text-danger">Error: ' + err.message + '</span>';
+    });
+}
+
+// ========================================
+// Delete File Functions (Admin Only)
+// ========================================
+
+function showDeleteModal(fileId, filename, eventsCount) {
+    if (!isAdmin) return;
+    
+    deleteFileId = fileId;
+    document.getElementById('deleteFileName').textContent = filename;
+    document.getElementById('deleteFileInfo').textContent = 
+        eventsCount > 0 ? eventsCount.toLocaleString() + ' indexed events' : 'No indexed events';
+    document.getElementById('deleteFileModal').style.display = 'flex';
+    document.getElementById('deleteConfirmBtn').disabled = false;
+    document.getElementById('deleteConfirmBtn').innerHTML = '<span>🗑️ Delete File</span>';
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteFileModal').style.display = 'none';
+    deleteFileId = null;
+}
+
+function confirmDeleteFile() {
+    if (!deleteFileId || !isAdmin) return;
+    
+    const confirmBtn = document.getElementById('deleteConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+    
+    fetch('/api/files/delete/' + deleteFileId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeDeleteModal();
+            // Refresh the file list and stats
+            loadFiles();
+            loadStats();
+        } else {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<span>🗑️ Delete File</span>';
+            alert('Error deleting file: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('Delete error:', err);
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<span>🗑️ Delete File</span>';
+        alert('Error deleting file: ' + err.message);
     });
 }
 </script>

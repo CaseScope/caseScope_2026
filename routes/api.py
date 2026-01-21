@@ -1800,6 +1800,123 @@ def delete_staging_orphans(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/files/delete/<int:file_id>', methods=['POST'])
+@login_required
+def delete_case_file(file_id):
+    """Delete a case file and all associated data
+    
+    This endpoint:
+    - Deletes all events from ClickHouse for this file
+    - Deletes child files (extracted from archives) and their events
+    - Removes the file from disk
+    - Removes the CaseFile record from PostgreSQL
+    - Logs the deletion in the audit log
+    
+    Only available to administrators.
+    """
+    try:
+        from utils.clickhouse import delete_file_events, count_file_events
+        from models.file_audit_log import FileAuditLog
+        
+        # Check admin permission
+        if current_user.permission_level != 'administrator':
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        # Get the file record
+        case_file = CaseFile.query.get(file_id)
+        if not case_file:
+            return jsonify({'success': False, 'error': 'File not found'}), 404
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_file.case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Collect stats for response
+        deleted_stats = {
+            'file_id': file_id,
+            'filename': case_file.filename,
+            'events_deleted': 0,
+            'child_files_deleted': 0,
+            'disk_file_deleted': False
+        }
+        
+        # Get count of events before deletion
+        try:
+            deleted_stats['events_deleted'] = count_file_events(file_id)
+        except Exception as e:
+            logger.warning(f"Could not count events for file {file_id}: {e}")
+        
+        # Delete events from ClickHouse for this file
+        try:
+            delete_file_events(file_id)
+            logger.info(f"Deleted ClickHouse events for file_id={file_id}")
+        except Exception as e:
+            logger.error(f"Failed to delete ClickHouse events for file_id={file_id}: {e}")
+            # Continue with deletion even if ClickHouse fails
+        
+        # Handle child files (extracted from archives)
+        child_files = CaseFile.query.filter_by(parent_id=file_id).all()
+        for child in child_files:
+            try:
+                # Delete child's events from ClickHouse
+                delete_file_events(child.id)
+                logger.info(f"Deleted ClickHouse events for child file_id={child.id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete ClickHouse events for child file {child.id}: {e}")
+            
+            # Delete child file from disk
+            if child.file_path and os.path.exists(child.file_path):
+                try:
+                    os.remove(child.file_path)
+                    logger.info(f"Deleted child file from disk: {child.file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete child file {child.file_path}: {e}")
+            
+            # Delete child record from database
+            db.session.delete(child)
+            deleted_stats['child_files_deleted'] += 1
+        
+        # Delete the file from disk
+        if case_file.file_path and os.path.exists(case_file.file_path):
+            try:
+                os.remove(case_file.file_path)
+                deleted_stats['disk_file_deleted'] = True
+                logger.info(f"Deleted file from disk: {case_file.file_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete file from disk {case_file.file_path}: {e}")
+        
+        # Log the deletion in audit log
+        audit_entry = FileAuditLog(
+            case_uuid=case_file.case_uuid,
+            filename=case_file.filename,
+            sha256_hash=case_file.sha256_hash,
+            file_path=case_file.file_path,
+            file_size=case_file.file_size,
+            action='deleted_manual',
+            performed_by=current_user.username,
+            notes=f"Deleted via Case Files page. Events deleted: {deleted_stats['events_deleted']}, Child files: {deleted_stats['child_files_deleted']}"
+        )
+        db.session.add(audit_entry)
+        
+        # Delete the CaseFile record
+        db.session.delete(case_file)
+        db.session.commit()
+        
+        logger.info(f"User {current_user.username} deleted file {file_id} ({case_file.filename}) from case {case_file.case_uuid}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'File "{case_file.filename}" deleted successfully',
+            **deleted_stats
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception(f"Error deleting file {file_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Hunting API Endpoints
 # ============================================

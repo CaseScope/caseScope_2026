@@ -1,6 +1,16 @@
 {
-  "version": "3.124.00",
+  "version": "3.125.00",
   "changelog": [
+    {
+      "version": "3.125.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Delete file functionality on Case Files page (administrator only)",
+        "Feature: Deletes all artifact data from ClickHouse when file is removed",
+        "Feature: Handles child files from archives in delete operation",
+        "Feature: Audit logging for manual file deletions"
+      ]
+    },
     {
       "version": "3.124.00",
       "date": "2026-01-21",
