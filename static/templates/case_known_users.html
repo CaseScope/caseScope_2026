@@ -87,6 +87,7 @@
                         <th>Artifacts</th>
                         <th>Last Seen</th>
                         <th>Compromised</th>
+                        <th>Hidden</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -130,6 +131,14 @@
                             <input type="checkbox" id="detailCompromised" onchange="updateUserField('compromised', this.checked)">
                             <span class="slider"></span>
                         </label>
+                    </div>
+                    <div class="user-detail-row">
+                        <span class="user-detail-label">Hidden:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="detailHidden" onchange="updateUserField('hidden', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="help-text" style="margin-left: 8px; font-size: 11px;">Exclude from reports</span>
                     </div>
                 </div>
                 
@@ -479,6 +488,7 @@ function renderUsers(users) {
             <td class="artifacts-cell" onclick="openUserModal(${u.id})">${u.artifacts_with_user}</td>
             <td onclick="openUserModal(${u.id})">${formatDate(u.last_seen)}</td>
             <td class="compromised-cell" onclick="openUserModal(${u.id})">${u.compromised ? '<span class="badge badge-danger">YES</span>' : '<span class="badge badge-muted">No</span>'}</td>
+            <td class="hidden-cell" onclick="openUserModal(${u.id})">${u.hidden ? '<span class="badge badge-warning">Hidden</span>' : ''}</td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openUserModal(${u.id})">Edit</button>
             </td>
@@ -634,6 +644,7 @@ function populateUserModal(user) {
     document.getElementById('detailSID').value = user.sid || '';
     document.getElementById('detailEmail').value = user.email || '';
     document.getElementById('detailCompromised').checked = user.compromised;
+    document.getElementById('detailHidden').checked = user.hidden;
     document.getElementById('detailArtifacts').textContent = user.artifacts_with_user;
     document.getElementById('detailAddedOn').textContent = formatDate(user.added_on);
     document.getElementById('detailAddedBy').textContent = user.added_by || 'system';

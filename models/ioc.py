@@ -383,6 +383,7 @@ class IOC(db.Model):
     malicious = db.Column(db.Boolean, nullable=False, default=False)
     false_positive = db.Column(db.Boolean, nullable=False, default=False)
     active = db.Column(db.Boolean, nullable=False, default=True)
+    hidden = db.Column(db.Boolean, nullable=False, default=False)  # Exclude from reports
     
     # OpenCTI integration
     opencti_enrichment = db.Column(db.Text, nullable=True)  # JSON: enriched data from OpenCTI
@@ -496,6 +497,7 @@ class IOC(db.Model):
             'malicious': self.malicious,
             'false_positive': self.false_positive,
             'active': self.active,
+            'hidden': self.hidden,
             'opencti_enrichment': opencti_data,
             'opencti_enriched_at': self.opencti_enriched_at.isoformat() if self.opencti_enriched_at else None,
             'sources': self.sources or [],

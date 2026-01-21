@@ -88,6 +88,7 @@
                         <th>Artifacts</th>
                         <th>Last Seen</th>
                         <th>Compromised</th>
+                        <th>Hidden</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -145,6 +146,14 @@
                             <input type="checkbox" id="detailCompromised" onchange="updateSystemField('compromised', this.checked)">
                             <span class="slider"></span>
                         </label>
+                    </div>
+                    <div class="system-detail-row">
+                        <span class="system-detail-label">Hidden:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="detailHidden" onchange="updateSystemField('hidden', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="help-text" style="margin-left: 8px; font-size: 11px;">Exclude from reports</span>
                     </div>
                 </div>
                 
@@ -531,6 +540,7 @@ function renderSystems(systems) {
             <td class="artifacts-cell" onclick="openSystemModal(${s.id})">${s.artifacts_with_hostname}</td>
             <td onclick="openSystemModal(${s.id})">${formatDate(s.last_seen)}</td>
             <td class="compromised-cell" onclick="openSystemModal(${s.id})">${s.compromised ? '<span class="badge badge-danger">YES</span>' : '<span class="badge badge-muted">No</span>'}</td>
+            <td class="hidden-cell" onclick="openSystemModal(${s.id})">${s.hidden ? '<span class="badge badge-warning">Hidden</span>' : ''}</td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openSystemModal(${s.id})">Edit</button>
             </td>
@@ -689,6 +699,7 @@ function populateSystemModal(system) {
     document.getElementById('detailOSType').value = system.os_type || '';
     document.getElementById('detailOSVersion').value = system.os_version || '';
     document.getElementById('detailCompromised').checked = system.compromised;
+    document.getElementById('detailHidden').checked = system.hidden;
     document.getElementById('detailArtifacts').textContent = system.artifacts_with_hostname;
     document.getElementById('detailAddedOn').textContent = formatDate(system.added_on);
     document.getElementById('detailLastSeen').textContent = formatDate(system.last_seen);

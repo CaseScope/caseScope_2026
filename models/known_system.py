@@ -90,6 +90,9 @@ class KnownSystem(db.Model):
     # Compromised flag
     compromised = db.Column(db.Boolean, nullable=False, default=False)
     
+    # Hidden flag - exclude from reports
+    hidden = db.Column(db.Boolean, nullable=False, default=False)
+    
     # Data sources that contributed to this system (evtx, ndjson, case_files, logon_events, unc_paths)
     sources = db.Column(db.JSON, nullable=False, default=list)
     
@@ -122,6 +125,7 @@ class KnownSystem(db.Model):
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'notes': self.notes,
             'compromised': self.compromised,
+            'hidden': self.hidden,
             'sources': self.sources or [],
             'ip_addresses': [ip.ip_address for ip in self.ip_addresses],
             'mac_addresses': [mac.mac_address for mac in self.mac_addresses],

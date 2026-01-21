@@ -44,6 +44,9 @@ class KnownUser(db.Model):
     # Compromised flag
     compromised = db.Column(db.Boolean, nullable=False, default=False)
     
+    # Hidden flag - exclude from reports
+    hidden = db.Column(db.Boolean, nullable=False, default=False)
+    
     # Data sources that contributed to this user (evtx, ndjson, etc.)
     sources = db.Column(db.JSON, nullable=False, default=list)
     
@@ -74,6 +77,7 @@ class KnownUser(db.Model):
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'notes': self.notes,
             'compromised': self.compromised,
+            'hidden': self.hidden,
             'sources': self.sources or [],
             'aliases': [alias.alias for alias in self.aliases],
             'emails': [email.email for email in self.emails]

@@ -312,6 +312,12 @@
                             <span class="slider"></span>
                         </label>
                         <span class="switch-label">False Positive</span>
+                        
+                        <label class="switch" style="margin-left: 24px;">
+                            <input type="checkbox" id="detailHidden" onchange="updateIOCField('hidden', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="switch-label">Hidden</span>
                     </div>
                 </div>
                 
@@ -1040,7 +1046,8 @@ function renderIOCs(iocs) {
             <td class="status-cell" onclick="openDetailModal(${ioc.id})">
                 ${ioc.malicious ? '<span class="badge badge-danger">Malicious</span>' : ''}
                 ${ioc.false_positive ? '<span class="badge badge-muted">FP</span>' : ''}
-                ${ioc.active && !ioc.malicious && !ioc.false_positive ? '<span class="badge badge-info">Unknown</span>' : ''}
+                ${ioc.hidden ? '<span class="badge badge-warning">Hidden</span>' : ''}
+                ${ioc.active && !ioc.malicious && !ioc.false_positive && !ioc.hidden ? '<span class="badge badge-info">Unknown</span>' : ''}
             </td>
             <td class="enriched-cell" onclick="openDetailModal(${ioc.id})">
                 ${getEnrichmentBadges(ioc)}
@@ -1278,6 +1285,7 @@ function populateDetailModal(ioc) {
     document.getElementById('detailActive').checked = ioc.active;
     document.getElementById('detailMalicious').checked = ioc.malicious;
     document.getElementById('detailFalsePositive').checked = ioc.false_positive;
+    document.getElementById('detailHidden').checked = ioc.hidden;
     document.getElementById('detailNotes').value = ioc.notes || '';
     
     // Aliases list
