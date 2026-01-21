@@ -501,36 +501,110 @@ def ingest_pcap_files(case_uuid):
 @pcap_bp.route('/<int:pcap_id>/delete', methods=['POST'])
 @login_required
 def delete_pcap_file(pcap_id):
-    """Delete a PCAP file (admin only)"""
+    """Delete a PCAP file and all associated data (admin only)
+    
+    This endpoint:
+    - Deletes all network logs from ClickHouse for this file
+    - Deletes child files (extracted from archives) and their logs
+    - Removes the Zeek output directory
+    - Removes the file from disk
+    - Removes the PcapFile record from PostgreSQL
+    """
     if current_user.permission_level != 'administrator':
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
     
     try:
+        from models.network_log import delete_pcap_logs
+        from models.case import Case
+        import shutil
+        
         pcap_file = db.session.get(PcapFile, pcap_id)
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         
+        # Get case for case_id needed by ClickHouse
+        case = Case.get_by_uuid(pcap_file.case_uuid)
+        case_id = case.id if case else None
+        
         filename = pcap_file.filename
         file_path = pcap_file.file_path
+        zeek_output = pcap_file.zeek_output_path
         
-        # Delete physical file
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
+        deleted_stats = {
+            'pcap_id': pcap_id,
+            'filename': filename,
+            'logs_deleted': pcap_file.logs_indexed or 0,
+            'child_files_deleted': 0,
+            'zeek_output_deleted': False,
+            'disk_file_deleted': False
+        }
+        
+        # Delete network logs from ClickHouse for this PCAP
+        if case_id:
+            try:
+                delete_pcap_logs(pcap_id, case_id)
+                logger.info(f"Deleted ClickHouse network logs for pcap_id={pcap_id}")
+            except Exception as e:
+                logger.error(f"Failed to delete ClickHouse logs for pcap_id={pcap_id}: {e}")
         
         # Delete extracted files if this is an archive
         if pcap_file.is_archive:
             for child in pcap_file.extracted_files:
+                # Delete child's ClickHouse logs
+                if case_id:
+                    try:
+                        delete_pcap_logs(child.id, case_id)
+                        logger.info(f"Deleted ClickHouse logs for child pcap_id={child.id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete ClickHouse logs for child {child.id}: {e}")
+                
+                # Delete child's Zeek output directory
+                if child.zeek_output_path and os.path.isdir(child.zeek_output_path):
+                    try:
+                        shutil.rmtree(child.zeek_output_path)
+                        logger.info(f"Deleted child Zeek output: {child.zeek_output_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete child Zeek output {child.zeek_output_path}: {e}")
+                
+                # Delete child file from disk
                 if child.file_path and os.path.exists(child.file_path):
-                    os.remove(child.file_path)
+                    try:
+                        os.remove(child.file_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to delete child file {child.file_path}: {e}")
+                
                 db.session.delete(child)
+                deleted_stats['child_files_deleted'] += 1
+        
+        # Delete Zeek output directory
+        if zeek_output and os.path.isdir(zeek_output):
+            try:
+                shutil.rmtree(zeek_output)
+                deleted_stats['zeek_output_deleted'] = True
+                logger.info(f"Deleted Zeek output directory: {zeek_output}")
+            except Exception as e:
+                logger.error(f"Failed to delete Zeek output {zeek_output}: {e}")
+        
+        # Delete physical PCAP file
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                deleted_stats['disk_file_deleted'] = True
+                logger.info(f"Deleted PCAP file from disk: {file_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete PCAP file {file_path}: {e}")
         
         # Delete database record
         db.session.delete(pcap_file)
         db.session.commit()
         
-        logger.info(f"PCAP file {pcap_id} ({filename}) deleted by {current_user.username}")
+        logger.info(f"PCAP file {pcap_id} ({filename}) fully deleted by {current_user.username}")
         
-        return jsonify({'success': True, 'message': 'PCAP file deleted'})
+        return jsonify({
+            'success': True,
+            'message': f'PCAP file "{filename}" deleted successfully',
+            **deleted_stats
+        })
         
     except Exception as e:
         logger.error(f"Error deleting PCAP file {pcap_id}: {e}")

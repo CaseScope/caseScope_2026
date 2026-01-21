@@ -1107,3 +1107,71 @@ def get_cross_references(case_uuid, artifact_type, artifact_value):
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/job/<int:job_id>/delete', methods=['POST'])
+@login_required
+def delete_memory_job(job_id):
+    """Delete a memory job and all associated data (admin only)
+    
+    This endpoint:
+    - Deletes the memory job record (CASCADE deletes all memory data tables)
+    - Removes the Volatility output directory
+    - Optionally removes the source memory file
+    """
+    if current_user.permission_level != 'administrator':
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        import shutil
+        import os
+        
+        job = MemoryJob.query.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Memory job not found'}), 404
+        
+        deleted_stats = {
+            'job_id': job_id,
+            'hostname': job.hostname,
+            'filename': job.source_filename,
+            'output_deleted': False,
+            'source_deleted': False
+        }
+        
+        output_folder = job.output_folder
+        source_file = job.source_file
+        
+        # Delete Volatility output directory
+        if output_folder and os.path.isdir(output_folder):
+            try:
+                shutil.rmtree(output_folder)
+                deleted_stats['output_deleted'] = True
+            except Exception as e:
+                # Log but continue with deletion
+                pass
+        
+        # Optionally delete source memory file (if it still exists in temp/upload location)
+        # Note: Per the UI, source files are "not retained" after processing
+        # But if they exist, we clean them up
+        if source_file and os.path.exists(source_file):
+            try:
+                os.remove(source_file)
+                deleted_stats['source_deleted'] = True
+            except Exception as e:
+                # Log but continue
+                pass
+        
+        # Delete the job record
+        # Due to CASCADE on foreign keys, all related data in memory_* tables is auto-deleted
+        db.session.delete(job)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Memory job for "{job.hostname}" deleted successfully',
+            **deleted_stats
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500

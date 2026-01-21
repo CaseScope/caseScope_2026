@@ -253,14 +253,46 @@
         </div>
     </div>
 </div>
+
+{% if current_user.permission_level == 'administrator' %}
+<!-- Delete Memory Job Confirmation Modal -->
+<div class="modal-overlay" id="deleteJobModal" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Delete Memory Job</h3>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to <strong class="text-danger">permanently delete</strong> this memory analysis job?</p>
+            <div style="background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 16px 0;">
+                <strong id="deleteJobHostname">-</strong>
+                <div class="text-muted text-small" id="deleteJobFilename">-</div>
+            </div>
+            <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+            <ul class="text-muted" style="margin: 16px 0; padding-left: 20px;">
+                <li>All parsed memory data (processes, network, services, etc.) will be deleted</li>
+                <li>The Volatility output directory will be removed</li>
+                <li>The job record will be permanently removed</li>
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDeleteJobModal()">Cancel</button>
+            <button class="btn btn-danger" id="deleteJobConfirmBtn" onclick="confirmDeleteJob()">
+                <span>🗑️ Delete Job</span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
+const isAdmin = {{ 'true' if current_user.permission_level == 'administrator' else 'false' }};
 let memoryFiles = [];
 let folderPath = '';
+let deleteJobId = null;
 let selectedFiles = new Set();
 let pluginData = {};
 let selectedPlugins = new Set();
@@ -682,6 +714,9 @@ function renderJobs(jobs) {
              <span class="progress-text">${job.progress}%</span>` :
             (job.status === 'completed' ? '100%' : '-');
         
+        const deleteBtn = isAdmin && (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') ? 
+            `<button class="btn btn-sm btn-danger" onclick="showDeleteJobModal(${job.id}, '${escapeHtml(job.hostname)}', '${escapeHtml(job.source_filename)}')" title="Delete">🗑️</button>` : '';
+        
         html += `
             <tr class="job-row" data-job-id="${job.id}">
                 <td><strong>${escapeHtml(job.hostname)}</strong></td>
@@ -694,6 +729,7 @@ function renderJobs(jobs) {
                     <button class="btn btn-sm btn-secondary" onclick="viewJob(${job.id})">View</button>
                     ${job.status === 'running' || job.status === 'pending' ? 
                         `<button class="btn btn-sm btn-danger" onclick="cancelJob(${job.id})">Cancel</button>` : ''}
+                    ${deleteBtn}
                 </td>
             </tr>
         `;
@@ -879,6 +915,56 @@ function formatDateTime(isoString) {
     if (!isoString) return '-';
     const d = new Date(isoString);
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+// ========================================
+// Delete Memory Job Functions (Admin Only)
+// ========================================
+
+function showDeleteJobModal(jobId, hostname, filename) {
+    if (!isAdmin) return;
+    
+    deleteJobId = jobId;
+    document.getElementById('deleteJobHostname').textContent = hostname;
+    document.getElementById('deleteJobFilename').textContent = filename;
+    document.getElementById('deleteJobModal').style.display = 'flex';
+    document.getElementById('deleteJobConfirmBtn').disabled = false;
+    document.getElementById('deleteJobConfirmBtn').innerHTML = '<span>🗑️ Delete Job</span>';
+}
+
+function closeDeleteJobModal() {
+    document.getElementById('deleteJobModal').style.display = 'none';
+    deleteJobId = null;
+}
+
+function confirmDeleteJob() {
+    if (!deleteJobId || !isAdmin) return;
+    
+    const confirmBtn = document.getElementById('deleteJobConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+    
+    fetch(`/api/memory/job/${deleteJobId}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeDeleteJobModal();
+            loadJobs();
+        } else {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<span>🗑️ Delete Job</span>';
+            alert('Error deleting job: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('Delete error:', err);
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<span>🗑️ Delete Job</span>';
+        alert('Error deleting job: ' + err.message);
+    });
 }
 </script>
 

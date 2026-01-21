@@ -301,12 +301,44 @@
         </div>
     </div>
 </div>
+
+{% if current_user.permission_level == 'administrator' %}
+<!-- Delete PCAP Confirmation Modal -->
+<div class="modal-overlay" id="deletePcapModal" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Delete PCAP File</h3>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to <strong class="text-danger">permanently delete</strong> this PCAP file?</p>
+            <div style="background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 16px 0;">
+                <strong id="deletePcapName">-</strong>
+                <div class="text-muted text-small" id="deletePcapInfo">-</div>
+            </div>
+            <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+            <ul class="text-muted" style="margin: 16px 0; padding-left: 20px;">
+                <li>All network log entries will be deleted from ClickHouse</li>
+                <li>The Zeek output directory will be removed</li>
+                <li>The PCAP file will be removed from disk</li>
+                <li>Any extracted child files will also be deleted</li>
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDeletePcapModal()">Cancel</button>
+            <button class="btn btn-danger" id="deletePcapConfirmBtn" onclick="confirmDeletePcap()">
+                <span>🗑️ Delete PCAP</span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 const CASE_UUID = '{{ case.uuid }}';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+const isAdmin = {{ 'true' if current_user.permission_level == 'administrator' else 'false' }};
 
 let uploadQueue = [];
 let isIngesting = false;
@@ -315,6 +347,7 @@ let currentPage = 1;
 let perPage = 50;
 let searchQuery = '';
 let searchTimeout = null;
+let deletePcapId = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
@@ -433,6 +466,9 @@ function getActionButtons(f) {
         buttons += `<button class="btn btn-sm btn-warning" onclick="processFile(${f.id})" title="Retry">🔄</button> `;
     }
     buttons += `<button class="btn btn-sm btn-secondary" onclick="editFile(${f.id})" title="Edit">✏️</button>`;
+    if (isAdmin) {
+        buttons += ` <button class="btn btn-sm btn-danger" onclick="showDeletePcapModal(${f.id}, '${escapeHtml(f.filename)}', ${f.logs_indexed || 0})" title="Delete">🗑️</button>`;
+    }
     return buttons;
 }
 
@@ -1004,6 +1040,58 @@ function viewLogContent(logName) {
         html += '</tbody></table></div>';
         if (data.returned < data.total_lines) html += '<p class="text-muted">Showing ' + data.returned + ' of ' + data.total_lines + '</p>';
         document.getElementById('logContentArea').innerHTML = html;
+    });
+}
+
+// ========================================
+// Delete PCAP File Functions (Admin Only)
+// ========================================
+
+function showDeletePcapModal(pcapId, filename, logsCount) {
+    if (!isAdmin) return;
+    
+    deletePcapId = pcapId;
+    document.getElementById('deletePcapName').textContent = filename;
+    document.getElementById('deletePcapInfo').textContent = 
+        logsCount > 0 ? logsCount.toLocaleString() + ' network log entries' : 'No logs indexed';
+    document.getElementById('deletePcapModal').style.display = 'flex';
+    document.getElementById('deletePcapConfirmBtn').disabled = false;
+    document.getElementById('deletePcapConfirmBtn').innerHTML = '<span>🗑️ Delete PCAP</span>';
+}
+
+function closeDeletePcapModal() {
+    document.getElementById('deletePcapModal').style.display = 'none';
+    deletePcapId = null;
+}
+
+function confirmDeletePcap() {
+    if (!deletePcapId || !isAdmin) return;
+    
+    const confirmBtn = document.getElementById('deletePcapConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+    
+    fetch(`/api/pcap/${deletePcapId}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeDeletePcapModal();
+            loadFiles();
+            loadStats();
+        } else {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<span>🗑️ Delete PCAP</span>';
+            alert('Error deleting PCAP: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('Delete error:', err);
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<span>🗑️ Delete PCAP</span>';
+        alert('Error deleting PCAP: ' + err.message);
     });
 }
 </script>

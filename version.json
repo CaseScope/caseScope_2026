@@ -1,6 +1,16 @@
 {
-  "version": "3.125.00",
+  "version": "3.126.00",
   "changelog": [
+    {
+      "version": "3.126.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Delete PCAP file functionality with full cleanup (admin only)",
+        "Feature: Delete memory job functionality with full cleanup (admin only)",
+        "Enhancement: PCAP delete now removes ClickHouse network logs and Zeek output",
+        "Enhancement: Memory delete removes all parsed data via CASCADE and output files"
+      ]
+    },
     {
       "version": "3.125.00",
       "date": "2026-01-21",
