@@ -7,6 +7,7 @@ Includes retry logic for transient failures.
 import logging
 import json
 import time
+import threading
 import requests
 from typing import Dict, Any, Optional, List
 
@@ -210,16 +211,20 @@ class OllamaClient:
             }
 
 
-# Module-level client instance
+# Module-level client instance with thread-safe initialization
 _ollama_client = None
+_ollama_lock = threading.Lock()
 
 
 def get_ollama_client() -> OllamaClient:
-    """Get or create Ollama client instance"""
+    """Get or create Ollama client instance (thread-safe)"""
     global _ollama_client
     
     if _ollama_client is None:
-        _ollama_client = OllamaClient()
+        with _ollama_lock:
+            # Double-check after acquiring lock
+            if _ollama_client is None:
+                _ollama_client = OllamaClient()
     
     return _ollama_client
 

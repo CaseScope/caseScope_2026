@@ -4,28 +4,34 @@ Uses Redis hashes for atomic progress tracking per case.
 Tracks file processing and post-processing phases (known systems/users discovery).
 
 All increments use HINCRBY for atomicity - no race conditions.
+Thread-safe Redis client initialization.
 """
 import logging
+import threading
 import redis
 from typing import Optional, Dict, Any
 from config import Config
 
 logger = logging.getLogger(__name__)
 
-# Redis connection
+# Redis connection with thread-safe initialization
 _redis_client = None
+_redis_lock = threading.Lock()
 
 
 def get_redis_client() -> redis.Redis:
-    """Get or create Redis client"""
+    """Get or create Redis client (thread-safe)"""
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.Redis(
-            host=Config.REDIS_HOST,
-            port=Config.REDIS_PORT,
-            db=Config.REDIS_DB,
-            decode_responses=True
-        )
+        with _redis_lock:
+            # Double-check after acquiring lock
+            if _redis_client is None:
+                _redis_client = redis.Redis(
+                    host=Config.REDIS_HOST,
+                    port=Config.REDIS_PORT,
+                    db=Config.REDIS_DB,
+                    decode_responses=True
+                )
     return _redis_client
 
 
@@ -38,7 +44,8 @@ def init_progress(case_uuid: str, total_files: int) -> None:
     """Initialize progress tracking for a new batch of files.
     
     Called when files are queued for processing.
-    Resets any existing progress for this case.
+    If processing is already in progress, adds to existing total instead of
+    resetting (prevents race condition when multiple users upload simultaneously).
     
     Args:
         case_uuid: Case UUID
@@ -47,6 +54,14 @@ def init_progress(case_uuid: str, total_files: int) -> None:
     try:
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
+        
+        # Check if already processing - add to existing instead of resetting
+        existing_status = client.hget(key, 'status')
+        if existing_status == 'processing':
+            # Add to existing batch instead of replacing
+            new_total = client.hincrby(key, 'files_total', total_files)
+            logger.info(f"Added {total_files} files to existing progress for case {case_uuid}, new total: {new_total}")
+            return
         
         # Delete existing key first to reset all fields
         client.delete(key)

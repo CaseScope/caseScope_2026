@@ -10,11 +10,13 @@ Match Types:
     - regex: Uses match() for pattern matching
 
 Also marks matching events with IOC types for visual highlighting.
+Thread-safe Redis client initialization.
 """
 import os
 import re
 import json
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -24,19 +26,23 @@ from utils.clickhouse import get_fresh_client
 
 logger = logging.getLogger(__name__)
 
-# Redis client for progress tracking
+# Redis client for progress tracking with thread-safe initialization
 _redis_client = None
+_redis_lock = threading.Lock()
 
 def _get_redis() -> redis.Redis:
-    """Get Redis client for progress tracking"""
+    """Get Redis client for progress tracking (thread-safe)"""
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.Redis(
-            host=Config.REDIS_HOST,
-            port=Config.REDIS_PORT,
-            db=Config.REDIS_DB,
-            decode_responses=True
-        )
+        with _redis_lock:
+            # Double-check after acquiring lock
+            if _redis_client is None:
+                _redis_client = redis.Redis(
+                    host=Config.REDIS_HOST,
+                    port=Config.REDIS_PORT,
+                    db=Config.REDIS_DB,
+                    decode_responses=True
+                )
     return _redis_client
 
 

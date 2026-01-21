@@ -2,30 +2,37 @@
 
 Provides connection management and helper functions for interacting
 with the ClickHouse events database.
+
+Thread-safe client initialization with double-checked locking.
 """
+import threading
 import clickhouse_connect
 from config import Config
 
 
-# Module-level client cache
+# Module-level client cache with thread-safe initialization
 _client = None
+_client_lock = threading.Lock()
 
 
 def get_client():
     """Get a ClickHouse client connection
     
     Returns a cached client instance for connection reuse.
-    Thread-safe for Flask request handling.
+    Thread-safe with double-checked locking pattern.
     """
     global _client
     if _client is None:
-        _client = clickhouse_connect.get_client(
-            host=Config.CLICKHOUSE_HOST,
-            port=Config.CLICKHOUSE_PORT,
-            database=Config.CLICKHOUSE_DATABASE,
-            username=Config.CLICKHOUSE_USER,
-            password=Config.CLICKHOUSE_PASSWORD
-        )
+        with _client_lock:
+            # Double-check after acquiring lock
+            if _client is None:
+                _client = clickhouse_connect.get_client(
+                    host=Config.CLICKHOUSE_HOST,
+                    port=Config.CLICKHOUSE_PORT,
+                    database=Config.CLICKHOUSE_DATABASE,
+                    username=Config.CLICKHOUSE_USER,
+                    password=Config.CLICKHOUSE_PASSWORD
+                )
     return _client
 
 

@@ -1,9 +1,13 @@
-"""PCAP Processing Tasks - Zeek analysis for network captures"""
+"""PCAP Processing Tasks - Zeek analysis for network captures
+
+Thread-safe with cached Flask app instance for connection pool efficiency.
+"""
 import os
 import json
 import subprocess
 import shutil
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from ipaddress import ip_address
@@ -14,6 +18,20 @@ from models.pcap_file import PcapFile, PcapFileStatus
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+# Cached Flask app instance to avoid creating new connection pools for each task
+_flask_app = None
+_flask_app_lock = threading.Lock()
+
+def get_flask_app():
+    """Get or create a shared Flask app instance for Celery tasks (thread-safe)"""
+    global _flask_app
+    if _flask_app is None:
+        with _flask_app_lock:
+            if _flask_app is None:
+                from app import create_app
+                _flask_app = create_app()
+    return _flask_app
 
 # Zeek binary path
 ZEEK_BIN = '/opt/zeek/bin/zeek'
@@ -118,8 +136,7 @@ def process_pcap_with_zeek(self, pcap_id: int):
     Returns:
         dict with processing results
     """
-    from app import create_app
-    app = create_app()
+    app = get_flask_app()
     
     with app.app_context():
         pcap_file = db.session.get(PcapFile, pcap_id)
@@ -229,8 +246,7 @@ def process_case_pcaps(self, case_uuid: str):
     Returns:
         dict with queued task info
     """
-    from app import create_app
-    app = create_app()
+    app = get_flask_app()
     
     with app.app_context():
         # Get all pending PCAP files
@@ -635,10 +651,9 @@ def index_zeek_logs(self, pcap_id: int):
     Returns:
         dict with indexing results
     """
-    from app import create_app
     from models.case import Case
     
-    app = create_app()
+    app = get_flask_app()
     
     with app.app_context():
         pcap_file = db.session.get(PcapFile, pcap_id)
@@ -750,11 +765,10 @@ def reindex_pcap_logs(self, pcap_id: int):
     Returns:
         dict with reindexing results
     """
-    from app import create_app
     from models.network_log import delete_pcap_logs
     from models.case import Case
     
-    app = create_app()
+    app = get_flask_app()
     
     with app.app_context():
         pcap_file = db.session.get(PcapFile, pcap_id)

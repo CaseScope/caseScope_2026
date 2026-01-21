@@ -1,20 +1,51 @@
-"""Memory Forensics Celery Tasks for CaseScope"""
+"""Memory Forensics Celery Tasks for CaseScope
+
+Thread-safe with cached Flask app instance for connection pool efficiency.
+"""
 import os
 import json
 import shutil
 import subprocess
 import re
 import zipfile
+import threading
 from datetime import datetime
 from celery import shared_task
 import redis
 
 from config import Config
 
+# Cached Flask app instance to avoid creating new connection pools for each task
+_flask_app = None
+_flask_app_lock = threading.Lock()
+
+def get_flask_app():
+    """Get or create a shared Flask app instance for Celery tasks (thread-safe)"""
+    global _flask_app
+    if _flask_app is None:
+        with _flask_app_lock:
+            if _flask_app is None:
+                from app import create_app
+                _flask_app = create_app()
+    return _flask_app
+
+
+# Cached Redis client with thread-safe initialization
+_redis_client = None
+_redis_lock = threading.Lock()
 
 def get_redis_client():
-    """Get Redis client for progress tracking"""
-    return redis.Redis(host=Config.REDIS_HOST, port=Config.REDIS_PORT, db=Config.REDIS_DB)
+    """Get Redis client for progress tracking (thread-safe)"""
+    global _redis_client
+    if _redis_client is None:
+        with _redis_lock:
+            if _redis_client is None:
+                _redis_client = redis.Redis(
+                    host=Config.REDIS_HOST, 
+                    port=Config.REDIS_PORT, 
+                    db=Config.REDIS_DB
+                )
+    return _redis_client
 
 
 def update_job_progress(job_id: int, progress: int, current_plugin: str = None, status: str = None):
@@ -51,11 +82,10 @@ def process_memory_dump(self, job_id: int):
     Args:
         job_id: ID of the MemoryJob record
     """
-    from app import create_app
     from models.database import db
     from models.memory_job import MemoryJob
     
-    app = create_app()
+    app = get_flask_app()
     
     with app.app_context():
         job = MemoryJob.query.get(job_id)

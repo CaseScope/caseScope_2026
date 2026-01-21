@@ -480,6 +480,8 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                             errors: List[str] = None):
     """Update CaseFile status in PostgreSQL
     
+    Uses row-level locking (SELECT FOR UPDATE) to prevent concurrent update conflicts.
+    
     Args:
         case_file_id: ID of the CaseFile to update
         status: Workflow status (new, queued, ingesting, error, done)
@@ -492,10 +494,15 @@ def _update_case_file_status(case_file_id: int, status: str = None,
     try:
         from models.database import db
         from models.case_file import CaseFile
+        from sqlalchemy import select
+        from sqlalchemy.orm import with_for_update
         
         app = get_flask_app()
         with app.app_context():
-            cf = CaseFile.query.get(case_file_id)
+            # Use row-level locking to prevent concurrent update conflicts
+            stmt = select(CaseFile).where(CaseFile.id == case_file_id).with_for_update()
+            cf = db.session.execute(stmt).scalar_one_or_none()
+            
             if cf:
                 if status is not None:
                     cf.status = status

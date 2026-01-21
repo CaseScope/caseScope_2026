@@ -460,7 +460,13 @@ def scan_upload_folder(case_uuid):
 @api_bp.route('/upload/chunk', methods=['POST'])
 @login_required
 def upload_chunk():
-    """Handle chunked file upload"""
+    """Handle chunked file upload
+    
+    Thread-safe with file-based locking to prevent race conditions
+    when multiple requests try to combine chunks simultaneously.
+    """
+    import fcntl
+    
     try:
         chunk = request.files.get('chunk')
         chunk_index = int(request.form.get('chunkIndex', 0))
@@ -492,37 +498,63 @@ def upload_chunk():
         existing_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
         
         if existing_chunks >= total_chunks:
-            # Combine chunks
-            final_path = os.path.join(web_path, filename)
-            
-            # Avoid filename collisions
-            if os.path.exists(final_path):
-                base, ext = os.path.splitext(filename)
-                counter = 1
-                while os.path.exists(final_path):
-                    final_path = os.path.join(web_path, f'{base}_{counter}{ext}')
-                    counter += 1
-            
-            with open(final_path, 'wb') as outfile:
-                for i in range(total_chunks):
-                    chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
-                    with open(chunk_file, 'rb') as infile:
-                        outfile.write(infile.read())
-            
-            # Clean up temp directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
-            # Set file ownership
+            # Use file-based locking to prevent race condition during chunk combination
+            lock_file_path = os.path.join(temp_dir, '.combine_lock')
             try:
-                shutil.chown(final_path, user='casescope', group='casescope')
-            except (PermissionError, LookupError):
-                pass
-            
-            return jsonify({
-                'success': True,
-                'complete': True,
-                'path': final_path
-            })
+                with open(lock_file_path, 'w') as lock_file:
+                    # Try to acquire exclusive lock (non-blocking)
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    
+                    # Double-check chunks after acquiring lock
+                    existing_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
+                    if existing_chunks < total_chunks:
+                        # Another request already combined, let it handle
+                        return jsonify({
+                            'success': True,
+                            'complete': False,
+                            'chunksReceived': existing_chunks
+                        })
+                    
+                    # Combine chunks
+                    final_path = os.path.join(web_path, filename)
+                    
+                    # Avoid filename collisions
+                    if os.path.exists(final_path):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(final_path):
+                            final_path = os.path.join(web_path, f'{base}_{counter}{ext}')
+                            counter += 1
+                    
+                    with open(final_path, 'wb') as outfile:
+                        for i in range(total_chunks):
+                            chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
+                            with open(chunk_file, 'rb') as infile:
+                                outfile.write(infile.read())
+                    
+                    # Set file ownership
+                    try:
+                        shutil.chown(final_path, user='casescope', group='casescope')
+                    except (PermissionError, LookupError):
+                        pass
+                    
+                    # Clean up temp directory (after releasing lock implicitly)
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    
+                    return jsonify({
+                        'success': True,
+                        'complete': True,
+                        'path': final_path
+                    })
+                    
+            except BlockingIOError:
+                # Another request is combining chunks, return current status
+                return jsonify({
+                    'success': True,
+                    'complete': False,
+                    'chunksReceived': existing_chunks,
+                    'combining': True
+                })
         
         return jsonify({
             'success': True,
@@ -799,21 +831,34 @@ def ingest_files():
                 }) + '\n'
                 
                 try:
+                    import uuid as uuid_module
+                    
                     source_path = nzf['source_path']
                     filename = nzf['name']
                     file_info = nzf['file_info']
                     
-                    dest_path = os.path.join(staging_path, filename)
+                    # Use atomic move pattern: move to unique temp location first,
+                    # then rename to final name. This prevents TOCTOU race conditions.
+                    temp_filename = f".tmp_{uuid_module.uuid4().hex}_{filename}"
+                    temp_path = os.path.join(staging_path, temp_filename)
                     
-                    # Handle collisions
+                    # Move to unique temp location (guaranteed no collision)
+                    shutil.move(source_path, temp_path)
+                    
+                    # Now determine final destination with collision handling
+                    dest_path = os.path.join(staging_path, filename)
+                    final_filename = filename
+                    
                     if os.path.exists(dest_path):
                         base, ext = os.path.splitext(filename)
                         counter = 1
                         while os.path.exists(dest_path):
-                            dest_path = os.path.join(staging_path, f'{base}_{counter}{ext}')
+                            final_filename = f'{base}_{counter}{ext}'
+                            dest_path = os.path.join(staging_path, final_filename)
                             counter += 1
                     
-                    shutil.move(source_path, dest_path)
+                    # Atomic rename on same filesystem
+                    os.rename(temp_path, dest_path)
                     
                     try:
                         shutil.chown(dest_path, user='casescope', group='casescope')
@@ -834,6 +879,12 @@ def ingest_files():
                     ingested_count += 1
                     
                 except Exception as e:
+                    # Clean up temp file if it exists
+                    if 'temp_path' in locals() and os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except:
+                            pass
                     errors.append(f'Error moving {nzf["name"]}: {str(e)}')
         
         # =============================================
