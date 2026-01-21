@@ -1,6 +1,15 @@
 {
-  "version": "3.126.00",
+  "version": "3.126.01",
   "changelog": [
+    {
+      "version": "3.126.01",
+      "date": "2026-01-21",
+      "changes": [
+        "Fix: Lock audit log tab to administrators only for chain of custody protection",
+        "Fix: Remove Logs menu item (audit now consolidated in Settings)",
+        "Fix: Audit log viewer permission no longer configurable (always admin-only)"
+      ]
+    },
     {
       "version": "3.126.00",
       "date": "2026-01-21",
