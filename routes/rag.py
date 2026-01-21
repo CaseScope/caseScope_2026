@@ -745,8 +745,9 @@ def detect_pattern_rules():
         try:
             if time_range in ('1d', '3d', '7d', '30d'):
                 # Predefined ranges: relative to most recent artifact
+                # Use COALESCE to handle events where timestamp_utc might be NULL (pre-migration)
                 client = get_client()
-                max_ts_query = "SELECT max(timestamp_utc) FROM events WHERE case_id = {case_id:UInt32}"
+                max_ts_query = "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events WHERE case_id = {case_id:UInt32}"
                 max_ts_result = client.query(max_ts_query, parameters={'case_id': case_id})
                 max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
                 
@@ -754,16 +755,17 @@ def detect_pattern_rules():
                     days_map = {'1d': 1, '3d': 3, '7d': 7, '30d': 30}
                     days = days_map.get(time_range, 1)
                     start_utc = max_timestamp - timedelta(days=days)
-                    time_filter = f"timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+                    time_filter = f"COALESCE(timestamp_utc, timestamp) >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
                     logger.info(f"Pattern detection time filter: {time_range} -> {time_filter}")
             
             elif time_range == 'custom' and time_start and time_end:
                 # Custom range: convert from case timezone to UTC
+                # Use COALESCE to handle events where timestamp_utc might be NULL (pre-migration)
                 start_local = datetime.strptime(time_start, '%Y-%m-%dT%H:%M')
                 end_local = datetime.strptime(time_end, '%Y-%m-%dT%H:%M')
                 start_utc = to_utc(start_local, case_tz)
                 end_utc = to_utc(end_local, case_tz)
-                time_filter = f"timestamp_utc >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}' AND timestamp_utc <= '{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
+                time_filter = f"COALESCE(timestamp_utc, timestamp) >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}' AND COALESCE(timestamp_utc, timestamp) <= '{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
                 logger.info(f"Pattern detection custom time filter: {time_start} to {time_end} ({case_tz}) -> UTC: {time_filter}")
         
         except Exception as e:
