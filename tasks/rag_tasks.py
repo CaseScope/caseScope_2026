@@ -1456,7 +1456,7 @@ def rag_embed_high_severity_events(
         # Query high-severity events
         query = """
             SELECT 
-                row_id,
+                record_id,
                 timestamp_utc,
                 event_id,
                 channel,
@@ -1472,7 +1472,7 @@ def rag_embed_high_severity_events(
             WHERE case_id = {case_id:UInt32}
             AND rule_level IN ('critical', 'high')
             ORDER BY 
-                CASE WHEN rule_level = 'critical' THEN 1 ELSE 2 END,
+                multiIf(rule_level = 'critical', 1, 2) ASC,
                 timestamp_utc DESC
             LIMIT {limit:UInt32}
         """
@@ -1501,7 +1501,7 @@ def rag_embed_high_severity_events(
         event_texts = []
         
         for row in result.result_rows:
-            row_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
+            record_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
             
             # Build searchable text
             parts = []
@@ -1528,7 +1528,7 @@ def rag_embed_high_severity_events(
             event_texts.append(text)
             
             events_data.append({
-                'row_id': row_id,
+                'record_id': record_id,
                 'timestamp': ts.isoformat() if ts else None,
                 'event_id': eid,
                 'channel': ch,
