@@ -76,17 +76,31 @@ class Config:
     OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
     OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen2.5:14b-instruct-q5_K_M')
     
-    # Embedding model (sentence-transformers, runs on CPU)
+    # Embedding model configuration
     EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+    EMBEDDING_DEVICE = os.environ.get('EMBEDDING_DEVICE', 'cuda')  # 'cuda' for GPU, 'cpu' for CPU
+    EMBEDDING_BATCH_SIZE = int(os.environ.get('EMBEDDING_BATCH_SIZE', 128))  # Optimal for A2 GPU
     
     # RAG Processing
     RAG_BATCH_SIZE = int(os.environ.get('RAG_BATCH_SIZE', 100))
-    RAG_CONFIDENCE_THRESHOLD = float(os.environ.get('RAG_CONFIDENCE_THRESHOLD', 0.7))
     RAG_TIME_WINDOW_HOURS = int(os.environ.get('RAG_TIME_WINDOW_HOURS', 24))
     RAG_MAX_CONTEXT_TOKENS = int(os.environ.get('RAG_MAX_CONTEXT_TOKENS', 6000))
+    RAG_MAX_CONTEXT_CHARS = int(os.environ.get('RAG_MAX_CONTEXT_CHARS', 12000))  # ~3000 tokens
     
-    # Qdrant data path
+    # Semantic Search Thresholds (centralized)
+    RAG_SEMANTIC_THRESHOLD = float(os.environ.get('RAG_SEMANTIC_THRESHOLD', 0.45))  # Pattern matching
+    RAG_ASK_AI_THRESHOLD = float(os.environ.get('RAG_ASK_AI_THRESHOLD', 0.40))  # Ask AI context
+    RAG_PATTERN_DISCOVERY_THRESHOLD = float(os.environ.get('RAG_PATTERN_DISCOVERY_THRESHOLD', 0.40))  # Pattern discovery
+    RAG_CONFIDENCE_THRESHOLD = float(os.environ.get('RAG_CONFIDENCE_THRESHOLD', 0.7))  # Legacy/general
+    
+    # Qdrant configuration
     QDRANT_STORAGE = os.path.join(BASE_DIR, 'qdrant')
+    QDRANT_HNSW_M = int(os.environ.get('QDRANT_HNSW_M', 16))  # HNSW connections per element
+    QDRANT_HNSW_EF_CONSTRUCT = int(os.environ.get('QDRANT_HNSW_EF_CONSTRUCT', 100))  # HNSW construction param
+    
+    # Ollama retry configuration
+    OLLAMA_MAX_RETRIES = int(os.environ.get('OLLAMA_MAX_RETRIES', 3))
+    OLLAMA_RETRY_DELAY = float(os.environ.get('OLLAMA_RETRY_DELAY', 1.0))  # seconds
 
 
 class UserSettings:

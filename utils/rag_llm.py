@@ -1,10 +1,12 @@
 """RAG LLM Integration for CaseScope
 
 Provides Ollama LLM integration for pattern analysis and timeline generation.
+Includes retry logic for transient failures.
 """
 
 import logging
 import json
+import time
 import requests
 from typing import Dict, Any, Optional, List
 
@@ -14,12 +16,52 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaClient:
-    """Client for interacting with Ollama LLM"""
+    """Client for interacting with Ollama LLM with retry support"""
     
     def __init__(self, host: str = None, model: str = None):
         self.host = host or Config.OLLAMA_HOST
         self.model = model or Config.OLLAMA_MODEL
         self.timeout = 180  # 3 minutes for long responses
+        self.max_retries = getattr(Config, 'OLLAMA_MAX_RETRIES', 3)
+        self.retry_delay = getattr(Config, 'OLLAMA_RETRY_DELAY', 1.0)
+    
+    def _retry_request(self, func, *args, **kwargs) -> requests.Response:
+        """Execute request with exponential backoff retry
+        
+        Args:
+            func: Request function to call
+            *args, **kwargs: Arguments for the function
+            
+        Returns:
+            Response object
+            
+        Raises:
+            Last exception if all retries fail
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = func(*args, **kwargs)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.warning(f"[RAG LLM] Timeout, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})")
+                    time.sleep(delay)
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.warning(f"[RAG LLM] Connection error, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})")
+                    time.sleep(delay)
+            except requests.exceptions.HTTPError as e:
+                # Don't retry on HTTP errors (4xx, 5xx)
+                raise
+        
+        raise last_exception
     
     def generate(
         self,
@@ -29,7 +71,7 @@ class OllamaClient:
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> Dict[str, Any]:
-        """Generate a response from the LLM
+        """Generate a response from the LLM with retry support
         
         Args:
             prompt: User prompt
@@ -60,12 +102,12 @@ class OllamaClient:
             if format == 'json':
                 payload['format'] = 'json'
             
-            response = requests.post(
+            response = self._retry_request(
+                requests.post,
                 url,
                 json=payload,
                 timeout=self.timeout
             )
-            response.raise_for_status()
             
             result = response.json()
             
@@ -78,10 +120,10 @@ class OllamaClient:
             }
             
         except requests.exceptions.Timeout:
-            logger.error("[RAG LLM] Request timed out")
-            return {'success': False, 'error': 'Request timed out'}
+            logger.error(f"[RAG LLM] Request timed out after {self.max_retries} attempts")
+            return {'success': False, 'error': 'Request timed out after retries'}
         except requests.exceptions.ConnectionError:
-            logger.error(f"[RAG LLM] Cannot connect to Ollama at {self.host}")
+            logger.error(f"[RAG LLM] Cannot connect to Ollama at {self.host} after {self.max_retries} attempts")
             return {'success': False, 'error': f'Cannot connect to Ollama at {self.host}'}
         except Exception as e:
             logger.error(f"[RAG LLM] Error: {e}")

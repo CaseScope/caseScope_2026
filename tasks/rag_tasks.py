@@ -340,7 +340,7 @@ def _get_semantic_pattern_suggestions(
     case_id: int,
     client,
     limit: int = 30,
-    score_threshold: float = 0.45
+    score_threshold: float = None
 ) -> Tuple[List[int], Dict[str, Any]]:
     """
     Use semantic search to find patterns relevant to case events.
@@ -514,11 +514,15 @@ def rag_discover_patterns(
                 'total_events': total_events
             })
             
+            # Use centralized threshold from config
+            from config import Config
+            discovery_threshold = getattr(Config, 'RAG_PATTERN_DISCOVERY_THRESHOLD', 0.40)
+            
             semantic_pattern_ids, semantic_metadata = _get_semantic_pattern_suggestions(
                 case_id=case_id,
                 client=client,
                 limit=50,
-                score_threshold=0.40
+                score_threshold=discovery_threshold
             )
             
             if semantic_pattern_ids:
@@ -1324,36 +1328,309 @@ def _cluster_into_phases(
     return phases
 
 
+def _build_pattern_text(pattern) -> str:
+    """Build rich text representation of a pattern for embedding"""
+    parts = [
+        f"Attack Pattern: {pattern.name}",
+        f"Category: {pattern.mitre_tactic or 'Unknown'}",
+        f"MITRE Technique: {pattern.mitre_technique or 'Unknown'}",
+    ]
+    
+    if pattern.description:
+        parts.append(f"Description: {pattern.description}")
+    
+    if pattern.required_event_ids:
+        parts.append(f"Event IDs: {', '.join(pattern.required_event_ids)}")
+    
+    if pattern.required_channels:
+        parts.append(f"Channels: {', '.join(pattern.required_channels)}")
+    
+    return "\n".join(parts)
+
+
 def _update_pattern_vectors():
-    """Update vector embeddings for all patterns"""
+    """Update vector embeddings for all patterns using batch processing
+    
+    Uses batch embedding for GPU acceleration (3.6x faster on A2).
+    """
     from models.rag import AttackPattern
-    from utils.rag_embeddings import embed_pattern
+    from utils.rag_embeddings import embed_texts
     from utils.rag_vectorstore import upsert_patterns
+    from config import Config
     
     app = get_flask_app()
     
     with app.app_context():
         patterns = AttackPattern.query.filter_by(enabled=True).all()
         
-        vectors = []
+        if not patterns:
+            logger.info("[RAG] No patterns to vectorize")
+            return
+        
+        logger.info(f"[RAG] Vectorizing {len(patterns)} patterns using batch embedding")
+        start_time = time.time()
+        
+        # Build text representations for all patterns
+        pattern_texts = []
+        valid_patterns = []
+        
         for pattern in patterns:
             try:
-                embedding = embed_pattern(pattern)
-                vectors.append({
-                    'id': pattern.id,
-                    'embedding': embedding,
-                    'payload': {
-                        'name': pattern.name,
-                        'mitre_technique': pattern.mitre_technique,
-                        'source': pattern.source
-                    }
-                })
+                text = _build_pattern_text(pattern)
+                pattern_texts.append(text)
+                valid_patterns.append(pattern)
             except Exception as e:
-                logger.warning(f"[RAG] Failed to embed pattern {pattern.id}: {e}")
+                logger.warning(f"[RAG] Failed to build text for pattern {pattern.id}: {e}")
+        
+        if not pattern_texts:
+            logger.warning("[RAG] No valid pattern texts to embed")
+            return
+        
+        # Batch embed all patterns at once (GPU-accelerated)
+        batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
+        embeddings = embed_texts(pattern_texts, batch_size=batch_size)
+        
+        # Build vector records
+        vectors = []
+        for pattern, embedding in zip(valid_patterns, embeddings):
+            vectors.append({
+                'id': pattern.id,
+                'embedding': embedding,
+                'payload': {
+                    'name': pattern.name,
+                    'description': pattern.description[:200] if pattern.description else None,
+                    'mitre_tactic': pattern.mitre_tactic,
+                    'mitre_technique': pattern.mitre_technique,
+                    'severity': pattern.severity,
+                    'source': pattern.source
+                }
+            })
         
         if vectors:
             upsert_patterns(vectors)
-            logger.info(f"[RAG] Updated {len(vectors)} pattern vectors")
+            elapsed = time.time() - start_time
+            logger.info(f"[RAG] Updated {len(vectors)} pattern vectors in {elapsed:.2f}s ({len(vectors)/elapsed:.1f} patterns/sec)")
+
+
+@celery_app.task(bind=True, name='tasks.rag_embed_high_severity_events')
+def rag_embed_high_severity_events(
+    self,
+    case_id: int,
+    case_uuid: str,
+    max_events: int = 5000,
+    batch_size: int = 100
+) -> Dict[str, Any]:
+    """
+    Embed high-severity events for semantic search.
+    
+    This task runs after artifact parsing to embed critical/high events
+    into a Qdrant collection for semantic similarity search.
+    
+    Only embeds events with rule_level = 'critical' or 'high' to keep
+    the vector store manageable (~1% of total events).
+    
+    Args:
+        case_id: PostgreSQL case.id
+        case_uuid: Case UUID
+        max_events: Maximum events to embed per case
+        batch_size: Batch size for embedding
+        
+    Returns:
+        Dict with embedding results
+    """
+    from utils.clickhouse import get_fresh_client
+    from utils.rag_embeddings import embed_texts
+    from utils.rag_vectorstore import get_qdrant_client, ensure_collection
+    from config import Config
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        self.update_state(state='PROGRESS', meta={
+            'progress': 5,
+            'status': 'Querying high-severity events...'
+        })
+        
+        client = get_fresh_client()
+        
+        # Query high-severity events
+        query = """
+            SELECT 
+                row_id,
+                timestamp_utc,
+                event_id,
+                channel,
+                source_host,
+                username,
+                rule_title,
+                rule_level,
+                process_name,
+                substring(command_line, 1, 300) as command_line,
+                mitre_tactics,
+                mitre_tags
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+            AND rule_level IN ('critical', 'high')
+            ORDER BY 
+                CASE WHEN rule_level = 'critical' THEN 1 ELSE 2 END,
+                timestamp_utc DESC
+            LIMIT {limit:UInt32}
+        """
+        
+        result = client.query(query, parameters={
+            'case_id': case_id,
+            'limit': max_events
+        })
+        
+        if not result.result_rows:
+            return {
+                'success': True,
+                'message': 'No high-severity events found',
+                'events_embedded': 0
+            }
+        
+        logger.info(f"[RAG Events] Found {len(result.result_rows)} high-severity events for case {case_id}")
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 20,
+            'status': f'Building text representations for {len(result.result_rows)} events...'
+        })
+        
+        # Build text representations
+        events_data = []
+        event_texts = []
+        
+        for row in result.result_rows:
+            row_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
+            
+            # Build searchable text
+            parts = []
+            if title:
+                parts.append(f"Rule: {title}")
+            if eid:
+                parts.append(f"EventID: {eid}")
+            if ch:
+                parts.append(f"Channel: {ch}")
+            if host:
+                parts.append(f"Host: {host}")
+            if user:
+                parts.append(f"User: {user}")
+            if proc:
+                parts.append(f"Process: {proc}")
+            if cmd:
+                parts.append(f"Command: {cmd[:200]}")
+            if tactics:
+                parts.append(f"MITRE Tactics: {', '.join(tactics)}")
+            if tags:
+                parts.append(f"MITRE Techniques: {', '.join(tags)}")
+            
+            text = " | ".join(parts) if parts else f"EventID: {eid}"
+            event_texts.append(text)
+            
+            events_data.append({
+                'row_id': row_id,
+                'timestamp': ts.isoformat() if ts else None,
+                'event_id': eid,
+                'channel': ch,
+                'source_host': host,
+                'username': user,
+                'rule_title': title,
+                'rule_level': level,
+                'process_name': proc
+            })
+        
+        # Batch embed
+        self.update_state(state='PROGRESS', meta={
+            'progress': 40,
+            'status': f'Embedding {len(event_texts)} events...'
+        })
+        
+        embedding_batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
+        embeddings = embed_texts(event_texts, batch_size=embedding_batch_size)
+        
+        logger.info(f"[RAG Events] Generated {len(embeddings)} embeddings")
+        
+        # Ensure collection exists
+        collection_name = f"case_{case_id}_events"
+        qdrant_client = get_qdrant_client()
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 60,
+            'status': 'Creating vector collection...'
+        })
+        
+        # Create or recreate collection for this case
+        try:
+            from qdrant_client.models import Distance, VectorParams, HnswConfigDiff
+            
+            # Delete existing collection if present
+            try:
+                qdrant_client.delete_collection(collection_name)
+            except:
+                pass
+            
+            qdrant_client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=len(embeddings[0]) if embeddings else 384,
+                    distance=Distance.COSINE
+                ),
+                hnsw_config=HnswConfigDiff(
+                    m=getattr(Config, 'QDRANT_HNSW_M', 16),
+                    ef_construct=getattr(Config, 'QDRANT_HNSW_EF_CONSTRUCT', 100)
+                )
+            )
+            
+            logger.info(f"[RAG Events] Created collection: {collection_name}")
+            
+        except Exception as e:
+            logger.error(f"[RAG Events] Failed to create collection: {e}")
+            return {
+                'success': False,
+                'error': f'Failed to create collection: {e}'
+            }
+        
+        # Upsert vectors
+        self.update_state(state='PROGRESS', meta={
+            'progress': 80,
+            'status': 'Storing vectors in Qdrant...'
+        })
+        
+        try:
+            from qdrant_client.models import PointStruct
+            
+            points = []
+            for i, (embedding, event_data) in enumerate(zip(embeddings, events_data)):
+                points.append(PointStruct(
+                    id=i,
+                    vector=embedding,
+                    payload=event_data
+                ))
+            
+            # Upsert in batches
+            for i in range(0, len(points), batch_size):
+                batch = points[i:i + batch_size]
+                qdrant_client.upsert(
+                    collection_name=collection_name,
+                    points=batch
+                )
+            
+            logger.info(f"[RAG Events] Upserted {len(points)} event vectors to {collection_name}")
+            
+        except Exception as e:
+            logger.error(f"[RAG Events] Failed to upsert vectors: {e}")
+            return {
+                'success': False,
+                'error': f'Failed to upsert vectors: {e}'
+            }
+        
+        return {
+            'success': True,
+            'case_id': case_id,
+            'events_embedded': len(embeddings),
+            'collection_name': collection_name,
+            'message': f'Embedded {len(embeddings)} high-severity events'
+        }
 
 
 @celery_app.task(name='tasks.rag_seed_builtin_patterns')

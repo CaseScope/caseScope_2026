@@ -1,21 +1,24 @@
 """RAG Vector Store for CaseScope
 
 Provides Qdrant vector database integration for semantic search.
+Thread-safe with optimized HNSW index configuration.
 """
 
 import logging
+import threading
 from typing import List, Dict, Any, Optional
 
 from config import Config
 
 logger = logging.getLogger(__name__)
 
-# Module-level client cache
+# Thread-safe client management
 _qdrant_client = None
+_qdrant_lock = threading.Lock()
 
 
 def get_qdrant_client():
-    """Get or create the Qdrant client instance
+    """Get or create the Qdrant client instance (thread-safe)
     
     Returns:
         QdrantClient instance
@@ -23,31 +26,36 @@ def get_qdrant_client():
     global _qdrant_client
     
     if _qdrant_client is None:
-        try:
-            from qdrant_client import QdrantClient
-            
-            logger.info(f"[RAG] Connecting to Qdrant at {Config.QDRANT_HOST}:{Config.QDRANT_PORT}")
-            
-            _qdrant_client = QdrantClient(
-                host=Config.QDRANT_HOST,
-                port=Config.QDRANT_PORT,
-                timeout=30.0
-            )
-            
-            logger.info("[RAG] Qdrant client connected")
-            
-        except ImportError:
-            logger.error("[RAG] qdrant-client not installed. Run: pip install qdrant-client")
-            raise
-        except Exception as e:
-            logger.error(f"[RAG] Failed to connect to Qdrant: {e}")
-            raise
+        with _qdrant_lock:
+            # Double-check after acquiring lock
+            if _qdrant_client is None:
+                try:
+                    from qdrant_client import QdrantClient
+                    
+                    logger.info(f"[RAG] Connecting to Qdrant at {Config.QDRANT_HOST}:{Config.QDRANT_PORT}")
+                    
+                    _qdrant_client = QdrantClient(
+                        host=Config.QDRANT_HOST,
+                        port=Config.QDRANT_PORT,
+                        timeout=30.0
+                    )
+                    
+                    logger.info("[RAG] Qdrant client connected")
+                    
+                except ImportError:
+                    logger.error("[RAG] qdrant-client not installed. Run: pip install qdrant-client")
+                    raise
+                except Exception as e:
+                    logger.error(f"[RAG] Failed to connect to Qdrant: {e}")
+                    raise
     
     return _qdrant_client
 
 
 def ensure_collection(collection_name: str, vector_size: int = 384) -> bool:
     """Ensure a collection exists, create if not
+    
+    Creates collection with optimized HNSW index parameters from config.
     
     Args:
         collection_name: Name of the collection
@@ -57,7 +65,7 @@ def ensure_collection(collection_name: str, vector_size: int = 384) -> bool:
         True if collection exists or was created
     """
     try:
-        from qdrant_client.models import Distance, VectorParams
+        from qdrant_client.models import Distance, VectorParams, HnswConfigDiff
         
         client = get_qdrant_client()
         
@@ -67,14 +75,23 @@ def ensure_collection(collection_name: str, vector_size: int = 384) -> bool:
         
         if not exists:
             logger.info(f"[RAG] Creating collection: {collection_name}")
+            
+            # Get HNSW parameters from config
+            hnsw_m = getattr(Config, 'QDRANT_HNSW_M', 16)
+            hnsw_ef = getattr(Config, 'QDRANT_HNSW_EF_CONSTRUCT', 100)
+            
             client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(
                     size=vector_size,
                     distance=Distance.COSINE
+                ),
+                hnsw_config=HnswConfigDiff(
+                    m=hnsw_m,  # Number of connections per element
+                    ef_construct=hnsw_ef,  # Size of dynamic candidate list for construction
                 )
             )
-            logger.info(f"[RAG] Collection created: {collection_name}")
+            logger.info(f"[RAG] Collection created: {collection_name} (HNSW m={hnsw_m}, ef={hnsw_ef})")
         
         return True
         
@@ -131,14 +148,14 @@ def upsert_patterns(patterns: List[Dict[str, Any]]) -> int:
 def search_similar_patterns(
     query_vector: List[float],
     limit: int = 10,
-    score_threshold: float = 0.5
+    score_threshold: float = None
 ) -> List[Dict[str, Any]]:
     """Search for patterns similar to query vector
     
     Args:
         query_vector: Query embedding vector
         limit: Maximum number of results
-        score_threshold: Minimum similarity score
+        score_threshold: Minimum similarity score (defaults to Config.RAG_SEMANTIC_THRESHOLD)
         
     Returns:
         List of matching patterns with scores
@@ -146,6 +163,10 @@ def search_similar_patterns(
     try:
         client = get_qdrant_client()
         collection = Config.QDRANT_COLLECTION_PATTERNS
+        
+        # Use centralized threshold if not specified
+        if score_threshold is None:
+            score_threshold = getattr(Config, 'RAG_SEMANTIC_THRESHOLD', 0.45)
         
         results = client.search(
             collection_name=collection,

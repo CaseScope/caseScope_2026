@@ -47,6 +47,15 @@
         <span class="time-filter-info" id="ai-time-filter-info"></span>
     </div>
     
+    <!-- Detection Options -->
+    <div class="ai-detection-options">
+        <label class="detection-option" title="Use AI to prioritize patterns most relevant to this case's events">
+            <input type="checkbox" id="useSemanticPrioritization" checked>
+            <span class="option-text">Semantic Pattern Prioritization</span>
+            <span class="option-hint">Uses AI embeddings to run most relevant patterns first</span>
+        </label>
+    </div>
+    
     <!-- Pattern Stats Overview -->
     <div class="ai-action-card">
         <div class="ai-action-stats" id="patternRulesStats">
@@ -275,6 +284,16 @@
                 <div class="response-content" id="askAIResponseContent">
                     <!-- AI response will be rendered here -->
                 </div>
+                <div class="response-feedback" id="askAIFeedback">
+                    <span class="feedback-label">Was this helpful?</span>
+                    <button class="feedback-btn feedback-positive" onclick="submitAskAIFeedback('helpful')" title="This was helpful">
+                        👍
+                    </button>
+                    <button class="feedback-btn feedback-negative" onclick="submitAskAIFeedback('not_helpful')" title="This was not helpful">
+                        👎
+                    </button>
+                    <span class="feedback-status" id="feedbackStatus"></span>
+                </div>
             </div>
             
             <!-- Conversation History -->
@@ -297,6 +316,7 @@
 <script>
 // Ask AI Modal Functions
 let askAIHistory = [];
+let currentQueryLogId = null;  // Track current query for feedback
 
 function openAskAIModal() {
     document.getElementById('ask-ai-modal').style.display = 'flex';
@@ -409,6 +429,9 @@ async function submitAskAI() {
                 duration_ms: data.duration_ns ? Math.round(data.duration_ns / 1000000) : null
             };
             
+            // Store query_log_id for feedback
+            currentQueryLogId = data.query_log_id || null;
+            
             showAskAIResponse(data.answer, meta);
             
             // Add to history
@@ -496,6 +519,72 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// Submit feedback for Ask AI response
+async function submitAskAIFeedback(feedback) {
+    if (!currentQueryLogId) {
+        console.warn('No query_log_id available for feedback');
+        return;
+    }
+    
+    const statusEl = document.getElementById('feedbackStatus');
+    const buttons = document.querySelectorAll('.feedback-btn');
+    
+    // Disable buttons during submission
+    buttons.forEach(btn => btn.disabled = true);
+    statusEl.textContent = 'Submitting...';
+    
+    try {
+        const response = await fetch('/api/rag/ask/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query_log_id: currentQueryLogId,
+                feedback: feedback
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            statusEl.textContent = 'Thanks for your feedback!';
+            statusEl.className = 'feedback-status feedback-success';
+            // Hide feedback buttons after submission
+            setTimeout(() => {
+                document.getElementById('askAIFeedback').style.opacity = '0.5';
+            }, 1500);
+        } else {
+            statusEl.textContent = 'Failed to submit';
+            statusEl.className = 'feedback-status feedback-error';
+            buttons.forEach(btn => btn.disabled = false);
+        }
+    } catch (error) {
+        console.error('Feedback submission error:', error);
+        statusEl.textContent = 'Error submitting feedback';
+        statusEl.className = 'feedback-status feedback-error';
+        buttons.forEach(btn => btn.disabled = false);
+    }
+}
+
+// Display confidence breakdown for pattern matches
+function showConfidenceBreakdown(factors) {
+    if (!factors) return '';
+    
+    let html = '<div class="confidence-breakdown">';
+    for (const [name, data] of Object.entries(factors)) {
+        const score = data.score || 0;
+        const detail = data.detail || '';
+        html += `
+            <div class="confidence-factor">
+                <span class="factor-name">${name}</span>
+                <span class="factor-score">+${score}</span>
+                <span class="factor-detail">${detail}</span>
+            </div>
+        `;
+    }
+    html += '</div>';
+    return html;
+}
 </script>
 
 <style>
@@ -752,5 +841,134 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .confidence-value.low {
     color: #dc3545;
+}
+
+/* Detection Options */
+.ai-detection-options {
+    display: flex;
+    gap: 16px;
+    padding: 10px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    margin-bottom: 12px;
+}
+
+.detection-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.detection-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+}
+
+.option-text {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.option-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-left: 8px;
+}
+
+/* Feedback buttons */
+.response-feedback {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    margin-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.feedback-label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.feedback-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.feedback-btn:hover:not(:disabled) {
+    transform: scale(1.1);
+}
+
+.feedback-btn.feedback-positive:hover:not(:disabled) {
+    background: rgba(40, 167, 69, 0.2);
+    border-color: #28a745;
+}
+
+.feedback-btn.feedback-negative:hover:not(:disabled) {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: #dc3545;
+}
+
+.feedback-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.feedback-status {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.feedback-status.feedback-success {
+    color: #28a745;
+}
+
+.feedback-status.feedback-error {
+    color: #dc3545;
+}
+
+/* Confidence Breakdown */
+.confidence-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    margin-top: 8px;
+}
+
+.confidence-factor {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+}
+
+.factor-name {
+    min-width: 100px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: capitalize;
+}
+
+.factor-score {
+    min-width: 40px;
+    font-weight: 600;
+    color: var(--accent-success);
+}
+
+.factor-detail {
+    color: var(--text-muted);
+    flex: 1;
 }
 </style>

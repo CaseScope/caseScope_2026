@@ -1274,13 +1274,42 @@ def ask_ai():
         # 4. If we have search terms, query for sample events
         if search_terms:
             try:
-                # Build OR conditions for search
-                conditions = []
+                # Sanitize and deduplicate search terms
+                safe_terms = []
+                event_id_terms = []
+                
                 for term in list(set(search_terms))[:6]:  # Dedupe and limit
-                    if term.isdigit():
-                        conditions.append(f"event_id = '{term}'")
+                    # Sanitize: only allow alphanumeric, spaces, underscores, hyphens
+                    import re
+                    sanitized = re.sub(r'[^\w\s\-]', '', str(term))
+                    if not sanitized:
+                        continue
+                    
+                    if sanitized.isdigit():
+                        event_id_terms.append(sanitized)
                     else:
-                        conditions.append(f"(lower(rule_title) LIKE '%{term}%' OR lower(command_line) LIKE '%{term}%' OR lower(channel) LIKE '%{term}%')")
+                        safe_terms.append(sanitized.lower())
+                
+                # Build safe parameterized conditions
+                conditions = []
+                
+                # Event ID matching (using IN clause with sanitized values)
+                if event_id_terms:
+                    event_ids_str = "', '".join(event_id_terms)
+                    conditions.append(f"event_id IN ('{event_ids_str}')")
+                
+                # Text matching using hasTokenCaseInsensitive (safer than LIKE with user input)
+                # This is ClickHouse's full-text search that doesn't require escaping
+                for term in safe_terms[:4]:  # Limit text terms
+                    # Use multiSearchAnyCaseInsensitive for safe substring matching
+                    conditions.append(
+                        f"(positionCaseInsensitive(rule_title, '{term}') > 0 OR "
+                        f"positionCaseInsensitive(command_line, '{term}') > 0 OR "
+                        f"positionCaseInsensitive(channel, '{term}') > 0)"
+                    )
+                
+                if not conditions:
+                    conditions = ["1=1"]  # No valid terms, will return nothing meaningful
                 
                 search_query = f"""
                 SELECT 
@@ -1348,10 +1377,34 @@ def ask_ai():
         except Exception as e:
             logger.warning(f"[Ask AI] Stats query failed: {e}")
         
-        # Build the full prompt - truncate to stay within token limits (~4 chars per token, 3000 tokens max for context)
+        # 6. Add pattern match results if available (Priority 3.2)
+        try:
+            from models.rag import PatternRuleMatch
+            
+            pattern_matches = PatternRuleMatch.query.filter_by(case_id=case_id).order_by(
+                PatternRuleMatch.confidence.desc()
+            ).limit(10).all()
+            
+            if pattern_matches:
+                context_parts.append(f"\nDETECTED ATTACK PATTERNS ({len(pattern_matches)} top matches):")
+                for pm in pattern_matches:
+                    match_line = f"  [{pm.severity.upper()}] {pm.pattern_name}"
+                    if pm.source_host:
+                        match_line += f" | Host: {pm.source_host}"
+                    if pm.username:
+                        match_line += f" | User: {pm.username}"
+                    match_line += f" | Confidence: {pm.confidence}%"
+                    if pm.mitre_techniques:
+                        match_line += f" | MITRE: {', '.join(pm.mitre_techniques[:2])}"
+                    context_parts.append(match_line)
+        except Exception as e:
+            logger.debug(f"[Ask AI] Could not load pattern matches: {e}")
+        
+        # Build the full prompt - use centralized config for max context
         context_text = "\n".join(context_parts) if context_parts else "No relevant data found in the case."
-        max_context_chars = 10000  # ~2500 tokens for context, leaving room for system prompt and response
+        max_context_chars = getattr(Config, 'RAG_MAX_CONTEXT_CHARS', 12000)
         if len(context_text) > max_context_chars:
+            # Prioritize: case summary, pattern matches, high-severity events, then samples
             context_text = context_text[:max_context_chars] + "\n... [Context truncated for token limit]"
         
         user_prompt = f"""Based on the following data from the investigation, please answer this question:
@@ -1404,6 +1457,29 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
             logger.warning(f"[Ask AI] Failed to log query: {log_err}")
             db.session.rollback()
         
+        # Save to server-side history for cross-device persistence
+        history_id = None
+        try:
+            from models.rag import AskAIHistory
+            
+            history_entry = AskAIHistory(
+                case_id=case_id,
+                user_id=current_user.username if current_user else 'anonymous',
+                question=question,
+                answer=result.get('response', ''),
+                patterns_found=len(pattern_context),
+                events_analyzed=len([p for p in context_parts if p.startswith('  [')]),
+                search_terms_used=search_terms[:5] if search_terms else None,
+                duration_ms=total_duration_ms,
+                model_used=result.get('model')
+            )
+            db.session.add(history_entry)
+            db.session.commit()
+            history_id = history_entry.id
+        except Exception as hist_err:
+            logger.warning(f"[Ask AI] Failed to save history: {hist_err}")
+            db.session.rollback()
+        
         return jsonify({
             'success': True,
             'answer': result.get('response', ''),
@@ -1414,7 +1490,8 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
             },
             'model': result.get('model'),
             'duration_ns': result.get('total_duration'),
-            'query_log_id': query_log_id  # For feedback submission
+            'query_log_id': query_log_id,  # For feedback submission
+            'history_id': history_id  # For server-side history reference
         })
         
     except Exception as e:
@@ -1543,4 +1620,349 @@ def get_query_stats():
         
     except Exception as e:
         logger.error(f"[Query Stats] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# SERVER-SIDE ASK AI HISTORY
+# ============================================================================
+
+@rag_bp.route('/ask/history/<int:case_id>')
+@login_required
+def get_ask_ai_history(case_id):
+    """Get server-side Ask AI history for a case
+    
+    Returns the user's recent Ask AI queries for this case.
+    """
+    from models.rag import AskAIHistory
+    
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        history = AskAIHistory.get_user_history(
+            case_id=case_id,
+            user_id=current_user.username,
+            limit=min(limit, 50)
+        )
+        
+        return jsonify({
+            'success': True,
+            'count': len(history),
+            'history': [h.to_dict() for h in history]
+        })
+        
+    except Exception as e:
+        logger.error(f"[Ask AI History] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/ask/history', methods=['POST'])
+@login_required
+def save_ask_ai_history():
+    """Save an Ask AI query to server-side history
+    
+    Called after a successful Ask AI query to persist the conversation.
+    """
+    from models.rag import AskAIHistory
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    question = data.get('question')
+    answer = data.get('answer')
+    
+    if not case_id or not question:
+        return jsonify({'success': False, 'error': 'case_id and question required'}), 400
+    
+    try:
+        history_entry = AskAIHistory(
+            case_id=case_id,
+            user_id=current_user.username,
+            question=question,
+            answer=answer,
+            patterns_found=data.get('patterns_found', 0),
+            events_analyzed=data.get('events_analyzed', 0),
+            search_terms_used=data.get('search_terms_used'),
+            duration_ms=data.get('duration_ms'),
+            model_used=data.get('model_used')
+        )
+        db.session.add(history_entry)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'history_id': history_entry.id
+        })
+        
+    except Exception as e:
+        logger.error(f"[Ask AI History] Save error: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/ask/history/<int:history_id>', methods=['DELETE'])
+@login_required
+def delete_ask_ai_history(history_id):
+    """Delete a specific Ask AI history entry"""
+    from models.rag import AskAIHistory
+    
+    try:
+        entry = AskAIHistory.query.get(history_id)
+        if not entry:
+            return jsonify({'success': False, 'error': 'Entry not found'}), 404
+        
+        # Only allow deleting own history
+        if entry.user_id != current_user.username:
+            return jsonify({'success': False, 'error': 'Not authorized'}), 403
+        
+        db.session.delete(entry)
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"[Ask AI History] Delete error: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# FEEDBACK-DRIVEN THRESHOLD TUNING
+# ============================================================================
+
+@rag_bp.route('/thresholds/recommendations')
+@login_required
+def get_threshold_recommendations():
+    """Get threshold recommendations based on analyst feedback
+    
+    Analyzes SemanticMatchFeedback data to recommend optimal thresholds
+    for each pattern and globally.
+    """
+    from models.rag import SemanticMatchFeedback, AttackPattern
+    from sqlalchemy import func
+    
+    try:
+        # Get patterns with feedback
+        patterns_with_feedback = db.session.query(
+            SemanticMatchFeedback.pattern_id,
+            func.count(SemanticMatchFeedback.id).label('feedback_count')
+        ).group_by(SemanticMatchFeedback.pattern_id).having(
+            func.count(SemanticMatchFeedback.id) >= 3  # Minimum feedback for recommendation
+        ).all()
+        
+        recommendations = []
+        for pattern_id, feedback_count in patterns_with_feedback:
+            rec = SemanticMatchFeedback.get_pattern_threshold_recommendation(pattern_id)
+            if rec['recommended_threshold']:
+                pattern = AttackPattern.query.get(pattern_id)
+                recommendations.append({
+                    'pattern_id': pattern_id,
+                    'pattern_name': pattern.name if pattern else 'Unknown',
+                    'current_threshold': pattern.semantic_threshold if pattern else None,
+                    'recommended_threshold': rec['recommended_threshold'],
+                    'avg_confirmed_score': rec['avg_confirmed_score'],
+                    'avg_rejected_score': rec['avg_rejected_score'],
+                    'feedback_count': feedback_count
+                })
+        
+        # Global recommendation based on all feedback
+        global_confirmed = db.session.query(
+            func.avg(SemanticMatchFeedback.similarity_score)
+        ).filter(SemanticMatchFeedback.verdict == 'confirmed').scalar()
+        
+        global_rejected = db.session.query(
+            func.avg(SemanticMatchFeedback.similarity_score)
+        ).filter(SemanticMatchFeedback.verdict == 'rejected').scalar()
+        
+        global_recommendation = None
+        if global_confirmed and global_rejected:
+            global_recommendation = (global_confirmed + global_rejected) / 2
+        elif global_confirmed:
+            global_recommendation = global_confirmed * 0.9
+        
+        return jsonify({
+            'success': True,
+            'global_recommendation': float(global_recommendation) if global_recommendation else None,
+            'global_confirmed_avg': float(global_confirmed) if global_confirmed else None,
+            'global_rejected_avg': float(global_rejected) if global_rejected else None,
+            'pattern_recommendations': recommendations
+        })
+        
+    except Exception as e:
+        logger.error(f"[Threshold Recommendations] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/thresholds/apply', methods=['POST'])
+@login_required
+def apply_threshold_recommendations():
+    """Apply recommended thresholds to patterns
+    
+    Updates semantic_threshold for specified patterns based on feedback.
+    """
+    from models.rag import AttackPattern
+    
+    data = request.json or {}
+    pattern_thresholds = data.get('pattern_thresholds', {})  # {pattern_id: threshold}
+    
+    if not pattern_thresholds:
+        return jsonify({'success': False, 'error': 'No thresholds provided'}), 400
+    
+    try:
+        updated = 0
+        for pattern_id, threshold in pattern_thresholds.items():
+            pattern = AttackPattern.query.get(int(pattern_id))
+            if pattern:
+                pattern.semantic_threshold = float(threshold)
+                updated += 1
+        
+        db.session.commit()
+        
+        logger.info(f"[Threshold Apply] Updated {updated} pattern thresholds by {current_user.username}")
+        
+        return jsonify({
+            'success': True,
+            'updated': updated
+        })
+        
+    except Exception as e:
+        logger.error(f"[Threshold Apply] Error: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# HIGH-SEVERITY EVENT EMBEDDING
+# ============================================================================
+
+@rag_bp.route('/events/embed/<int:case_id>', methods=['POST'])
+@login_required
+def embed_case_events(case_id):
+    """Trigger embedding of high-severity events for a case
+    
+    Embeds critical/high severity events into a Qdrant collection
+    for semantic search during investigation.
+    """
+    from models.case import Case
+    from tasks.rag_tasks import rag_embed_high_severity_events
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.json or {}
+    max_events = min(data.get('max_events', 5000), 10000)
+    
+    try:
+        task = rag_embed_high_severity_events.delay(
+            case_id=case_id,
+            case_uuid=str(case.uuid),
+            max_events=max_events
+        )
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': f'Started event embedding for case {case_id}'
+        })
+        
+    except Exception as e:
+        logger.error(f"[Event Embedding] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/events/search/<int:case_id>', methods=['POST'])
+@login_required
+def search_embedded_events(case_id):
+    """Search embedded events using semantic similarity
+    
+    Searches the case's event embedding collection for events
+    semantically similar to the query.
+    """
+    from utils.rag_embeddings import embed_text
+    from utils.rag_vectorstore import get_qdrant_client
+    from config import Config
+    
+    data = request.json or {}
+    query = data.get('query')
+    limit = min(data.get('limit', 20), 100)
+    threshold = data.get('threshold', getattr(Config, 'RAG_SEMANTIC_THRESHOLD', 0.45))
+    
+    if not query:
+        return jsonify({'success': False, 'error': 'Query is required'}), 400
+    
+    try:
+        # Embed the query
+        query_embedding = embed_text(query)
+        
+        # Search in case-specific collection
+        collection_name = f"case_{case_id}_events"
+        qdrant_client = get_qdrant_client()
+        
+        # Check if collection exists
+        collections = qdrant_client.get_collections().collections
+        if not any(c.name == collection_name for c in collections):
+            return jsonify({
+                'success': False,
+                'error': 'Event embeddings not found for this case. Run embedding first.'
+            }), 404
+        
+        # Search
+        results = qdrant_client.search(
+            collection_name=collection_name,
+            query_vector=query_embedding,
+            limit=limit,
+            score_threshold=threshold
+        )
+        
+        events = []
+        for result in results:
+            event = result.payload.copy()
+            event['similarity_score'] = round(result.score, 3)
+            events.append(event)
+        
+        return jsonify({
+            'success': True,
+            'query': query,
+            'count': len(events),
+            'events': events
+        })
+        
+    except Exception as e:
+        logger.error(f"[Event Search] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/events/embedding-status/<int:case_id>')
+@login_required
+def get_event_embedding_status(case_id):
+    """Get the status of event embeddings for a case"""
+    from utils.rag_vectorstore import get_qdrant_client
+    
+    try:
+        collection_name = f"case_{case_id}_events"
+        qdrant_client = get_qdrant_client()
+        
+        # Check if collection exists
+        collections = qdrant_client.get_collections().collections
+        collection = next((c for c in collections if c.name == collection_name), None)
+        
+        if not collection:
+            return jsonify({
+                'success': True,
+                'embedded': False,
+                'message': 'No event embeddings found for this case'
+            })
+        
+        # Get collection info
+        info = qdrant_client.get_collection(collection_name)
+        
+        return jsonify({
+            'success': True,
+            'embedded': True,
+            'collection_name': collection_name,
+            'vectors_count': info.vectors_count,
+            'points_count': info.points_count
+        })
+        
+    except Exception as e:
+        logger.error(f"[Embedding Status] Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

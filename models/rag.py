@@ -1102,6 +1102,61 @@ class SemanticMatchFeedback(db.Model):
         }
 
 
+class AskAIHistory(db.Model):
+    """Server-side storage for Ask AI conversation history
+    
+    Persists Ask AI queries and responses across browser sessions and devices.
+    """
+    __tablename__ = 'ask_ai_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(80), nullable=False, index=True)
+    
+    # Query and response
+    question = db.Column(db.Text, nullable=False)
+    answer = db.Column(db.Text, nullable=True)
+    
+    # Context summary
+    patterns_found = db.Column(db.Integer, default=0)
+    events_analyzed = db.Column(db.Integer, default=0)
+    search_terms_used = db.Column(db.ARRAY(db.String), nullable=True)
+    
+    # Performance
+    duration_ms = db.Column(db.Integer, nullable=True)
+    model_used = db.Column(db.String(100), nullable=True)
+    
+    # Feedback
+    feedback = db.Column(db.String(20), nullable=True)  # helpful, not_helpful
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    def __repr__(self):
+        return f'<AskAIHistory {self.id}: case={self.case_id}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'question': self.question,
+            'answer': self.answer[:500] + '...' if self.answer and len(self.answer) > 500 else self.answer,
+            'patterns_found': self.patterns_found,
+            'events_analyzed': self.events_analyzed,
+            'duration_ms': self.duration_ms,
+            'feedback': self.feedback,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @staticmethod
+    def get_user_history(case_id: int, user_id: str, limit: int = 20) -> List['AskAIHistory']:
+        """Get recent history for a user on a case"""
+        return AskAIHistory.query.filter_by(
+            case_id=case_id,
+            user_id=user_id
+        ).order_by(AskAIHistory.created_at.desc()).limit(limit).all()
+
+
 class MitreDataSource(db.Model):
     """MITRE ATT&CK Data Sources (x-mitre-data-source objects)
     

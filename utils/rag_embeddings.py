@@ -1,25 +1,34 @@
 """RAG Embeddings for CaseScope
 
 Provides embedding model management for semantic search.
-Uses sentence-transformers with all-MiniLM-L6-v2 (runs on CPU).
+Uses sentence-transformers with all-MiniLM-L6-v2.
+Supports GPU acceleration (CUDA) for faster processing.
 """
 
 import logging
+import threading
+import hashlib
 from typing import List, Optional, Union, Dict, Any
+from functools import lru_cache
 import numpy as np
 
 from config import Config
 
 logger = logging.getLogger(__name__)
 
-# Module-level model cache
+# Thread-safe model management
 _embedding_model = None
+_embedding_lock = threading.Lock()
+
+# LRU cache for embeddings (avoids recomputing similar queries)
+_embedding_cache_size = 1000
 
 
 def get_embedding_model():
-    """Get or create the embedding model instance
+    """Get or create the embedding model instance (thread-safe)
     
-    Uses all-MiniLM-L6-v2 by default (384 dimensions, fast, CPU-friendly).
+    Uses all-MiniLM-L6-v2 by default (384 dimensions).
+    Loads on GPU (CUDA) if configured and available, falls back to CPU.
     Model is cached at module level for reuse.
     
     Returns:
@@ -28,51 +37,98 @@ def get_embedding_model():
     global _embedding_model
     
     if _embedding_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            
-            model_name = Config.EMBEDDING_MODEL
-            logger.info(f"[RAG] Loading embedding model: {model_name}")
-            
-            _embedding_model = SentenceTransformer(model_name)
-            logger.info(f"[RAG] Embedding model loaded successfully")
-            
-        except ImportError:
-            logger.error("[RAG] sentence-transformers not installed. Run: pip install sentence-transformers")
-            raise
-        except Exception as e:
-            logger.error(f"[RAG] Failed to load embedding model: {e}")
-            raise
+        with _embedding_lock:
+            # Double-check after acquiring lock
+            if _embedding_model is None:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    
+                    model_name = Config.EMBEDDING_MODEL
+                    device = getattr(Config, 'EMBEDDING_DEVICE', 'cpu')
+                    
+                    # Check CUDA availability if GPU requested
+                    if device == 'cuda':
+                        try:
+                            import torch
+                            if not torch.cuda.is_available():
+                                logger.warning("[RAG] CUDA requested but not available, falling back to CPU")
+                                device = 'cpu'
+                            else:
+                                gpu_name = torch.cuda.get_device_name(0)
+                                logger.info(f"[RAG] Using GPU: {gpu_name}")
+                        except ImportError:
+                            logger.warning("[RAG] PyTorch not available, falling back to CPU")
+                            device = 'cpu'
+                    
+                    logger.info(f"[RAG] Loading embedding model: {model_name} on {device}")
+                    
+                    _embedding_model = SentenceTransformer(model_name, device=device)
+                    logger.info(f"[RAG] Embedding model loaded successfully on {device}")
+                    
+                except ImportError:
+                    logger.error("[RAG] sentence-transformers not installed. Run: pip install sentence-transformers")
+                    raise
+                except Exception as e:
+                    logger.error(f"[RAG] Failed to load embedding model: {e}")
+                    raise
     
     return _embedding_model
 
 
-def embed_text(text: str) -> List[float]:
+def _compute_text_hash(text: str) -> str:
+    """Compute hash for cache key"""
+    return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+
+# LRU cache for single text embeddings
+@lru_cache(maxsize=_embedding_cache_size)
+def _cached_embed_text(text_hash: str, text: str) -> tuple:
+    """Cached embedding computation (returns tuple for hashability)"""
+    model = get_embedding_model()
+    embedding = model.encode(text, convert_to_numpy=True)
+    return tuple(embedding.tolist())
+
+
+def embed_text(text: str, use_cache: bool = True) -> List[float]:
     """Generate embedding for a single text string
     
     Args:
         text: Text to embed
+        use_cache: Whether to use LRU cache (default True)
         
     Returns:
         List of floats (embedding vector)
     """
-    model = get_embedding_model()
-    embedding = model.encode(text, convert_to_numpy=True)
-    return embedding.tolist()
+    if not text or not text.strip():
+        # Return zero vector for empty text
+        model = get_embedding_model()
+        dim = model.get_sentence_embedding_dimension()
+        return [0.0] * dim
+    
+    if use_cache:
+        text_hash = _compute_text_hash(text)
+        return list(_cached_embed_text(text_hash, text))
+    else:
+        model = get_embedding_model()
+        embedding = model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
 
 
-def embed_texts(texts: List[str], batch_size: int = 32) -> List[List[float]]:
-    """Generate embeddings for multiple texts
+def embed_texts(texts: List[str], batch_size: int = None) -> List[List[float]]:
+    """Generate embeddings for multiple texts (batched, GPU-optimized)
     
     Args:
         texts: List of texts to embed
-        batch_size: Batch size for encoding
+        batch_size: Batch size for encoding (defaults to Config.EMBEDDING_BATCH_SIZE)
         
     Returns:
         List of embedding vectors
     """
     if not texts:
         return []
+    
+    if batch_size is None:
+        batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
     
     model = get_embedding_model()
     embeddings = model.encode(
@@ -82,6 +138,24 @@ def embed_texts(texts: List[str], batch_size: int = 32) -> List[List[float]]:
         convert_to_numpy=True
     )
     return embeddings.tolist()
+
+
+def clear_embedding_cache():
+    """Clear the embedding LRU cache"""
+    _cached_embed_text.cache_clear()
+    logger.info("[RAG] Embedding cache cleared")
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get embedding cache statistics"""
+    info = _cached_embed_text.cache_info()
+    return {
+        'hits': info.hits,
+        'misses': info.misses,
+        'size': info.currsize,
+        'maxsize': info.maxsize,
+        'hit_rate': info.hits / (info.hits + info.misses) if (info.hits + info.misses) > 0 else 0
+    }
 
 
 def embed_pattern(pattern) -> List[float]:

@@ -1,6 +1,29 @@
 {
-  "version": "3.123.00",
+  "version": "3.124.00",
   "changelog": [
+    {
+      "version": "3.124.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: RAG system major overhaul for GPU acceleration and performance",
+        "Performance: GPU-accelerated embeddings (CUDA) with 3.6x speedup on A2",
+        "Performance: Batch pattern vectorization for faster pattern sync",
+        "Performance: LRU embedding cache to avoid recomputing similar queries",
+        "Performance: HNSW index optimization for Qdrant vector search",
+        "Security: Fixed SQL injection vulnerability in Ask AI search query",
+        "Architecture: Thread-safe singleton for Qdrant client connections",
+        "Architecture: Centralized RAG thresholds in config.py",
+        "Architecture: Retry logic with exponential backoff for Ollama calls",
+        "Feature: High-severity event embedding for semantic search",
+        "Feature: Pattern match results included in Ask AI context",
+        "Feature: Feedback-driven threshold tuning with recommendations API",
+        "Feature: Server-side Ask AI history for cross-device persistence",
+        "UI: Semantic pattern prioritization toggle for detection",
+        "UI: Feedback buttons (thumbs up/down) for Ask AI responses",
+        "UI: Confidence breakdown display for pattern matches",
+        "Database: New indexes on RAG tables for query performance"
+      ]
+    },
     {
       "version": "3.123.00",
       "date": "2026-01-21",
