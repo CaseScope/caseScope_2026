@@ -1,6 +1,13 @@
 {
-  "version": "3.128.00",
+  "version": "3.128.01",
   "changelog": [
+    {
+      "version": "3.128.01",
+      "date": "2026-01-21",
+      "changes": [
+        "Fix: Custom time range filter now correctly includes events with NULL timestamp_utc (pre-migration events) using COALESCE"
+      ]
+    },
     {
       "version": "3.128.00",
       "date": "2026-01-21",
