@@ -1932,40 +1932,6 @@ def search_embedded_events(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@rag_bp.route('/task/<task_id>/status')
-@login_required
-def get_task_status(task_id):
-    """Get the status of a Celery task"""
-    from celery.result import AsyncResult
-    from tasks import celery_app
-    
-    try:
-        result = AsyncResult(task_id, app=celery_app)
-        
-        response = {
-            'task_id': task_id,
-            'state': result.state,
-        }
-        
-        if result.state == 'PENDING':
-            response['progress'] = 0
-            response['status'] = 'Pending...'
-        elif result.state == 'PROGRESS':
-            info = result.info or {}
-            response['progress'] = info.get('progress', 0)
-            response['status'] = info.get('status', 'Processing...')
-        elif result.state == 'SUCCESS':
-            response['result'] = result.result
-        elif result.state == 'FAILURE':
-            response['error'] = str(result.result)
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"[Task Status] Error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
 @rag_bp.route('/events/embedding-status/<int:case_id>')
 @login_required
 def get_event_embedding_status(case_id):

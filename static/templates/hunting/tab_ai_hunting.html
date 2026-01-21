@@ -628,10 +628,10 @@ async function startEventEmbedding() {
 async function pollEmbeddingTask(taskId, btn, originalText) {
     const pollInterval = setInterval(async () => {
         try {
-            const response = await fetch(`/api/rag/task/${taskId}/status`);
+            const response = await fetch(`/api/rag/status/${taskId}`);
             const data = await response.json();
             
-            if (data.state === 'SUCCESS') {
+            if (data.state === 'completed') {
                 clearInterval(pollInterval);
                 btn.classList.remove('embedding');
                 btn.innerHTML = '<span class="btn-icon">✅</span> Vectors Ready';
@@ -650,13 +650,13 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
                         btn.disabled = false;
                     }, 2000);
                 }
-            } else if (data.state === 'FAILURE') {
+            } else if (data.state === 'failed') {
                 clearInterval(pollInterval);
                 btn.classList.remove('embedding');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
                 alert('Embedding failed: ' + (data.error || 'Unknown error'));
-            } else if (data.state === 'PROGRESS') {
+            } else if (data.state === 'progress') {
                 const progress = data.progress || 0;
                 btn.innerHTML = `<span class="btn-icon">⏳</span> ${progress}%`;
             }
