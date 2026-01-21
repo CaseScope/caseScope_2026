@@ -7588,3 +7588,58 @@ def download_report(case_uuid, filename):
     except Exception as e:
         logger.error(f"Error downloading report: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/generate-ai/<case_uuid>', methods=['POST'])
+@login_required
+def generate_ai_report(case_uuid):
+    """Generate an AI-powered DFIR report for a case
+    
+    This endpoint generates a complete report using AI analysis of:
+    - EDR report data
+    - Analyst-tagged events
+    - IOCs
+    - Remediation documentation
+    
+    Request body (optional):
+    {
+        "template_id": 1  // Optional, uses default if not specified
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "filename": "DFIR_Report_20260121_143052.docx",
+        "download_url": "/api/reports/download/case-uuid/filename.docx"
+    }
+    """
+    try:
+        from utils.ai_report_generator import AIReportGenerator
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json() or {}
+        template_id = data.get('template_id')
+        
+        # Generate the report
+        generator = AIReportGenerator(case.id, template_id)
+        result = generator.generate_report()
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'filename': result['filename'],
+                'output_path': result['output_path'],
+                'download_url': f"/api/reports/download/{case_uuid}/{result['filename']}",
+                'sections': result['sections']
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Report generation failed'}), 500
+        
+    except Exception as e:
+        logger.error(f"Error generating AI report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500

@@ -1,6 +1,17 @@
 {
-  "version": "3.131.00",
+  "version": "3.132.00",
   "changelog": [
+    {
+      "version": "3.132.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: AI Report button on Case Dashboard for one-click DFIR report generation",
+        "Feature: AI-powered report generator with executive summary, timeline, IOC list",
+        "Feature: Automated What/Why/How sections using case data and EDR findings",
+        "Feature: Progress modal with real-time status during report generation",
+        "Feature: Word document output using configurable templates"
+      ]
+    },
     {
       "version": "3.131.00",
       "date": "2026-01-21",
