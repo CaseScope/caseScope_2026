@@ -3712,7 +3712,9 @@ function loadNoiseStats() {
             if (data.success) {
                 document.getElementById('noiseEventsTagged').textContent = data.noise_count.toLocaleString();
                 if (data.last_scan) {
-                    document.getElementById('noiseLastScan').textContent = data.last_scan;
+                    const date = new Date(data.last_scan);
+                    const formatted = `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+                    document.getElementById('noiseLastScan').textContent = formatted;
                 }
             }
         })
