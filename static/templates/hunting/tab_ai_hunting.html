@@ -80,6 +80,9 @@
             <button class="btn btn-primary btn-lg" id="btnDetectPatternRules" onclick="startPatternRulesDetection()" title="Run all 58 pattern detection queries">
                 <span class="btn-icon">🔍</span> Run Detection
             </button>
+            <button class="btn btn-ai-vector" id="btnEmbedEvents" onclick="startEventEmbedding()" title="Embed high-severity events for semantic search">
+                <span class="btn-icon">🧠</span> Create Vectors
+            </button>
             <button class="btn btn-secondary" onclick="clearPatternRulesResults()" title="Clear previous results">
                 <span class="btn-icon">🗑️</span> Clear
             </button>
@@ -585,6 +588,109 @@ function showConfidenceBreakdown(factors) {
     html += '</div>';
     return html;
 }
+
+// Event Embedding Functions
+async function startEventEmbedding() {
+    const btn = document.getElementById('btnEmbedEvents');
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.classList.add('embedding');
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Embedding...';
+    
+    try {
+        const response = await fetch(`/api/rag/events/embed/${caseId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_events: 5000 })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Poll for task completion
+            pollEmbeddingTask(data.task_id, btn, originalText);
+        } else {
+            alert('Failed to start embedding: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.classList.remove('embedding');
+            btn.innerHTML = originalText;
+        }
+    } catch (error) {
+        console.error('Embedding error:', error);
+        alert('Failed to start embedding: ' + error.message);
+        btn.disabled = false;
+        btn.classList.remove('embedding');
+        btn.innerHTML = originalText;
+    }
+}
+
+async function pollEmbeddingTask(taskId, btn, originalText) {
+    const pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/rag/task/${taskId}/status`);
+            const data = await response.json();
+            
+            if (data.state === 'SUCCESS') {
+                clearInterval(pollInterval);
+                btn.classList.remove('embedding');
+                btn.innerHTML = '<span class="btn-icon">✅</span> Vectors Ready';
+                
+                // Show result
+                const result = data.result || {};
+                if (result.events_embedded) {
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                        alert(`Embedded ${result.events_embedded} high-severity events for semantic search.`);
+                    }, 2000);
+                } else {
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                    }, 2000);
+                }
+            } else if (data.state === 'FAILURE') {
+                clearInterval(pollInterval);
+                btn.classList.remove('embedding');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                alert('Embedding failed: ' + (data.error || 'Unknown error'));
+            } else if (data.state === 'PROGRESS') {
+                const progress = data.progress || 0;
+                btn.innerHTML = `<span class="btn-icon">⏳</span> ${progress}%`;
+            }
+        } catch (error) {
+            console.error('Poll error:', error);
+        }
+    }, 2000);
+    
+    // Timeout after 5 minutes
+    setTimeout(() => {
+        clearInterval(pollInterval);
+        btn.classList.remove('embedding');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }, 300000);
+}
+
+// Check embedding status on page load
+async function checkEmbeddingStatus() {
+    try {
+        const response = await fetch(`/api/rag/events/embedding-status/${caseId}`);
+        const data = await response.json();
+        
+        if (data.success && data.embedded) {
+            const btn = document.getElementById('btnEmbedEvents');
+            btn.title = `${data.vectors_count} events embedded`;
+        }
+    } catch (error) {
+        console.debug('Embedding status check failed:', error);
+    }
+}
+
+// Run on page load
+document.addEventListener('DOMContentLoaded', checkEmbeddingStatus);
 </script>
 
 <style>
@@ -841,6 +947,37 @@ function showConfidenceBreakdown(factors) {
 
 .confidence-value.low {
     color: #dc3545;
+}
+
+/* Vector Embedding Button */
+.btn-ai-vector {
+    background: linear-gradient(135deg, #6f42c1, #8b5cf6);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--border-radius);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-ai-vector:hover:not(:disabled) {
+    background: linear-gradient(135deg, #5a32a3, #7c4ddb);
+    transform: translateY(-1px);
+}
+
+.btn-ai-vector:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-ai-vector.embedding {
+    animation: pulse-vector 1.5s infinite;
+}
+
+@keyframes pulse-vector {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
 /* Detection Options */
