@@ -3557,7 +3557,7 @@
                         return;
                     }
                     
-                    const list = data.placeholders.map(p => `  • {{ ${p} }}`).join('\n');
+                    const list = data.placeholders.map(p => `  • ${'{{' + ' ' + p + ' }}'}`).join('\n');
                     alert(`Template Placeholders:\n\n${list}\n\nThese variables can be filled when generating reports.`);
                 })
                 .catch(err => {
