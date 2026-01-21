@@ -495,11 +495,11 @@ def _update_case_file_status(case_file_id: int, status: str = None,
         from models.database import db
         from models.case_file import CaseFile
         from sqlalchemy import select
-        from sqlalchemy.orm import with_for_update
         
         app = get_flask_app()
         with app.app_context():
             # Use row-level locking to prevent concurrent update conflicts
+            # with_for_update() is a method on Select, not a separate import
             stmt = select(CaseFile).where(CaseFile.id == case_file_id).with_for_update()
             cf = db.session.execute(stmt).scalar_one_or_none()
             
