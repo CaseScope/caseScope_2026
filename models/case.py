@@ -119,6 +119,12 @@ class Case(db.Model):
     # Noise detection tracking
     noise_last_scan = db.Column(db.DateTime, nullable=True)  # Last noise scan timestamp
     
+    # Remediation documentation fields (for final reports)
+    containment_actions = db.Column(db.Text, nullable=True)  # Isolation, blocks, account disables
+    eradication_actions = db.Column(db.Text, nullable=True)  # Malware removal, cleanup
+    recovery_actions = db.Column(db.Text, nullable=True)     # Credential resets, system restoration
+    lessons_learned = db.Column(db.Text, nullable=True)      # What to prevent next time
+    
     def __repr__(self):
         return f'<Case {self.uuid}: {self.name}>'
     
@@ -145,7 +151,11 @@ class Case(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'assigned_to': self.assigned_to,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None
+            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
+            'containment_actions': self.containment_actions,
+            'eradication_actions': self.eradication_actions,
+            'recovery_actions': self.recovery_actions,
+            'lessons_learned': self.lessons_learned
         }
     
     @staticmethod

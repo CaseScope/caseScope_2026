@@ -1,6 +1,18 @@
 {
-  "version": "3.130.00",
+  "version": "3.131.00",
   "changelog": [
+    {
+      "version": "3.131.00",
+      "date": "2026-01-21",
+      "changes": [
+        "Feature: Remediation documentation fields added to Case edit page",
+        "Feature: Containment Actions field for documenting isolation and blocks",
+        "Feature: Eradication Actions field for malware removal and cleanup",
+        "Feature: Recovery Actions field for credential resets and restoration",
+        "Feature: Lessons Learned field for prevention recommendations",
+        "Feature: All fields available for AI report generation"
+      ]
+    },
     {
       "version": "3.130.00",
       "date": "2026-01-21",

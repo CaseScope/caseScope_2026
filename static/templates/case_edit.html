@@ -96,6 +96,37 @@
                 <span class="form-hint">Accepts: single IPs, comma-separated, ranges (192.168.1.100-150), or CIDR notation (10.0.0.0/24)</span>
             </div>
             
+            <div class="form-section-title">Remediation Documentation</div>
+            <p class="form-section-hint">Document actions taken during incident response. These fields are used for final report generation.</p>
+            
+            <div class="form-group">
+                <label class="form-label" for="containment_actions">Containment Actions</label>
+                <textarea id="containment_actions" name="containment_actions" class="form-input form-textarea" 
+                          placeholder="Describe isolation measures, network blocks, account disables, etc." rows="3">{{ case.containment_actions or '' }}</textarea>
+                <span class="form-hint">Actions taken to prevent further spread (isolation, blocks, disables)</span>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="eradication_actions">Eradication Actions</label>
+                <textarea id="eradication_actions" name="eradication_actions" class="form-input form-textarea" 
+                          placeholder="Describe malware removal, registry cleanup, file deletions, etc." rows="3">{{ case.eradication_actions or '' }}</textarea>
+                <span class="form-hint">Actions taken to remove the threat (malware removal, cleanup)</span>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="recovery_actions">Recovery Actions</label>
+                <textarea id="recovery_actions" name="recovery_actions" class="form-input form-textarea" 
+                          placeholder="Describe credential resets, system restoration, monitoring setup, etc." rows="3">{{ case.recovery_actions or '' }}</textarea>
+                <span class="form-hint">Actions taken to restore normal operations (resets, restoration)</span>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="lessons_learned">Lessons Learned</label>
+                <textarea id="lessons_learned" name="lessons_learned" class="form-input form-textarea" 
+                          placeholder="What could prevent this in the future? Recommendations for the client." rows="3">{{ case.lessons_learned or '' }}</textarea>
+                <span class="form-hint">Recommendations to prevent similar incidents</span>
+            </div>
+            
             <div class="form-actions">
                 <a href="{{ url_for('main.case_dashboard') }}" class="btn btn-secondary">Cancel</a>
                 <button type="submit" class="btn btn-primary">Save Changes</button>

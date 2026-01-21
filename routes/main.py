@@ -380,6 +380,12 @@ def case_edit():
         status = request.form.get('status', '').strip()
         assigned_to = request.form.get('assigned_to', '').strip()
         
+        # Remediation fields
+        containment_actions = request.form.get('containment_actions', '').strip()
+        eradication_actions = request.form.get('eradication_actions', '').strip()
+        recovery_actions = request.form.get('recovery_actions', '').strip()
+        lessons_learned = request.form.get('lessons_learned', '').strip()
+        
         # Validate mandatory fields
         if not name:
             flash('Case name is required', 'error')
@@ -414,6 +420,14 @@ def case_edit():
             changes['status'] = (case.status, status)
         if (case.assigned_to or '') != (assigned_to or ''):
             changes['assigned_to'] = (case.assigned_to, assigned_to or None)
+        if (case.containment_actions or '') != (containment_actions or ''):
+            changes['containment_actions'] = (case.containment_actions, containment_actions or None)
+        if (case.eradication_actions or '') != (eradication_actions or ''):
+            changes['eradication_actions'] = (case.eradication_actions, eradication_actions or None)
+        if (case.recovery_actions or '') != (recovery_actions or ''):
+            changes['recovery_actions'] = (case.recovery_actions, recovery_actions or None)
+        if (case.lessons_learned or '') != (lessons_learned or ''):
+            changes['lessons_learned'] = (case.lessons_learned, lessons_learned or None)
         
         # Update the case
         case.name = name
@@ -425,6 +439,10 @@ def case_edit():
         if status in CaseStatus.all():
             case.status = status
         case.assigned_to = assigned_to or None
+        case.containment_actions = containment_actions or None
+        case.eradication_actions = eradication_actions or None
+        case.recovery_actions = recovery_actions or None
+        case.lessons_learned = lessons_learned or None
         
         db.session.commit()
         
