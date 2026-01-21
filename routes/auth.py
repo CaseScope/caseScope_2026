@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_user, logout_user, login_required, current_user
 from models.database import db
 from models.user import User
+from models.audit_log import audit_login, audit_logout
 from config import UserSettings
 
 auth_bp = Blueprint('auth', __name__)
@@ -45,6 +46,7 @@ def login():
         if not user.check_password(password):
             user.record_failed_login()
             db.session.commit()
+            audit_login(username, success=False, reason='invalid_password')
             flash('Invalid username or password', 'error')
             return render_template('login.html', page_title='Login')
         
@@ -53,6 +55,7 @@ def login():
         db.session.commit()
         
         login_user(user, remember=bool(remember))
+        audit_login(username, success=True)
         
         # Set session expiry
         session.permanent = UserSettings.SESSION_PERMANENT
@@ -70,6 +73,8 @@ def login():
 @login_required
 def logout():
     """Logout and redirect to login page"""
+    username = current_user.username  # Capture before logout
+    audit_logout(username)
     logout_user()
     session.clear()
     flash('You have been logged out', 'success')

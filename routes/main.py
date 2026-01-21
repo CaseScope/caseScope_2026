@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from models.database import db
 from models.case import Case, CaseStatus, COMMON_TIMEZONES
 from models.user import User
+from models.audit_log import AuditLog, AuditAction, AuditEntityType, audit_update
 from config import Config, PermissionLevel, UserSettings
 
 main_bp = Blueprint('main', __name__)
@@ -105,6 +106,19 @@ def case_create():
         
         db.session.add(case)
         db.session.commit()
+        
+        # Audit log case creation
+        AuditLog.log(
+            entity_type=AuditEntityType.CASE,
+            entity_id=case.uuid,
+            action=AuditAction.CREATED,
+            entity_name=name,
+            case_uuid=case.uuid,
+            details={
+                'company': company,
+                'timezone': timezone
+            }
+        )
         
         # Create SFTP upload folder for this case
         sftp_case_folder = os.path.join(Config.UPLOAD_FOLDER_SFTP, case.uuid)
@@ -382,6 +396,25 @@ def case_edit():
         if not is_valid_timezone(timezone):
             timezone = 'UTC'
         
+        # Track changes for audit log
+        changes = {}
+        if case.name != name:
+            changes['name'] = (case.name, name)
+        if case.company != company:
+            changes['company'] = (case.company, company)
+        if (case.description or '') != (description or ''):
+            changes['description'] = (case.description, description or None)
+        if case.timezone != timezone:
+            changes['timezone'] = (case.timezone, timezone)
+        if (case.router_ips or '') != (router_ips or ''):
+            changes['router_ips'] = (case.router_ips, router_ips or None)
+        if (case.vpn_ips or '') != (vpn_ips or ''):
+            changes['vpn_ips'] = (case.vpn_ips, vpn_ips or None)
+        if status in CaseStatus.all() and case.status != status:
+            changes['status'] = (case.status, status)
+        if (case.assigned_to or '') != (assigned_to or ''):
+            changes['assigned_to'] = (case.assigned_to, assigned_to or None)
+        
         # Update the case
         case.name = name
         case.company = company
@@ -394,6 +427,17 @@ def case_edit():
         case.assigned_to = assigned_to or None
         
         db.session.commit()
+        
+        # Audit log the changes
+        if changes:
+            audit_update(
+                entity_type=AuditEntityType.CASE,
+                entity_id=case.uuid,
+                changes=changes,
+                entity_name=case.name,
+                case_uuid=case.uuid
+            )
+        
         flash('Case updated successfully', 'success')
         return redirect(url_for('main.case_dashboard'))
     
@@ -437,10 +481,26 @@ def profile():
             flash('Email is already in use by another user', 'error')
             return render_template('profile.html', page_title='My Profile', can_edit=can_edit, UserSettings=UserSettings)
         
+        # Track changes for audit log
+        changes = {}
+        if current_user.full_name != full_name:
+            changes['full_name'] = (current_user.full_name, full_name)
+        if current_user.email != email:
+            changes['email'] = (current_user.email, email)
+        
         # Update user
         current_user.full_name = full_name
         current_user.email = email
         db.session.commit()
+        
+        # Audit log the changes
+        if changes:
+            audit_update(
+                entity_type=AuditEntityType.SYSTEM_USER,
+                entity_id=current_user.id,
+                changes=changes,
+                entity_name=current_user.username
+            )
         
         flash('Profile updated successfully', 'success')
         return redirect(url_for('main.profile'))
@@ -480,6 +540,14 @@ def change_password():
     # Update password
     current_user.set_password(new_password)
     db.session.commit()
+    
+    # Audit log the password change
+    AuditLog.log(
+        entity_type=AuditEntityType.SYSTEM_USER,
+        entity_id=current_user.id,
+        action=AuditAction.PASSWORD_CHANGED,
+        entity_name=current_user.username
+    )
     
     flash('Password changed successfully', 'success')
     return redirect(url_for('main.profile'))
@@ -596,6 +664,19 @@ def user_create():
         db.session.add(user)
         db.session.commit()
         
+        # Audit log user creation
+        AuditLog.log(
+            entity_type=AuditEntityType.SYSTEM_USER,
+            entity_id=user.id,
+            action=AuditAction.CREATED,
+            entity_name=username,
+            details={
+                'full_name': full_name,
+                'email': email,
+                'permission_level': permission_level
+            }
+        )
+        
         flash(f'User "{username}" created successfully', 'success')
         return redirect(url_for('main.users'))
     
@@ -640,6 +721,19 @@ def user_edit(user_id):
         if permission_level not in PermissionLevel.all():
             permission_level = user.permission_level
         
+        # Track changes for audit log
+        changes = {}
+        if user.full_name != full_name:
+            changes['full_name'] = (user.full_name, full_name)
+        if user.email != email:
+            changes['email'] = (user.email, email)
+        if user.permission_level != permission_level:
+            changes['permission_level'] = (user.permission_level, permission_level)
+        if user.is_active != is_active:
+            changes['is_active'] = (user.is_active, is_active)
+        
+        password_changed = False
+        
         # Update user
         user.full_name = full_name
         user.email = email
@@ -660,8 +754,29 @@ def user_edit(user_id):
                                        PermissionLevel=PermissionLevel, UserSettings=UserSettings, is_new=False)
             
             user.set_password(new_password)
+            password_changed = True
         
         db.session.commit()
+        
+        # Audit log the changes
+        if changes:
+            audit_update(
+                entity_type=AuditEntityType.SYSTEM_USER,
+                entity_id=user.id,
+                changes=changes,
+                entity_name=user.username
+            )
+        
+        # Separate audit entry for password reset by admin
+        if password_changed:
+            AuditLog.log(
+                entity_type=AuditEntityType.SYSTEM_USER,
+                entity_id=user.id,
+                action=AuditAction.PASSWORD_CHANGED,
+                entity_name=user.username,
+                details={'reset_by': 'administrator'}
+            )
+        
         flash(f'User "{user.username}" updated successfully', 'success')
         return redirect(url_for('main.users'))
     
