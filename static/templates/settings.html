@@ -3409,6 +3409,7 @@
                                 <tr>
                                     <th>Filename</th>
                                     <th>Display Name</th>
+                                    <th style="width: 150px;">Report Type</th>
                                     <th>Description</th>
                                     <th style="width: 80px;">Active</th>
                                     <th style="width: 80px;">Default</th>
@@ -3433,6 +3434,15 @@
                                            data-field="display_name"
                                            onchange="updateTemplate(${template.id}, 'display_name', this.value)"
                                            style="width: 200px;">
+                                </td>
+                                <td>
+                                    <select class="form-select form-select-inline"
+                                            onchange="updateTemplate(${template.id}, 'report_type', this.value)"
+                                            style="width: 140px;">
+                                        <option value="dfir" ${template.report_type === 'dfir' ? 'selected' : ''}>DFIR Report</option>
+                                        <option value="timeline" ${template.report_type === 'timeline' ? 'selected' : ''}>Timeline</option>
+                                        <option value="detailed_iocs" ${template.report_type === 'detailed_iocs' ? 'selected' : ''}>Detailed IOCs</option>
+                                    </select>
                                 </td>
                                 <td>
                                     <input type="text" class="form-input form-input-inline" 
