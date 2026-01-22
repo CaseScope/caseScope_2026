@@ -383,6 +383,37 @@
         const detectedType = detectFileType(file.name);
         const detectedHost = detectHost(file.name);
         
+        // Create unique fingerprint using name + size + lastModified
+        const fingerprint = `${file.name}|${file.size}|${file.lastModified}`;
+        
+        // Check for exact duplicate (same file added twice)
+        const exactDup = uploadQueue.find(q => 
+            q.source === 'web' && 
+            q.fingerprint === fingerprint
+        );
+        if (exactDup) {
+            console.log(`Skipping exact duplicate: ${file.name}`);
+            return; // Don't add same file twice
+        }
+        
+        // Check for same-name different-content files and warn
+        const sameName = uploadQueue.find(q => 
+            q.source === 'web' && 
+            q.name === file.name && 
+            q.fingerprint !== fingerprint
+        );
+        if (sameName) {
+            // Different file with same name - warn user
+            const sameNameCount = uploadQueue.filter(q => q.name === file.name).length;
+            const displayName = `${file.name} (${sameNameCount + 1})`;
+            console.log(`Same-name file detected: ${file.name} - sizes: ${sameName.size} vs ${file.size}`);
+            
+            // Show warning toast
+            if (typeof showToast === 'function') {
+                showToast(`Warning: Adding another "${file.name}" with different content. Make sure these are different files.`, 'warning');
+            }
+        }
+        
         const queueItem = {
             id: id,
             file: file,
@@ -391,7 +422,8 @@
             type: detectedType,
             host: detectedHost,
             source: source,
-            status: 'Queued'
+            status: 'Queued',
+            fingerprint: fingerprint
         };
         
         uploadQueue.push(queueItem);

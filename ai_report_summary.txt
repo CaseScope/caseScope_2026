@@ -1,0 +1,31 @@
+Case: 2026-01-21 - PANEL (PANEL)
+Events analyzed: 21
+Time range: 2026-01-21T17:08:37.105000+00:00 to 2026-01-21T17:10:41.263000+00:00
+Affected hosts: ['Engineering']
+Affected users: ['Bill']
+
+======================================================================
+INCIDENT SUMMARY
+======================================================================
+
+### Overview of What Happened and When
+
+On January 21, 2026, an unauthorized intrusion was detected on one of our engineering systems belonging to a user named Bill. The attack began at 17:08:37 UTC when suspicious activity involving command-line interfaces (cmd.exe) and PowerShell scripts were observed. This initial phase included the copying of executable files and execution of commands that likely allowed the threat actor to establish an illicit presence on the system. The attacker proceeded to gather information about the compromised machine, which continued until 17:10:41 UTC.
+
+### How the Attack Began (Initial Access)
+
+The attack started with a series of unusual activities initiated by cmd.exe processes. At approximately 17:08:37, an attempt was made to copy a file named `finger.exe` from the system's directory (`C:\Windows\system32`) to another location under Bill’s user profile (`C:\Users\Bill\AppData\Roaming\t.exe`). Following this, there were attempts to execute commands through cmd.exe and PowerShell. Notably, one of these commands was an obfuscated PowerShell command that executed a string decoded into malware (indicated by the analyst note). The purpose behind copying and executing `finger.exe` is likely to install additional malicious software onto Bill's machine to maintain control.
+
+### What the Attacker Did After Gaining Access (Actions and Tools)
+
+Once initial access was established, the attacker began gathering detailed information about the compromised system using a combination of PowerShell scripts. These commands were executed through multiple processes including `pythonw.exe` and various instances of `powershell.exe`. For example, at 17:10:29, one command checked whether the current process had SYSTEM or Administrator privileges by running `whoami /all`, which is used to determine if the user has elevated permissions. Additionally, several other commands were executed to retrieve system information such as computer domain details (`Get-CimInstance Win32_ComputerSystem`), operating system specifics (`Get-ComputerInfo`), and network configurations (`Get-NetIPConfiguration`). These actions are typical of reconnaissance activities where an attacker gathers critical data about the target environment before moving onto more harmful operations like data exfiltration or further spreading to other systems.
+
+### What Information or Systems Were Affected
+
+The affected system was identified as Engineering, with user Bill being directly impacted. The attack targeted multiple aspects of Bill’s computer, including system configuration and network connectivity. Actions such as the execution of malicious commands through PowerShell and cmd.exe, as well as the gathering of detailed information about the operating system and its environment, indicate a comprehensive reconnaissance phase aimed at understanding the system's capabilities and vulnerabilities. Furthermore, the use of obfuscated PowerShell commands suggests that the attacker intended to avoid detection by security mechanisms in place.
+
+### Key Indicators That Show This Was Malicious
+
+The presence of unusual processes like `cmd.exe`, `powershell.exe`, and `pythonw.exe` executing atypical commands is a strong indicator of malicious activity. The copying and renaming of executables (e.g., `finger.exe` to `t.exe`) are classic tactics used by attackers to introduce malware onto systems. Additionally, the use of obfuscated PowerShell scripts is a common method employed by threat actors to bypass security measures designed to detect known attack signatures. Another key indicator was the series of commands aimed at gathering detailed system information, such as checking for elevated permissions and collecting network configurations, which are consistent with the behavior expected from an attacker during reconnaissance phases before executing more malicious actions.
+
+This incident highlights a successful intrusion attempt that likely compromised Bill’s engineering machine, potentially leading to further exploitation or data exfiltration if not mitigated promptly.

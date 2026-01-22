@@ -1,5 +1,5 @@
 {
-  "version": "3.137.01",
+  "version": "3.137.02",
   "changelog": [
     {
       "version": "3.137.01",
@@ -43,7 +43,7 @@
       "changes": [
         "Fix: Switch to clean_markdown for reliable Word document generation",
         "Fix: Subdocument approach replaced with plain text cleanup",
-        "Fix: Headings converted to uppercase, bullets to • character"
+        "Fix: Headings converted to uppercase, bullets to \u2022 character"
       ]
     },
     {
@@ -340,7 +340,7 @@
       "date": "2026-01-19",
       "changes": [
         "UX: Process tree now starts collapsed to root level only",
-        "Added: Click ▶/▼ toggle to expand/collapse child processes",
+        "Added: Click \u25b6/\u25bc toggle to expand/collapse child processes",
         "Added: Expand All / Collapse All buttons in tree toolbar",
         "Added: Click process name to view details (separate from toggle)"
       ]
@@ -495,7 +495,7 @@
         "Feature: RAG instrumentation - RAGQueryLog tracks all semantic searches for threshold tuning",
         "Feature: SemanticMatchFeedback model for analyst verdicts on semantic matches",
         "Feature: MITRE Data Sources/Components parsing from STIX 2.1 x-mitre-data-source objects",
-        "Feature: Technique → Data Component → Event ID structured mapping (replaces prose parsing)",
+        "Feature: Technique \u2192 Data Component \u2192 Event ID structured mapping (replaces prose parsing)",
         "Feature: Full x_mitre_detection ingestion for rich detection guidance",
         "Feature: Procedure examples extraction from threat group relationships",
         "Feature: Per-pattern semantic_threshold and semantic_enabled configuration",
@@ -616,7 +616,7 @@
       "version": "3.110.04",
       "date": "2026-01-18",
       "changes": [
-        "Improved: Search Events - widened time window to ±2 hours for timezone tolerance",
+        "Improved: Search Events - widened time window to \u00b12 hours for timezone tolerance",
         "Improved: Search Events - always includes host filter when available",
         "Improved: Search Events - includes username when no event IDs available",
         "Added: Console logging for debugging pattern search queries"
@@ -735,8 +735,8 @@
       "date": "2026-01-18",
       "changes": [
         "Feature: Temporal pattern detection with attack windowing",
-        "Changed: WMI Lateral Movement - now requires correlated indicators within ±5 min window",
-        "Changed: PsExec detection - requires network logon within ±2 min of service install",
+        "Changed: WMI Lateral Movement - now requires correlated indicators within \u00b15 min window",
+        "Changed: PsExec detection - requires network logon within \u00b12 min of service install",
         "Changed: Pass-the-Hash - groups into 1-hour attack windows, excludes Kerberos users",
         "Added: Anchor/Supporting indicator structure for temporal patterns",
         "Added: Attack window grouping (cluster nearby anchors)",
@@ -921,7 +921,7 @@
         "Feature: Elastic columns - add custom columns to hunting tables from raw data fields",
         "Feature: Click + button next to any field in Raw Data tab to add it as a table column",
         "Feature: Custom columns persist per case/tab in localStorage",
-        "Feature: Remove custom columns via × button in column header"
+        "Feature: Remove custom columns via \u00d7 button in column header"
       ]
     },
     {
@@ -939,7 +939,7 @@
       "changes": [
         "Fixed: Backfill script now uses addHours() for reliable UTC conversion",
         "Fixed: Verified all parsers correctly handle UTC vs ambiguous sources",
-        "Added: Backfill script supports common timezone offsets for local→UTC conversion"
+        "Added: Backfill script supports common timezone offsets for local\u2192UTC conversion"
       ]
     },
     {

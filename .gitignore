@@ -57,3 +57,4 @@ bin/hayabusa
 bin/chainsaw
 .cursor/
 .giga/
+temp/
