@@ -7668,17 +7668,15 @@ def download_report(case_uuid, filename):
 @api_bp.route('/reports/generate-ai/<case_uuid>', methods=['POST'])
 @login_required
 def generate_ai_report(case_uuid):
-    """Generate an AI-powered DFIR report for a case
+    """Generate an AI-powered report for a case based on template type
     
-    This endpoint generates a complete report using AI analysis of:
-    - EDR report data
-    - Analyst-tagged events
-    - IOCs
-    - Remediation documentation
+    Routes to the appropriate generator based on template's report_type:
+    - DFIR: Uses AIReportGenerator for executive summary, IOCs, remediation
+    - Timeline: Uses AITimelineGenerator for detailed event timeline
     
-    Request body (optional):
+    Request body:
     {
-        "template_id": 1  // Optional, uses default if not specified
+        "template_id": 1  // Required - determines which generator to use
     }
     
     Returns:
@@ -7689,7 +7687,9 @@ def generate_ai_report(case_uuid):
     }
     """
     try:
+        from models.report_template import ReportTemplate, ReportType
         from utils.ai_report_generator import AIReportGenerator
+        from utils.ai_timeline_generator import AITimelineGenerator
         
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -7698,20 +7698,50 @@ def generate_ai_report(case_uuid):
         data = request.get_json() or {}
         template_id = data.get('template_id')
         
-        # Generate the report
-        generator = AIReportGenerator(case.id, template_id)
+        # Get template to determine report type
+        template = None
+        if template_id:
+            template = ReportTemplate.query.get(template_id)
+        
+        if not template:
+            # Fall back to default DFIR template
+            template = ReportTemplate.get_default_template_for_type(ReportType.DFIR)
+        
+        if not template:
+            template = ReportTemplate.get_default_template()
+        
+        if not template:
+            return jsonify({'success': False, 'error': 'No template found'}), 400
+        
+        # Route to appropriate generator based on report type
+        report_type = template.report_type or ReportType.DFIR
+        
+        if report_type == ReportType.TIMELINE:
+            # Use Timeline generator
+            generator = AITimelineGenerator(case.id, template.id)
+        else:
+            # Use DFIR generator (default for DFIR and DETAILED_IOCS)
+            generator = AIReportGenerator(case.id, template.id)
+        
         result = generator.generate_report()
         
-        if result['success']:
-            return jsonify({
+        if result.get('success'):
+            response = {
                 'success': True,
                 'filename': result['filename'],
                 'output_path': result['output_path'],
                 'download_url': f"/api/reports/download/{case_uuid}/{result['filename']}",
-                'sections': result['sections']
-            })
+                'sections': result.get('sections', []),
+                'report_type': report_type
+            }
+            if 'stats' in result:
+                response['stats'] = result['stats']
+            return jsonify(response)
         else:
-            return jsonify({'success': False, 'error': 'Report generation failed'}), 500
+            return jsonify({
+                'success': False, 
+                'error': result.get('error', 'Report generation failed')
+            }), 500
         
     except Exception as e:
         logger.error(f"Error generating AI report: {e}")

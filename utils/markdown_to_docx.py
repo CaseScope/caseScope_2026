@@ -12,9 +12,7 @@ Mapping:
 """
 import re
 from typing import List, Tuple
-from docx.shared import Pt
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from docxtpl import DocxTemplate, RichText, Subdoc
+from docxtpl import DocxTemplate, RichText
 
 
 def parse_markdown_line(line: str) -> Tuple[str, str, int]:
@@ -109,7 +107,7 @@ def apply_inline_formatting(text: str, tpl: DocxTemplate) -> RichText:
     return rt
 
 
-def markdown_to_subdoc(tpl: DocxTemplate, markdown_text: str) -> Subdoc:
+def markdown_to_subdoc(tpl: DocxTemplate, markdown_text: str):
     """Convert markdown text to a Word subdocument with proper formatting.
     
     This creates a subdocument that can be inserted into a template placeholder,
@@ -120,7 +118,7 @@ def markdown_to_subdoc(tpl: DocxTemplate, markdown_text: str) -> Subdoc:
         markdown_text: The markdown-formatted text from AI
         
     Returns:
-        Subdoc object to insert into template
+        Subdocument object to insert into template
     """
     subdoc = tpl.new_subdoc()
     
@@ -219,7 +217,7 @@ def convert_markdown_sections(tpl: DocxTemplate, sections: dict) -> dict:
         sections: Dict of section_name -> markdown_text
         
     Returns:
-        Dict of section_name -> Subdoc
+        Dict of section_name -> subdocument
     """
     converted = {}
     for name, content in sections.items():
