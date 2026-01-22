@@ -1,6 +1,14 @@
 {
-  "version": "3.137.00",
+  "version": "3.137.01",
   "changelog": [
+    {
+      "version": "3.137.01",
+      "date": "2026-01-22",
+      "changes": [
+        "Fix: ZIP files with same name but different content now extract to unique folders",
+        "Fix: Uses hash prefix to differentiate same-named ZIPs from different collection dates"
+      ]
+    },
     {
       "version": "3.137.00",
       "date": "2026-01-22",

@@ -745,8 +745,11 @@ def ingest_files():
                 # Get file size before extraction
                 zip_size = os.path.getsize(source_path)
                 
-                # Create extraction directory: staging/case_uuid/zipname/
-                extract_dir = os.path.join(staging_path, filename)
+                # Create extraction directory: staging/case_uuid/zipname_hashprefix/
+                # Use hash prefix to make unique (handles duplicate filenames from different dates)
+                hash_prefix = zip_hash[:8] if zip_hash else str(int(datetime.utcnow().timestamp()))
+                unique_zip_key = f"{filename}_{hash_prefix}"
+                extract_dir = os.path.join(staging_path, unique_zip_key)
                 os.makedirs(extract_dir, exist_ok=True)
                 
                 try:
@@ -775,7 +778,8 @@ def ingest_files():
                                 'file_info': file_info,
                                 'is_archive': CaseFile.is_zip_file(extracted_path),
                                 'is_extracted': True,
-                                'parent_zip': filename
+                                'parent_zip': unique_zip_key,  # Unique key for parent linking
+                                'parent_zip_name': filename  # Original name for display
                             })
                             extracted_file_count += 1
                     
@@ -814,7 +818,7 @@ def ingest_files():
                 )
                 db.session.add(zip_record)
                 db.session.flush()
-                zip_records[filename] = zip_record
+                zip_records[unique_zip_key] = zip_record  # Use unique key to handle same-name ZIPs
                 ingested_count += 1
         
         # =============================================
@@ -873,6 +877,7 @@ def ingest_files():
                         'is_archive': False,
                         'is_extracted': False,
                         'parent_zip': None,
+                        'parent_zip_name': None,
                         'hash': nzf.get('hash')
                     })
                     
@@ -916,14 +921,15 @@ def ingest_files():
                 
                 # Get parent ZIP record if this is an extracted file
                 parent_id = None
-                parent_zip = pf.get('parent_zip')
-                if parent_zip and parent_zip in zip_records:
-                    parent_id = zip_records[parent_zip].id
+                parent_zip_key = pf.get('parent_zip')  # Unique key with hash
+                parent_zip_name = pf.get('parent_zip_name')  # Original filename for display
+                if parent_zip_key and parent_zip_key in zip_records:
+                    parent_id = zip_records[parent_zip_key].id
                 
-                # Build filename with zip prefix for extracted files
+                # Build filename with zip prefix for extracted files (use original name for display)
                 display_filename = pf['filename']
-                if parent_zip:
-                    display_filename = f"{parent_zip}/{pf['filename']}"
+                if parent_zip_name:
+                    display_filename = f"{parent_zip_name}/{pf['filename']}"
                 
                 if dup_type == 'true':
                     # TRUE DUPLICATE: same filename + same hash
@@ -998,7 +1004,7 @@ def ingest_files():
                 db.session.add(case_file)
                 db.session.flush()
                 
-                if parent_zip:
+                if parent_zip_key:
                     extracted_count += 1
                     
             except Exception as e:
