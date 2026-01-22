@@ -1,11 +1,15 @@
 """AI Report Generator for CaseScope
 
 Generates DFIR reports using AI analysis of case data.
+
+Data Sources:
+- If EDR report exists: Uses both EDR summary AND analyst-tagged events
+- If no EDR report: Uses analyst-tagged events from ClickHouse as primary source
 """
 import os
 import requests
 from datetime import datetime
-from typing import Dict, Optional, Callable
+from typing import Dict, List, Optional, Callable
 
 from docxtpl import DocxTemplate
 from flask import current_app
@@ -20,7 +24,15 @@ from config import Config
 
 
 class AIReportGenerator:
-    """Generates AI-powered DFIR reports"""
+    """Generates AI-powered DFIR reports
+    
+    Intelligently uses available data sources:
+    - Analyst-tagged events from ClickHouse (always fetched)
+    - EDR report from case (if available)
+    
+    When both are available, combines them for richer analysis.
+    When only events exist, generates report purely from event data.
+    """
     
     def __init__(self, case_id: int, template_id: Optional[int] = None, 
                  progress_callback: Optional[Callable] = None):
@@ -32,6 +44,9 @@ class AIReportGenerator:
         self.progress_callback = progress_callback or (lambda step, total, msg: None)
         self.temp_folder = None
         self.sections = {}
+        self.tagged_events: List[Dict] = []
+        self.event_context: str = ""
+        self.has_edr_report = bool(self.case.edr_report and self.case.edr_report.strip())
     
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""
@@ -68,8 +83,144 @@ class AIReportGenerator:
             with open(f"{self.temp_folder}/{name}.txt", 'w') as f:
                 f.write(content)
     
+    def _fetch_tagged_events(self) -> List[Dict]:
+        """Fetch all analyst-tagged events for the case from ClickHouse"""
+        try:
+            client = get_client()
+            query = """
+                SELECT timestamp_utc, artifact_type, source_host, username,
+                       event_id, process_name, command_line, rule_title,
+                       mitre_tactics, mitre_tags, analyst_tags, analyst_notes,
+                       target_path, reg_key, src_ip, dst_ip, parent_process
+                FROM events
+                WHERE case_id = {case_id:UInt32} AND analyst_tagged = true
+                ORDER BY timestamp_utc ASC
+            """
+            result = client.query(query, parameters={'case_id': self.case.id})
+            
+            events = []
+            for row in result.result_rows:
+                (ts_utc, artifact, host, user, eid, proc, cmd, rule,
+                 mitre_tac, mitre_tag, tags, notes, target, reg, srcip, dstip, parent) = row
+                
+                events.append({
+                    'timestamp': ts_utc,
+                    'artifact_type': artifact,
+                    'host': host,
+                    'user': user,
+                    'event_id': eid,
+                    'process': proc,
+                    'command_line': cmd,
+                    'rule': rule,
+                    'mitre_tactics': list(mitre_tac) if mitre_tac else [],
+                    'mitre_tags': list(mitre_tag) if mitre_tag else [],
+                    'analyst_tags': list(tags) if tags else [],
+                    'analyst_notes': notes,
+                    'target_path': target,
+                    'registry_key': reg,
+                    'src_ip': str(srcip) if srcip else None,
+                    'dst_ip': str(dstip) if dstip else None,
+                    'parent_process': parent
+                })
+            
+            self.tagged_events = events
+            return events
+        except Exception as e:
+            current_app.logger.error(f"Error fetching tagged events: {e}")
+            self.tagged_events = []
+            return []
+    
+    def _build_event_context(self) -> str:
+        """Build a structured context string from tagged events for AI analysis"""
+        if not self.tagged_events:
+            return ""
+        
+        lines = []
+        lines.append(f"ANALYST-TAGGED EVENTS ({len(self.tagged_events)} events)")
+        
+        if self.tagged_events:
+            lines.append(f"Timespan: {self.tagged_events[0]['timestamp']} to {self.tagged_events[-1]['timestamp']}")
+            
+            # Collect unique hosts and users
+            hosts = set(e['host'] for e in self.tagged_events if e['host'])
+            users = set(e['user'] for e in self.tagged_events if e['user'])
+            lines.append(f"Affected Systems: {', '.join(hosts) if hosts else 'Unknown'}")
+            lines.append(f"Users Involved: {', '.join(users) if users else 'Unknown'}")
+        
+        lines.append("")
+        lines.append("EVENT SEQUENCE:")
+        
+        for i, event in enumerate(self.tagged_events, 1):
+            ts = event['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if event['timestamp'] else 'Unknown'
+            lines.append(f"\n[{i}] {ts} | {event['host'] or 'Unknown'} | {event['user'] or 'Unknown'}")
+            lines.append(f"    Process: {event['process'] or 'Unknown'}")
+            
+            if event['command_line']:
+                cmd = event['command_line'][:250] + "..." if len(event['command_line']) > 250 else event['command_line']
+                lines.append(f"    Command: {cmd}")
+            
+            if event['parent_process']:
+                lines.append(f"    Parent: {event['parent_process']}")
+            
+            if event['target_path']:
+                lines.append(f"    Target: {event['target_path']}")
+            
+            if event['src_ip'] or event['dst_ip']:
+                lines.append(f"    Network: {event['src_ip'] or 'N/A'} -> {event['dst_ip'] or 'N/A'}")
+            
+            if event['mitre_tactics'] or event['mitre_tags']:
+                mitre = event['mitre_tactics'] + event['mitre_tags']
+                lines.append(f"    MITRE: {', '.join(mitre)}")
+            
+            if event['analyst_notes']:
+                lines.append(f"    Note: {event['analyst_notes']}")
+        
+        self.event_context = '\n'.join(lines)
+        return self.event_context
+    
+    def _get_incident_context(self, max_chars: int = 4000) -> str:
+        """Get the best available incident context for AI prompts.
+        
+        Returns:
+        - If EDR report exists: Combined EDR summary + event context
+        - If no EDR report: Event context only
+        """
+        context_parts = []
+        
+        if self.has_edr_report:
+            edr_excerpt = self.case.edr_report[:max_chars // 2] if len(self.case.edr_report) > max_chars // 2 else self.case.edr_report
+            context_parts.append(f"EDR ANALYSIS SUMMARY:\n{edr_excerpt}")
+        
+        if self.event_context:
+            # Allocate remaining space to events
+            remaining = max_chars - len('\n\n'.join(context_parts)) - 100
+            event_excerpt = self.event_context[:remaining] if len(self.event_context) > remaining else self.event_context
+            context_parts.append(event_excerpt)
+        
+        if not context_parts:
+            return "No incident data available. Analysis based on case metadata only."
+        
+        return '\n\n'.join(context_parts)
+    
+    def _get_data_source_note(self) -> str:
+        """Get a note about what data sources were used"""
+        if self.has_edr_report and self.tagged_events:
+            return f"(Based on EDR analysis and {len(self.tagged_events)} analyst-tagged events)"
+        elif self.has_edr_report:
+            return "(Based on EDR analysis)"
+        elif self.tagged_events:
+            return f"(Based on {len(self.tagged_events)} analyst-tagged events)"
+        else:
+            return "(Limited data available)"
+    
     def generate_executive_summary(self) -> str:
-        """Generate executive summary from case data"""
+        """Generate executive summary from case data
+        
+        Uses EDR report if available, otherwise uses analyst-tagged events.
+        When both exist, combines them for comprehensive analysis.
+        """
+        incident_context = self._get_incident_context(max_chars=5000)
+        
         prompt = f"""You are a digital forensics consultant writing a final incident report for a CLIENT.
 Write a professional 4-5 paragraph executive summary.
 
@@ -77,11 +228,13 @@ REQUIREMENTS:
 - Technical but understandable by non-technical executives
 - Written in third person (say "the organization" not "our")
 - Focus on: what happened, what was affected, what remediation was performed, recommendations
+- Use specific examples from the incident data (commands, file paths, IPs, times)
+- Explain technical terms in plain language when first used
 
 CASE: {self.case.name} - {self.case.company}
 
-EDR FINDINGS:
-{self.case.edr_report or 'No EDR report available'}
+INCIDENT DATA:
+{incident_context}
 
 CONTAINMENT ACTIONS:
 {self.case.containment_actions or 'Not documented'}
@@ -95,7 +248,7 @@ RECOVERY ACTIONS:
 LESSONS LEARNED:
 {self.case.lessons_learned or 'Not documented'}
 
-Write the executive summary:"""
+Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
         
         content = self._generate_ai_content(prompt, timeout=180)
         self._save_section('executive_summary', content)
@@ -193,7 +346,12 @@ Generate the formatted IOC list:"""
         return content
     
     def generate_summary_what(self) -> str:
-        """Generate 'What Happened' summary"""
+        """Generate 'What Happened' summary
+        
+        Uses combined incident context from EDR report and/or tagged events.
+        """
+        incident_context = self._get_incident_context(max_chars=3000)
+        
         prompt = f"""Write ONE paragraph (4-5 sentences) explaining what happened in this security incident.
 
 REQUIREMENTS:
@@ -201,17 +359,24 @@ REQUIREMENTS:
 - Accessible to non-technical executives
 - Third person (say "the organization" not "our")
 - Focus on: when, who was affected, what the attacker achieved, what was done
+- Include specific examples (times, systems, commands) when available
 
-INCIDENT: {self.case.edr_report[:2000] if self.case.edr_report else 'Security incident detected'}
+INCIDENT DATA:
+{incident_context}
 
-Write the paragraph:"""
+Write the "What Happened" paragraph:"""
         
         content = self._generate_ai_content(prompt)
         self._save_section('summary_what', content)
         return content
     
     def generate_summary_why(self) -> str:
-        """Generate 'Why It Happened' summary"""
+        """Generate 'Why It Happened' summary
+        
+        Uses combined incident context from EDR report and/or tagged events.
+        """
+        incident_context = self._get_incident_context(max_chars=3000)
+        
         prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
 
 REQUIREMENTS:
@@ -220,8 +385,10 @@ REQUIREMENTS:
 - Third person
 - Focus on root causes and gaps exploited
 - Be constructive, not blaming
+- Reference specific attack techniques observed if available
 
-INCIDENT: {self.case.edr_report[:2000] if self.case.edr_report else 'Security incident detected'}
+INCIDENT DATA:
+{incident_context}
 
 Write the "Why It Happened" paragraph:"""
         
@@ -230,7 +397,12 @@ Write the "Why It Happened" paragraph:"""
         return content
     
     def generate_summary_how(self) -> str:
-        """Generate 'How To Prevent' summary"""
+        """Generate 'How To Prevent' summary
+        
+        Uses combined incident context from EDR report and/or tagged events.
+        """
+        incident_context = self._get_incident_context(max_chars=3000)
+        
         prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
 
 REQUIREMENTS:
@@ -239,8 +411,11 @@ REQUIREMENTS:
 - Third person
 - Focus on actionable preventive measures
 - Be constructive and forward-looking
+- Base recommendations on the specific attack techniques observed
 
-INCIDENT: {self.case.edr_report[:2000] if self.case.edr_report else 'Security incident detected'}
+INCIDENT DATA:
+{incident_context}
+
 LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
 
 Write the "How To Prevent" paragraph:"""
@@ -250,37 +425,51 @@ Write the "How To Prevent" paragraph:"""
         return content
     
     def generate_report(self) -> Dict:
-        """Generate complete report and return result info"""
+        """Generate complete report and return result info
+        
+        Automatically detects available data sources:
+        - If EDR report exists: Uses both EDR + tagged events
+        - If no EDR report: Uses tagged events as primary source
+        """
         self._create_temp_folder()
         
-        total_steps = 7
+        total_steps = 8
         
-        # Step 1: Executive Summary
-        self._update_progress(1, total_steps, "Generating Executive Summary...")
+        # Step 1: Fetch analyst-tagged events from ClickHouse
+        self._update_progress(1, total_steps, "Fetching analyst-tagged events...")
+        self._fetch_tagged_events()
+        self._build_event_context()
+        
+        # Log data source info
+        data_source = "EDR report + tagged events" if self.has_edr_report else "analyst-tagged events only"
+        current_app.logger.info(f"DFIR Report for case {self.case.id}: Using {data_source} ({len(self.tagged_events)} events)")
+        
+        # Step 2: Executive Summary
+        self._update_progress(2, total_steps, "Generating Executive Summary...")
         self.generate_executive_summary()
         
-        # Step 2: Timeline
-        self._update_progress(2, total_steps, "Generating Timeline...")
+        # Step 3: Timeline
+        self._update_progress(3, total_steps, "Generating Timeline...")
         self.generate_timeline()
         
-        # Step 3: IOC List
-        self._update_progress(3, total_steps, "Generating IOC List...")
+        # Step 4: IOC List
+        self._update_progress(4, total_steps, "Generating IOC List...")
         self.generate_ioc_list()
         
-        # Step 4: What Happened
-        self._update_progress(4, total_steps, "Generating 'What Happened'...")
+        # Step 5: What Happened
+        self._update_progress(5, total_steps, "Generating 'What Happened'...")
         self.generate_summary_what()
         
-        # Step 5: Why It Happened
-        self._update_progress(5, total_steps, "Generating 'Why It Happened'...")
+        # Step 6: Why It Happened
+        self._update_progress(6, total_steps, "Generating 'Why It Happened'...")
         self.generate_summary_why()
         
-        # Step 6: How To Prevent
-        self._update_progress(6, total_steps, "Generating 'How To Prevent'...")
+        # Step 7: How To Prevent
+        self._update_progress(7, total_steps, "Generating 'How To Prevent'...")
         self.generate_summary_how()
         
-        # Step 7: Generate Word Document
-        self._update_progress(7, total_steps, "Generating Word document...")
+        # Step 8: Generate Word Document
+        self._update_progress(8, total_steps, "Generating Word document...")
         output_path = self._generate_word_document()
         
         return {
@@ -288,7 +477,11 @@ Write the "How To Prevent" paragraph:"""
             'output_path': output_path,
             'filename': os.path.basename(output_path),
             'temp_folder': self.temp_folder,
-            'sections': list(self.sections.keys())
+            'sections': list(self.sections.keys()),
+            'data_sources': {
+                'edr_report': self.has_edr_report,
+                'tagged_events': len(self.tagged_events)
+            }
         }
     
     def _generate_word_document(self) -> str:
