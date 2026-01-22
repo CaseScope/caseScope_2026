@@ -22,6 +22,7 @@ from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
 from utils.clickhouse import get_client
+from utils.markdown_to_docx import markdown_to_subdoc
 from config import Config
 
 
@@ -560,13 +561,15 @@ Write a brief professional summary (2-3 sentences, third person):"""
         doc = DocxTemplate(template_path)
         
         # Build template context - variable names must match template placeholders
+        # Convert markdown sections to Word-formatted subdocuments
+        # This converts ## to Heading 3, * to bullets, **bold**, etc.
         template_context = {
             'client_name': self.case.company,
             'case_name': self.case.name,
             'today_date': datetime.now().strftime('%B %d, %Y'),
-            'timeline_summary': self.sections.get('timeline_summary', ''),
-            'detailed_timeline': self.sections.get('timeline_detailed', ''),  # Template uses detailed_timeline
-            'timeline': self.sections.get('timeline_detailed', ''),  # Alias for DFIR template
+            'timeline_summary': markdown_to_subdoc(doc, self.sections.get('timeline_summary', '')),
+            'detailed_timeline': markdown_to_subdoc(doc, self.sections.get('timeline_detailed', '')),
+            'timeline': markdown_to_subdoc(doc, self.sections.get('timeline_detailed', '')),
             'total_events': len(self.events),
             'event_groups': len(self.groups),
             'ioc_count': len(self.iocs),

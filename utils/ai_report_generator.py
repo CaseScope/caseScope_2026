@@ -15,6 +15,7 @@ from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
 from utils.clickhouse import get_client
+from utils.markdown_to_docx import markdown_to_subdoc
 from config import Config
 
 
@@ -320,16 +321,17 @@ Write the "How To Prevent" paragraph:"""
         
         doc = DocxTemplate(template_path)
         
-        # Build context from generated sections
+        # Convert markdown sections to Word-formatted subdocuments
+        # This converts ## to Heading 3, * to bullets, **bold**, etc.
         template_context = {
             'client_name': self.case.company,
             'today_date': datetime.now().strftime('%B %d, %Y'),
-            'executive_summary': self.sections.get('executive_summary', ''),
-            'timeline': self.sections.get('timeline', ''),
-            'ioc_list': self.sections.get('ioc_list', ''),
-            'summary_what': self.sections.get('summary_what', ''),
-            'summary_why': self.sections.get('summary_why', ''),
-            'summary_how': self.sections.get('summary_how', ''),
+            'executive_summary': markdown_to_subdoc(doc, self.sections.get('executive_summary', '')),
+            'timeline': markdown_to_subdoc(doc, self.sections.get('timeline', '')),
+            'ioc_list': markdown_to_subdoc(doc, self.sections.get('ioc_list', '')),
+            'summary_what': markdown_to_subdoc(doc, self.sections.get('summary_what', '')),
+            'summary_why': markdown_to_subdoc(doc, self.sections.get('summary_why', '')),
+            'summary_how': markdown_to_subdoc(doc, self.sections.get('summary_how', '')),
         }
         
         doc.render(template_context)
