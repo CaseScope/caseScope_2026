@@ -1,6 +1,16 @@
 {
-  "version": "3.134.00",
+  "version": "3.135.00",
   "changelog": [
+    {
+      "version": "3.135.00",
+      "date": "2026-01-22",
+      "changes": [
+        "Feature: Markdown to Word formatting in AI reports",
+        "Feature: ## converts to Heading 3, ### to Heading 4",
+        "Feature: Bullet lists (* or -) convert to Word list style",
+        "Feature: Inline **bold**, *italic*, and `code` formatting supported"
+      ]
+    },
     {
       "version": "3.134.00",
       "date": "2026-01-22",
