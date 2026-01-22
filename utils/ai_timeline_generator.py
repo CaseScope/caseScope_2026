@@ -561,14 +561,14 @@ Write a brief professional summary (2-3 sentences, third person):"""
         
         doc = DocxTemplate(template_path)
         
-        # Build template context
+        # Build template context - variable names must match template placeholders
         template_context = {
             'client_name': self.case.company,
             'case_name': self.case.name,
             'today_date': datetime.now().strftime('%B %d, %Y'),
             'timeline_summary': self.sections.get('timeline_summary', ''),
-            'timeline_detailed': self.sections.get('timeline_detailed', ''),
-            'timeline': self.sections.get('timeline_detailed', ''),  # Alias
+            'detailed_timeline': self.sections.get('timeline_detailed', ''),  # Template uses detailed_timeline
+            'timeline': self.sections.get('timeline_detailed', ''),  # Alias for DFIR template
             'total_events': len(self.events),
             'event_groups': len(self.groups),
             'ioc_count': len(self.iocs),
