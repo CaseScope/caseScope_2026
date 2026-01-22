@@ -1,6 +1,16 @@
 {
-  "version": "3.133.00",
+  "version": "3.134.00",
   "changelog": [
+    {
+      "version": "3.134.00",
+      "date": "2026-01-22",
+      "changes": [
+        "Feature: Report type field for templates (DFIR, Timeline, Detailed IOCs)",
+        "Feature: Templates categorized by report type for correct generator matching",
+        "Feature: API endpoints for listing report types and templates by type",
+        "Feature: Auto-detection of report type from template filename"
+      ]
+    },
     {
       "version": "3.133.00",
       "date": "2026-01-22",

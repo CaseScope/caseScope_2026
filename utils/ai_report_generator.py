@@ -28,7 +28,7 @@ class AIReportGenerator:
             raise ValueError(f"Case {case_id} not found")
         
         self.template_id = template_id
-        self.progress_callback = progress_callback or (lambda step, msg: None)
+        self.progress_callback = progress_callback or (lambda step, total, msg: None)
         self.temp_folder = None
         self.sections = {}
     
@@ -292,22 +292,29 @@ Write the "How To Prevent" paragraph:"""
     
     def _generate_word_document(self) -> str:
         """Generate Word document from template"""
-        # Find template
+        from models.report_template import ReportType
+        
+        # Find DFIR template
+        template = None
         if self.template_id:
             template = ReportTemplate.query.get(self.template_id)
-        else:
-            template = ReportTemplate.get_default_template()
         
         if not template:
-            # Fallback to first available template
-            templates = ReportTemplate.get_active_templates()
-            if templates:
-                template = templates[0]
+            # Look for DFIR template by report type
+            template = ReportTemplate.get_default_template_for_type(ReportType.DFIR)
+        
+        if not template:
+            # Fallback to default or first available template
+            template = ReportTemplate.get_default_template()
+            if not template:
+                templates = ReportTemplate.get_active_templates()
+                if templates:
+                    template = templates[0]
         
         if not template:
             raise ValueError("No report template available")
         
-        template_path = template.get_template_path()
+        template_path = ReportTemplate.get_template_path(template.filename)
         if not os.path.exists(template_path):
             raise ValueError(f"Template file not found: {template_path}")
         

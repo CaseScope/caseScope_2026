@@ -7359,18 +7359,82 @@ def scan_report_templates():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/reports/templates/types')
+@login_required
+def list_report_types():
+    """List available report types for templates
+    
+    Returns all report types with their labels and descriptions.
+    """
+    try:
+        from models.report_template import ReportType, ReportTemplate
+        
+        types = []
+        for rt in ReportType.all():
+            types.append({
+                'value': rt,
+                'label': ReportType.labels().get(rt, rt),
+                'description': ReportType.descriptions().get(rt, '')
+            })
+        
+        # Also include counts of templates per type
+        type_counts = ReportTemplate.get_report_types_with_templates()
+        for t in types:
+            t['template_count'] = type_counts.get(t['value'], 0)
+        
+        return jsonify({
+            'success': True,
+            'report_types': types
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing report types: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/templates/by-type/<report_type>')
+@login_required
+def list_templates_by_type(report_type):
+    """List active templates for a specific report type
+    
+    Used for template selection when generating a specific type of report.
+    """
+    try:
+        from models.report_template import ReportTemplate, ReportType
+        
+        # Validate report type
+        if report_type not in ReportType.all():
+            return jsonify({
+                'success': False, 
+                'error': f'Invalid report type. Valid types: {", ".join(ReportType.all())}'
+            }), 400
+        
+        templates = ReportTemplate.get_templates_by_type(report_type)
+        
+        return jsonify({
+            'success': True,
+            'report_type': report_type,
+            'report_type_label': ReportType.labels().get(report_type, report_type),
+            'templates': [t.to_dict() for t in templates]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing templates by type: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/reports/templates/<int:template_id>', methods=['PUT'])
 @login_required
 def update_report_template(template_id):
     """Update report template metadata
     
-    Admin only. Updates display_name, description, is_active, is_default.
+    Admin only. Updates display_name, description, report_type, is_active, is_default.
     """
     if not current_user.is_administrator:
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
     
     try:
-        from models.report_template import ReportTemplate
+        from models.report_template import ReportTemplate, ReportType
         
         template = ReportTemplate.query.get(template_id)
         if not template:
@@ -7386,6 +7450,17 @@ def update_report_template(template_id):
         
         if 'description' in data:
             template.description = data['description'].strip() or None
+        
+        # Update report type if provided
+        if 'report_type' in data:
+            report_type = data['report_type']
+            if report_type and report_type in ReportType.all():
+                template.report_type = report_type
+            elif report_type:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid report type. Valid types: {", ".join(ReportType.all())}'
+                }), 400
         
         if 'is_active' in data:
             template.is_active = bool(data['is_active'])

@@ -531,21 +531,19 @@ Write a brief professional summary (2-3 sentences, third person):"""
     
     def _generate_word_document(self) -> str:
         """Generate Word document from template"""
+        from models.report_template import ReportType
+        
         # Find timeline template
         template = None
         if self.template_id:
             template = ReportTemplate.query.get(self.template_id)
         
         if not template:
-            # Look for timeline template
-            template = ReportTemplate.query.filter(
-                ReportTemplate.filename.ilike('%timeline%'),
-                ReportTemplate.is_active == True,
-                ReportTemplate.file_exists == True
-            ).first()
+            # Look for timeline template by report type
+            template = ReportTemplate.get_default_template_for_type(ReportType.TIMELINE)
         
         if not template:
-            # Use any available template
+            # Fall back to any available template
             template = ReportTemplate.get_default_template()
             if not template:
                 templates = ReportTemplate.get_active_templates()
