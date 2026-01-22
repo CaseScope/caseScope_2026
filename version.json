@@ -1,6 +1,14 @@
 {
-  "version": "3.135.06",
+  "version": "3.136.00",
   "changelog": [
+    {
+      "version": "3.136.00",
+      "date": "2026-01-22",
+      "changes": [
+        "Feature: Delete button for report templates in Settings",
+        "Feature: Removes template from database, keeps file on disk"
+      ]
+    },
     {
       "version": "3.135.06",
       "date": "2026-01-22",

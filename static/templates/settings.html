@@ -3463,11 +3463,16 @@
                                 <td class="${statusClass}" style="text-align: center;">
                                     <span title="${statusText}">${statusIcon} ${statusText}</span>
                                 </td>
-                                <td style="text-align: center;">
+                                <td style="text-align: center; white-space: nowrap;">
                                     <button class="btn btn-secondary btn-small" 
                                             onclick="viewPlaceholders(${template.id})"
                                             ${!template.file_exists ? 'disabled' : ''}>
                                         View Fields
+                                    </button>
+                                    <button class="btn btn-danger btn-small" 
+                                            onclick="deleteTemplate(${template.id}, '${escapeHtml(template.filename)}')"
+                                            style="margin-left: 4px;">
+                                        Delete
                                     </button>
                                 </td>
                             </tr>
@@ -3550,6 +3555,28 @@
             .catch(err => {
                 showTemplateStatus(`Failed to set default: ${err}`, 'error');
                 loadReportTemplates();
+            });
+        }
+        
+        function deleteTemplate(id, filename) {
+            if (!confirm(`Delete template "${filename}"?\n\nThis removes the template from the database.\nThe .docx file will NOT be deleted from disk.`)) {
+                return;
+            }
+            
+            fetch(`/api/reports/templates/${id}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showTemplateStatus(data.message, 'success');
+                    loadReportTemplates(); // Reload the table
+                } else {
+                    showTemplateStatus(`Failed to delete: ${data.error}`, 'error');
+                }
+            })
+            .catch(err => {
+                showTemplateStatus(`Failed to delete: ${err}`, 'error');
             });
         }
         

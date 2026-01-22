@@ -7488,6 +7488,36 @@ def update_report_template(template_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/reports/templates/<int:template_id>', methods=['DELETE'])
+@login_required
+def delete_report_template(template_id):
+    """Delete a report template
+    
+    Removes the template record from the database.
+    Does NOT delete the actual .docx file from disk.
+    """
+    try:
+        from models.report_template import ReportTemplate
+        
+        template = ReportTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'success': False, 'error': 'Template not found'}), 404
+        
+        filename = template.filename
+        db.session.delete(template)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Template "{filename}" removed from database'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting report template: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/reports/templates/<int:template_id>/placeholders')
 @login_required
 def get_template_placeholders(template_id):
