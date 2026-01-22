@@ -1,18 +1,85 @@
 """Markdown to Word Document Converter
 
-Converts markdown-formatted text from AI responses into proper Word document formatting.
+Converts markdown-formatted text from AI responses into clean text for Word documents.
 
-Mapping:
-- ## Heading -> Heading 3 style
-- ### Heading -> Heading 4 style  
-- * item or - item -> Bullet list
-- **bold** -> Bold text
-- *italic* -> Italic text
-- Regular text -> Normal paragraph
+Two approaches:
+1. clean_markdown() - Simple text cleanup for template insertion (recommended)
+2. markdown_to_subdoc() - Subdocument with Word styles (can cause corruption)
+
+Mapping for clean_markdown:
+- ## Heading -> HEADING (uppercase, bold effect via text)
+- ### Heading -> Heading: prefix
+- * item or - item -> • bullet character
+- **bold** -> text (markers removed)
+- *italic* -> text (markers removed)
 """
 import re
 from typing import List, Tuple
 from docxtpl import DocxTemplate, RichText
+
+
+def clean_markdown(text: str) -> str:
+    """Clean markdown formatting for plain text insertion into Word.
+    
+    This is the safe, reliable approach that won't corrupt documents.
+    Converts markdown to readable plain text.
+    
+    Args:
+        text: Markdown-formatted text from AI
+        
+    Returns:
+        Clean text suitable for Word template insertion
+    """
+    if not text:
+        return ''
+    
+    lines = []
+    for line in text.split('\n'):
+        # Convert headings: ## Text -> \nTEXT\n (with emphasis)
+        heading_match = re.match(r'^(#{2,4})\s+(.+)$', line.strip())
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading_text = heading_match.group(2)
+            # Remove any inline formatting from heading
+            heading_text = re.sub(r'\*\*(.+?)\*\*', r'\1', heading_text)
+            heading_text = re.sub(r'\*(.+?)\*', r'\1', heading_text)
+            if level == 2:
+                lines.append(f'\n{heading_text.upper()}\n')
+            else:
+                lines.append(f'\n{heading_text}\n')
+            continue
+        
+        # Convert bullet points: * item or - item -> • item
+        bullet_match = re.match(r'^(\s*)[\*\-]\s+(.+)$', line)
+        if bullet_match:
+            indent = bullet_match.group(1)
+            content = bullet_match.group(2)
+            # Clean inline formatting
+            content = re.sub(r'\*\*(.+?)\*\*', r'\1', content)
+            content = re.sub(r'\*(.+?)\*', r'\1', content)
+            content = re.sub(r'`(.+?)`', r'\1', content)
+            lines.append(f'{indent}• {content}')
+            continue
+        
+        # Convert numbered list: 1. item -> 1. item (keep as-is)
+        numbered_match = re.match(r'^(\s*)(\d+[\.\)])\s+(.+)$', line)
+        if numbered_match:
+            indent = numbered_match.group(1)
+            number = numbered_match.group(2)
+            content = numbered_match.group(3)
+            content = re.sub(r'\*\*(.+?)\*\*', r'\1', content)
+            content = re.sub(r'\*(.+?)\*', r'\1', content)
+            lines.append(f'{indent}{number} {content}')
+            continue
+        
+        # Regular line - just clean inline formatting
+        cleaned = line
+        cleaned = re.sub(r'\*\*(.+?)\*\*', r'\1', cleaned)  # Remove bold markers
+        cleaned = re.sub(r'\*(.+?)\*', r'\1', cleaned)      # Remove italic markers
+        cleaned = re.sub(r'`(.+?)`', r'\1', cleaned)        # Remove code markers
+        lines.append(cleaned)
+    
+    return '\n'.join(lines)
 
 
 def parse_markdown_line(line: str) -> Tuple[str, str, int]:

@@ -15,7 +15,7 @@ from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
 from utils.clickhouse import get_client
-from utils.markdown_to_docx import markdown_to_subdoc
+from utils.markdown_to_docx import clean_markdown
 from config import Config
 
 
@@ -321,17 +321,17 @@ Write the "How To Prevent" paragraph:"""
         
         doc = DocxTemplate(template_path)
         
-        # Convert markdown sections to Word-formatted subdocuments
-        # This converts ## to Heading 3, * to bullets, **bold**, etc.
+        # Clean markdown formatting for Word insertion
+        # Converts ## to uppercase headings, * to bullet chars, removes **bold** markers
         template_context = {
             'client_name': self.case.company,
             'today_date': datetime.now().strftime('%B %d, %Y'),
-            'executive_summary': markdown_to_subdoc(doc, self.sections.get('executive_summary', '')),
-            'timeline': markdown_to_subdoc(doc, self.sections.get('timeline', '')),
-            'ioc_list': markdown_to_subdoc(doc, self.sections.get('ioc_list', '')),
-            'summary_what': markdown_to_subdoc(doc, self.sections.get('summary_what', '')),
-            'summary_why': markdown_to_subdoc(doc, self.sections.get('summary_why', '')),
-            'summary_how': markdown_to_subdoc(doc, self.sections.get('summary_how', '')),
+            'executive_summary': clean_markdown(self.sections.get('executive_summary', '')),
+            'timeline': clean_markdown(self.sections.get('timeline', '')),
+            'ioc_list': clean_markdown(self.sections.get('ioc_list', '')),
+            'summary_what': clean_markdown(self.sections.get('summary_what', '')),
+            'summary_why': clean_markdown(self.sections.get('summary_why', '')),
+            'summary_how': clean_markdown(self.sections.get('summary_how', '')),
         }
         
         doc.render(template_context)

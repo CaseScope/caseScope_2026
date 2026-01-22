@@ -1,6 +1,15 @@
 {
-  "version": "3.135.04",
+  "version": "3.135.05",
   "changelog": [
+    {
+      "version": "3.135.05",
+      "date": "2026-01-22",
+      "changes": [
+        "Fix: Switch to clean_markdown for reliable Word document generation",
+        "Fix: Subdocument approach replaced with plain text cleanup",
+        "Fix: Headings converted to uppercase, bullets to • character"
+      ]
+    },
     {
       "version": "3.135.04",
       "date": "2026-01-22",
