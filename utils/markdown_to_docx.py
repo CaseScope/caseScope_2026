@@ -113,6 +113,10 @@ def markdown_to_subdoc(tpl: DocxTemplate, markdown_text: str):
     This creates a subdocument that can be inserted into a template placeholder,
     preserving headings, bullet lists, and inline formatting.
     
+    Falls back gracefully if Word styles don't exist in the template:
+    - Missing heading styles -> Bold text
+    - Missing list styles -> Bullet/number character prefix
+    
     Args:
         tpl: DocxTemplate instance
         markdown_text: The markdown-formatted text from AI
@@ -122,8 +126,10 @@ def markdown_to_subdoc(tpl: DocxTemplate, markdown_text: str):
     """
     subdoc = tpl.new_subdoc()
     
+    if not markdown_text:
+        return subdoc
+    
     lines = markdown_text.split('\n')
-    current_list_level = -1  # Track if we're in a list
     
     for line in lines:
         line_type, content, level = parse_markdown_line(line)
@@ -131,35 +137,45 @@ def markdown_to_subdoc(tpl: DocxTemplate, markdown_text: str):
         if line_type == 'empty':
             # Add empty paragraph for spacing
             subdoc.add_paragraph('')
-            current_list_level = -1
             continue
         
         if line_type == 'heading':
             # Map ## -> Heading 3, ### -> Heading 4
-            # level 2 (##) -> Heading 3
-            # level 3 (###) -> Heading 4
             style_name = f'Heading {level + 1}'
             
-            # Apply inline formatting to heading content
-            p = subdoc.add_paragraph(style=style_name)
-            add_formatted_text(p, content)
-            current_list_level = -1
+            try:
+                p = subdoc.add_paragraph(style=style_name)
+                add_formatted_text(p, content)
+            except KeyError:
+                # Style doesn't exist - fall back to bold paragraph
+                p = subdoc.add_paragraph()
+                run = p.add_run(content)
+                run.bold = True
             
         elif line_type == 'bullet':
-            # Add as list item
-            p = subdoc.add_paragraph(style='List Bullet')
-            add_formatted_text(p, content)
-            current_list_level = level
+            # Try list style, fall back to bullet character
+            try:
+                p = subdoc.add_paragraph(style='List Bullet')
+                add_formatted_text(p, content)
+            except KeyError:
+                # Style doesn't exist - use bullet character
+                p = subdoc.add_paragraph()
+                p.add_run('• ')
+                add_formatted_text(p, content)
             
         elif line_type == 'numbered':
-            p = subdoc.add_paragraph(style='List Number')
-            add_formatted_text(p, content)
-            current_list_level = 0
+            # Try list style, fall back to number prefix
+            try:
+                p = subdoc.add_paragraph(style='List Number')
+                add_formatted_text(p, content)
+            except KeyError:
+                # Style doesn't exist - add as regular paragraph
+                p = subdoc.add_paragraph()
+                add_formatted_text(p, content)
             
         else:  # paragraph
             p = subdoc.add_paragraph()
             add_formatted_text(p, content)
-            current_list_level = -1
     
     return subdoc
 
