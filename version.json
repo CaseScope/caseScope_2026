@@ -1,6 +1,16 @@
 {
-  "version": "3.132.00",
+  "version": "3.133.00",
   "changelog": [
+    {
+      "version": "3.133.00",
+      "date": "2026-01-22",
+      "changes": [
+        "Feature: AI Timeline Report generator with intelligent event grouping",
+        "Feature: Timeline groups like events only if no unlike events intervene",
+        "Feature: Grouped events show timestamp range with hosts, users, and IOC correlation",
+        "Feature: API endpoint /api/reports/generate-timeline for timeline report generation"
+      ]
+    },
     {
       "version": "3.132.00",
       "date": "2026-01-21",

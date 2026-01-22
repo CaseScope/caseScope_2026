@@ -7645,6 +7645,70 @@ def generate_ai_report(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/reports/generate-timeline/<case_uuid>', methods=['POST'])
+@login_required
+def generate_timeline_report(case_uuid):
+    """Generate an AI-powered Timeline report for a case
+    
+    This endpoint generates a detailed timeline using AI analysis of:
+    - EDR report data
+    - Analyst-tagged events with intelligent grouping
+    - IOCs correlated to timeline entries
+    
+    Event Grouping Rules:
+    - Groups "like" events (same signature) within time windows
+    - Only groups if no unlike events intervene
+    - Displays grouped events as: timestamp_start-end | description (count, hosts, users)
+    
+    Request body (optional):
+    {
+        "template_id": 1  // Optional, looks for timeline template or uses default
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "filename": "Timeline_Report_20260121_143052.docx",
+        "download_url": "/api/reports/download/case-uuid/filename.docx",
+        "stats": {"total_events": 21, "event_groups": 5, "iocs": 15}
+    }
+    """
+    try:
+        from utils.ai_timeline_generator import AITimelineGenerator
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json() or {}
+        template_id = data.get('template_id')
+        
+        # Generate the timeline report
+        generator = AITimelineGenerator(case.id, template_id)
+        result = generator.generate_report()
+        
+        if result.get('success'):
+            return jsonify({
+                'success': True,
+                'filename': result['filename'],
+                'output_path': result['output_path'],
+                'download_url': f"/api/reports/download/{case_uuid}/{result['filename']}",
+                'sections': result['sections'],
+                'stats': result.get('stats', {})
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': result.get('error', 'Timeline report generation failed')
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"Error generating timeline report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================================
 # Case Reports Management API
 # ============================================================
