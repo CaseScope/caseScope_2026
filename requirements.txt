@@ -59,3 +59,4 @@ requests>=2.31.0
 # Report Generation
 python-docx>=1.1.0
 docxtpl>=0.16.0
+docxcompose>=1.4.0

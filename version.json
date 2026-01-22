@@ -1,6 +1,13 @@
 {
-  "version": "3.135.02",
+  "version": "3.135.03",
   "changelog": [
+    {
+      "version": "3.135.03",
+      "date": "2026-01-22",
+      "changes": [
+        "Fix: Added docxcompose dependency for subdocument support in reports"
+      ]
+    },
     {
       "version": "3.135.02",
       "date": "2026-01-22",
