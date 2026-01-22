@@ -1,6 +1,15 @@
 {
-  "version": "3.135.01",
+  "version": "3.135.02",
   "changelog": [
+    {
+      "version": "3.135.02",
+      "date": "2026-01-22",
+      "changes": [
+        "Fix: AI report generation routes based on template report_type",
+        "Fix: DFIR templates use AIReportGenerator, Timeline templates use AITimelineGenerator",
+        "Fix: Removed invalid Subdoc import from markdown converter"
+      ]
+    },
     {
       "version": "3.135.01",
       "date": "2026-01-22",
