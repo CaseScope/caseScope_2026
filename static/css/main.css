@@ -1132,6 +1132,54 @@ tbody td {
   border-color: var(--accent-primary);
 }
 
+/* Form Select - matches form-input styling */
+.form-select {
+  width: 100%;
+  padding: 10px 14px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color var(--transition-fast);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.form-select:hover {
+  border-color: var(--text-muted);
+}
+
+.form-select option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+/* Inline variants for tables */
+.form-input-inline,
+.form-select-inline {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.form-select-inline {
+  padding-right: 28px;
+  background-position: right 8px center;
+}
+
 .login-btn {
   width: 100%;
   padding: 12px;
