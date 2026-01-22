@@ -832,6 +832,43 @@ function updateTemplateDescription() {
     } else {
         descEl.textContent = '';
     }
+    
+    // Update steps based on report type
+    updateReportSteps(template ? template.report_type : 'dfir');
+}
+
+function updateReportSteps(reportType) {
+    const stepsContainer = document.getElementById('aiProgressSteps');
+    const descriptionEl = document.querySelector('#aiReportModal .modal-body p[style*="font-size: 1.05em"]');
+    
+    if (reportType === 'timeline') {
+        // Timeline report steps
+        stepsContainer.innerHTML = `
+            <div id="step1" class="ai-step">⏳ Fetch Tagged Events</div>
+            <div id="step2" class="ai-step">⏳ Fetch IOCs</div>
+            <div id="step3" class="ai-step">⏳ Group Events</div>
+            <div id="step4" class="ai-step">⏳ AI Timeline</div>
+            <div id="step5" class="ai-step">⏳ Timeline Summary</div>
+            <div id="step6" class="ai-step" style="grid-column: span 2;">⏳ Generate Word Document</div>
+        `;
+        if (descriptionEl) {
+            descriptionEl.textContent = 'Generate a detailed timeline report using AI analysis of analyst-tagged events:';
+        }
+    } else {
+        // DFIR report steps (default)
+        stepsContainer.innerHTML = `
+            <div id="step1" class="ai-step">⏳ Executive Summary</div>
+            <div id="step2" class="ai-step">⏳ Timeline</div>
+            <div id="step3" class="ai-step">⏳ IOC List</div>
+            <div id="step4" class="ai-step">⏳ What Happened</div>
+            <div id="step5" class="ai-step">⏳ Why It Happened</div>
+            <div id="step6" class="ai-step">⏳ How To Prevent</div>
+            <div id="step7" class="ai-step" style="grid-column: span 2;">⏳ Generate Word Document</div>
+        `;
+        if (descriptionEl) {
+            descriptionEl.textContent = 'Generate a comprehensive DFIR report using AI analysis of case data:';
+        }
+    }
 }
 
 // Add event listener for template selection change
@@ -885,8 +922,20 @@ function startAIReportGeneration() {
     document.getElementById('aiReportReady').style.display = 'none';
     document.getElementById('aiReportError').style.display = 'none';
     
-    // Progress simulation
-    const steps = [
+    // Get selected template and determine report type
+    const templateId = document.getElementById('reportTemplateSelect').value;
+    const template = reportTemplates.find(t => t.id === parseInt(templateId));
+    const isTimeline = template && template.report_type === 'timeline';
+    
+    // Progress simulation - different steps for different report types
+    const steps = isTimeline ? [
+        { pct: 16, step: 1 },
+        { pct: 32, step: 2 },
+        { pct: 48, step: 3 },
+        { pct: 64, step: 4 },
+        { pct: 80, step: 5 },
+        { pct: 95, step: 6 }
+    ] : [
         { pct: 14, step: 1 },
         { pct: 28, step: 2 },
         { pct: 42, step: 3 },
@@ -917,9 +966,6 @@ function startAIReportGeneration() {
         }
     }, 22000); // ~22 seconds per step
     
-    // Get selected template
-    const templateId = document.getElementById('reportTemplateSelect').value;
-    
     // Start the actual generation
     fetch(`/api/reports/generate-ai/${CASE_UUID}`, {
         method: 'POST',
@@ -931,8 +977,9 @@ function startAIReportGeneration() {
         clearInterval(progressInterval);
         
         if (data.success) {
-            // Mark all steps complete
-            for (let i = 1; i <= 7; i++) {
+            // Mark all steps complete (handle variable step counts)
+            const stepCount = isTimeline ? 6 : 7;
+            for (let i = 1; i <= stepCount; i++) {
                 updateStep(i, 'complete');
             }
             document.getElementById('aiProgressBar').style.width = '100%';
