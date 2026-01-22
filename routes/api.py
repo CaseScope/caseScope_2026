@@ -1469,17 +1469,19 @@ def get_processing_progress(case_uuid):
             total_files = files_data.get('total', 0)
             processed_files = files_data.get('completed', 0)
             
-            # Discovery progress
+            # Post-processing phase progress
+            dedup_data = progress.get('deduplication', {})
             systems_data = progress.get('systems', {})
             users_data = progress.get('users', {})
             
             # Determine state
             is_processing = status == 'processing'
-            is_completing = status in ('flushing_buffer', 'discovering_systems', 'discovering_users')
+            is_completing = status in ('flushing_buffer', 'deduplicating', 'discovering_systems', 'discovering_users')
             
             # Map new status to legacy completion_phase for backward compatibility
             completion_phase_map = {
                 'flushing_buffer': 'flushing_buffer',
+                'deduplicating': 'deduplicating',
                 'discovering_systems': 'discovering_systems',
                 'discovering_users': 'discovering_users'
             }
@@ -1491,6 +1493,7 @@ def get_processing_progress(case_uuid):
             current_item = ''
             total_files = 0
             processed_files = 0
+            dedup_data = {'total': 0, 'completed': 0}
             systems_data = {'total': 0, 'completed': 0}
             users_data = {'total': 0, 'completed': 0}
             is_processing = False
@@ -1542,6 +1545,7 @@ def get_processing_progress(case_uuid):
                 'total': total_files,
                 'completed': processed_files
             },
+            'deduplication': dedup_data,
             'systems': systems_data,
             'users': users_data
         })
@@ -1597,6 +1601,80 @@ def reindex_case_files(case_uuid):
         })
         
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# Event Deduplication Endpoints
+# ============================================
+
+@api_bp.route('/events/duplicates/preview/<case_uuid>')
+@login_required
+def preview_duplicate_events(case_uuid):
+    """Preview duplicate events for a case without deleting them
+    
+    Returns a summary of potential duplicates by artifact type.
+    """
+    try:
+        from utils.event_deduplication import get_duplicate_summary
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        summary = get_duplicate_summary(case.id)
+        
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'case_id': case.id,
+            'total_duplicates': summary.get('total_duplicates', 0),
+            'by_artifact_type': summary.get('by_artifact_type', {})
+        })
+        
+    except Exception as e:
+        logger.error(f"Error previewing duplicates for case {case_uuid}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/events/duplicates/remove/<case_uuid>', methods=['POST'])
+@login_required
+def remove_duplicate_events(case_uuid):
+    """Remove duplicate events from a case
+    
+    Runs deduplication synchronously (for small cases) or async (for large cases).
+    For each artifact type, keeps the earliest indexed event and deletes duplicates.
+    """
+    try:
+        from utils.event_deduplication import deduplicate_case_events
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Run deduplication
+        result = deduplicate_case_events(
+            case_id=case.id,
+            case_uuid=case_uuid,
+            track_progress=False  # Don't track - this is a manual action
+        )
+        
+        return jsonify({
+            'success': result.get('success', False),
+            'case_uuid': case_uuid,
+            'case_id': case.id,
+            'artifact_types_checked': result.get('artifact_types_checked', 0),
+            'total_duplicates_found': result.get('total_duplicates_found', 0),
+            'total_duplicates_deleted': result.get('total_duplicates_deleted', 0),
+            'details': result.get('details', []),
+            'message': result.get('message', ''),
+            'errors': result.get('errors')
+        })
+        
+    except Exception as e:
+        logger.error(f"Error removing duplicates for case {case_uuid}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

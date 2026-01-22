@@ -1,6 +1,17 @@
 {
-  "version": "3.136.00",
+  "version": "3.137.00",
   "changelog": [
+    {
+      "version": "3.137.00",
+      "date": "2026-01-22",
+      "changes": [
+        "Feature: Post-ingestion event deduplication removes duplicate events",
+        "Feature: Runs automatically after file processing completes",
+        "Feature: Progress indicator shows deduplication phase in UI",
+        "Feature: API endpoints to preview and manually remove duplicates",
+        "Feature: Supports 18 artifact types with per-type unique key definitions"
+      ]
+    },
     {
       "version": "3.136.00",
       "date": "2026-01-22",

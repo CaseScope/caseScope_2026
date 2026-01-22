@@ -71,6 +71,8 @@ def init_progress(case_uuid: str, total_files: int) -> None:
             'phase': 'files',
             'files_total': total_files,
             'files_completed': 0,
+            'dedup_total': 0,
+            'dedup_completed': 0,
             'systems_total': 0,
             'systems_completed': 0,
             'users_total': 0,
@@ -162,6 +164,10 @@ def get_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
                 'total': int(data.get('files_total', 0)),
                 'completed': int(data.get('files_completed', 0))
             },
+            'deduplication': {
+                'total': int(data.get('dedup_total', 0)),
+                'completed': int(data.get('dedup_completed', 0))
+            },
             'systems': {
                 'total': int(data.get('systems_total', 0)),
                 'completed': int(data.get('systems_completed', 0))
@@ -235,8 +241,8 @@ def set_phase(case_uuid: str, phase: str, total: int = 0, current_item: str = ''
     
     Args:
         case_uuid: Case UUID
-        phase: Phase name ('files', 'buffer_flush', 'systems', 'users', 'complete')
-        total: Total items for this phase (for systems/users phases)
+        phase: Phase name ('files', 'buffer_flush', 'deduplication', 'systems', 'users', 'complete')
+        total: Total items for this phase (for systems/users/deduplication phases)
         current_item: Current item being processed (optional)
     """
     try:
@@ -248,7 +254,11 @@ def set_phase(case_uuid: str, phase: str, total: int = 0, current_item: str = ''
             'current_item': current_item
         }
         
-        if phase == 'systems':
+        if phase == 'deduplication':
+            updates['dedup_total'] = total
+            updates['dedup_completed'] = 0
+            updates['status'] = 'deduplicating'
+        elif phase == 'systems':
             updates['systems_total'] = total
             updates['systems_completed'] = 0
             updates['status'] = 'discovering_systems'
@@ -273,7 +283,7 @@ def increment_phase(case_uuid: str, phase: str, current_item: str = '') -> Optio
     
     Args:
         case_uuid: Case UUID
-        phase: Phase name ('systems' or 'users')
+        phase: Phase name ('deduplication', 'systems', or 'users')
         current_item: Current item being processed (optional)
         
     Returns:
@@ -283,7 +293,9 @@ def increment_phase(case_uuid: str, phase: str, current_item: str = '') -> Optio
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
         
-        if phase == 'systems':
+        if phase == 'deduplication':
+            completed = client.hincrby(key, 'dedup_completed', 1)
+        elif phase == 'systems':
             completed = client.hincrby(key, 'systems_completed', 1)
         elif phase == 'users':
             completed = client.hincrby(key, 'users_completed', 1)

@@ -584,6 +584,8 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         'case_uuid': case_uuid,
         'case_id': case_id,
         'buffer_flushed': False,
+        'duplicates_removed': 0,
+        'dedup_details': [],
         'systems_discovered': 0,
         'users_discovered': 0,
         'errors': []
@@ -602,6 +604,29 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
         # Buffer table might not exist or be empty
         logger.debug(f"Buffer flush skipped: {e}")
         results['buffer_flushed'] = True  # Not an error if buffer doesn't exist
+    
+    # Step 1.5: Deduplicate events (remove duplicate events from overlapping sources)
+    set_phase(case_uuid, 'deduplication')
+    self.update_state(state='PROCESSING', meta={'stage': 'deduplicating_events'})
+    try:
+        from utils.event_deduplication import deduplicate_case_events
+        
+        dedup_result = deduplicate_case_events(
+            case_id=case_id,
+            case_uuid=case_uuid,
+            track_progress=True
+        )
+        results['duplicates_removed'] = dedup_result.get('total_duplicates_deleted', 0)
+        results['dedup_details'] = dedup_result.get('details', [])
+        
+        if dedup_result.get('total_duplicates_deleted', 0) > 0:
+            logger.info(f"Deduplication complete: {dedup_result.get('message', '')}")
+        else:
+            logger.debug(f"Deduplication complete: no duplicates found")
+            
+    except Exception as e:
+        logger.warning(f"Deduplication failed: {e}")
+        results['errors'].append(f"Deduplication: {str(e)}")
     
     # Step 2: Run known systems discovery (with progress tracking)
     self.update_state(state='PROCESSING', meta={'stage': 'discovering_systems'})
