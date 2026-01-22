@@ -7643,3 +7643,132 @@ def generate_ai_report(case_uuid):
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================
+# Case Reports Management API
+# ============================================================
+
+@api_bp.route('/reports/case/<case_uuid>')
+@login_required
+def list_case_reports_managed(case_uuid):
+    """List all reports for a case with sync
+    
+    Syncs filesystem with database before returning, ensuring
+    new files are added and missing files are removed.
+    """
+    try:
+        from models.case_report import CaseReport
+        from flask_login import current_user
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Sync filesystem with database (adds new, removes missing)
+        sync_result = CaseReport.sync_reports_for_case(
+            case_uuid=case_uuid,
+            case_id=case.id,
+            username=current_user.username if current_user.is_authenticated else 'system'
+        )
+        
+        # Get all reports
+        reports = CaseReport.get_reports_for_case(case.id)
+        
+        return jsonify({
+            'success': True,
+            'reports': [r.to_dict() for r in reports],
+            'sync': sync_result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing case reports: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/<int:report_id>/notes', methods=['PUT'])
+@login_required
+def update_report_notes(report_id):
+    """Update notes for a report
+    
+    Request body:
+    {
+        "notes": "Updated notes content"
+    }
+    """
+    try:
+        from models.case_report import CaseReport
+        from flask_login import current_user
+        
+        report = CaseReport.get_by_id(report_id)
+        if not report:
+            return jsonify({'success': False, 'error': 'Report not found'}), 404
+        
+        # Get the case for UUID (for audit)
+        case = Case.query.get(report.case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Associated case not found'}), 404
+        
+        data = request.get_json() or {}
+        notes = data.get('notes', '')
+        
+        # Update with audit logging
+        report.update_notes(
+            notes=notes,
+            username=current_user.username if current_user.is_authenticated else 'system',
+            case_uuid=case.uuid
+        )
+        
+        return jsonify({
+            'success': True,
+            'report': report.to_dict()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating report notes: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/reports/<int:report_id>', methods=['DELETE'])
+@login_required
+def delete_case_report(report_id):
+    """Delete a report
+    
+    Deletes both the file and database record with audit logging.
+    """
+    try:
+        from models.case_report import CaseReport
+        from flask_login import current_user
+        
+        report = CaseReport.get_by_id(report_id)
+        if not report:
+            return jsonify({'success': False, 'error': 'Report not found'}), 404
+        
+        # Get the case for UUID (for audit)
+        case = Case.query.get(report.case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Associated case not found'}), 404
+        
+        filename = report.filename
+        
+        # Delete with audit logging
+        report.delete_report(
+            username=current_user.username if current_user.is_authenticated else 'system',
+            case_uuid=case.uuid,
+            delete_file=True
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'Report {filename} deleted successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500

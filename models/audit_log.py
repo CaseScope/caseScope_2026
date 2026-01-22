@@ -71,6 +71,7 @@ class AuditEntityType:
     # Cases
     CASE = 'case'
     CASE_FILE = 'case_file'
+    CASE_REPORT = 'case_report'
     
     # Case entities
     IOC = 'ioc'
@@ -94,7 +95,7 @@ class AuditEntityType:
     @classmethod
     def all(cls):
         return [
-            cls.CASE, cls.CASE_FILE,
+            cls.CASE, cls.CASE_FILE, cls.CASE_REPORT,
             cls.IOC, cls.KNOWN_SYSTEM, cls.KNOWN_USER,
             cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE,
             cls.EVIDENCE_FILE, cls.ATTACK_PATTERN, cls.SESSION

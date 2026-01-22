@@ -11,60 +11,111 @@
     </div>
     <div class="page-actions">
         <button id="btnAIReport" class="btn btn-primary" onclick="generateAIReport()">📄 AI Report</button>
+        <a href="{{ url_for('main.case_reports') }}" class="btn btn-secondary">📋 View Reports</a>
         <a href="{{ url_for('main.case_edit') }}" class="btn btn-secondary">✏️ Edit Case</a>
     </div>
 </div>
 
 <!-- AI Report Generation Modal -->
-<div id="aiReportModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 500px;">
+<div id="aiReportModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
+    <div class="modal-content" style="width: 700px; max-width: 90vw; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
         <div class="modal-header">
             <h3 class="modal-title">📄 Generate AI Report</h3>
             <button class="modal-close" onclick="closeAIReportModal()">&times;</button>
         </div>
-        <div class="modal-body" style="padding: 20px;">
-            <div id="aiReportStatus">
-                <div id="aiReportProgress" style="display: none;">
-                    <div class="progress-container" style="margin-bottom: 15px;">
-                        <div class="progress-bar" style="width: 100%; height: 8px; background: var(--bg-tertiary); border-radius: 4px; overflow: hidden;">
-                            <div id="aiProgressBar" style="width: 0%; height: 100%; background: var(--accent-primary); transition: width 0.5s;"></div>
-                        </div>
-                    </div>
-                    <p id="aiProgressText" style="text-align: center; color: var(--text-secondary); margin: 0;">
-                        Initializing...
+        <div class="modal-body" style="padding: 30px;">
+            <!-- Template Selection -->
+            <div style="margin-bottom: 25px;">
+                <label style="color: var(--text-primary); font-weight: 500; display: block; margin-bottom: 10px;">Report Template</label>
+                <select id="reportTemplateSelect" class="form-input" style="width: 100%; padding: 12px; font-size: 1em;">
+                    <option value="">Loading templates...</option>
+                </select>
+                <p id="templateDescription" style="color: var(--text-muted); font-size: 0.9em; margin-top: 8px; min-height: 20px;"></p>
+            </div>
+            
+            <!-- Description Section -->
+            <div style="margin-bottom: 25px;">
+                <p style="color: var(--text-primary); margin-bottom: 15px; font-size: 1.05em;">
+                    Generate a comprehensive DFIR report using AI analysis of case data:
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                    <div style="color: var(--text-secondary); padding: 10px; background: var(--bg-tertiary); border-radius: 4px;">📋 EDR Report findings</div>
+                    <div style="color: var(--text-secondary); padding: 10px; background: var(--bg-tertiary); border-radius: 4px;">⏱️ Analyst-tagged timeline</div>
+                    <div style="color: var(--text-secondary); padding: 10px; background: var(--bg-tertiary); border-radius: 4px;">🎯 Indicators of Compromise</div>
+                    <div style="color: var(--text-secondary); padding: 10px; background: var(--bg-tertiary); border-radius: 4px;">🔧 Remediation documentation</div>
+                </div>
+            </div>
+            
+            <!-- Progress Section -->
+            <div style="background: var(--bg-tertiary); border-radius: 8px; padding: 20px; margin-bottom: 25px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="color: var(--text-primary); font-weight: 500;">Generation Progress</span>
+                    <span id="aiProgressPercent" style="color: var(--text-muted);">0%</span>
+                </div>
+                <div style="width: 100%; height: 12px; background: var(--bg-primary); border-radius: 6px; overflow: hidden; margin-bottom: 15px;">
+                    <div id="aiProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-primary), #4ade80); transition: width 0.5s;"></div>
+                </div>
+                <div id="aiProgressSteps" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9em;">
+                    <div id="step1" class="ai-step">⏳ Executive Summary</div>
+                    <div id="step2" class="ai-step">⏳ Timeline</div>
+                    <div id="step3" class="ai-step">⏳ IOC List</div>
+                    <div id="step4" class="ai-step">⏳ What Happened</div>
+                    <div id="step5" class="ai-step">⏳ Why It Happened</div>
+                    <div id="step6" class="ai-step">⏳ How To Prevent</div>
+                    <div id="step7" class="ai-step" style="grid-column: span 2;">⏳ Generate Word Document</div>
+                </div>
+            </div>
+            
+            <!-- Action Section -->
+            <div id="aiActionSection" style="text-align: center;">
+                <div id="aiReportStart">
+                    <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 15px;">
+                        ⏱️ This process takes approximately 2-3 minutes
+                    </p>
+                    <button class="btn btn-primary" style="padding: 12px 30px; font-size: 1.1em;" onclick="startAIReportGeneration()">
+                        🚀 Generate Report
+                    </button>
+                </div>
+                <div id="aiReportRunning" style="display: none;">
+                    <p style="color: var(--accent-primary); font-size: 1em;">
+                        <span class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border-width: 2px; vertical-align: middle; margin-right: 8px;"></span>
+                        Generating report... Please wait
                     </p>
                 </div>
-                <div id="aiReportReady" style="display: none; text-align: center;">
-                    <p style="color: var(--text-success); font-size: 1.1em; margin-bottom: 15px;">✓ Report Generated Successfully</p>
-                    <a id="aiReportDownloadLink" href="#" class="btn btn-primary" style="margin-bottom: 10px;">
+                <div id="aiReportReady" style="display: none;">
+                    <p style="color: #4ade80; font-size: 1.2em; margin-bottom: 15px;">✓ Report Generated Successfully</p>
+                    <a id="aiReportDownloadLink" href="#" class="btn btn-primary" style="padding: 12px 30px; font-size: 1.1em;">
                         📥 Download Report
                     </a>
                 </div>
-                <div id="aiReportError" style="display: none; text-align: center;">
-                    <p style="color: var(--text-error); margin-bottom: 15px;">✕ Report Generation Failed</p>
+                <div id="aiReportError" style="display: none;">
+                    <p style="color: #f87171; font-size: 1.1em; margin-bottom: 10px;">✕ Report Generation Failed</p>
                     <p id="aiReportErrorMsg" style="color: var(--text-secondary);"></p>
-                </div>
-                <div id="aiReportStart" style="text-align: center;">
-                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                        This will generate a DFIR report using AI analysis of case data including:
-                    </p>
-                    <ul style="text-align: left; color: var(--text-secondary); margin-bottom: 20px; padding-left: 30px;">
-                        <li>EDR Report findings</li>
-                        <li>Analyst-tagged events (timeline)</li>
-                        <li>Indicators of Compromise</li>
-                        <li>Remediation documentation</li>
-                    </ul>
-                    <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 20px;">
-                        ⏱️ This process takes approximately 2-3 minutes
-                    </p>
-                    <button class="btn btn-primary" onclick="startAIReportGeneration()">
-                        🚀 Generate Report
-                    </button>
+                    <button class="btn btn-secondary" style="margin-top: 15px;" onclick="resetAIReportModal()">Try Again</button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+.ai-step {
+    color: var(--text-muted);
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+.ai-step.active {
+    color: var(--accent-primary);
+    background: rgba(59, 130, 246, 0.1);
+    border-left: 3px solid var(--accent-primary);
+}
+.ai-step.complete {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.1);
+}
+</style>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -728,78 +779,179 @@ function displayStatistics(data) {
 <script>
 // AI Report Generation Functions
 const CASE_UUID = '{{ case.uuid }}';
+let reportTemplates = [];
 
 function generateAIReport() {
     document.getElementById('aiReportModal').style.display = 'flex';
-    // Reset to start state
-    document.getElementById('aiReportStart').style.display = 'block';
-    document.getElementById('aiReportProgress').style.display = 'none';
-    document.getElementById('aiReportReady').style.display = 'none';
-    document.getElementById('aiReportError').style.display = 'none';
+    resetAIReportModal();
+    loadReportTemplates();
 }
+
+function loadReportTemplates() {
+    fetch('/api/reports/templates/active')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.templates) {
+                reportTemplates = data.templates;
+                const select = document.getElementById('reportTemplateSelect');
+                select.innerHTML = '';
+                
+                if (reportTemplates.length === 0) {
+                    select.innerHTML = '<option value="">No templates available</option>';
+                    return;
+                }
+                
+                reportTemplates.forEach(t => {
+                    const option = document.createElement('option');
+                    option.value = t.id;
+                    option.textContent = t.display_name || t.filename;
+                    if (t.is_default) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+                
+                // Show description for selected template
+                updateTemplateDescription();
+            }
+        })
+        .catch(err => {
+            console.error('Error loading templates:', err);
+            document.getElementById('reportTemplateSelect').innerHTML = '<option value="">Error loading templates</option>';
+        });
+}
+
+function updateTemplateDescription() {
+    const select = document.getElementById('reportTemplateSelect');
+    const selectedId = parseInt(select.value);
+    const template = reportTemplates.find(t => t.id === selectedId);
+    const descEl = document.getElementById('templateDescription');
+    
+    if (template && template.description) {
+        descEl.textContent = template.description;
+    } else {
+        descEl.textContent = '';
+    }
+}
+
+// Add event listener for template selection change
+document.addEventListener('DOMContentLoaded', function() {
+    const select = document.getElementById('reportTemplateSelect');
+    if (select) {
+        select.addEventListener('change', updateTemplateDescription);
+    }
+});
 
 function closeAIReportModal() {
     document.getElementById('aiReportModal').style.display = 'none';
 }
 
+function resetAIReportModal() {
+    // Reset progress
+    document.getElementById('aiProgressBar').style.width = '0%';
+    document.getElementById('aiProgressPercent').textContent = '0%';
+    
+    // Reset all steps
+    for (let i = 1; i <= 7; i++) {
+        const step = document.getElementById('step' + i);
+        step.className = 'ai-step';
+        step.textContent = '⏳ ' + step.textContent.replace(/^[✓⏳🔄]\s*/, '');
+    }
+    
+    // Show start state
+    document.getElementById('aiReportStart').style.display = 'block';
+    document.getElementById('aiReportRunning').style.display = 'none';
+    document.getElementById('aiReportReady').style.display = 'none';
+    document.getElementById('aiReportError').style.display = 'none';
+}
+
+function updateStep(stepNum, status) {
+    const step = document.getElementById('step' + stepNum);
+    const text = step.textContent.replace(/^[✓⏳🔄]\s*/, '');
+    
+    if (status === 'active') {
+        step.className = 'ai-step active';
+        step.textContent = '🔄 ' + text;
+    } else if (status === 'complete') {
+        step.className = 'ai-step complete';
+        step.textContent = '✓ ' + text;
+    }
+}
+
 function startAIReportGeneration() {
-    // Show progress state
+    // Show running state
     document.getElementById('aiReportStart').style.display = 'none';
-    document.getElementById('aiReportProgress').style.display = 'block';
+    document.getElementById('aiReportRunning').style.display = 'block';
     document.getElementById('aiReportReady').style.display = 'none';
     document.getElementById('aiReportError').style.display = 'none';
     
-    // Simulate progress steps
+    // Progress simulation
     const steps = [
-        { pct: 10, text: 'Generating Executive Summary...' },
-        { pct: 25, text: 'Generating Timeline...' },
-        { pct: 40, text: 'Generating IOC List...' },
-        { pct: 55, text: 'Generating What Happened...' },
-        { pct: 70, text: 'Generating Why It Happened...' },
-        { pct: 85, text: 'Generating How To Prevent...' },
-        { pct: 95, text: 'Creating Word Document...' }
+        { pct: 14, step: 1 },
+        { pct: 28, step: 2 },
+        { pct: 42, step: 3 },
+        { pct: 56, step: 4 },
+        { pct: 70, step: 5 },
+        { pct: 84, step: 6 },
+        { pct: 95, step: 7 }
     ];
     
     let stepIndex = 0;
+    
+    // Start first step immediately
+    updateStep(1, 'active');
+    document.getElementById('aiProgressBar').style.width = '5%';
+    document.getElementById('aiProgressPercent').textContent = '5%';
+    
     const progressInterval = setInterval(() => {
         if (stepIndex < steps.length) {
+            // Complete previous step
+            if (stepIndex > 0) {
+                updateStep(steps[stepIndex - 1].step, 'complete');
+            }
+            // Activate current step
+            updateStep(steps[stepIndex].step, 'active');
             document.getElementById('aiProgressBar').style.width = steps[stepIndex].pct + '%';
-            document.getElementById('aiProgressText').textContent = steps[stepIndex].text;
+            document.getElementById('aiProgressPercent').textContent = steps[stepIndex].pct + '%';
             stepIndex++;
         }
-    }, 25000); // Approximately every 25 seconds
+    }, 22000); // ~22 seconds per step
+    
+    // Get selected template
+    const templateId = document.getElementById('reportTemplateSelect').value;
     
     // Start the actual generation
     fetch(`/api/reports/generate-ai/${CASE_UUID}`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({})
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_id: templateId ? parseInt(templateId) : null })
     })
     .then(response => response.json())
     .then(data => {
         clearInterval(progressInterval);
         
         if (data.success) {
+            // Mark all steps complete
+            for (let i = 1; i <= 7; i++) {
+                updateStep(i, 'complete');
+            }
             document.getElementById('aiProgressBar').style.width = '100%';
-            document.getElementById('aiProgressText').textContent = 'Complete!';
+            document.getElementById('aiProgressPercent').textContent = '100%';
             
             setTimeout(() => {
-                document.getElementById('aiReportProgress').style.display = 'none';
+                document.getElementById('aiReportRunning').style.display = 'none';
                 document.getElementById('aiReportReady').style.display = 'block';
                 document.getElementById('aiReportDownloadLink').href = data.download_url;
-                document.getElementById('aiReportDownloadLink').textContent = '📥 Download ' + data.filename;
             }, 500);
         } else {
-            document.getElementById('aiReportProgress').style.display = 'none';
+            document.getElementById('aiReportRunning').style.display = 'none';
             document.getElementById('aiReportError').style.display = 'block';
             document.getElementById('aiReportErrorMsg').textContent = data.error || 'Unknown error occurred';
         }
     })
     .catch(error => {
         clearInterval(progressInterval);
-        document.getElementById('aiReportProgress').style.display = 'none';
+        document.getElementById('aiReportRunning').style.display = 'none';
         document.getElementById('aiReportError').style.display = 'block';
         document.getElementById('aiReportErrorMsg').textContent = error.message || 'Network error occurred';
     });

@@ -322,6 +322,15 @@ def case_evidence():
     return render_template('case_evidence.html', page_title='Evidence', case=case)
 
 
+@main_bp.route('/case/reports')
+@login_required
+@case_required
+def case_reports():
+    """View Reports - list and manage generated reports for the case"""
+    case = get_active_case()
+    return render_template('case_reports.html', page_title='Reports', case=case)
+
+
 @main_bp.route('/case/memory-forensics')
 @login_required
 @case_required
