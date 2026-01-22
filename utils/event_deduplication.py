@@ -199,24 +199,51 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
     logger.info(f"Found {duplicate_count} duplicate {config.artifact_type} events for case {case_id}")
     
     try:
-        # Build the DELETE query
-        # This deletes all events that:
-        # 1. Have the same unique key as another event
-        # 2. Are NOT the one with the minimum indexed_at for that key
+        # Build the DELETE query using a safer approach
+        # ClickHouse doesn't handle correlated subqueries in DELETE properly
+        # So we use a different strategy:
+        # 1. Create a subquery that finds all (unique_key, min_indexed_at) pairs
+        # 2. Delete events where (unique_key, indexed_at) is NOT IN that set
+        #    but the unique_key IS in the set of duplicated keys
         
-        # Create field comparison clauses for the subquery
-        field_comparisons = ' AND '.join([f'e2.{f} = events.{f}' for f in config.unique_fields])
+        # First, find the indexed_at values to KEEP (the minimum for each duplicate group)
+        # These are the events we want to preserve
+        keep_query = f"""
+            SELECT {', '.join(config.unique_fields)}, min(indexed_at) as keep_indexed_at
+            FROM events
+            WHERE case_id = {case_id}
+              AND artifact_type = '{config.artifact_type}'
+            GROUP BY {', '.join(config.unique_fields)}
+            HAVING count() > 1
+        """
+        
+        # Now build the DELETE query that removes duplicates
+        # For each event, if its unique key has duplicates AND its indexed_at
+        # is NOT the minimum for that key, delete it
+        
+        # Build tuple of unique fields for comparison
+        unique_tuple = f"({', '.join(config.unique_fields)})"
+        unique_tuple_with_time = f"({', '.join(config.unique_fields)}, indexed_at)"
         
         delete_query = f"""
             ALTER TABLE events DELETE 
             WHERE case_id = {case_id}
               AND artifact_type = '{config.artifact_type}'
-              AND indexed_at > (
-                  SELECT min(e2.indexed_at) 
-                  FROM events e2 
-                  WHERE e2.case_id = {case_id}
-                    AND e2.artifact_type = '{config.artifact_type}'
-                    AND {field_comparisons}
+              AND {unique_tuple} IN (
+                  SELECT {', '.join(config.unique_fields)}
+                  FROM events
+                  WHERE case_id = {case_id}
+                    AND artifact_type = '{config.artifact_type}'
+                  GROUP BY {', '.join(config.unique_fields)}
+                  HAVING count() > 1
+              )
+              AND {unique_tuple_with_time} NOT IN (
+                  SELECT {', '.join(config.unique_fields)}, min(indexed_at)
+                  FROM events
+                  WHERE case_id = {case_id}
+                    AND artifact_type = '{config.artifact_type}'
+                  GROUP BY {', '.join(config.unique_fields)}
+                  HAVING count() > 1
               )
         """
         
