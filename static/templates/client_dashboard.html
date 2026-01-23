@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🏢</span>
+            {{ client.name }}
+        </h1>
+        <p class="page-subtitle">
+            <span class="client-code-badge">{{ client.code }}</span>
+            <span class="separator">|</span>
+            {{ client.timezone }}
+            {% if client.contact_email %}
+            <span class="separator">|</span>
+            <span title="{{ client.contact_email }}">{{ client.contact_name or client.contact_email }}</span>
+            {% endif %}
+        </p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.clients') }}" class="btn btn-secondary">
+            <span>← Back to Clients</span>
+        </a>
+        <a href="{{ url_for('main.client_case_create', client_uuid=client.uuid) }}" class="btn btn-primary">
+            <span>+ New Case</span>
+        </a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<!-- Stats Cards -->
+<div class="stats-row">
+    <div class="stat-card">
+        <div class="stat-card-icon">📋</div>
+        <div class="stat-card-content">
+            <div class="stat-card-value">{{ cases|length }}</div>
+            <div class="stat-card-label">Total Cases</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-icon">🔄</div>
+        <div class="stat-card-content">
+            <div class="stat-card-value">{{ active_cases }}</div>
+            <div class="stat-card-label">Active Cases</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-icon">🖥️</div>
+        <div class="stat-card-content">
+            <div class="stat-card-value">{{ agents|length }}</div>
+            <div class="stat-card-label">Total Agents</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-icon {% if online_agents > 0 %}text-success{% endif %}">🟢</div>
+        <div class="stat-card-content">
+            <div class="stat-card-value {% if online_agents > 0 %}text-success{% endif %}">{{ online_agents }}</div>
+            <div class="stat-card-label">Agents Online</div>
+        </div>
+    </div>
+</div>
+
+<!-- Cases Section -->
+<div class="section-header">
+    <h2 class="section-title">Cases</h2>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <span class="table-title">Client Cases ({{ cases|length }})</span>
+        <div class="table-actions">
+            <input type="text" class="table-search" placeholder="Search cases..." id="caseSearch" onkeyup="filterCases()">
+        </div>
+    </div>
+    
+    <table id="casesTable">
+        <thead>
+            <tr>
+                <th>Case Name</th>
+                <th>Status</th>
+                <th>Created By</th>
+                <th>Created On</th>
+                <th>Assigned To</th>
+                <th>EDR Report</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if cases %}
+                {% for case in cases %}
+                <tr class="case-row" onclick="selectCase('{{ case.uuid }}')">
+                    <td>
+                        <span class="case-name-link">{{ case.name }}</span>
+                    </td>
+                    <td>
+                        {% if case.status == 'new' %}
+                            <span class="badge badge-info">New</span>
+                        {% elif case.status == 'assigned' %}
+                            <span class="badge badge-warning">Assigned</span>
+                        {% elif case.status == 'in_progress' %}
+                            <span class="badge badge-warning">In Progress</span>
+                        {% elif case.status == 'in_review' %}
+                            <span class="badge badge-info">In Review</span>
+                        {% elif case.status == 'finished' %}
+                            <span class="badge badge-success">Finished</span>
+                        {% elif case.status == 'archived' %}
+                            <span class="badge badge-muted">Archived</span>
+                        {% else %}
+                            <span class="badge badge-muted">{{ case.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.created_by }}</td>
+                    <td>{{ case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else '-' }}</td>
+                    <td>{{ case.assigned_to or '-' }}</td>
+                    <td>
+                        {% if case.edr_report %}
+                            <span class="badge badge-success">Yes</span>
+                        {% else %}
+                            <span class="badge badge-muted">No</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                        No cases found for this client. Create your first case to get started.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Agents Section -->
+<div class="section-header" style="margin-top: 32px;">
+    <h2 class="section-title">Agents</h2>
+    <p class="section-subtitle">Deployed collection agents for this client</p>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <span class="table-title">Client Agents ({{ agents|length }})</span>
+    </div>
+    
+    <table id="agentsTable">
+        <thead>
+            <tr>
+                <th>Hostname</th>
+                <th>OS</th>
+                <th>Status</th>
+                <th>Last Seen</th>
+                <th>IP Address</th>
+                <th>Version</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if agents %}
+                {% for agent in agents %}
+                <tr class="agent-row">
+                    <td>
+                        <span class="agent-hostname">{{ agent.display_name }}</span>
+                        {% if agent.name and agent.name != agent.hostname %}
+                        <span class="text-muted text-small">({{ agent.hostname }})</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if agent.os == 'windows' %}
+                        <span class="os-badge os-windows">Windows</span>
+                        {% elif agent.os == 'linux' %}
+                        <span class="os-badge os-linux">Linux</span>
+                        {% elif agent.os == 'macos' %}
+                        <span class="os-badge os-macos">macOS</span>
+                        {% else %}
+                        <span class="os-badge">{{ agent.os }}</span>
+                        {% endif %}
+                        {% if agent.os_version %}
+                        <span class="text-muted text-small">{{ agent.os_version }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if agent.status == 'online' %}
+                        <span class="badge badge-success">Online</span>
+                        {% elif agent.status == 'collecting' %}
+                        <span class="badge badge-warning">Collecting</span>
+                        {% elif agent.status == 'error' %}
+                        <span class="badge badge-danger">Error</span>
+                        {% elif agent.status == 'maintenance' %}
+                        <span class="badge badge-info">Maintenance</span>
+                        {% else %}
+                        <span class="badge badge-muted">Offline</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if agent.last_seen %}
+                        {{ agent.last_seen.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                        <span class="text-muted">Never</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ agent.last_ip or '-' }}</td>
+                    <td>{{ agent.agent_version or '-' }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                        No agents deployed for this client yet.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{% if client.notes %}
+<div class="section-header" style="margin-top: 32px;">
+    <h2 class="section-title">Notes</h2>
+</div>
+<div class="card">
+    <div class="card-body">
+        <p class="client-notes">{{ client.notes }}</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function selectCase(uuid) {
+    window.location.href = '/cases/select/' + uuid;
+}
+
+function filterCases() {
+    const input = document.getElementById('caseSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('casesTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        let match = false;
+        
+        for (let j = 0; j < cells.length; j++) {
+            if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                match = true;
+                break;
+            }
+        }
+        
+        rows[i].style.display = match ? '' : 'none';
+    }
+}
+</script>
+{% endblock %}

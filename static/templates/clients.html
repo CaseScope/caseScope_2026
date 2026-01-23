@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🏢</span>
+            Clients
+        </h1>
+        <p class="page-subtitle">Select a client to view their cases and agents</p>
+    </div>
+    <div class="page-actions">
+        {% if current_user.is_administrator %}
+        <a href="{{ url_for('main.admin_client_create') }}" class="btn btn-primary">
+            <span>+ New Client</span>
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="client-grid">
+    {% if clients %}
+        {% for client in clients %}
+        <div class="client-card" onclick="selectClient('{{ client.uuid }}')">
+            <div class="client-card-header">
+                <span class="client-code">{{ client.code }}</span>
+                {% if not client.is_active %}
+                <span class="badge badge-muted">Inactive</span>
+                {% endif %}
+            </div>
+            <div class="client-card-body">
+                <h3 class="client-name">{{ client.name }}</h3>
+                <div class="client-stats">
+                    <div class="client-stat">
+                        <span class="stat-value">{{ client.case_count }}</span>
+                        <span class="stat-label">Cases</span>
+                    </div>
+                    <div class="client-stat">
+                        <span class="stat-value">{{ client.agent_count }}</span>
+                        <span class="stat-label">Agents</span>
+                    </div>
+                    <div class="client-stat">
+                        <span class="stat-value {% if client.active_agent_count > 0 %}text-success{% endif %}">{{ client.active_agent_count }}</span>
+                        <span class="stat-label">Online</span>
+                    </div>
+                </div>
+            </div>
+            <div class="client-card-footer">
+                <span class="client-timezone">{{ client.timezone }}</span>
+                {% if client.contact_email %}
+                <span class="client-contact" title="{{ client.contact_email }}">{{ client.contact_name or client.contact_email }}</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">🏢</div>
+            <h3>No Clients Found</h3>
+            <p>Create your first client to get started with case management.</p>
+            {% if current_user.is_administrator %}
+            <a href="{{ url_for('main.admin_client_create') }}" class="btn btn-primary">+ Create Client</a>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+
+<!-- Table View Toggle -->
+<div class="view-toggle">
+    <button class="btn btn-secondary btn-sm" onclick="toggleView()">
+        <span id="viewToggleIcon">📋</span>
+        <span id="viewToggleText">Table View</span>
+    </button>
+</div>
+
+<div class="table-container" id="clientsTableContainer" style="display: none;">
+    <div class="table-header">
+        <span class="table-title">All Clients ({{ clients|length }})</span>
+        <div class="table-actions">
+            <input type="text" class="table-search" placeholder="Search clients..." id="clientSearch" onkeyup="filterClients()">
+        </div>
+    </div>
+    
+    <table id="clientsTable">
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Cases</th>
+                <th>Agents</th>
+                <th>Online</th>
+                <th>Timezone</th>
+                <th>Contact</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if clients %}
+                {% for client in clients %}
+                <tr class="client-row" onclick="selectClient('{{ client.uuid }}')">
+                    <td><span class="client-code-badge">{{ client.code }}</span></td>
+                    <td>{{ client.name }}</td>
+                    <td>{{ client.case_count }}</td>
+                    <td>{{ client.agent_count }}</td>
+                    <td>
+                        {% if client.active_agent_count > 0 %}
+                        <span class="badge badge-success">{{ client.active_agent_count }}</span>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ client.timezone }}</td>
+                    <td>{{ client.contact_name or client.contact_email or '-' }}</td>
+                    <td>
+                        {% if client.is_active %}
+                        <span class="badge badge-success">Active</span>
+                        {% else %}
+                        <span class="badge badge-muted">Inactive</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted" style="padding: 40px;">
+                        No clients found.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function selectClient(uuid) {
+    window.location.href = '/client/' + uuid;
+}
+
+function toggleView() {
+    const grid = document.querySelector('.client-grid');
+    const table = document.getElementById('clientsTableContainer');
+    const icon = document.getElementById('viewToggleIcon');
+    const text = document.getElementById('viewToggleText');
+    
+    if (grid.style.display === 'none') {
+        grid.style.display = 'grid';
+        table.style.display = 'none';
+        icon.textContent = '📋';
+        text.textContent = 'Table View';
+    } else {
+        grid.style.display = 'none';
+        table.style.display = 'block';
+        icon.textContent = '🔲';
+        text.textContent = 'Card View';
+    }
+}
+
+function filterClients() {
+    const input = document.getElementById('clientSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('clientsTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        let match = false;
+        
+        for (let j = 0; j < cells.length; j++) {
+            if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                match = true;
+                break;
+            }
+        }
+        
+        rows[i].style.display = match ? '' : 'none';
+    }
+}
+</script>
+{% endblock %}

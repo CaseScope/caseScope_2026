@@ -903,3 +903,314 @@ def settings():
                            is_admin=is_admin,
                            ai_enabled=ai_enabled,
                            ai_default_model=ai_default_model)
+
+
+# ============================================
+# Client Routes
+# ============================================
+
+def get_active_client():
+    """Get the currently active client from session"""
+    if 'active_client_uuid' in session:
+        from models.client import Client
+        return Client.get_by_uuid(session['active_client_uuid'])
+    return None
+
+
+@main_bp.route('/clients')
+@login_required
+def clients():
+    """Client Selection - list all clients"""
+    from models.client import Client
+    all_clients = Client.query.filter_by(is_active=True).order_by(Client.name).all()
+    return render_template(
+        'clients.html',
+        page_title='Clients',
+        clients=all_clients
+    )
+
+
+@main_bp.route('/client/<client_uuid>')
+@login_required
+def client_dashboard(client_uuid):
+    """Client Dashboard - overview of a specific client"""
+    from models.client import Client
+    from models.agent import Agent
+    
+    client = Client.get_by_uuid(client_uuid)
+    if not client:
+        flash('Client not found', 'error')
+        return redirect(url_for('main.clients'))
+    
+    # Store in session
+    session['active_client_uuid'] = client_uuid
+    
+    # Get cases for this client
+    cases = Case.query.filter_by(client_id=client.id).order_by(Case.created_at.desc()).all()
+    
+    # Count active cases (not finished or archived)
+    active_cases = len([c for c in cases if c.status not in ['finished', 'archived']])
+    
+    # Get agents for this client
+    agents = Agent.get_agents_for_client(client.id)
+    online_agents = len([a for a in agents if a.status == 'online'])
+    
+    return render_template(
+        'client_dashboard.html',
+        page_title=f'{client.name}',
+        client=client,
+        cases=cases,
+        active_cases=active_cases,
+        agents=agents,
+        online_agents=online_agents
+    )
+
+
+@main_bp.route('/client/<client_uuid>/case/new', methods=['GET', 'POST'])
+@login_required
+def client_case_create(client_uuid):
+    """Create new case for a specific client"""
+    from models.client import Client
+    
+    client = Client.get_by_uuid(client_uuid)
+    if not client:
+        flash('Client not found', 'error')
+        return redirect(url_for('main.clients'))
+    
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        description = request.form.get('description', '').strip()
+        timezone = request.form.get('timezone', client.timezone).strip()
+        router_ips = request.form.get('router_ips', '').strip()
+        vpn_ips = request.form.get('vpn_ips', '').strip()
+        
+        if not name:
+            flash('Case name is required', 'error')
+            return render_template('case_create.html', page_title='Create Case',
+                                   client=client, timezones=COMMON_TIMEZONES, 
+                                   detected_tz=client.timezone)
+        
+        from utils.timezone import is_valid_timezone
+        if not is_valid_timezone(timezone):
+            flash('Invalid timezone selected', 'error')
+            return render_template('case_create.html', page_title='Create Case',
+                                   client=client, timezones=COMMON_TIMEZONES,
+                                   detected_tz=client.timezone)
+        
+        case = Case(
+            name=name,
+            company=client.name,
+            client_id=client.id,
+            description=description or None,
+            timezone=timezone,
+            router_ips=router_ips or None,
+            vpn_ips=vpn_ips or None,
+            created_by=current_user.username
+        )
+        
+        db.session.add(case)
+        db.session.commit()
+        
+        AuditLog.log(
+            entity_type=AuditEntityType.CASE,
+            entity_id=case.uuid,
+            action=AuditAction.CREATED,
+            entity_name=name,
+            case_uuid=case.uuid,
+            details={
+                'client': client.code,
+                'company': client.name,
+                'timezone': timezone
+            }
+        )
+        
+        sftp_case_folder = os.path.join(Config.UPLOAD_FOLDER_SFTP, case.uuid)
+        os.makedirs(sftp_case_folder, exist_ok=True)
+        
+        flash(f'Case "{name}" created successfully', 'success')
+        return redirect(url_for('main.client_dashboard', client_uuid=client_uuid))
+    
+    return render_template('case_create.html', page_title='Create Case',
+                           client=client, timezones=COMMON_TIMEZONES,
+                           detected_tz=client.timezone)
+
+
+# ============================================
+# Admin Client Management Routes
+# ============================================
+
+@main_bp.route('/admin/clients')
+@login_required
+@admin_required
+def admin_clients():
+    """Admin: Manage all clients"""
+    from models.client import Client
+    all_clients = Client.query.order_by(Client.name).all()
+    return render_template(
+        'admin_clients.html',
+        page_title='Manage Clients',
+        clients=all_clients
+    )
+
+
+@main_bp.route('/admin/clients/new', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def admin_client_create():
+    """Admin: Create new client"""
+    from models.client import Client
+    
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        code = request.form.get('code', '').strip().upper()
+        timezone = request.form.get('timezone', 'UTC').strip()
+        contact_name = request.form.get('contact_name', '').strip()
+        contact_email = request.form.get('contact_email', '').strip()
+        notes = request.form.get('notes', '').strip()
+        
+        if not name:
+            flash('Client name is required', 'error')
+            return render_template('admin_client_edit.html', page_title='Create Client',
+                                   client=None, is_new=True, timezones=COMMON_TIMEZONES)
+        
+        if not code:
+            code = Client.generate_code_from_name(name)
+        
+        if Client.query.filter_by(code=code).first():
+            flash(f'Client code "{code}" already exists', 'error')
+            return render_template('admin_client_edit.html', page_title='Create Client',
+                                   client=None, is_new=True, timezones=COMMON_TIMEZONES)
+        
+        client = Client(
+            name=name,
+            code=code,
+            timezone=timezone,
+            contact_name=contact_name or None,
+            contact_email=contact_email or None,
+            notes=notes or None,
+            created_by=current_user.username
+        )
+        
+        db.session.add(client)
+        db.session.commit()
+        
+        AuditLog.log(
+            entity_type=AuditEntityType.SYSTEM,
+            entity_id=client.uuid,
+            action=AuditAction.CREATED,
+            entity_name=f'Client: {name}',
+            details={'code': code}
+        )
+        
+        flash(f'Client "{name}" created successfully', 'success')
+        return redirect(url_for('main.admin_clients'))
+    
+    return render_template('admin_client_edit.html', page_title='Create Client',
+                           client=None, is_new=True, timezones=COMMON_TIMEZONES)
+
+
+@main_bp.route('/admin/clients/<client_uuid>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def admin_client_edit(client_uuid):
+    """Admin: Edit existing client"""
+    from models.client import Client
+    
+    client = Client.get_by_uuid(client_uuid)
+    if not client:
+        flash('Client not found', 'error')
+        return redirect(url_for('main.admin_clients'))
+    
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        timezone = request.form.get('timezone', 'UTC').strip()
+        contact_name = request.form.get('contact_name', '').strip()
+        contact_email = request.form.get('contact_email', '').strip()
+        notes = request.form.get('notes', '').strip()
+        is_active = request.form.get('is_active') == 'on'
+        
+        if not name:
+            flash('Client name is required', 'error')
+            return render_template('admin_client_edit.html', page_title='Edit Client',
+                                   client=client, is_new=False, timezones=COMMON_TIMEZONES)
+        
+        changes = {}
+        if client.name != name:
+            changes['name'] = (client.name, name)
+        if client.timezone != timezone:
+            changes['timezone'] = (client.timezone, timezone)
+        if (client.contact_name or '') != (contact_name or ''):
+            changes['contact_name'] = (client.contact_name, contact_name or None)
+        if (client.contact_email or '') != (contact_email or ''):
+            changes['contact_email'] = (client.contact_email, contact_email or None)
+        if client.is_active != is_active:
+            changes['is_active'] = (client.is_active, is_active)
+        
+        client.name = name
+        client.timezone = timezone
+        client.contact_name = contact_name or None
+        client.contact_email = contact_email or None
+        client.notes = notes or None
+        client.is_active = is_active
+        
+        db.session.commit()
+        
+        if changes:
+            audit_update(
+                entity_type=AuditEntityType.SYSTEM,
+                entity_id=client.uuid,
+                changes=changes,
+                entity_name=f'Client: {client.name}'
+            )
+        
+        flash(f'Client "{name}" updated successfully', 'success')
+        return redirect(url_for('main.admin_clients'))
+    
+    return render_template('admin_client_edit.html', page_title='Edit Client',
+                           client=client, is_new=False, timezones=COMMON_TIMEZONES)
+
+
+@main_bp.route('/admin/clients/<client_uuid>/delete', methods=['POST'])
+@login_required
+@admin_required
+def admin_client_delete(client_uuid):
+    """Admin: Delete a client"""
+    from models.client import Client
+    
+    client = Client.get_by_uuid(client_uuid)
+    if not client:
+        flash('Client not found', 'error')
+        return redirect(url_for('main.admin_clients'))
+    
+    if client.case_count > 0 or client.agent_count > 0:
+        flash('Cannot delete client with existing cases or agents', 'error')
+        return redirect(url_for('main.admin_client_edit', client_uuid=client_uuid))
+    
+    client_name = client.name
+    db.session.delete(client)
+    db.session.commit()
+    
+    flash(f'Client "{client_name}" deleted successfully', 'success')
+    return redirect(url_for('main.admin_clients'))
+
+
+# ============================================
+# Admin Case Management Routes
+# ============================================
+
+@main_bp.route('/admin/cases')
+@login_required
+@admin_required
+def admin_cases():
+    """Admin: Manage all cases across all clients"""
+    from models.client import Client
+    
+    all_cases = Case.query.order_by(Case.created_at.desc()).all()
+    all_clients = Client.query.order_by(Client.code).all()
+    
+    return render_template(
+        'admin_cases.html',
+        page_title='Manage Cases',
+        cases=all_cases,
+        clients=all_clients
+    )

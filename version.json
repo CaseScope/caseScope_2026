@@ -1,8 +1,32 @@
 {
-  "version": "3.138.00",
+  "version": "3.139.00",
   "changelog": [
     {
-      "version": "3.138.00",
+      "version": "3.139.00",
+      "date": "2026-01-23",
+      "changes": [
+        "Feature: New Clients page for selecting client organizations",
+        "Feature: Client Dashboard showing cases and agents per client",
+        "Feature: Manage Clients admin page for CRUD operations",
+        "Feature: Manage Cases admin page with cross-client view",
+        "Feature: Updated navigation with Hunting section",
+        "Feature: Create cases from within client context"
+      ]
+    },
+    {
+      "version": "3.139.00",
+      "date": "2026-01-23",
+      "changes": [
+        "Feature: New Clients page for selecting client organizations",
+        "Feature: Client Dashboard showing cases and agents per client",
+        "Feature: Manage Clients admin page for CRUD operations",
+        "Feature: Manage Cases admin page with cross-client view",
+        "Feature: Updated navigation with Hunting section",
+        "Feature: Create cases from within client context"
+      ]
+    },
+    {
+      "version": "3.139.00",
       "date": "2026-01-23",
       "changes": [
         "Feature: Added clients table for organization/company management",

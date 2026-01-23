@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🏢</span>
+            {% if is_new %}Create Client{% else %}Edit Client{% endif %}
+        </h1>
+        <p class="page-subtitle">
+            {% if is_new %}Add a new client organization{% else %}Edit {{ client.name }} ({{ client.code }}){% endif %}
+        </p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.admin_clients') }}" class="btn btn-secondary">Back to Clients</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="form-container">
+    <form method="POST" class="form">
+        <div class="form-section">
+            <h3 class="form-section-title">Client Information</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="name">Client Name <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" class="form-control" 
+                           value="{{ client.name if client else '' }}" required
+                           placeholder="e.g., Acme Corporation">
+                </div>
+                
+                <div class="form-group">
+                    <label for="code">Client Code <span class="required">*</span></label>
+                    <input type="text" id="code" name="code" class="form-control" 
+                           value="{{ client.code if client else '' }}" 
+                           {% if not is_new %}readonly{% endif %}
+                           required maxlength="20" placeholder="e.g., ACME">
+                    <small class="form-help">Short unique identifier (max 20 chars)</small>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="timezone">Default Timezone</label>
+                <select id="timezone" name="timezone" class="form-control">
+                    {% for tz_value, tz_label in timezones %}
+                    <option value="{{ tz_value }}" {% if (client and client.timezone == tz_value) or (not client and tz_value == 'UTC') %}selected{% endif %}>{{ tz_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h3 class="form-section-title">Contact Information</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="contact_name">Contact Name</label>
+                    <input type="text" id="contact_name" name="contact_name" class="form-control"
+                           value="{{ client.contact_name if client else '' }}" placeholder="e.g., John Smith">
+                </div>
+                
+                <div class="form-group">
+                    <label for="contact_email">Contact Email</label>
+                    <input type="email" id="contact_email" name="contact_email" class="form-control"
+                           value="{{ client.contact_email if client else '' }}" placeholder="e.g., contact@acme.com">
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h3 class="form-section-title">Additional Details</h3>
+            
+            <div class="form-group">
+                <label for="notes">Notes</label>
+                <textarea id="notes" name="notes" class="form-control" rows="4" placeholder="Additional notes...">{{ client.notes if client else '' }}</textarea>
+            </div>
+            
+            {% if not is_new %}
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="is_active" {% if client.is_active %}checked{% endif %}>
+                    <span>Client is active</span>
+                </label>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">{% if is_new %}Create Client{% else %}Save Changes{% endif %}</button>
+            <a href="{{ url_for('main.admin_clients') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

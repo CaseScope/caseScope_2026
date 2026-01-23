@@ -48,53 +48,55 @@ Follow these rules without exception.
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-Digital Forensics Platform Core Architecture
+AI-Powered Security Analysis Platform
 
-PLATFORM IMPORTANCE: 85/100
+Core Business Domains:
 
-Core Components:
+1. Threat Detection Engine
+- Pattern detection system with 58 MITRE ATT&CK mapped rules
+- Attack pattern categorization across 7 domains:
+  * Credential Access (21 patterns)
+  * Lateral Movement (8 patterns) 
+  * Persistence (8 patterns)
+  * Privilege Escalation (4 patterns)
+  * Defense Evasion (9 patterns)
+  * Discovery (5 patterns)
+  * Exfiltration (3 patterns)
 
-1. AI-Powered Pattern Detection
-- 58 rule-based detection queries mapped to MITRE ATT&CK framework
-- Semantic pattern prioritization using AI embeddings
-- Attack pattern categorization across 7 key domains:
-  * Credential Access
-  * Lateral Movement 
-  * Persistence
-  * Privilege Escalation
-  * Defense Evasion
-  * Discovery
-  * Exfiltration
-- Confidence scoring system for pattern matches
+2. AI Analysis System
+- Context-aware investigation assistant
+- Pattern detection integration
+- Historical case correlation
+- Event vector embedding for semantic search
+- Response quality tracking
 
-2. Forensic Analysis Pipeline
-- Memory dump analysis workflow with Volatility3 integration
-- Network traffic analysis using Zeek
-- Evidence upload processing with chain of custody tracking
-- Specialized parsing for browser artifacts and Windows events
-- PCAP analysis with protocol-specific processing
+3. Digital Forensics Pipeline
+- Memory forensics workflow with plugin tiers
+- Network traffic analysis with protocol-specific parsing
+- Browser artifact forensics
+- Event timeline reconstruction
+- EVTX log processing with threat enrichment
 
-3. User/System Management
-- Cross-artifact user correlation system
-- Advanced system fingerprinting from multiple data sources
-- Complex deduplication logic for identities
-- Compromise status tracking
-- User alias and email association management
+4. IOC Management
+- Multi-mode indicator matching:
+  * Token-based exact matching
+  * Path-aware substring matching
+  * Pattern-based regex matching
+- Source attribution tracking
+- Confidence scoring
+- Type-specific validation rules
 
-4. IOC Detection Framework
-- Token-based matching with smart fallback mechanisms
-- Progressive IOC tagging with aliasing support
-- Category-based IOC organization
-- Custom matching strategies per IOC type
+5. MITRE Integration
+- ATT&CK technique mapping to Windows events
+- Sigma rule conversion to executable queries
+- Detection pattern correlation
+- Event ID mapping for monitoring
 
-5. Evidence Processing Engine
-- Multi-stage ingestion workflow for forensic data
-- Specialized handling of CyLR triage data and EDR logs
-- Automated artifact type detection and routing
-- Deduplication with retention policies
-- Hash calculation for chain of custody
-
-The architecture implements a comprehensive digital forensics platform with heavy emphasis on AI-assisted analysis, pattern detection, and specialized evidence processing workflows. The business logic focuses on forensic data extraction, correlation, and analysis with integration into the MITRE ATT&CK framework.
+Key Integration Points:
+- RAG architecture for security analytics
+- OpenCTI threat intelligence enrichment
+- Volatility 3 memory analysis integration
+- Zeek network traffic processing
 
 $END$
 

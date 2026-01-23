@@ -22,62 +22,58 @@
                     <span class="nav-item-icon">📊</span>
                     <span class="nav-item-text">Dashboard</span>
                 </a>
-                <a href="{{ url_for('main.cases') }}" class="nav-item {{ 'active' if page_title == 'Case Selection' else '' }}">
-                    <span class="nav-item-icon">📋</span>
-                    <span class="nav-item-text">Case Selection</span>
+                <a href="{{ url_for('main.clients') }}" class="nav-item {{ 'active' if page_title == 'Clients' else '' }}">
+                    <span class="nav-item-icon">🏢</span>
+                    <span class="nav-item-text">Clients</span>
                 </a>
                 
-                <!-- Cases Section -->
+                <!-- Hunting Section -->
                 <div class="nav-section">
-                    <div class="nav-section-title">Cases</div>
+                    <div class="nav-section-title">Hunting</div>
                 </div>
-                <a href="{{ url_for('main.case_dashboard') }}" class="nav-item {{ 'active' if page_title == 'Case Dashboard' else '' }}">
-                    <span class="nav-item-icon">📁</span>
-                    <span class="nav-item-text">Dashboard</span>
-                </a>
                 <a href="{{ url_for('main.case_upload') }}" class="nav-item {{ 'active' if page_title == 'Upload Files' else '' }}">
                     <span class="nav-item-icon">📤</span>
                     <span class="nav-item-text">Upload Files</span>
                 </a>
                 <a href="{{ url_for('main.case_files') }}" class="nav-item {{ 'active' if page_title == 'Case Files' else '' }}">
                     <span class="nav-item-icon">📄</span>
-                    <span class="nav-item-text">Files</span>
-                </a>
-                <a href="{{ url_for('main.case_hunting') }}" class="nav-item {{ 'active' if page_title == 'Hunting' else '' }}">
-                    <span class="nav-item-icon">🎯</span>
-                    <span class="nav-item-text">Hunting</span>
-                </a>
-                <a href="{{ url_for('main.case_ioc_management') }}" class="nav-item {{ 'active' if page_title == 'IOC Management' else '' }}">
-                    <span class="nav-item-icon">🔍</span>
-                    <span class="nav-item-text">IOC Management</span>
-                </a>
-                <a href="{{ url_for('main.case_known_systems') }}" class="nav-item {{ 'active' if page_title == 'Known Systems' else '' }}">
-                    <span class="nav-item-icon">💻</span>
-                    <span class="nav-item-text">Known Systems</span>
-                </a>
-                <a href="{{ url_for('main.case_known_users') }}" class="nav-item {{ 'active' if page_title == 'Known Users' else '' }}">
-                    <span class="nav-item-icon">👤</span>
-                    <span class="nav-item-text">Known Users</span>
-                </a>
-                <a href="{{ url_for('main.case_evidence') }}" class="nav-item {{ 'active' if page_title == 'Evidence' else '' }}">
-                    <span class="nav-item-icon">📦</span>
-                    <span class="nav-item-text">Evidence</span>
+                    <span class="nav-item-text">Manage Files</span>
                 </a>
                 <a href="{{ url_for('main.case_memory_forensics') }}" class="nav-item {{ 'active' if page_title == 'Memory Forensics' else '' }}">
                     <span class="nav-item-icon">🧠</span>
                     <span class="nav-item-text">Memory Files</span>
                 </a>
-                <a href="{{ url_for('main.case_hunting_memory') }}" class="nav-item {{ 'active' if page_title == 'Memory Hunting' else '' }}">
-                    <span class="nav-item-icon">🔬</span>
-                    <span class="nav-item-text">Memory Hunting</span>
-                </a>
                 <a href="{{ url_for('main.case_pcap_files') }}" class="nav-item {{ 'active' if page_title == 'PCAP Files' else '' }}">
                     <span class="nav-item-icon">📡</span>
                     <span class="nav-item-text">PCAP Files</span>
                 </a>
+                <a href="{{ url_for('main.case_hunting') }}" class="nav-item {{ 'active' if page_title == 'Hunting' else '' }}">
+                    <span class="nav-item-icon">🎯</span>
+                    <span class="nav-item-text">Hunt Artifacts</span>
+                </a>
+                <a href="{{ url_for('main.case_hunting_memory') }}" class="nav-item {{ 'active' if page_title == 'Memory Hunting' else '' }}">
+                    <span class="nav-item-icon">🔬</span>
+                    <span class="nav-item-text">Hunt Memory</span>
+                </a>
                 <a href="{{ url_for('main.case_hunting_network') }}" class="nav-item {{ 'active' if page_title == 'Network Hunting' else '' }}">
                     <span class="nav-item-icon">🌐</span>
-                    <span class="nav-item-text">Network Hunting</span>
+                    <span class="nav-item-text">Hunt Network</span>
+                </a>
+                <a href="{{ url_for('main.case_ioc_management') }}" class="nav-item {{ 'active' if page_title == 'IOC Management' else '' }}">
+                    <span class="nav-item-icon">🔍</span>
+                    <span class="nav-item-text">Manage IOCs</span>
+                </a>
+                <a href="{{ url_for('main.case_known_systems') }}" class="nav-item {{ 'active' if page_title == 'Known Systems' else '' }}">
+                    <span class="nav-item-icon">💻</span>
+                    <span class="nav-item-text">Manage Systems</span>
+                </a>
+                <a href="{{ url_for('main.case_known_users') }}" class="nav-item {{ 'active' if page_title == 'Known Users' else '' }}">
+                    <span class="nav-item-icon">👤</span>
+                    <span class="nav-item-text">Manage Users</span>
+                </a>
+                <a href="{{ url_for('main.case_evidence') }}" class="nav-item {{ 'active' if page_title == 'Evidence' else '' }}">
+                    <span class="nav-item-icon">📦</span>
+                    <span class="nav-item-text">Evidence Files</span>
                 </a>
                 
                 <!-- System Section -->
@@ -94,15 +90,20 @@
                     <span class="nav-item-text">Settings</span>
                 </a>
                 {% endif %}
-                <a href="#" class="nav-item {{ 'active' if page_title == 'Cases' else '' }}">
-                    <span class="nav-item-icon">🗂️</span>
-                    <span class="nav-item-text">Cases</span>
+                {% if current_user.is_administrator %}
+                <a href="{{ url_for('main.admin_clients') }}" class="nav-item {{ 'active' if page_title == 'Manage Clients' else '' }}">
+                    <span class="nav-item-icon">🏢</span>
+                    <span class="nav-item-text">Manage Clients</span>
                 </a>
+                <a href="{{ url_for('main.admin_cases') }}" class="nav-item {{ 'active' if page_title == 'Manage Cases' else '' }}">
+                    <span class="nav-item-icon">🗂️</span>
+                    <span class="nav-item-text">Manage Cases</span>
+                </a>
+                {% endif %}
                 <a href="{{ url_for('main.users') }}" class="nav-item {{ 'active' if page_title in ['Users', 'Create User', 'Edit User'] else '' }}">
                     <span class="nav-item-icon">👥</span>
-                    <span class="nav-item-text">Users</span>
+                    <span class="nav-item-text">Manage Users</span>
                 </a>
-                {# Logs menu removed - audit log is now in Settings (admin only) #}
             </nav>
         </aside>
 

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">📋</span>
+            Manage Cases
+        </h1>
+        <p class="page-subtitle">View and manage all cases across all clients</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="table-container">
+    <div class="table-header">
+        <span class="table-title">All Cases ({{ cases|length }})</span>
+        <div class="table-actions">
+            <select id="clientFilter" class="form-control-sm" onchange="filterByClient()">
+                <option value="">All Clients</option>
+                {% for client in clients %}
+                <option value="{{ client.code }}">{{ client.code }} - {{ client.name }}</option>
+                {% endfor %}
+            </select>
+            <input type="text" class="table-search" placeholder="Search cases..." id="caseSearch" onkeyup="filterCases()">
+        </div>
+    </div>
+    
+    <table id="casesTable">
+        <thead>
+            <tr>
+                <th>Client</th>
+                <th>Case Name</th>
+                <th>Status</th>
+                <th>Created By</th>
+                <th>Created On</th>
+                <th>Assigned To</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if cases %}
+                {% for case in cases %}
+                <tr data-client="{{ case.client.code if case.client else '' }}">
+                    <td>
+                        {% if case.client %}
+                        <span class="client-code-badge">{{ case.client.code }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.name }}</td>
+                    <td>
+                        {% if case.status == 'new' %}
+                            <span class="badge badge-info">New</span>
+                        {% elif case.status == 'assigned' %}
+                            <span class="badge badge-warning">Assigned</span>
+                        {% elif case.status == 'in_progress' %}
+                            <span class="badge badge-warning">In Progress</span>
+                        {% elif case.status == 'in_review' %}
+                            <span class="badge badge-info">In Review</span>
+                        {% elif case.status == 'finished' %}
+                            <span class="badge badge-success">Finished</span>
+                        {% elif case.status == 'archived' %}
+                            <span class="badge badge-muted">Archived</span>
+                        {% else %}
+                            <span class="badge badge-muted">{{ case.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.created_by }}</td>
+                    <td>{{ case.created_at.strftime('%Y-%m-%d') if case.created_at else '-' }}</td>
+                    <td>{{ case.assigned_to or '-' }}</td>
+                    <td class="actions-cell">
+                        <a href="{{ url_for('main.case_select', case_uuid=case.uuid) }}" class="btn btn-sm btn-primary" title="Open">Open</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                        No cases found.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterCases() {
+    const input = document.getElementById('caseSearch');
+    const filter = input.value.toLowerCase();
+    const clientFilter = document.getElementById('clientFilter').value.toLowerCase();
+    const table = document.getElementById('casesTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const clientCode = row.dataset.client ? row.dataset.client.toLowerCase() : '';
+        const cells = row.getElementsByTagName('td');
+        let textMatch = false;
+        
+        // Check text filter
+        if (!filter) {
+            textMatch = true;
+        } else {
+            for (let j = 0; j < cells.length; j++) {
+                if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                    textMatch = true;
+                    break;
+                }
+            }
+        }
+        
+        // Check client filter
+        const clientMatch = !clientFilter || clientCode === clientFilter;
+        
+        row.style.display = (textMatch && clientMatch) ? '' : 'none';
+    }
+}
+
+function filterByClient() {
+    filterCases();
+}
+</script>
+{% endblock %}

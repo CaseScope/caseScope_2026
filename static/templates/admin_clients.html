@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🏢</span>
+            Manage Clients
+        </h1>
+        <p class="page-subtitle">Create, edit, and manage client organizations</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.admin_client_create') }}" class="btn btn-primary">
+            <span>+ New Client</span>
+        </a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="table-container">
+    <div class="table-header">
+        <span class="table-title">All Clients ({{ clients|length }})</span>
+        <div class="table-actions">
+            <input type="text" class="table-search" placeholder="Search clients..." id="clientSearch" onkeyup="filterClients()">
+        </div>
+    </div>
+    
+    <table id="clientsTable">
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Cases</th>
+                <th>Agents</th>
+                <th>Timezone</th>
+                <th>Contact</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if clients %}
+                {% for client in clients %}
+                <tr>
+                    <td><span class="client-code-badge">{{ client.code }}</span></td>
+                    <td>{{ client.name }}</td>
+                    <td>{{ client.case_count }}</td>
+                    <td>{{ client.agent_count }}</td>
+                    <td>{{ client.timezone }}</td>
+                    <td>{{ client.contact_name or client.contact_email or '-' }}</td>
+                    <td>
+                        {% if client.is_active %}
+                        <span class="badge badge-success">Active</span>
+                        {% else %}
+                        <span class="badge badge-muted">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ client.created_at.strftime('%Y-%m-%d') if client.created_at else '-' }}</td>
+                    <td class="actions-cell">
+                        <a href="{{ url_for('main.admin_client_edit', client_uuid=client.uuid) }}" class="btn btn-sm btn-secondary" title="Edit">
+                            Edit
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="9" class="text-center text-muted" style="padding: 40px;">
+                        No clients found. Create your first client to get started.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterClients() {
+    const input = document.getElementById('clientSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('clientsTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        let match = false;
+        
+        for (let j = 0; j < cells.length; j++) {
+            if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                match = true;
+                break;
+            }
+        }
+        
+        rows[i].style.display = match ? '' : 'none';
+    }
+}
+</script>
+{% endblock %}

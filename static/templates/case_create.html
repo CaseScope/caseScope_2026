@@ -7,8 +7,21 @@
             <span class="page-title-icon">📁</span>
             Create New Case
         </h1>
-        <p class="page-subtitle">Start a new forensic case investigation</p>
+        <p class="page-subtitle">
+            {% if client %}
+            New case for <span class="client-code-badge">{{ client.code }}</span> {{ client.name }}
+            {% else %}
+            Start a new forensic case investigation
+            {% endif %}
+        </p>
     </div>
+    {% if client %}
+    <div class="page-actions">
+        <a href="{{ url_for('main.client_dashboard', client_uuid=client.uuid) }}" class="btn btn-secondary">
+            Back to Client
+        </a>
+    </div>
+    {% endif %}
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -30,7 +43,7 @@
         <span class="card-title">Case Details</span>
     </div>
     <div class="card-body">
-        <form method="POST" action="{{ url_for('main.case_create') }}" class="case-form">
+        <form method="POST" action="{% if client %}{{ url_for('main.client_case_create', client_uuid=client.uuid) }}{% else %}{{ url_for('main.case_create') }}{% endif %}" class="case-form">
             <div class="form-grid">
                 <div class="form-group">
                     <label class="form-label" for="name">Case Name <span class="required">*</span></label>
@@ -38,11 +51,21 @@
                            placeholder="Enter case name" value="{{ request.form.get('name', '') }}">
                 </div>
                 
+                {% if client %}
+                <div class="form-group">
+                    <label class="form-label">Client</label>
+                    <div class="form-static">
+                        <span class="client-code-badge">{{ client.code }}</span>
+                        {{ client.name }}
+                    </div>
+                </div>
+                {% else %}
                 <div class="form-group">
                     <label class="form-label" for="company">Company <span class="required">*</span></label>
                     <input type="text" id="company" name="company" class="form-input" required 
                            placeholder="Company name" value="{{ request.form.get('company', '') }}">
                 </div>
+                {% endif %}
             </div>
             
             <div class="form-group">
@@ -80,7 +103,7 @@
             </div>
             
             <div class="form-actions">
-                <a href="{{ url_for('main.cases') }}" class="btn btn-secondary">Cancel</a>
+                <a href="{% if client %}{{ url_for('main.client_dashboard', client_uuid=client.uuid) }}{% else %}{{ url_for('main.cases') }}{% endif %}" class="btn btn-secondary">Cancel</a>
                 <button type="submit" class="btn btn-primary">Create Case</button>
             </div>
         </form>
