@@ -1,6 +1,8 @@
 """CaseScope Models"""
 from models.database import db
 from models.user import User
+from models.client import Client
+from models.agent import Agent, AgentStatus, AgentOS
 from models.case import Case, CaseStatus
 from models.case_report import CaseReport
 from models.known_system import (
@@ -33,7 +35,8 @@ from models.memory_data import (
 from models.pcap_file import PcapFile, PcapFileStatus
 
 __all__ = [
-    'db', 'User', 'Case', 'CaseStatus', 'CaseReport',
+    'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
+    'Case', 'CaseStatus', 'CaseReport',
     'KnownSystem', 'KnownSystemIP', 'KnownSystemMAC', 'KnownSystemAlias',
     'KnownSystemShare', 'KnownSystemCase', 'KnownSystemAudit',
     'OSType', 'SystemType',

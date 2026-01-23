@@ -79,10 +79,13 @@ class Case(db.Model):
     # Public UUID for external references (obfuscation)
     uuid = db.Column(db.String(36), unique=True, nullable=False, index=True, default=lambda: str(uuid.uuid4()))
     
+    # Client relationship (nullable for migration - existing cases may not have client yet)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True, index=True)
+    
     # Case name - mandatory
     name = db.Column(db.String(255), nullable=False, index=True)
     
-    # Company - mandatory
+    # Company - mandatory (kept for backward compatibility, will be deprecated)
     company = db.Column(db.String(255), nullable=False, index=True)
     
     # Description
@@ -139,6 +142,9 @@ class Case(db.Model):
         """Convert case to dictionary for API responses"""
         return {
             'uuid': self.uuid,
+            'client_id': self.client_id,
+            'client_uuid': self.client.uuid if self.client else None,
+            'client_name': self.client.name if self.client else self.company,
             'name': self.name,
             'company': self.company,
             'description': self.description,

@@ -1,6 +1,16 @@
 {
-  "version": "3.137.03",
+  "version": "3.138.00",
   "changelog": [
+    {
+      "version": "3.138.00",
+      "date": "2026-01-23",
+      "changes": [
+        "Feature: Added clients table for organization/company management",
+        "Feature: Added agents table for remote collection agent tracking",
+        "Feature: Cases now link to clients via client_id foreign key",
+        "Feature: Auto-migration of existing case companies to clients table"
+      ]
+    },
     {
       "version": "3.137.01",
       "date": "2026-01-22",
