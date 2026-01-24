@@ -183,7 +183,22 @@ def case_info(case_uuid):
 def case_dashboard():
     """Case Dashboard - overview of the active case"""
     case = get_active_case()
-    return render_template('case_dashboard.html', page_title='Case Dashboard', case=case)
+    
+    # Look up full names for created_by and assigned_to usernames
+    created_by_name = case.created_by
+    if case.created_by:
+        creator = User.query.filter_by(username=case.created_by).first()
+        if creator:
+            created_by_name = creator.full_name
+    
+    assigned_to_name = case.assigned_to
+    if case.assigned_to:
+        assignee = User.query.filter_by(username=case.assigned_to).first()
+        if assignee:
+            assigned_to_name = assignee.full_name
+    
+    return render_template('case_dashboard.html', page_title='Case Dashboard', case=case,
+                           created_by_name=created_by_name, assigned_to_name=assigned_to_name)
 
 
 @main_bp.route('/case/upload')
