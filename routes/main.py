@@ -400,14 +400,16 @@ def case_edit():
         if not name:
             flash('Case name is required', 'error')
             clients = Client.get_active_clients()
+            users = User.query.filter_by(is_active=True).order_by(User.username).all()
             return render_template('case_edit.html', page_title='Edit Case', case=case, 
-                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients)
+                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients, users=users)
         
         if not company:
             flash('Company is required', 'error')
             clients = Client.get_active_clients()
+            users = User.query.filter_by(is_active=True).order_by(User.username).all()
             return render_template('case_edit.html', page_title='Edit Case', case=case, 
-                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients)
+                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients, users=users)
         
         # Validate timezone
         from utils.timezone import is_valid_timezone
@@ -472,8 +474,9 @@ def case_edit():
         return redirect(url_for('main.case_dashboard'))
     
     clients = Client.get_active_clients()
+    users = User.query.filter_by(is_active=True).order_by(User.username).all()
     return render_template('case_edit.html', page_title='Edit Case', case=case, 
-                           CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients)
+                           CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients, users=users)
 
 
 # ============================================

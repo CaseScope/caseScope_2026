@@ -64,8 +64,15 @@
                 
                 <div class="form-group">
                     <label class="form-label" for="assigned_to">Assigned To</label>
-                    <input type="text" id="assigned_to" name="assigned_to" class="form-input" 
-                           placeholder="Username" value="{{ case.assigned_to or '' }}">
+                    <select id="assigned_to" name="assigned_to" class="form-input">
+                        <option value="">Unassigned</option>
+                        {% for user in users %}
+                            <option value="{{ user.username }}" {% if case.assigned_to == user.username %}selected{% endif %}>{{ user.full_name }} ({{ user.username }})</option>
+                        {% endfor %}
+                        {% if case.assigned_to and case.assigned_to not in users|map(attribute='username')|list %}
+                            <option value="{{ case.assigned_to }}" selected>{{ case.assigned_to }} (inactive)</option>
+                        {% endif %}
+                    </select>
                 </div>
             </div>
             
