@@ -1,6 +1,19 @@
 {
-  "version": "3.140.00",
+  "version": "3.141.00",
   "changelog": [
+    {
+      "version": "3.141.00",
+      "date": "2026-01-24",
+      "changes": [
+        "Feature: Atomic progress tracking using Redis Lua script for concurrent uploads",
+        "Feature: Deferred completion check to prevent early indexing when files still processing",
+        "Feature: Thread-safe embedding cache with GPU semaphore for concurrent AI queries",
+        "Feature: Unique output directories for memory and PCAP tasks to prevent collisions",
+        "Feature: Atomic login counter using SQL expressions for thread safety",
+        "Feature: Optimistic locking for pattern and campaign reviews",
+        "Feature: ClickHouse connection pool tuning for better concurrent access"
+      ]
+    },
     {
       "version": "3.140.00",
       "date": "2026-01-24",

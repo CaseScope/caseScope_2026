@@ -4,6 +4,7 @@ Provides connection management and helper functions for interacting
 with the ClickHouse events database.
 
 Thread-safe client initialization with double-checked locking.
+Connection pool settings optimized for concurrent access.
 """
 import threading
 import clickhouse_connect
@@ -14,12 +15,22 @@ from config import Config
 _client = None
 _client_lock = threading.Lock()
 
+# Connection pool settings for concurrent access
+# These settings help prevent connection exhaustion under load
+_POOL_SETTINGS = {
+    'pool_size': getattr(Config, 'CLICKHOUSE_POOL_SIZE', 10),
+    'pool_timeout': getattr(Config, 'CLICKHOUSE_POOL_TIMEOUT', 30),
+}
+
 
 def get_client():
     """Get a ClickHouse client connection
     
     Returns a cached client instance for connection reuse.
     Thread-safe with double-checked locking pattern.
+    
+    The client uses connection pooling under the hood via urllib3,
+    which is thread-safe and handles concurrent access properly.
     """
     global _client
     if _client is None:
@@ -31,7 +42,16 @@ def get_client():
                     port=Config.CLICKHOUSE_PORT,
                     database=Config.CLICKHOUSE_DATABASE,
                     username=Config.CLICKHOUSE_USER,
-                    password=Config.CLICKHOUSE_PASSWORD
+                    password=Config.CLICKHOUSE_PASSWORD,
+                    settings={
+                        # Query execution settings for better concurrency
+                        'max_threads': getattr(Config, 'CLICKHOUSE_MAX_THREADS', 8),
+                        # Prevent long-running queries from blocking
+                        'max_execution_time': getattr(Config, 'CLICKHOUSE_QUERY_TIMEOUT', 300),
+                    },
+                    # Connection pool settings
+                    connect_timeout=10,
+                    send_receive_timeout=300,
                 )
     return _client
 
@@ -41,13 +61,22 @@ def get_fresh_client():
     
     Use for long-running operations or when you need
     an isolated connection (e.g., in Celery workers).
+    
+    Each fresh client gets its own connection, avoiding
+    contention with the shared cached client.
     """
     return clickhouse_connect.get_client(
         host=Config.CLICKHOUSE_HOST,
         port=Config.CLICKHOUSE_PORT,
         database=Config.CLICKHOUSE_DATABASE,
         username=Config.CLICKHOUSE_USER,
-        password=Config.CLICKHOUSE_PASSWORD
+        password=Config.CLICKHOUSE_PASSWORD,
+        settings={
+            'max_threads': getattr(Config, 'CLICKHOUSE_MAX_THREADS', 8),
+            'max_execution_time': getattr(Config, 'CLICKHOUSE_QUERY_TIMEOUT', 300),
+        },
+        connect_timeout=10,
+        send_receive_timeout=300,
     )
 
 

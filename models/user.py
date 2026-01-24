@@ -126,19 +126,48 @@ class User(UserMixin, db.Model):
         return datetime.utcnow() < self.locked_until
     
     def record_failed_login(self):
-        """Record a failed login attempt"""
+        """Record a failed login attempt (thread-safe with atomic increment)
+        
+        Uses SQLAlchemy update expression for atomic increment to prevent
+        race conditions when multiple concurrent failed login attempts occur.
+        """
         from datetime import timedelta
-        self.failed_login_attempts += 1
+        from sqlalchemy import update
+        
+        # Atomic increment using SQL expression
+        stmt = update(User).where(User.id == self.id).values(
+            failed_login_attempts=User.failed_login_attempts + 1
+        )
+        db.session.execute(stmt)
+        db.session.commit()
+        
+        # Refresh to get updated value
+        db.session.refresh(self)
+        
+        # Check if should lock
         if self.failed_login_attempts >= UserSettings.MAX_LOGIN_ATTEMPTS:
             self.locked_until = datetime.utcnow() + timedelta(
                 minutes=UserSettings.LOCKOUT_DURATION_MINUTES
             )
+            db.session.commit()
     
     def record_successful_login(self):
-        """Record a successful login"""
-        self.failed_login_attempts = 0
-        self.locked_until = None
-        self.last_login = datetime.utcnow()
+        """Record a successful login (atomic reset)
+        
+        Uses direct update for atomicity.
+        """
+        from sqlalchemy import update
+        
+        stmt = update(User).where(User.id == self.id).values(
+            failed_login_attempts=0,
+            locked_until=None,
+            last_login=datetime.utcnow()
+        )
+        db.session.execute(stmt)
+        db.session.commit()
+        
+        # Refresh local state
+        db.session.refresh(self)
     
     def to_dict(self):
         """Convert user to dictionary for API responses"""

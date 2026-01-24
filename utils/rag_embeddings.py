@@ -3,6 +3,11 @@
 Provides embedding model management for semantic search.
 Uses sentence-transformers with all-MiniLM-L6-v2.
 Supports GPU acceleration (CUDA) for faster processing.
+
+Thread-safety:
+- Model initialization uses double-checked locking
+- LRU cache access is protected by a dedicated lock
+- GPU access is serialized via semaphore to prevent CUDA errors
 """
 
 import logging
@@ -19,6 +24,15 @@ logger = logging.getLogger(__name__)
 # Thread-safe model management
 _embedding_model = None
 _embedding_lock = threading.Lock()
+
+# Thread-safe LRU cache access
+# Python's lru_cache is NOT thread-safe, so we wrap with a lock
+_cache_lock = threading.Lock()
+
+# GPU access semaphore - serializes GPU operations to prevent CUDA errors
+# Under high concurrency, multiple threads trying to use GPU simultaneously
+# can cause CUDA out-of-memory or race conditions
+_gpu_semaphore = threading.Semaphore(1)
 
 # LRU cache for embeddings (avoids recomputing similar queries)
 _embedding_cache_size = 1000
@@ -81,16 +95,27 @@ def _compute_text_hash(text: str) -> str:
 
 
 # LRU cache for single text embeddings
+# Note: Access to this cache MUST be protected by _cache_lock
 @lru_cache(maxsize=_embedding_cache_size)
-def _cached_embed_text(text_hash: str, text: str) -> tuple:
-    """Cached embedding computation (returns tuple for hashability)"""
+def _cached_embed_text_internal(text_hash: str, text: str) -> tuple:
+    """Internal cached embedding computation (returns tuple for hashability)
+    
+    WARNING: This function is NOT thread-safe on its own.
+    Always access through embed_text() which handles locking.
+    """
     model = get_embedding_model()
-    embedding = model.encode(text, convert_to_numpy=True)
+    # Use GPU semaphore to serialize GPU access
+    with _gpu_semaphore:
+        embedding = model.encode(text, convert_to_numpy=True)
     return tuple(embedding.tolist())
 
 
 def embed_text(text: str, use_cache: bool = True) -> List[float]:
-    """Generate embedding for a single text string
+    """Generate embedding for a single text string (thread-safe)
+    
+    Thread-safety is ensured by:
+    - Cache lock protecting LRU cache access
+    - GPU semaphore serializing CUDA operations
     
     Args:
         text: Text to embed
@@ -107,15 +132,22 @@ def embed_text(text: str, use_cache: bool = True) -> List[float]:
     
     if use_cache:
         text_hash = _compute_text_hash(text)
-        return list(_cached_embed_text(text_hash, text))
+        # Protect LRU cache access with lock
+        with _cache_lock:
+            return list(_cached_embed_text_internal(text_hash, text))
     else:
         model = get_embedding_model()
-        embedding = model.encode(text, convert_to_numpy=True)
+        # Serialize GPU access
+        with _gpu_semaphore:
+            embedding = model.encode(text, convert_to_numpy=True)
         return embedding.tolist()
 
 
 def embed_texts(texts: List[str], batch_size: int = None) -> List[List[float]]:
-    """Generate embeddings for multiple texts (batched, GPU-optimized)
+    """Generate embeddings for multiple texts (batched, GPU-optimized, thread-safe)
+    
+    Uses GPU semaphore to prevent concurrent CUDA access which can cause
+    memory errors or race conditions.
     
     Args:
         texts: List of texts to embed
@@ -131,24 +163,29 @@ def embed_texts(texts: List[str], batch_size: int = None) -> List[List[float]]:
         batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
     
     model = get_embedding_model()
-    embeddings = model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=False,
-        convert_to_numpy=True
-    )
+    
+    # Serialize GPU access for batch encoding
+    with _gpu_semaphore:
+        embeddings = model.encode(
+            texts,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True
+        )
     return embeddings.tolist()
 
 
 def clear_embedding_cache():
-    """Clear the embedding LRU cache"""
-    _cached_embed_text.cache_clear()
+    """Clear the embedding LRU cache (thread-safe)"""
+    with _cache_lock:
+        _cached_embed_text_internal.cache_clear()
     logger.info("[RAG] Embedding cache cleared")
 
 
 def get_cache_stats() -> Dict[str, Any]:
-    """Get embedding cache statistics"""
-    info = _cached_embed_text.cache_info()
+    """Get embedding cache statistics (thread-safe)"""
+    with _cache_lock:
+        info = _cached_embed_text_internal.cache_info()
     return {
         'hits': info.hits,
         'misses': info.misses,

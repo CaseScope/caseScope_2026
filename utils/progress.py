@@ -47,6 +47,9 @@ def init_progress(case_uuid: str, total_files: int) -> None:
     If processing is already in progress, adds to existing total instead of
     resetting (prevents race condition when multiple users upload simultaneously).
     
+    Uses Lua script for atomic check-and-set to prevent race conditions
+    when two uploads start simultaneously.
+    
     Args:
         case_uuid: Case UUID
         total_files: Total number of files in this batch
@@ -54,41 +57,55 @@ def init_progress(case_uuid: str, total_files: int) -> None:
     try:
         client = get_redis_client()
         key = _get_progress_key(case_uuid)
-        
-        # Check if already processing - add to existing instead of resetting
-        existing_status = client.hget(key, 'status')
-        if existing_status == 'processing':
-            # Add to existing batch instead of replacing
-            new_total = client.hincrby(key, 'files_total', total_files)
-            logger.info(f"Added {total_files} files to existing progress for case {case_uuid}, new total: {new_total}")
-            return
-        
-        # Delete existing key first to reset all fields
-        client.delete(key)
-        
-        # Set all fields using hash
-        client.hset(key, mapping={
-            'phase': 'files',
-            'files_total': total_files,
-            'files_completed': 0,
-            'dedup_total': 0,
-            'dedup_completed': 0,
-            'systems_total': 0,
-            'systems_completed': 0,
-            'users_total': 0,
-            'users_completed': 0,
-            'current_item': '',
-            'status': 'processing'
-        })
-        
-        # Set 24-hour expiry
-        client.expire(key, 86400)
-        
-        # Clear any existing completion trigger
         trigger_key = f"completion_triggered:{case_uuid}"
-        client.delete(trigger_key)
         
-        logger.info(f"Initialized progress for case {case_uuid}: {total_files} files")
+        # Lua script for atomic init - either add to existing or reset
+        # This prevents race condition when two uploads check status simultaneously
+        lua_script = """
+        local key = KEYS[1]
+        local trigger_key = KEYS[2]
+        local total_files = tonumber(ARGV[1])
+        
+        local existing_status = redis.call('HGET', key, 'status')
+        
+        if existing_status == 'processing' then
+            -- Add to existing batch atomically
+            local new_total = redis.call('HINCRBY', key, 'files_total', total_files)
+            -- Reset status back to processing in case it was about to complete
+            redis.call('HSET', key, 'status', 'processing')
+            -- Clear completion trigger so it can fire again
+            redis.call('DEL', trigger_key)
+            return {'added', new_total}
+        else
+            -- Full reset with atomic operations
+            redis.call('DEL', key)
+            redis.call('HSET', key, 
+                'phase', 'files',
+                'files_total', total_files,
+                'files_completed', 0,
+                'dedup_total', 0,
+                'dedup_completed', 0,
+                'systems_total', 0,
+                'systems_completed', 0,
+                'users_total', 0,
+                'users_completed', 0,
+                'current_item', '',
+                'status', 'processing')
+            redis.call('EXPIRE', key, 86400)
+            redis.call('DEL', trigger_key)
+            return {'initialized', total_files}
+        end
+        """
+        
+        result = client.eval(lua_script, 2, key, trigger_key, total_files)
+        
+        if result and len(result) >= 2:
+            action = result[0].decode() if isinstance(result[0], bytes) else result[0]
+            new_total = result[1]
+            if action == 'added':
+                logger.info(f"Added {total_files} files to existing progress for case {case_uuid}, new total: {new_total}")
+            else:
+                logger.info(f"Initialized progress for case {case_uuid}: {total_files} files")
         
     except Exception as e:
         logger.warning(f"Failed to initialize progress: {e}")

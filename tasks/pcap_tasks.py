@@ -102,12 +102,33 @@ ZEEK_FIELD_MAP = {
 }
 
 
-def get_zeek_output_dir(case_uuid: str, pcap_id: int) -> str:
+def get_zeek_output_dir(case_uuid: str, pcap_id: int, unique: bool = False) -> str:
     """Get the Zeek output directory for a PCAP file
     
     Output path: /opt/casescope/storage/{case_uuid}/pcap/zeek_{pcap_id}/
+    
+    Args:
+        case_uuid: Case UUID
+        pcap_id: PCAP file ID
+        unique: If True, adds timestamp+uuid suffix for unique directory per run
+                This prevents file conflicts when re-processing the same PCAP
+                
+    Returns:
+        Path to output directory
     """
-    base_path = os.path.join(Config.STORAGE_FOLDER, case_uuid, 'pcap', f'zeek_{pcap_id}')
+    if unique:
+        # Create unique directory for this processing run
+        import uuid as uuid_lib
+        from datetime import datetime
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        unique_suffix = str(uuid_lib.uuid4())[:8]
+        base_path = os.path.join(
+            Config.STORAGE_FOLDER, case_uuid, 'pcap', 
+            f'zeek_{pcap_id}_{timestamp}_{unique_suffix}'
+        )
+    else:
+        base_path = os.path.join(Config.STORAGE_FOLDER, case_uuid, 'pcap', f'zeek_{pcap_id}')
+    
     os.makedirs(base_path, exist_ok=True)
     
     try:
@@ -155,14 +176,11 @@ def process_pcap_with_zeek(self, pcap_id: int):
         db.session.commit()
         
         try:
-            # Create output directory
-            output_dir = get_zeek_output_dir(pcap_file.case_uuid, pcap_id)
+            # Create unique output directory for this processing run
+            # This prevents file conflicts when re-processing or concurrent access
+            output_dir = get_zeek_output_dir(pcap_file.case_uuid, pcap_id, unique=True)
             
-            # Clear any existing output
-            for item in os.listdir(output_dir):
-                item_path = os.path.join(output_dir, item)
-                if os.path.isfile(item_path):
-                    os.remove(item_path)
+            # No need to clear existing output - unique directory is always empty
             
             # Run Zeek on the PCAP file
             # Using -r to read from file, -C to ignore checksums

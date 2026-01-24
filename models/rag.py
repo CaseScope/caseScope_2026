@@ -216,6 +216,9 @@ class PatternMatch(db.Model):
     # Timeline inclusion
     include_in_timeline = db.Column(db.Boolean, default=False)
     
+    # Optimistic locking version for concurrent review protection
+    version = db.Column(db.Integer, default=0, nullable=False)
+    
     # Timestamps
     discovered_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -247,17 +250,41 @@ class PatternMatch(db.Model):
             'discovered_at': self.discovered_at.isoformat() if self.discovered_at else None
         }
     
-    def set_analyst_review(self, username: str, verdict: str, notes: str = None):
-        """Record analyst review of this match"""
+    def set_analyst_review(self, username: str, verdict: str, notes: str = None, 
+                          expected_version: int = None):
+        """Record analyst review of this match with optimistic locking
+        
+        Args:
+            username: Username of the reviewing analyst
+            verdict: Review verdict (confirmed, false_positive, needs_review)
+            notes: Optional review notes
+            expected_version: If provided, checks version to prevent concurrent overwrites
+            
+        Raises:
+            ConcurrentModificationError: If record was modified by another user
+        """
+        # Check version for optimistic locking
+        if expected_version is not None and self.version != expected_version:
+            raise ConcurrentModificationError(
+                f"Pattern match was modified by another user (expected version {expected_version}, "
+                f"current version {self.version})"
+            )
+        
         self.analyst_reviewed = True
         self.analyst_verdict = verdict
         self.analyst_notes = notes
         self.reviewed_by = username
         self.reviewed_at = datetime.utcnow()
+        self.version += 1  # Increment version on modification
         
         # Auto-include confirmed matches in timeline
         if verdict == 'confirmed':
             self.include_in_timeline = True
+
+
+class ConcurrentModificationError(Exception):
+    """Raised when optimistic locking detects concurrent modification"""
+    pass
 
 
 class AttackCampaign(db.Model):
@@ -310,6 +337,9 @@ class AttackCampaign(db.Model):
     reviewed_by = db.Column(db.String(80), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     
+    # Optimistic locking version for concurrent review protection
+    version = db.Column(db.Integer, default=0, nullable=False)
+    
     # Timestamps
     detected_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -346,13 +376,32 @@ class AttackCampaign(db.Model):
             'detected_at': self.detected_at.isoformat() if self.detected_at else None
         }
     
-    def set_analyst_review(self, username: str, verdict: str, notes: str = None):
-        """Record analyst review"""
+    def set_analyst_review(self, username: str, verdict: str, notes: str = None,
+                          expected_version: int = None):
+        """Record analyst review with optimistic locking
+        
+        Args:
+            username: Username of the reviewing analyst
+            verdict: Review verdict (confirmed, false_positive, needs_review)
+            notes: Optional review notes
+            expected_version: If provided, checks version to prevent concurrent overwrites
+            
+        Raises:
+            ConcurrentModificationError: If record was modified by another user
+        """
+        # Check version for optimistic locking
+        if expected_version is not None and self.version != expected_version:
+            raise ConcurrentModificationError(
+                f"Campaign was modified by another user (expected version {expected_version}, "
+                f"current version {self.version})"
+            )
+        
         self.analyst_reviewed = True
         self.analyst_verdict = verdict
         self.analyst_notes = notes
         self.reviewed_by = username
         self.reviewed_at = datetime.utcnow()
+        self.version += 1  # Increment version on modification
 
 
 class PatternRuleMatch(db.Model):

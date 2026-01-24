@@ -558,12 +558,13 @@ def _update_case_file_status(case_file_id: int, status: str = None,
 
 
 @celery_app.task(bind=True, name='tasks.case_indexing_complete')
-def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str, Any]:
+def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count: int = 0) -> Dict[str, Any]:
     """Run post-indexing completion tasks for a case
     
     Triggered automatically when all files finish processing.
     
     Steps:
+    0. Verify no files are still processing (defer if needed)
     1. Flush ClickHouse buffer table to main events table
     2. Run known systems discovery
     3. Run known users discovery
@@ -571,14 +572,47 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str) -> Dict[str,
     Args:
         case_id: PostgreSQL case.id
         case_uuid: Case UUID
+        _retry_count: Internal counter for deferred retries
         
     Returns:
         Dict with completion results
     """
     from utils.clickhouse import get_fresh_client
-    from utils.progress import clear_progress, set_phase
+    from utils.progress import clear_progress, set_phase, clear_completion_trigger
     
     logger.info(f"Running completion tasks for case {case_uuid}")
+    
+    # Step 0: Verify no files are still pending/queued/ingesting
+    # This prevents early completion if new files were added during processing
+    app = get_flask_app()
+    with app.app_context():
+        from models.case_file import CaseFile
+        
+        pending_count = CaseFile.query.filter(
+            CaseFile.case_uuid == case_uuid,
+            CaseFile.status.in_(['new', 'queued', 'ingesting'])
+        ).count()
+        
+        if pending_count > 0:
+            max_retries = 10  # Max 10 retries (5 minutes total)
+            if _retry_count < max_retries:
+                logger.info(f"Deferring completion for case {case_uuid} - {pending_count} files still processing (retry {_retry_count + 1}/{max_retries})")
+                # Clear completion trigger so it can be set again
+                clear_completion_trigger(case_uuid)
+                # Re-queue self with 30 second delay
+                case_indexing_complete_task.apply_async(
+                    args=[case_id, case_uuid],
+                    kwargs={'_retry_count': _retry_count + 1},
+                    countdown=30
+                )
+                return {
+                    'case_uuid': case_uuid,
+                    'status': 'deferred',
+                    'pending_files': pending_count,
+                    'retry_count': _retry_count + 1
+                }
+            else:
+                logger.warning(f"Max retries reached for case {case_uuid} with {pending_count} files still pending - proceeding anyway")
     
     results = {
         'case_uuid': case_uuid,

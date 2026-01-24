@@ -101,12 +101,15 @@ def process_memory_dump(self, job_id: int):
             update_job_progress(job_id, 0, status='running')
             
             # Create output folder - use case UUID, not integer ID
+            # Include UUID suffix to prevent collision if two jobs start in same second
+            import uuid as uuid_lib
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            unique_suffix = str(uuid_lib.uuid4())[:8]
             output_base = os.path.join(
                 Config.STORAGE_FOLDER,
                 job.case.uuid,
                 job.hostname,
-                f"memory_{timestamp}"
+                f"memory_{timestamp}_{unique_suffix}"
             )
             vol3_output = os.path.join(output_base, 'vol3_output')
             extracted_folder = os.path.join(output_base, 'extracted')
