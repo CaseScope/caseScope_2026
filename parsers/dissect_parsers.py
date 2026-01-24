@@ -1204,6 +1204,7 @@ class MFTParser(BaseParser):
                             source_path=file_path,
                             source_host=hostname,
                             case_file_id=self.case_file_id,
+                            record_id=record_number,
                             target_path=self.safe_str(filename),
                             file_size=file_size,
                             raw_json=json.dumps(raw_data, default=str),

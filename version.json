@@ -1,6 +1,13 @@
 {
-  "version": "3.142.01",
+  "version": "3.142.02",
   "changelog": [
+    {
+      "version": "3.142.02",
+      "date": "2026-01-24",
+      "changes": [
+        "Fix: MFT parser now populates record_id field for proper deduplication"
+      ]
+    },
     {
       "version": "3.142.01",
       "date": "2026-01-24",
