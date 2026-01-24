@@ -127,8 +127,35 @@ def get_dedup_config(artifact_type: str) -> ArtifactDeduplicationConfig:
     return None
 
 
+def build_non_null_condition(fields: List[str]) -> str:
+    """Build SQL condition to exclude events with NULL/empty unique fields.
+    
+    Events with NULL or empty string values in unique fields cannot be
+    reliably deduplicated (NULL = NULL is undefined in SQL), so we
+    exclude them from deduplication entirely.
+    
+    Args:
+        fields: List of field names that must be non-null
+        
+    Returns:
+        SQL condition string like "(field1 IS NOT NULL AND field1 != '') AND ..."
+    """
+    conditions = []
+    for field in fields:
+        # String fields: check for NULL and empty string
+        # Integer fields (like record_id): just check for NULL
+        if field in ('record_id', 'file_size'):
+            conditions.append(f"{field} IS NOT NULL")
+        else:
+            conditions.append(f"({field} IS NOT NULL AND {field} != '')")
+    return ' AND '.join(conditions)
+
+
 def count_duplicates_for_artifact(client, case_id: int, config: ArtifactDeduplicationConfig) -> int:
     """Count duplicate events for a specific artifact type.
+    
+    Only considers events where all unique fields are non-null/non-empty.
+    Events with NULL/empty unique fields are excluded from deduplication.
     
     Args:
         client: ClickHouse client
@@ -136,15 +163,17 @@ def count_duplicates_for_artifact(client, case_id: int, config: ArtifactDeduplic
         config: Deduplication config for this artifact type
         
     Returns:
-        Number of duplicate events (total - unique)
+        Number of duplicate events (total - unique) among eligible events
     """
     unique_fields_sql = ', '.join(config.unique_fields)
+    non_null_condition = build_non_null_condition(config.unique_fields)
     
-    # Count total events
+    # Count total eligible events (those with all unique fields populated)
     total_result = client.query(
         f"""SELECT count() FROM events 
             WHERE case_id = {{case_id:UInt32}} 
-            AND artifact_type = {{artifact_type:String}}""",
+            AND artifact_type = {{artifact_type:String}}
+            AND {non_null_condition}""",
         parameters={'case_id': case_id, 'artifact_type': config.artifact_type}
     )
     total = total_result.result_rows[0][0] if total_result.result_rows else 0
@@ -152,13 +181,14 @@ def count_duplicates_for_artifact(client, case_id: int, config: ArtifactDeduplic
     if total == 0:
         return 0
     
-    # Count unique combinations
+    # Count unique combinations among eligible events
     unique_result = client.query(
         f"""SELECT count() FROM (
             SELECT {unique_fields_sql}
             FROM events 
             WHERE case_id = {{case_id:UInt32}} 
             AND artifact_type = {{artifact_type:String}}
+            AND {non_null_condition}
             GROUP BY {unique_fields_sql}
         )""",
         parameters={'case_id': case_id, 'artifact_type': config.artifact_type}
@@ -175,6 +205,10 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
     1. Find all duplicate groups (combinations appearing more than once)
     2. For each group, keep the earliest indexed_at, delete the rest
     
+    Only considers events where all unique fields are non-null/non-empty.
+    Events with NULL/empty unique fields are excluded from deduplication
+    since NULL comparisons are unreliable.
+    
     Args:
         client: ClickHouse client
         case_id: Case ID
@@ -184,6 +218,7 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
         Dict with deduplication results
     """
     unique_fields_sql = ', '.join(config.unique_fields)
+    non_null_condition = build_non_null_condition(config.unique_fields)
     
     # First, count duplicates to check if there's work to do
     duplicate_count = count_duplicates_for_artifact(client, case_id, config)
@@ -205,21 +240,10 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
         # 1. Create a subquery that finds all (unique_key, min_indexed_at) pairs
         # 2. Delete events where (unique_key, indexed_at) is NOT IN that set
         #    but the unique_key IS in the set of duplicated keys
-        
-        # First, find the indexed_at values to KEEP (the minimum for each duplicate group)
-        # These are the events we want to preserve
-        keep_query = f"""
-            SELECT {', '.join(config.unique_fields)}, min(indexed_at) as keep_indexed_at
-            FROM events
-            WHERE case_id = {case_id}
-              AND artifact_type = '{config.artifact_type}'
-            GROUP BY {', '.join(config.unique_fields)}
-            HAVING count() > 1
-        """
-        
-        # Now build the DELETE query that removes duplicates
-        # For each event, if its unique key has duplicates AND its indexed_at
-        # is NOT the minimum for that key, delete it
+        #
+        # IMPORTANT: Only consider events with all unique fields populated.
+        # Events with NULL/empty unique fields are excluded since NULL = NULL
+        # is undefined in SQL and would cause incorrect deduplication.
         
         # Build tuple of unique fields for comparison
         unique_tuple = f"({', '.join(config.unique_fields)})"
@@ -229,11 +253,13 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
             ALTER TABLE events DELETE 
             WHERE case_id = {case_id}
               AND artifact_type = '{config.artifact_type}'
+              AND {non_null_condition}
               AND {unique_tuple} IN (
                   SELECT {', '.join(config.unique_fields)}
                   FROM events
                   WHERE case_id = {case_id}
                     AND artifact_type = '{config.artifact_type}'
+                    AND {non_null_condition}
                   GROUP BY {', '.join(config.unique_fields)}
                   HAVING count() > 1
               )
@@ -242,6 +268,7 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
                   FROM events
                   WHERE case_id = {case_id}
                     AND artifact_type = '{config.artifact_type}'
+                    AND {non_null_condition}
                   GROUP BY {', '.join(config.unique_fields)}
                   HAVING count() > 1
               )

@@ -1,6 +1,13 @@
 {
-  "version": "3.142.02",
+  "version": "3.142.03",
   "changelog": [
+    {
+      "version": "3.142.03",
+      "date": "2026-01-24",
+      "changes": [
+        "Fix: Deduplication now excludes events with NULL/empty unique fields to prevent false duplicates"
+      ]
+    },
     {
       "version": "3.142.02",
       "date": "2026-01-24",
