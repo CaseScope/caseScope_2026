@@ -134,7 +134,7 @@
                 {% endfor %}
             {% else %}
                 <tr>
-                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                    <td colspan="6" class="text-center text-muted table-empty-cell">
                         No cases found for this client. Create your first case to get started.
                     </td>
                 </tr>
@@ -144,7 +144,7 @@
 </div>
 
 <!-- Agents Section -->
-<div class="section-header" style="margin-top: 32px;">
+<div class="section-header section-header-mt">
     <h2 class="section-title">Agents</h2>
     <p class="section-subtitle">Deployed collection agents for this client</p>
 </div>
@@ -215,7 +215,7 @@
                 {% endfor %}
             {% else %}
                 <tr>
-                    <td colspan="6" class="text-center text-muted" style="padding: 40px;">
+                    <td colspan="6" class="text-center text-muted table-empty-cell">
                         No agents deployed for this client yet.
                     </td>
                 </tr>
@@ -225,7 +225,7 @@
 </div>
 
 {% if client.notes %}
-<div class="section-header" style="margin-top: 32px;">
+<div class="section-header section-header-mt">
     <h2 class="section-title">Notes</h2>
 </div>
 <div class="card">

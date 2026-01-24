@@ -10236,3 +10236,13 @@ input:checked + .slider:before {
   border-radius: var(--border-radius);
   color: var(--text-primary);
 }
+
+/* Section Margin Top */
+.section-header-mt {
+  margin-top: 32px;
+}
+
+/* Table Empty Cell Padding */
+.table-empty-cell {
+  padding: 40px;
+}
