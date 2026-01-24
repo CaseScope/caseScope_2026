@@ -563,7 +563,7 @@ Write a brief professional summary (2-3 sentences, third person):"""
         # Build template context - variable names must match template placeholders
         # Clean markdown formatting for Word insertion
         template_context = {
-            'client_name': self.case.company,
+            'client_name': self.case.client.name if self.case.client else self.case.company,
             'case_name': self.case.name,
             'today_date': datetime.now().strftime('%B %d, %Y'),
             'timeline_summary': clean_markdown(self.sections.get('timeline_summary', '')),

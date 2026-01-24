@@ -231,7 +231,7 @@ REQUIREMENTS:
 - Use specific examples from the incident data (commands, file paths, IPs, times)
 - Explain technical terms in plain language when first used
 
-CASE: {self.case.name} - {self.case.company}
+CASE: {self.case.name} - {self.case.client.name if self.case.client else self.case.company}
 
 INCIDENT DATA:
 {incident_context}
@@ -517,7 +517,7 @@ Write the "How To Prevent" paragraph:"""
         # Clean markdown formatting for Word insertion
         # Converts ## to uppercase headings, * to bullet chars, removes **bold** markers
         template_context = {
-            'client_name': self.case.company,
+            'client_name': self.case.client.name if self.case.client else self.case.company,
             'today_date': datetime.now().strftime('%B %d, %Y'),
             'executive_summary': clean_markdown(self.sections.get('executive_summary', '')),
             'timeline': clean_markdown(self.sections.get('timeline', '')),

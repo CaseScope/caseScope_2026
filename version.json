@@ -1,6 +1,13 @@
 {
-  "version": "3.142.00",
+  "version": "3.142.01",
   "changelog": [
+    {
+      "version": "3.142.01",
+      "date": "2026-01-24",
+      "changes": [
+        "Fix: AI reports now display company name instead of identifier for DFIR and Timeline reports"
+      ]
+    },
     {
       "version": "3.142.00",
       "date": "2026-01-24",

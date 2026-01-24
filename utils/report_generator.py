@@ -194,7 +194,7 @@ def get_base_case_context(case) -> Dict[str, Any]:
     
     return {
         'case_name': case.name,
-        'case_company': case.company,
+        'case_company': case.client.name if case.client else case.company,
         'case_description': case.description or '',
         'case_status': case.status,
         'case_timezone': case.timezone,
