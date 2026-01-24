@@ -19,13 +19,13 @@ def case_required(f):
     def decorated_function(*args, **kwargs):
         if 'active_case_uuid' not in session:
             flash('Please select a case first', 'warning')
-            return redirect(url_for('main.cases'))
+            return redirect(url_for('main.select_case'))
         # Verify the case still exists
         case = Case.get_by_uuid(session['active_case_uuid'])
         if not case:
             session.pop('active_case_uuid', None)
             flash('Selected case no longer exists. Please select another case.', 'error')
-            return redirect(url_for('main.cases'))
+            return redirect(url_for('main.select_case'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -143,11 +143,112 @@ def case_select(case_uuid):
     case = Case.get_by_uuid(case_uuid)
     if not case:
         flash('Case not found', 'error')
-        return redirect(url_for('main.cases'))
+        return redirect(url_for('main.select_case'))
     
     session['active_case_uuid'] = case_uuid
     flash(f'Case "{case.name}" selected', 'success')
     return redirect(url_for('main.case_dashboard'))
+
+
+@main_bp.route('/select-case')
+@login_required
+def select_case():
+    """Select a case - step-by-step client and case selection"""
+    from models.system_settings import SystemSettings, SettingKeys
+    
+    clients = Client.get_active_clients()
+    default_tz = SystemSettings.get(SettingKeys.DEFAULT_TIMEZONE, 'America/New_York')
+    
+    return render_template(
+        'select_case.html',
+        page_title='Select Case',
+        clients=clients,
+        timezones=COMMON_TIMEZONES,
+        default_timezone=default_tz
+    )
+
+
+@main_bp.route('/api/client/<client_uuid>/cases')
+@login_required
+def api_client_cases(client_uuid):
+    """API: Get cases for a specific client"""
+    client = Client.get_by_uuid(client_uuid)
+    if not client:
+        return jsonify({'error': 'Client not found'}), 404
+    
+    cases = Case.query.filter_by(client_id=client.id).order_by(Case.created_at.desc()).all()
+    
+    cases_data = []
+    for case in cases:
+        cases_data.append({
+            'uuid': case.uuid,
+            'name': case.name,
+            'status': case.status,
+            'created_by': case.created_by,
+            'created_at': case.created_at.strftime('%Y-%m-%d %H:%M') if case.created_at else None,
+            'assigned_to': case.assigned_to
+        })
+    
+    return jsonify({'cases': cases_data})
+
+
+@main_bp.route('/api/case/create', methods=['POST'])
+@login_required
+def api_case_create():
+    """API: Create a new case"""
+    client_uuid = request.form.get('client_uuid', '').strip()
+    name = request.form.get('name', '').strip()
+    description = request.form.get('description', '').strip()
+    timezone = request.form.get('timezone', 'UTC').strip()
+    router_ips = request.form.get('router_ips', '').strip()
+    vpn_ips = request.form.get('vpn_ips', '').strip()
+    
+    if not client_uuid:
+        return jsonify({'success': False, 'error': 'Client is required'}), 400
+    
+    if not name:
+        return jsonify({'success': False, 'error': 'Case name is required'}), 400
+    
+    client = Client.get_by_uuid(client_uuid)
+    if not client:
+        return jsonify({'success': False, 'error': 'Client not found'}), 404
+    
+    from utils.timezone import is_valid_timezone
+    if not is_valid_timezone(timezone):
+        timezone = client.timezone or 'UTC'
+    
+    case = Case(
+        name=name,
+        company=client.name,
+        client_id=client.id,
+        description=description or None,
+        timezone=timezone,
+        router_ips=router_ips or None,
+        vpn_ips=vpn_ips or None,
+        created_by=current_user.username
+    )
+    
+    db.session.add(case)
+    db.session.commit()
+    
+    AuditLog.log(
+        entity_type=AuditEntityType.CASE,
+        entity_id=case.uuid,
+        action=AuditAction.CREATED,
+        entity_name=name,
+        case_uuid=case.uuid,
+        details={
+            'client': client.code,
+            'company': client.name,
+            'timezone': timezone
+        }
+    )
+    
+    # Create SFTP upload folder for this case
+    sftp_case_folder = os.path.join(Config.UPLOAD_FOLDER_SFTP, case.uuid)
+    os.makedirs(sftp_case_folder, exist_ok=True)
+    
+    return jsonify({'success': True, 'case_uuid': case.uuid})
 
 
 @main_bp.route('/cases/info/<case_uuid>')

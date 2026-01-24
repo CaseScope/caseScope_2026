@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🎯</span>
+            Select a Case
+        </h1>
+        <p class="page-subtitle">Choose a client and case to continue</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="select-case-container">
+    <!-- Step 1: Select Client -->
+    <div class="select-case-step" id="step-client">
+        <div class="select-case-step-header">
+            <div class="select-case-step-number">1</div>
+            <div class="select-case-step-title">Select Client</div>
+            <div class="select-case-step-change" id="change-client-btn" style="display: none;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="changeClient()">Change</button>
+            </div>
+        </div>
+        <div class="select-case-step-content" id="client-selection">
+            {% if clients %}
+            <div class="select-case-grid">
+                {% for client in clients %}
+                <div class="select-case-card" onclick="selectClient('{{ client.uuid }}', '{{ client.name }}', '{{ client.code }}')" data-client-uuid="{{ client.uuid }}">
+                    <div class="select-case-card-icon">🏢</div>
+                    <div class="select-case-card-content">
+                        <div class="select-case-card-title">{{ client.name }}</div>
+                        <div class="select-case-card-subtitle">
+                            <span class="client-code-badge">{{ client.code }}</span>
+                            <span class="case-count">{{ client.case_count }} case{% if client.case_count != 1 %}s{% endif %}</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="select-case-empty">
+                <p>No clients available. Contact an administrator to create a client first.</p>
+            </div>
+            {% endif %}
+        </div>
+        <div class="select-case-step-selected" id="client-selected" style="display: none;">
+            <div class="selected-item">
+                <span class="selected-icon">🏢</span>
+                <span class="selected-name" id="selected-client-name"></span>
+                <span class="selected-badge" id="selected-client-code"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: Select or Create Case -->
+    <div class="select-case-step" id="step-case" style="display: none;">
+        <div class="select-case-step-header">
+            <div class="select-case-step-number">2</div>
+            <div class="select-case-step-title">Select or Create Case</div>
+        </div>
+        <div class="select-case-step-content" id="case-selection">
+            <div class="select-case-loading" id="case-loading">
+                <span class="loading-spinner"></span>
+                <span>Loading cases...</span>
+            </div>
+            <div id="case-content" style="display: none;">
+                <div class="select-case-actions">
+                    <button type="button" class="btn btn-primary" onclick="showNewCaseForm()">
+                        <span>+ Create New Case</span>
+                    </button>
+                </div>
+                <div class="select-case-divider">
+                    <span>or select an existing case</span>
+                </div>
+                <div class="table-container select-case-table">
+                    <div class="table-header">
+                        <span class="table-title" id="case-table-title">Cases</span>
+                        <div class="table-actions">
+                            <input type="text" class="table-search" placeholder="Search cases..." id="caseSearch" onkeyup="filterCases()">
+                        </div>
+                    </div>
+                    <table id="casesTable">
+                        <thead>
+                            <tr>
+                                <th>Case Name</th>
+                                <th>Status</th>
+                                <th>Created By</th>
+                                <th>Created On</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cases-tbody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="select-case-no-cases" id="no-cases-msg" style="display: none;">
+                    <p>No cases found for this client. Create your first case to get started.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Case Modal -->
+<div class="modal-overlay" id="new-case-modal" style="display: none;">
+    <div class="modal-container modal-lg">
+        <div class="modal-header">
+            <h2 class="modal-title">Create New Case</h2>
+            <button class="modal-close" onclick="hideNewCaseForm()">&times;</button>
+        </div>
+        <form id="new-case-form" method="POST">
+            <input type="hidden" name="client_uuid" id="form-client-uuid">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Client</label>
+                    <div class="selected-item">
+                        <span class="selected-icon">🏢</span>
+                        <span class="selected-name" id="form-client-name"></span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="name">Case Name <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="name" name="name" required placeholder="e.g., Ransomware Investigation 2026-01">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="description">Description</label>
+                    <textarea class="form-input form-textarea" id="description" name="description" placeholder="Brief description of the case"></textarea>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label" for="timezone">Timezone <span class="required">*</span></label>
+                        <select class="form-select" id="timezone" name="timezone" required>
+                            {% for tz in timezones %}
+                            <option value="{{ tz }}" {% if tz == default_timezone %}selected{% endif %}>{{ tz }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label" for="router_ips">Router IPs</label>
+                        <input type="text" class="form-input" id="router_ips" name="router_ips" placeholder="Comma-separated IPs">
+                        <span class="form-hint">Used to filter out network noise</span>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="vpn_ips">VPN IPs</label>
+                        <input type="text" class="form-input" id="vpn_ips" name="vpn_ips" placeholder="Comma-separated IPs">
+                        <span class="form-hint">Used to filter out VPN traffic</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideNewCaseForm()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Case</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedClientUuid = null;
+let selectedClientName = null;
+let selectedClientCode = null;
+
+function selectClient(uuid, name, code) {
+    selectedClientUuid = uuid;
+    selectedClientName = name;
+    selectedClientCode = code;
+    
+    document.getElementById('selected-client-name').textContent = name;
+    document.getElementById('selected-client-code').textContent = code;
+    
+    document.getElementById('client-selection').style.display = 'none';
+    document.getElementById('client-selected').style.display = 'block';
+    document.getElementById('change-client-btn').style.display = 'block';
+    
+    document.getElementById('step-client').classList.add('completed');
+    
+    document.getElementById('step-case').style.display = 'block';
+    
+    loadCases(uuid);
+}
+
+function changeClient() {
+    selectedClientUuid = null;
+    selectedClientName = null;
+    selectedClientCode = null;
+    
+    document.getElementById('client-selection').style.display = 'block';
+    document.getElementById('client-selected').style.display = 'none';
+    document.getElementById('change-client-btn').style.display = 'none';
+    document.getElementById('step-client').classList.remove('completed');
+    
+    document.getElementById('step-case').style.display = 'none';
+    document.getElementById('case-content').style.display = 'none';
+    document.getElementById('case-loading').style.display = 'flex';
+}
+
+function loadCases(clientUuid) {
+    document.getElementById('case-loading').style.display = 'flex';
+    document.getElementById('case-content').style.display = 'none';
+    
+    fetch('/api/client/' + clientUuid + '/cases')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('case-loading').style.display = 'none';
+            document.getElementById('case-content').style.display = 'block';
+            
+            const tbody = document.getElementById('cases-tbody');
+            tbody.innerHTML = '';
+            
+            if (data.cases && data.cases.length > 0) {
+                document.getElementById('case-table-title').textContent = 'Cases (' + data.cases.length + ')';
+                document.getElementById('no-cases-msg').style.display = 'none';
+                document.querySelector('.select-case-table').style.display = 'block';
+                
+                data.cases.forEach(function(c) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'case-row';
+                    tr.onclick = function() { selectCase(c.uuid); };
+                    
+                    tr.innerHTML = '<td><span class="case-name-link">' + escapeHtml(c.name) + '</span></td>' +
+                        '<td>' + getStatusBadge(c.status) + '</td>' +
+                        '<td>' + escapeHtml(c.created_by || '-') + '</td>' +
+                        '<td>' + (c.created_at || '-') + '</td>';
+                    tbody.appendChild(tr);
+                });
+            } else {
+                document.getElementById('no-cases-msg').style.display = 'block';
+                document.querySelector('.select-case-table').style.display = 'none';
+            }
+        })
+        .catch(function(err) {
+            console.error('Error loading cases:', err);
+            document.getElementById('case-loading').style.display = 'none';
+            document.getElementById('case-content').style.display = 'block';
+            document.getElementById('no-cases-msg').style.display = 'block';
+            document.getElementById('no-cases-msg').innerHTML = '<p>Error loading cases. Please try again.</p>';
+            document.querySelector('.select-case-table').style.display = 'none';
+        });
+}
+
+function selectCase(uuid) {
+    window.location.href = '/cases/select/' + uuid;
+}
+
+function showNewCaseForm() {
+    document.getElementById('form-client-uuid').value = selectedClientUuid;
+    document.getElementById('form-client-name').textContent = selectedClientName;
+    document.getElementById('new-case-modal').style.display = 'flex';
+}
+
+function hideNewCaseForm() {
+    document.getElementById('new-case-modal').style.display = 'none';
+    document.getElementById('new-case-form').reset();
+}
+
+function filterCases() {
+    const input = document.getElementById('caseSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('casesTable');
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        let match = false;
+        
+        for (let j = 0; j < cells.length; j++) {
+            if (cells[j].textContent.toLowerCase().indexOf(filter) > -1) {
+                match = true;
+                break;
+            }
+        }
+        
+        rows[i].style.display = match ? '' : 'none';
+    }
+}
+
+function getStatusBadge(status) {
+    const badges = {
+        'new': '<span class="badge badge-info">New</span>',
+        'assigned': '<span class="badge badge-warning">Assigned</span>',
+        'in_progress': '<span class="badge badge-warning">In Progress</span>',
+        'in_review': '<span class="badge badge-info">In Review</span>',
+        'finished': '<span class="badge badge-success">Finished</span>',
+        'archived': '<span class="badge badge-muted">Archived</span>'
+    };
+    return badges[status] || '<span class="badge badge-muted">' + escapeHtml(status) + '</span>';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+document.getElementById('new-case-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    
+    fetch('/api/case/create', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        if (data.success) {
+            window.location.href = '/cases/select/' + data.case_uuid;
+        } else {
+            alert(data.error || 'Failed to create case');
+        }
+    })
+    .catch(function(err) {
+        console.error('Error creating case:', err);
+        alert('Failed to create case. Please try again.');
+    });
+});
+
+document.getElementById('new-case-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideNewCaseForm();
+    }
+});
+</script>
+{% endblock %}

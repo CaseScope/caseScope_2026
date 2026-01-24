@@ -1,6 +1,16 @@
 {
-  "version": "3.141.00",
+  "version": "3.142.00",
   "changelog": [
+    {
+      "version": "3.142.00",
+      "date": "2026-01-24",
+      "changes": [
+        "Feature: New case selection workflow when no case is active",
+        "Feature: Step-by-step client and case selection process",
+        "Feature: Create new case directly from selection page",
+        "Feature: Change client option if wrong client selected"
+      ]
+    },
     {
       "version": "3.141.00",
       "date": "2026-01-24",
