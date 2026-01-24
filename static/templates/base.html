@@ -31,6 +31,10 @@
                 <div class="nav-section">
                     <div class="nav-section-title">Hunting</div>
                 </div>
+                <a href="{{ url_for('main.case_dashboard') }}" class="nav-item {{ 'active' if page_title == 'Case Dashboard' else '' }}">
+                    <span class="nav-item-icon">📁</span>
+                    <span class="nav-item-text">Case Dashboard</span>
+                </a>
                 <a href="{{ url_for('main.case_upload') }}" class="nav-item {{ 'active' if page_title == 'Upload Files' else '' }}">
                     <span class="nav-item-icon">📤</span>
                     <span class="nav-item-text">Upload Files</span>
