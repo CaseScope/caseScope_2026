@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from models.database import db
 from models.case import Case, CaseStatus, COMMON_TIMEZONES
+from models.client import Client
 from models.user import User
 from models.audit_log import AuditLog, AuditAction, AuditEntityType, audit_update
 from config import Config, PermissionLevel, UserSettings
@@ -398,13 +399,15 @@ def case_edit():
         # Validate mandatory fields
         if not name:
             flash('Case name is required', 'error')
+            clients = Client.get_active_clients()
             return render_template('case_edit.html', page_title='Edit Case', case=case, 
-                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES)
+                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients)
         
         if not company:
             flash('Company is required', 'error')
+            clients = Client.get_active_clients()
             return render_template('case_edit.html', page_title='Edit Case', case=case, 
-                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES)
+                                   CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients)
         
         # Validate timezone
         from utils.timezone import is_valid_timezone
@@ -468,8 +471,9 @@ def case_edit():
         flash('Case updated successfully', 'success')
         return redirect(url_for('main.case_dashboard'))
     
+    clients = Client.get_active_clients()
     return render_template('case_edit.html', page_title='Edit Case', case=case, 
-                           CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES)
+                           CaseStatus=CaseStatus, timezones=COMMON_TIMEZONES, clients=clients)
 
 
 # ============================================

@@ -40,8 +40,15 @@
                 
                 <div class="form-group">
                     <label class="form-label" for="company">Company <span class="required">*</span></label>
-                    <input type="text" id="company" name="company" class="form-input" required 
-                           placeholder="Company name" value="{{ case.company }}">
+                    <select id="company" name="company" class="form-input" required>
+                        <option value="">Select a company</option>
+                        {% for client in clients %}
+                            <option value="{{ client.name }}" {% if case.company == client.name %}selected{% endif %}>{{ client.name }}</option>
+                        {% endfor %}
+                        {% if case.company and case.company not in clients|map(attribute='name')|list %}
+                            <option value="{{ case.company }}" selected>{{ case.company }} (legacy)</option>
+                        {% endif %}
+                    </select>
                 </div>
             </div>
             
