@@ -82,6 +82,7 @@ class AuditEntityType:
     SYSTEM_USER = 'system_user'
     SETTING = 'setting'
     NOISE_RULE = 'noise_rule'
+    CLIENT = 'client'
     
     # Evidence
     EVIDENCE_FILE = 'evidence_file'
@@ -97,7 +98,7 @@ class AuditEntityType:
         return [
             cls.CASE, cls.CASE_FILE, cls.CASE_REPORT,
             cls.IOC, cls.KNOWN_SYSTEM, cls.KNOWN_USER,
-            cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE,
+            cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE, cls.CLIENT,
             cls.EVIDENCE_FILE, cls.ATTACK_PATTERN, cls.SESSION
         ]
 

@@ -1095,7 +1095,7 @@ def admin_client_create():
         db.session.commit()
         
         AuditLog.log(
-            entity_type=AuditEntityType.SYSTEM,
+            entity_type=AuditEntityType.CLIENT,
             entity_id=client.uuid,
             action=AuditAction.CREATED,
             entity_name=f'Client: {name}',
@@ -1157,7 +1157,7 @@ def admin_client_edit(client_uuid):
         
         if changes:
             audit_update(
-                entity_type=AuditEntityType.SYSTEM,
+                entity_type=AuditEntityType.CLIENT,
                 entity_id=client.uuid,
                 changes=changes,
                 entity_name=f'Client: {client.name}'
