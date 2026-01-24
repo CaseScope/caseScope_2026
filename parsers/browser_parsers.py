@@ -1408,3 +1408,507 @@ class FirefoxJSONLZ4Parser(BaseParser):
                         search_blob=self.build_search_blob(item),
                         parser_version=self.parser_version,
                     )
+
+
+# ============================================
+# Firefox JSON Parser (Uncompressed)
+# ============================================
+
+class FirefoxJSONParser(BaseParser):
+    """Parser for uncompressed Firefox JSON configuration files
+    
+    Handles Firefox profile JSON files that are NOT LZ4 compressed:
+    - handlers.json (MIME type handlers)
+    - extensions.json (installed extensions)
+    - logins.json (login metadata - not passwords)
+    - containers.json (multi-account containers)
+    - permissions.json (site permissions)
+    - times.json (profile timing data)
+    - xulstore.json (UI state)
+    
+    Uses path-based detection to identify Firefox profile directories.
+    """
+    
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'firefox_json'
+    
+    # Known Firefox JSON files and their artifact subtypes
+    FIREFOX_JSON_FILES = {
+        'handlers.json': 'handler',
+        'extensions.json': 'extension',
+        'logins.json': 'logins',
+        'containers.json': 'container',
+        'permissions.json': 'permission',
+        'times.json': 'times',
+        'xulstore.json': 'xulstore',
+        'addons.json': 'addon',
+        'search.json': 'search_engine',
+        'signedInUser.json': 'sync_user',
+        'protections.json': 'protection',
+    }
+    
+    # Path patterns that indicate Firefox profile directory
+    FIREFOX_PATH_PATTERNS = [
+        'mozilla/firefox/profiles',
+        'mozilla\\firefox\\profiles',
+        '/firefox/profiles/',
+        '\\firefox\\profiles\\',
+        '.mozilla/firefox/',
+        'appdata/roaming/mozilla/firefox',
+        'appdata\\roaming\\mozilla\\firefox',
+        '/library/application support/firefox/profiles',
+    ]
+    
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
+    
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+    
+    def _is_firefox_profile_path(self, file_path: str) -> bool:
+        """Check if file path is within a Firefox profile directory"""
+        path_lower = file_path.lower()
+        for pattern in self.FIREFOX_PATH_PATTERNS:
+            if pattern in path_lower:
+                return True
+        return False
+    
+    def can_parse(self, file_path: str) -> bool:
+        """Check if file is a Firefox JSON configuration file"""
+        if not os.path.isfile(file_path):
+            return False
+        
+        filename = os.path.basename(file_path).lower()
+        
+        # Must be a .json file
+        if not filename.endswith('.json'):
+            return False
+        
+        # Check if it's a known Firefox JSON file in a Firefox profile path
+        if filename in self.FIREFOX_JSON_FILES:
+            if self._is_firefox_profile_path(file_path):
+                # Verify it's valid JSON
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read(1024)  # Read first 1KB
+                        # Check for JSON structure
+                        content = content.strip()
+                        if content.startswith('{') or content.startswith('['):
+                            return True
+                except Exception:
+                    pass
+        
+        return False
+    
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox JSON file"""
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+        
+        source_file = os.path.basename(file_path)
+        filename_lower = source_file.lower()
+        hostname = self.extract_hostname(file_path)
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            self.errors.append(f"JSON decode error in {file_path}: {e}")
+            return
+        except Exception as e:
+            self.errors.append(f"Error reading {file_path}: {e}")
+            return
+        
+        # Route to appropriate handler based on filename
+        if filename_lower == 'handlers.json':
+            yield from self._parse_handlers(data, source_file, file_path, hostname)
+        elif filename_lower == 'extensions.json':
+            yield from self._parse_extensions(data, source_file, file_path, hostname)
+        elif filename_lower == 'logins.json':
+            yield from self._parse_logins(data, source_file, file_path, hostname)
+        elif filename_lower == 'containers.json':
+            yield from self._parse_containers(data, source_file, file_path, hostname)
+        elif filename_lower == 'addons.json':
+            yield from self._parse_addons_json(data, source_file, file_path, hostname)
+        elif filename_lower == 'permissions.json':
+            yield from self._parse_permissions(data, source_file, file_path, hostname)
+        else:
+            # Generic JSON dump for other Firefox JSON files
+            yield from self._parse_generic(data, source_file, file_path, hostname, filename_lower)
+    
+    def _parse_handlers(self, data: Dict, source_file: str, file_path: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox handlers.json (MIME type handlers)"""
+        schemes = data.get('schemes', {})
+        mime_types = data.get('mimeTypes', {})
+        
+        # Get file modification time as timestamp
+        try:
+            mtime = os.path.getmtime(file_path)
+            timestamp = datetime.utcfromtimestamp(mtime)
+        except Exception:
+            timestamp = datetime.now()
+        
+        # Parse protocol scheme handlers
+        for scheme, handler_data in schemes.items():
+            if isinstance(handler_data, dict):
+                raw_data = {
+                    'handler_type': 'scheme',
+                    'scheme': scheme,
+                    'action': handler_data.get('action'),
+                    'handlers': handler_data.get('handlers', []),
+                    'extensions': handler_data.get('extensions', []),
+                }
+                
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type='firefox_handler',
+                    timestamp=timestamp,
+                    source_file=source_file,
+                    source_path=file_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    raw_json=json.dumps(raw_data, default=str),
+                    search_blob=f"{scheme} firefox protocol scheme handler",
+                    extra_fields=json.dumps({'subtype': 'scheme', 'scheme': scheme}),
+                    parser_version=self.parser_version,
+                )
+        
+        # Parse MIME type handlers
+        for mime, handler_data in mime_types.items():
+            if isinstance(handler_data, dict):
+                raw_data = {
+                    'handler_type': 'mime',
+                    'mime_type': mime,
+                    'action': handler_data.get('action'),
+                    'handlers': handler_data.get('handlers', []),
+                    'extensions': handler_data.get('extensions', []),
+                    'ask': handler_data.get('ask'),
+                }
+                
+                # Extract application paths from handlers
+                apps = []
+                for h in handler_data.get('handlers', []):
+                    if isinstance(h, dict) and h.get('path'):
+                        apps.append(h.get('path'))
+                
+                yield ParsedEvent(
+                    case_id=self.case_id,
+                    artifact_type='firefox_handler',
+                    timestamp=timestamp,
+                    source_file=source_file,
+                    source_path=file_path,
+                    source_host=hostname,
+                    case_file_id=self.case_file_id,
+                    raw_json=json.dumps(raw_data, default=str),
+                    search_blob=f"{mime} {' '.join(apps)} firefox mime handler",
+                    extra_fields=json.dumps({'subtype': 'mime', 'mime_type': mime}),
+                    parser_version=self.parser_version,
+                )
+    
+    def _parse_extensions(self, data: Dict, source_file: str, file_path: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox extensions.json"""
+        addons = data.get('addons', [])
+        
+        for addon in addons:
+            if not isinstance(addon, dict):
+                continue
+            
+            addon_id = addon.get('id', 'Unknown')
+            name = addon.get('defaultLocale', {}).get('name', addon_id)
+            
+            # Get install/update timestamps
+            install_date = addon.get('installDate')
+            update_date = addon.get('updateDate')
+            timestamp = None
+            
+            try:
+                if update_date:
+                    timestamp = datetime.utcfromtimestamp(update_date / 1000) if update_date > 1e10 else datetime.utcfromtimestamp(update_date)
+                elif install_date:
+                    timestamp = datetime.utcfromtimestamp(install_date / 1000) if install_date > 1e10 else datetime.utcfromtimestamp(install_date)
+            except (ValueError, OSError, OverflowError):
+                pass
+            
+            if not timestamp:
+                # Fallback to file modification time
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    timestamp = datetime.utcfromtimestamp(mtime)
+                except Exception:
+                    timestamp = datetime.now()
+            
+            raw_data = {
+                'id': addon_id,
+                'name': name,
+                'version': addon.get('version'),
+                'type': addon.get('type'),
+                'active': addon.get('active'),
+                'visible': addon.get('visible'),
+                'user_disabled': addon.get('userDisabled'),
+                'app_disabled': addon.get('appDisabled'),
+                'location': addon.get('location'),
+                'source_uri': addon.get('sourceURI'),
+                'homepage': addon.get('defaultLocale', {}).get('homepageURL'),
+                'description': addon.get('defaultLocale', {}).get('description', '')[:200],
+                'install_date': install_date,
+                'update_date': update_date,
+                'signed_state': addon.get('signedState'),
+                'permissions': addon.get('userPermissions', {}).get('permissions', []),
+            }
+            
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='firefox_addon',
+                timestamp=timestamp,
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                raw_json=json.dumps(raw_data, default=str),
+                search_blob=f"{addon_id} {name} {addon.get('sourceURI', '')} firefox extension",
+                extra_fields=json.dumps({'addon_type': addon.get('type'), 'active': addon.get('active')}),
+                parser_version=self.parser_version,
+            )
+    
+    def _parse_logins(self, data: Dict, source_file: str, file_path: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox logins.json (login metadata only - no passwords)"""
+        logins = data.get('logins', [])
+        
+        for login in logins:
+            if not isinstance(login, dict):
+                continue
+            
+            # Get timestamps
+            time_created = login.get('timeCreated')
+            time_last_used = login.get('timeLastUsed')
+            time_password_changed = login.get('timePasswordChanged')
+            
+            timestamp = None
+            try:
+                if time_last_used:
+                    timestamp = datetime.utcfromtimestamp(time_last_used / 1000)
+                elif time_created:
+                    timestamp = datetime.utcfromtimestamp(time_created / 1000)
+            except (ValueError, OSError, OverflowError):
+                pass
+            
+            if not timestamp:
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    timestamp = datetime.utcfromtimestamp(mtime)
+                except Exception:
+                    timestamp = datetime.now()
+            
+            hostname_origin = login.get('hostname', '')
+            form_url = login.get('formSubmitURL', '')
+            
+            raw_data = {
+                'hostname': hostname_origin,
+                'form_submit_url': form_url,
+                'http_realm': login.get('httpRealm'),
+                'username_field': login.get('usernameField'),
+                'password_field': login.get('passwordField'),
+                'time_created': time_created,
+                'time_last_used': time_last_used,
+                'time_password_changed': time_password_changed,
+                'times_used': login.get('timesUsed'),
+                'guid': login.get('guid'),
+                # Note: We intentionally do NOT extract encrypted passwords
+            }
+            
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='browser_logins',
+                timestamp=timestamp,
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                target_path=hostname_origin,
+                raw_json=json.dumps(raw_data, default=str),
+                search_blob=f"{hostname_origin} {form_url} firefox saved login",
+                extra_fields=json.dumps({'browser': 'firefox', 'artifact': 'logins'}),
+                parser_version=self.parser_version,
+            )
+    
+    def _parse_containers(self, data: Dict, source_file: str, file_path: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox containers.json (multi-account containers)"""
+        identities = data.get('identities', [])
+        
+        try:
+            mtime = os.path.getmtime(file_path)
+            timestamp = datetime.utcfromtimestamp(mtime)
+        except Exception:
+            timestamp = datetime.now()
+        
+        for identity in identities:
+            if not isinstance(identity, dict):
+                continue
+            
+            raw_data = {
+                'user_context_id': identity.get('userContextId'),
+                'name': identity.get('name'),
+                'icon': identity.get('icon'),
+                'color': identity.get('color'),
+                'public': identity.get('public'),
+            }
+            
+            name = identity.get('name', f"Container {identity.get('userContextId')}")
+            
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='firefox_json',
+                timestamp=timestamp,
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                raw_json=json.dumps(raw_data, default=str),
+                search_blob=f"{name} firefox container identity",
+                extra_fields=json.dumps({'subtype': 'container'}),
+                parser_version=self.parser_version,
+            )
+    
+    def _parse_addons_json(self, data: Dict, source_file: str, file_path: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox addons.json"""
+        # Similar to extensions.json but different structure
+        addons = data.get('addons', [])
+        
+        for addon in addons:
+            if not isinstance(addon, dict):
+                continue
+            
+            addon_id = addon.get('id', 'Unknown')
+            name = addon.get('name', addon_id)
+            
+            install_date = addon.get('installDate')
+            update_date = addon.get('updateDate')
+            timestamp = None
+            
+            try:
+                if update_date:
+                    ts = update_date if isinstance(update_date, (int, float)) else int(update_date)
+                    timestamp = datetime.utcfromtimestamp(ts / 1000) if ts > 1e10 else datetime.utcfromtimestamp(ts)
+                elif install_date:
+                    ts = install_date if isinstance(install_date, (int, float)) else int(install_date)
+                    timestamp = datetime.utcfromtimestamp(ts / 1000) if ts > 1e10 else datetime.utcfromtimestamp(ts)
+            except (ValueError, OSError, OverflowError, TypeError):
+                pass
+            
+            if not timestamp:
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    timestamp = datetime.utcfromtimestamp(mtime)
+                except Exception:
+                    timestamp = datetime.now()
+            
+            raw_data = {
+                'id': addon_id,
+                'name': name,
+                'version': addon.get('version'),
+                'type': addon.get('type'),
+                'creator': addon.get('creator'),
+                'description': str(addon.get('description', ''))[:200],
+                'homepage_url': addon.get('homepageURL'),
+                'source_uri': addon.get('sourceURI'),
+                'icons': addon.get('icons'),
+            }
+            
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='firefox_addon',
+                timestamp=timestamp,
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                raw_json=json.dumps(raw_data, default=str),
+                search_blob=f"{addon_id} {name} firefox addon",
+                extra_fields=json.dumps({'addon_type': addon.get('type')}),
+                parser_version=self.parser_version,
+            )
+    
+    def _parse_permissions(self, data: Dict, source_file: str, file_path: str, hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Parse Firefox permissions.json"""
+        permissions = data.get('permissions', [])
+        
+        try:
+            mtime = os.path.getmtime(file_path)
+            timestamp = datetime.utcfromtimestamp(mtime)
+        except Exception:
+            timestamp = datetime.now()
+        
+        for perm in permissions:
+            if not isinstance(perm, dict):
+                continue
+            
+            origin = perm.get('origin', '')
+            perm_type = perm.get('type', '')
+            
+            raw_data = {
+                'origin': origin,
+                'type': perm_type,
+                'permission': perm.get('permission'),
+                'expire_type': perm.get('expireType'),
+                'expire_time': perm.get('expireTime'),
+                'modify_time': perm.get('modificationTime'),
+            }
+            
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='firefox_json',
+                timestamp=timestamp,
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                target_path=origin,
+                raw_json=json.dumps(raw_data, default=str),
+                search_blob=f"{origin} {perm_type} firefox permission",
+                extra_fields=json.dumps({'subtype': 'permission', 'permission_type': perm_type}),
+                parser_version=self.parser_version,
+            )
+    
+    def _parse_generic(self, data: Any, source_file: str, file_path: str, hostname: str, filename: str) -> Generator[ParsedEvent, None, None]:
+        """Generic handler for other Firefox JSON files"""
+        try:
+            mtime = os.path.getmtime(file_path)
+            timestamp = datetime.utcfromtimestamp(mtime)
+        except Exception:
+            timestamp = datetime.now()
+        
+        subtype = self.FIREFOX_JSON_FILES.get(filename, 'unknown')
+        
+        if isinstance(data, dict):
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='firefox_json',
+                timestamp=timestamp,
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                raw_json=json.dumps(data, default=str),
+                search_blob=self.build_search_blob(data),
+                extra_fields=json.dumps({'subtype': subtype}),
+                parser_version=self.parser_version,
+            )
+        elif isinstance(data, list):
+            for idx, item in enumerate(data):
+                if isinstance(item, dict):
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type='firefox_json',
+                        timestamp=timestamp,
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        raw_json=json.dumps(item, default=str),
+                        search_blob=self.build_search_blob(item),
+                        extra_fields=json.dumps({'subtype': subtype, 'index': idx}),
+                        parser_version=self.parser_version,
+                    )

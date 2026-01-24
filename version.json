@@ -1,6 +1,15 @@
 {
-  "version": "3.139.00",
+  "version": "3.140.00",
   "changelog": [
+    {
+      "version": "3.140.00",
+      "date": "2026-01-24",
+      "changes": [
+        "Feature: FirefoxJSONParser for uncompressed Firefox JSON files",
+        "Feature: Parse handlers.json, extensions.json, logins.json, containers.json",
+        "Fix: Firefox browser artifacts now appear in Browser tab instead of Events tab"
+      ]
+    },
     {
       "version": "3.139.00",
       "date": "2026-01-23",

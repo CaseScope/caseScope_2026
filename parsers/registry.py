@@ -247,6 +247,23 @@ class ParserRegistry:
         except ImportError as e:
             logger.warning(f"Could not register Firefox JSONLZ4 parser: {e}")
         
+        try:
+            from parsers.browser_parsers import FirefoxJSONParser
+            self.register(FileTypeMapping(
+                artifact_type='firefox_json',
+                parser_class=FirefoxJSONParser,
+                extensions=['.json'],
+                # Uses path-based detection for Firefox profile directories
+                filename_patterns=[
+                    'handlers.json', 'extensions.json', 'logins.json',
+                    'containers.json', 'permissions.json', 'addons.json',
+                    'times.json', 'xulstore.json', 'search.json',
+                ],
+                priority=12,  # Between JSONLZ4 (10) and GenericJSON (90)
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register Firefox JSON parser: {e}")
+        
         # Windows artifact parsers
         try:
             from parsers.windows_parsers import ScheduledTaskParser
