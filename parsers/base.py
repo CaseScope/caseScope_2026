@@ -363,12 +363,17 @@ class BaseParser(ABC):
         
         # Try to extract from CyLR-style path
         # Pattern: .../hostname/C/Windows/...
+        # Also handles: .../hostname.zip_hash/C/Windows/... (reindex paths)
         path_parts = file_path.replace('\\', '/').split('/')
         for i, part in enumerate(path_parts):
             if part.upper() in ('C', 'D', 'E') and i > 0:
                 potential_host = path_parts[i - 1]
                 if potential_host and not potential_host.startswith('.'):
-                    return potential_host
+                    # Strip .zip_* suffix from reindexed archive paths
+                    # e.g., "PANEL-APP.zip_722e232a" -> "PANEL-APP"
+                    import re
+                    cleaned = re.sub(r'\.zip_[a-f0-9]+$', '', potential_host, flags=re.IGNORECASE)
+                    return cleaned if cleaned else potential_host
         
         return 'unknown'
     

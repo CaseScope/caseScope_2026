@@ -1,6 +1,13 @@
 {
-  "version": "3.142.03",
+  "version": "3.142.04",
   "changelog": [
+    {
+      "version": "3.142.04",
+      "date": "2026-01-24",
+      "changes": [
+        "Fix: Reindex and parsers now extract proper hostname from .zip_hash paths"
+      ]
+    },
     {
       "version": "3.142.03",
       "date": "2026-01-24",

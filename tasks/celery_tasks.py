@@ -886,16 +886,31 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
         if not os.path.isdir(storage_path):
             return {'success': False, 'error': 'Storage directory not found'}
         
-        # Collect all files
+        # Collect all files and extract hostname from path
+        import re
         files_found = []
         for root, dirs, files in os.walk(storage_path):
             for filename in files:
                 file_path = os.path.join(root, filename)
                 rel_path = os.path.relpath(file_path, storage_path)
+                
+                # Extract hostname from path: first directory before /C/ or /D/ etc.
+                # e.g., "PANEL-APP.zip_722e232a/C/Windows/..." -> "PANEL-APP"
+                hostname = ''
+                path_parts = rel_path.replace('\\', '/').split('/')
+                for i, part in enumerate(path_parts):
+                    if part.upper() in ('C', 'D', 'E') and i > 0:
+                        potential_host = path_parts[i - 1]
+                        if potential_host and not potential_host.startswith('.'):
+                            # Strip .zip_* suffix from archive paths
+                            hostname = re.sub(r'\.zip_[a-f0-9]+$', '', potential_host, flags=re.IGNORECASE)
+                            break
+                
                 files_found.append({
                     'path': file_path,
                     'filename': rel_path,
-                    'original_filename': filename
+                    'original_filename': filename,
+                    'hostname': hostname
                 })
         
         if not files_found:
@@ -935,7 +950,7 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
                     file_path=file_path,
                     file_size=file_size,
                     sha256_hash=sha256_hash,
-                    hostname='',
+                    hostname=file_info.get('hostname', ''),
                     file_type='Other',
                     upload_source='reindex',
                     is_archive=is_archive,
