@@ -1,6 +1,13 @@
 {
-  "version": "3.142.04",
+  "version": "3.142.05",
   "changelog": [
+    {
+      "version": "3.142.05",
+      "date": "2026-01-24",
+      "changes": [
+        "Fix: Ingestion now creates CaseFile records for files that fail hashing to prevent orphans"
+      ]
+    },
     {
       "version": "3.142.04",
       "date": "2026-01-24",

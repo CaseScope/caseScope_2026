@@ -1009,6 +1009,44 @@ def ingest_files():
                     
             except Exception as e:
                 errors.append(f'Error hashing {pf["filename"]}: {str(e)}')
+                # Still create CaseFile record to maintain forensic integrity
+                # Files with errors are moved to storage and tracked
+                try:
+                    parent_id = None
+                    parent_zip_key = pf.get('parent_zip')
+                    parent_zip_name = pf.get('parent_zip_name')
+                    if parent_zip_key and parent_zip_key in zip_records:
+                        parent_id = zip_records[parent_zip_key].id
+                    
+                    display_filename = pf['filename']
+                    if parent_zip_name:
+                        display_filename = f"{parent_zip_name}/{pf['filename']}"
+                    
+                    # Move to storage even on error
+                    storage_path = _move_to_storage(pf['path'], case_uuid)
+                    
+                    case_file = CaseFile(
+                        case_uuid=case_uuid,
+                        parent_id=parent_id,
+                        filename=display_filename,
+                        original_filename=pf['original_filename'],
+                        file_path=storage_path or pf['path'],
+                        file_size=0,  # Unknown due to error
+                        sha256_hash=None,
+                        hostname=pf['file_info'].get('host', ''),
+                        file_type=pf['file_info'].get('type', 'Other'),
+                        upload_source=pf['file_info'].get('source', 'web'),
+                        is_archive=pf.get('is_archive', False),
+                        is_extracted=pf.get('is_extracted', False),
+                        extraction_status=ExtractionStatus.NA,
+                        status='error',
+                        ingestion_status='error',
+                        uploaded_by=uploaded_by
+                    )
+                    db.session.add(case_file)
+                    db.session.flush()
+                except Exception as inner_e:
+                    logger.warning(f"Failed to create error record for {pf['filename']}: {inner_e}")
         
         # =============================================
         # PHASE 5: Cleanup upload directories
