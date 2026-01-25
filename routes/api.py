@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
+# Default paths for settings (also used by helper functions)
+DEFAULT_ARCHIVE_PATH = '/archive'
+DEFAULT_ORIGINALS_PATH = '/originals'
+
 # =============================================================================
 # FIELD:VALUE SEARCH MAPPING
 # =============================================================================
@@ -176,6 +180,64 @@ def _move_to_storage(file_path: str, case_uuid: str) -> str:
     except Exception as e:
         logger.error(f"Failed to move file to storage: {file_path}: {e}")
         return file_path  # Return original path on failure
+
+
+def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
+    """Move an original uploaded file (e.g., ZIP) to the originals archive folder.
+    
+    Args:
+        file_path: Current file path in uploads
+        case_uuid: Case UUID for folder structure
+        filename: Original filename to preserve
+        
+    Returns:
+        New file path in originals folder, or None if move failed
+    """
+    from models.system_settings import SystemSettings, SettingKeys
+    
+    if not file_path or not os.path.exists(file_path):
+        return None
+    
+    # Get originals path from settings
+    originals_base = SystemSettings.get(SettingKeys.ORIGINALS_PATH, DEFAULT_ORIGINALS_PATH)
+    
+    # Build destination: {originals_path}/{case_uuid}/{filename}
+    originals_dir = os.path.join(originals_base, case_uuid)
+    dest_path = os.path.join(originals_dir, filename)
+    
+    try:
+        # Create destination directory if needed
+        os.makedirs(originals_dir, exist_ok=True)
+        
+        # Set permissions on directory
+        try:
+            shutil.chown(originals_dir, user='casescope', group='casescope')
+        except (PermissionError, LookupError):
+            pass
+        
+        # Handle filename collision (same filename uploaded multiple times)
+        if os.path.exists(dest_path):
+            base, ext = os.path.splitext(filename)
+            counter = 1
+            while os.path.exists(dest_path):
+                dest_path = os.path.join(originals_dir, f"{base}_{counter}{ext}")
+                counter += 1
+        
+        # Move the file
+        shutil.move(file_path, dest_path)
+        
+        # Set permissions on file
+        try:
+            shutil.chown(dest_path, user='casescope', group='casescope')
+        except (PermissionError, LookupError):
+            pass
+        
+        logger.info(f"Moved original file to archive: {file_path} -> {dest_path}")
+        return dest_path
+        
+    except Exception as e:
+        logger.error(f"Failed to move original file to archive: {file_path}: {e}")
+        return None
 
 
 def get_folder_size_gb(path):
@@ -676,7 +738,7 @@ def ingest_files():
         errors = []
         processed_files = []  # Track files for hash stage
         zip_files = []  # Track zip files for extraction stage
-        zip_records = {}  # Map zip filename -> CaseFile record
+        zip_records = {}  # Map zip unique_key -> {'record': CaseFile, 'source_path': str, 'filename': str}
         non_zip_files = []  # Track non-zip files for move stage
         
         # =============================================
@@ -799,12 +861,13 @@ def ingest_files():
                         extraction_failures.append(f'{filename}: {str(e)}')
                 
                 # Record ZIP file in database (even if extraction failed)
+                # file_path will be updated after moving to originals folder
                 zip_record = CaseFile(
                     case_uuid=case_uuid,
                     parent_id=None,
                     filename=filename,
                     original_filename=filename,
-                    file_path=None,  # ZIP is deleted after extraction
+                    file_path=None,  # Will be set after moving to originals
                     file_size=zip_size,
                     sha256_hash=zip_hash,
                     hostname=file_info.get('host', ''),
@@ -818,7 +881,12 @@ def ingest_files():
                 )
                 db.session.add(zip_record)
                 db.session.flush()
-                zip_records[unique_zip_key] = zip_record  # Use unique key to handle same-name ZIPs
+                # Store record with source path for moving to originals later
+                zip_records[unique_zip_key] = {
+                    'record': zip_record,
+                    'source_path': source_path,
+                    'filename': filename
+                }
                 ingested_count += 1
         
         # =============================================
@@ -924,7 +992,7 @@ def ingest_files():
                 parent_zip_key = pf.get('parent_zip')  # Unique key with hash
                 parent_zip_name = pf.get('parent_zip_name')  # Original filename for display
                 if parent_zip_key and parent_zip_key in zip_records:
-                    parent_id = zip_records[parent_zip_key].id
+                    parent_id = zip_records[parent_zip_key]['record'].id
                 
                 # Build filename with zip prefix for extracted files (use original name for display)
                 display_filename = pf['filename']
@@ -1016,7 +1084,7 @@ def ingest_files():
                     parent_zip_key = pf.get('parent_zip')
                     parent_zip_name = pf.get('parent_zip_name')
                     if parent_zip_key and parent_zip_key in zip_records:
-                        parent_id = zip_records[parent_zip_key].id
+                        parent_id = zip_records[parent_zip_key]['record'].id
                     
                     display_filename = pf['filename']
                     if parent_zip_name:
@@ -1049,21 +1117,41 @@ def ingest_files():
                     logger.warning(f"Failed to create error record for {pf['filename']}: {inner_e}")
         
         # =============================================
-        # PHASE 5: Cleanup upload directories
+        # PHASE 5: Move ZIPs to originals, cleanup remaining files
         # =============================================
         yield json.dumps({'stage': 'cleanup'}) + '\n'
         
+        # Build set of zip source paths to preserve (move instead of delete)
+        zip_source_paths = set()
+        for zr_data in zip_records.values():
+            zip_source_paths.add(zr_data['source_path'])
+        
         try:
-            # Clean up web upload directory
+            # Move zip files to originals folder and update CaseFile records
+            for unique_key, zr_data in zip_records.items():
+                source_path = zr_data['source_path']
+                filename = zr_data['filename']
+                record = zr_data['record']
+                
+                if source_path and os.path.exists(source_path):
+                    originals_path = _move_to_originals(source_path, case_uuid, filename)
+                    if originals_path:
+                        # Update the CaseFile record with the new path
+                        record.file_path = originals_path
+                        logger.info(f"Archived original ZIP: {filename} -> {originals_path}")
+                    else:
+                        errors.append(f'Failed to archive original: {filename}')
+            
+            # Clean up remaining files in web upload directory (non-zip files)
             for f in os.listdir(web_path):
                 fpath = os.path.join(web_path, f)
-                if os.path.isfile(fpath):
+                if os.path.isfile(fpath) and fpath not in zip_source_paths:
                     os.remove(fpath)
             
-            # Clean up sftp upload directory
+            # Clean up remaining files in sftp upload directory (non-zip files)
             for f in os.listdir(sftp_path):
                 fpath = os.path.join(sftp_path, f)
-                if os.path.isfile(fpath):
+                if os.path.isfile(fpath) and fpath not in zip_source_paths:
                     os.remove(fpath)
         except Exception as e:
             errors.append(f'Cleanup error: {str(e)}')
@@ -7202,9 +7290,6 @@ def test_log_path():
 # ============================================================
 # FOLDER PATHS SETTINGS ENDPOINTS
 # ============================================================
-
-DEFAULT_ARCHIVE_PATH = '/archive'
-DEFAULT_ORIGINALS_PATH = '/originals'
 
 @api_bp.route('/settings/paths', methods=['GET'])
 @login_required

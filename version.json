@@ -1,6 +1,13 @@
 {
-  "version": "3.143.01",
+  "version": "3.144.00",
   "changelog": [
+    {
+      "version": "3.144.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Feature: Move uploaded ZIP files to originals archive folder instead of deleting after extraction"
+      ]
+    },
     {
       "version": "3.143.01",
       "date": "2026-01-25",
