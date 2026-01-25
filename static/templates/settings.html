@@ -3675,16 +3675,27 @@
                 </div>
                 
                 <div id="pathsSettingsForm" style="display: none;">
-                    <div class="form-row" style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px;">
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr; gap: 24px; margin-bottom: 24px;">
                         <div class="form-group">
                             <label class="form-label">Archive Path</label>
                             <div style="display: flex; gap: 8px;">
                                 <input type="text" id="archivePath" class="form-input" style="flex: 1;" placeholder="/archive">
-                                <button type="button" class="btn btn-secondary" onclick="testArchivePath()">
+                                <button type="button" class="btn btn-secondary" onclick="testFolderPath('archivePath')">
                                     Test Path
                                 </button>
                             </div>
                             <span class="form-help">Directory where archived cases and evidence are stored. Path must exist and be accessible.</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Originals Path</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="originalsPath" class="form-input" style="flex: 1;" placeholder="/originals">
+                                <button type="button" class="btn btn-secondary" onclick="testFolderPath('originalsPath')">
+                                    Test Path
+                                </button>
+                            </div>
+                            <span class="form-help">Directory for storing original uploaded files (NDJSON, archives). Path must exist and be accessible.</span>
                         </div>
                     </div>
                     
@@ -3730,10 +3741,11 @@
             document.getElementById('pathsSettingsForm').style.display = 'block';
             
             document.getElementById('archivePath').value = folderPathSettings.archive_path || '/archive';
+            document.getElementById('originalsPath').value = folderPathSettings.originals_path || '/originals';
         }
         
-        function testArchivePath() {
-            const path = document.getElementById('archivePath').value;
+        function testFolderPath(inputId) {
+            const path = document.getElementById(inputId).value;
             const status = document.getElementById('pathsStatus');
             
             status.style.display = 'block';
@@ -3765,7 +3777,8 @@
             const status = document.getElementById('pathsStatus');
             
             const settings = {
-                archive_path: document.getElementById('archivePath').value
+                archive_path: document.getElementById('archivePath').value,
+                originals_path: document.getElementById('originalsPath').value
             };
             
             status.style.display = 'block';

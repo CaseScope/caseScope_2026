@@ -1,6 +1,13 @@
 {
-  "version": "3.143.00",
+  "version": "3.143.01",
   "changelog": [
+    {
+      "version": "3.143.01",
+      "date": "2026-01-25",
+      "changes": [
+        "Feature: Add originals path setting for storing uploaded NDJSON/archives (default /originals)"
+      ]
+    },
     {
       "version": "3.143.00",
       "date": "2026-01-25",

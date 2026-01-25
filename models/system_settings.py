@@ -118,6 +118,7 @@ class SettingKeys:
     
     # Folder paths
     ARCHIVE_PATH = 'archive_path'                # Path for archived cases/evidence
+    ORIGINALS_PATH = 'originals_path'            # Path for original uploaded files (NDJSON, archives)
 
 
 # AI Model Configuration based on GPU VRAM

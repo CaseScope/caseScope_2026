@@ -7204,6 +7204,7 @@ def test_log_path():
 # ============================================================
 
 DEFAULT_ARCHIVE_PATH = '/archive'
+DEFAULT_ORIGINALS_PATH = '/originals'
 
 @api_bp.route('/settings/paths', methods=['GET'])
 @login_required
@@ -7217,6 +7218,7 @@ def get_folder_path_settings():
         
         settings = {
             'archive_path': SystemSettings.get(SettingKeys.ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH),
+            'originals_path': SystemSettings.get(SettingKeys.ORIGINALS_PATH, DEFAULT_ORIGINALS_PATH),
         }
         
         return jsonify({
@@ -7267,6 +7269,33 @@ def set_folder_path_settings():
                 SystemSettings.set(SettingKeys.ARCHIVE_PATH, path, 
                                  value_type='string', updated_by=current_user.username)
                 audit_setting_change('archive_path', old_value, path)
+        
+        # Validate and save originals path
+        if 'originals_path' in data:
+            path = data['originals_path'].strip()
+            
+            if not path:
+                return jsonify({'success': False, 'error': 'Originals path is required'}), 400
+            
+            if not path.startswith('/'):
+                return jsonify({'success': False, 'error': 'Originals path must be an absolute path'}), 400
+            
+            # Verify path exists (not creating, just checking)
+            if not os.path.exists(path):
+                return jsonify({'success': False, 'error': f'Path does not exist: {path}'}), 400
+            
+            if not os.path.isdir(path):
+                return jsonify({'success': False, 'error': f'Path is not a directory: {path}'}), 400
+            
+            # Test if path is readable
+            if not os.access(path, os.R_OK):
+                return jsonify({'success': False, 'error': f'Path is not readable: {path}'}), 400
+            
+            old_value = SystemSettings.get(SettingKeys.ORIGINALS_PATH, DEFAULT_ORIGINALS_PATH)
+            if old_value != path:
+                SystemSettings.set(SettingKeys.ORIGINALS_PATH, path, 
+                                 value_type='string', updated_by=current_user.username)
+                audit_setting_change('originals_path', old_value, path)
         
         return jsonify({'success': True, 'message': 'Folder path settings saved'})
         
