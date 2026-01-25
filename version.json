@@ -1,6 +1,17 @@
 {
-  "version": "3.149.00",
+  "version": "3.150.00",
   "changelog": [
+    {
+      "version": "3.150.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Added case archiving system: compress and move case storage to archive folder when status set to archived",
+        "Added case restore functionality: extract archived cases back to active storage with progress tracking",
+        "Archive modal shows progress with stage and file-level tracking",
+        "Archived cases shown with archive icon in case list, click to restore",
+        "Restore option to delete archive after restore (default: keep as backup)"
+      ]
+    },
     {
       "version": "3.149.00",
       "date": "2026-01-25",

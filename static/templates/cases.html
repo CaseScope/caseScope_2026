@@ -53,9 +53,9 @@
         <tbody>
             {% if cases %}
                 {% for case in cases %}
-                <tr class="case-row" data-case-uuid="{{ case.uuid }}" onclick="selectCase('{{ case.uuid }}')">
+                <tr class="case-row {% if case.status == 'archived' %}archived-row{% endif %}" data-case-uuid="{{ case.uuid }}" data-case-status="{{ case.status }}" data-case-name="{{ case.name }}" onclick="handleCaseClick('{{ case.uuid }}', '{{ case.status }}', '{{ case.name }}')">
                     <td>
-                        <span class="case-name-link">{{ case.name }}</span>
+                        <span class="case-name-link">{% if case.status == 'archived' %}📦 {% endif %}{{ case.name }}</span>
                     </td>
                     <td>{{ case.company }}</td>
                     <td class="text-muted text-small">{{ case.uuid[:8] }}...</td>
@@ -114,12 +114,277 @@
         <div class="case-popup-row"><strong>EDR Report:</strong> <span id="popup-edr"></span></div>
     </div>
 </div>
+
+<!-- Restore Confirmation Modal -->
+<div class="modal-overlay" id="restoreConfirmModal" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 class="modal-title">Restore Archived Case</h3>
+            <button class="modal-close" onclick="closeRestoreModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-info" style="margin-bottom: 16px;">
+                <p style="font-size: 16px; margin-bottom: 12px;">📦 <strong id="restoreCaseName"></strong></p>
+                <p>This case is archived. Would you like to restore it?</p>
+            </div>
+            <div id="restoreArchiveInfo" style="margin-bottom: 16px; padding: 12px; background: var(--bg-tertiary, #f5f5f5); border-radius: 6px;">
+                <p style="margin: 0;">Loading archive info...</p>
+            </div>
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="deleteArchiveCheckbox">
+                    <span>Delete archive after restore (reclaim disk space)</span>
+                </label>
+                <span class="form-hint" style="margin-left: 24px; display: block; margin-top: 4px;">Leave unchecked to keep archive as backup</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeRestoreModal()">Cancel</button>
+            <button class="btn btn-primary" id="restoreConfirmBtn" onclick="startRestore()">
+                <span id="restoreConfirmText">Restore Case</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Restore Progress Modal -->
+<div class="modal-overlay" id="restoreProgressModal" style="display: none;">
+    <div class="modal-container modal-progress">
+        <div class="modal-header">
+            <h3 class="modal-title">Restoring Case</h3>
+        </div>
+        <div class="modal-body">
+            <div class="progress-stages" id="restoreStages">
+                <div class="progress-stage" data-stage="validating">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Validating archive</span>
+                </div>
+                <div class="progress-stage" data-stage="extracting_storage">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Extracting storage files</span>
+                </div>
+                <div class="progress-stage" data-stage="extracting_evidence">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Extracting evidence files</span>
+                </div>
+                <div class="progress-stage" data-stage="verifying_extraction">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Verifying extraction</span>
+                </div>
+                <div class="progress-stage" data-stage="deleting_archive">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Cleaning up</span>
+                </div>
+            </div>
+            
+            <div class="progress-details" id="restoreProgressDetails" style="margin-top: 16px; padding: 12px; background: var(--bg-tertiary, #f5f5f5); border-radius: 6px;">
+                <p id="restoreProgressText" style="margin: 0; font-size: 14px;">Starting restore...</p>
+                <div class="progress-bar-container" style="margin-top: 8px; height: 8px; background: var(--border-color, #ddd); border-radius: 4px; overflow: hidden;">
+                    <div class="progress-bar" id="restoreProgressBar" style="width: 0%; height: 100%; background: var(--primary-color, #007bff); transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            
+            <!-- Error display -->
+            <div id="restoreErrorDisplay" style="display: none; margin-top: 16px; padding: 12px; background: var(--error-bg, #f8d7da); border: 1px solid var(--error-border, #f5c6cb); border-radius: 6px; color: var(--error-color, #721c24);">
+                <strong>Error:</strong> <span id="restoreErrorText"></span>
+            </div>
+            
+            <!-- Success display -->
+            <div id="restoreSuccessDisplay" style="display: none; margin-top: 16px; padding: 12px; background: var(--success-bg, #d4edda); border: 1px solid var(--success-border, #c3e6cb); border-radius: 6px; color: var(--success-color, #155724);">
+                <strong>Success!</strong> Case has been restored and is ready to use.
+            </div>
+        </div>
+        <div class="modal-footer" id="restoreProgressFooter" style="display: none;">
+            <button class="btn btn-secondary" onclick="closeRestoreProgressModal()">Close</button>
+            <button class="btn btn-primary" onclick="openRestoredCase()">Open Case</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+let currentRestoreUuid = null;
+let restoreJobId = null;
+let restorePollingInterval = null;
+
+function handleCaseClick(uuid, status, name) {
+    if (status === 'archived') {
+        showRestoreConfirmation(uuid, name);
+    } else {
+        selectCase(uuid);
+    }
+}
+
 function selectCase(uuid) {
     window.location.href = '/cases/select/' + uuid;
+}
+
+function showRestoreConfirmation(uuid, name) {
+    currentRestoreUuid = uuid;
+    document.getElementById('restoreCaseName').textContent = name;
+    document.getElementById('deleteArchiveCheckbox').checked = false;
+    document.getElementById('restoreConfirmModal').style.display = 'flex';
+    
+    // Fetch archive info
+    fetch('/api/case/' + uuid + '/archive/info')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const manifest = data.manifest;
+                const storageMB = (manifest.storage_size_bytes || 0) / (1024 * 1024);
+                const evidenceMB = (manifest.evidence_size_bytes || 0) / (1024 * 1024);
+                const compressedMB = (manifest.compressed_size_bytes || 0) / (1024 * 1024);
+                const archivedAt = manifest.archived_at ? new Date(manifest.archived_at).toLocaleString() : 'Unknown';
+                
+                document.getElementById('restoreArchiveInfo').innerHTML = 
+                    '<p style="margin: 0 0 8px 0;"><strong>Archived:</strong> ' + archivedAt + '</p>' +
+                    '<p style="margin: 0 0 8px 0;"><strong>Original Size:</strong> ' + (storageMB + evidenceMB).toFixed(2) + ' MB</p>' +
+                    '<p style="margin: 0;"><strong>Compressed Size:</strong> ' + compressedMB.toFixed(2) + ' MB</p>';
+            } else {
+                document.getElementById('restoreArchiveInfo').innerHTML = 
+                    '<p style="margin: 0;">Unable to load archive info</p>';
+            }
+        })
+        .catch(err => {
+            document.getElementById('restoreArchiveInfo').innerHTML = 
+                '<p style="margin: 0;">Unable to load archive info</p>';
+        });
+}
+
+function closeRestoreModal() {
+    document.getElementById('restoreConfirmModal').style.display = 'none';
+    currentRestoreUuid = null;
+}
+
+function startRestore() {
+    const btn = document.getElementById('restoreConfirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
+    
+    const deleteArchive = document.getElementById('deleteArchiveCheckbox').checked;
+    
+    fetch('/api/case/' + currentRestoreUuid + '/restore', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            delete_archive: deleteArchive
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            restoreJobId = data.job_id;
+            document.getElementById('restoreConfirmModal').style.display = 'none';
+            document.getElementById('restoreProgressModal').style.display = 'flex';
+            startPollingRestoreStatus();
+        } else {
+            alert('Error starting restore: ' + data.error);
+            btn.disabled = false;
+            btn.innerHTML = '<span id="restoreConfirmText">Restore Case</span>';
+        }
+    })
+    .catch(err => {
+        alert('Error starting restore: ' + err);
+        btn.disabled = false;
+        btn.innerHTML = '<span id="restoreConfirmText">Restore Case</span>';
+    });
+}
+
+function startPollingRestoreStatus() {
+    restorePollingInterval = setInterval(pollRestoreStatus, 1000);
+    pollRestoreStatus();
+}
+
+function pollRestoreStatus() {
+    fetch('/api/case/' + currentRestoreUuid + '/restore/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateRestoreProgress(data.job);
+            }
+        })
+        .catch(err => console.error('Error polling status:', err));
+}
+
+function updateRestoreProgress(job) {
+    const stages = ['validating', 'extracting_storage', 'extracting_evidence', 'verifying_extraction', 'deleting_archive', 'cleanup', 'complete'];
+    const currentStage = job.current_stage || 'validating';
+    const currentIndex = stages.indexOf(currentStage);
+    
+    // Update stage indicators
+    document.querySelectorAll('#restoreStages .progress-stage').forEach((el, idx) => {
+        const stageEl = el.querySelector('.stage-icon');
+        const stageName = el.dataset.stage;
+        const stageIndex = stages.indexOf(stageName);
+        
+        if (stageIndex < currentIndex) {
+            stageEl.textContent = '✓';
+            el.classList.add('completed');
+            el.classList.remove('active');
+        } else if (stageIndex === currentIndex) {
+            stageEl.textContent = '◉';
+            el.classList.add('active');
+            el.classList.remove('completed');
+        } else {
+            stageEl.textContent = '○';
+            el.classList.remove('active', 'completed');
+        }
+    });
+    
+    // Update progress bar
+    const progressPercent = job.progress_percent || 0;
+    document.getElementById('restoreProgressBar').style.width = progressPercent + '%';
+    
+    // Update progress text
+    let progressText = job.stage_description || 'Processing...';
+    if (job.total_file_count > 0) {
+        progressText += ' (' + job.current_file_count + ' of ' + job.total_file_count + ' files)';
+    }
+    if (job.current_file_name) {
+        progressText += '<br><small>' + job.current_file_name + '</small>';
+    }
+    document.getElementById('restoreProgressText').innerHTML = progressText;
+    
+    // Check for completion or failure
+    if (job.status === 'completed') {
+        clearInterval(restorePollingInterval);
+        showRestoreSuccess();
+    } else if (job.status === 'failed') {
+        clearInterval(restorePollingInterval);
+        showRestoreError(job.error_message || 'Unknown error');
+    }
+}
+
+function showRestoreSuccess() {
+    document.getElementById('restoreProgressDetails').style.display = 'none';
+    document.getElementById('restoreSuccessDisplay').style.display = 'block';
+    document.getElementById('restoreProgressFooter').style.display = 'flex';
+    
+    // Mark all stages complete
+    document.querySelectorAll('#restoreStages .progress-stage').forEach(el => {
+        el.querySelector('.stage-icon').textContent = '✓';
+        el.classList.add('completed');
+        el.classList.remove('active');
+    });
+}
+
+function showRestoreError(errorMessage) {
+    document.getElementById('restoreProgressDetails').style.display = 'none';
+    document.getElementById('restoreErrorDisplay').style.display = 'block';
+    document.getElementById('restoreErrorText').textContent = errorMessage;
+    document.getElementById('restoreProgressFooter').style.display = 'flex';
+}
+
+function closeRestoreProgressModal() {
+    document.getElementById('restoreProgressModal').style.display = 'none';
+    window.location.reload();
+}
+
+function openRestoredCase() {
+    window.location.href = '/cases/select/' + currentRestoreUuid;
 }
 
 function filterCases() {
@@ -215,4 +480,52 @@ function hidePopup() {
     document.getElementById('casePopup').style.display = 'none';
 }
 </script>
+
+<style>
+.archived-row {
+    opacity: 0.7;
+    background: var(--bg-tertiary, #f8f9fa);
+}
+
+.archived-row:hover {
+    opacity: 1;
+}
+
+.progress-stage {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    color: var(--text-muted, #6c757d);
+}
+
+.progress-stage.active {
+    color: var(--primary-color, #007bff);
+    font-weight: 500;
+}
+
+.progress-stage.completed {
+    color: var(--success-color, #28a745);
+}
+
+.stage-icon {
+    width: 20px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.spinner-border-sm {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 0.15em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-border .75s linear infinite;
+}
+
+@keyframes spinner-border {
+    to { transform: rotate(360deg); }
+}
+</style>
 {% endblock %}

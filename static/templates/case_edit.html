@@ -143,9 +143,326 @@
             
             <div class="form-actions">
                 <a href="{{ url_for('main.case_dashboard') }}" class="btn btn-secondary">Cancel</a>
-                <button type="submit" class="btn btn-primary">Save Changes</button>
+                <button type="submit" class="btn btn-primary" id="saveBtn">Save Changes</button>
             </div>
         </form>
     </div>
 </div>
+
+<!-- Archive Confirmation Modal -->
+<div class="modal-overlay" id="archiveConfirmModal" style="display: none;">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 class="modal-title">Archive Case</h3>
+            <button class="modal-close" onclick="closeArchiveModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-warning" style="background: var(--warning-bg, #fff3cd); border: 1px solid var(--warning-border, #ffc107); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <strong>Warning:</strong> Archiving this case will:
+                <ul style="margin: 8px 0 0 20px; padding: 0;">
+                    <li>Compress all storage files to save disk space</li>
+                    <li>Remove original files from active storage</li>
+                    <li>Case will be read-only until restored</li>
+                </ul>
+            </div>
+            <div class="modal-info" style="margin-bottom: 16px;">
+                <p><strong>Case:</strong> {{ case.name }}</p>
+                <p><strong>Company:</strong> {{ case.company }}</p>
+                <p id="archiveStorageInfo">Calculating storage size...</p>
+            </div>
+            <p>This operation may take several minutes for large cases. You can close this dialog and the archive will continue in the background.</p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeArchiveModal()">Cancel</button>
+            <button class="btn btn-primary" id="archiveConfirmBtn" onclick="startArchive()">
+                <span id="archiveConfirmText">Archive Case</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Archive Progress Modal -->
+<div class="modal-overlay" id="archiveProgressModal" style="display: none;">
+    <div class="modal-container modal-progress">
+        <div class="modal-header">
+            <h3 class="modal-title">Archiving Case</h3>
+        </div>
+        <div class="modal-body">
+            <div class="progress-stages" id="archiveStages">
+                <div class="progress-stage" data-stage="validating">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Validating archive path</span>
+                </div>
+                <div class="progress-stage" data-stage="compressing_storage">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Compressing storage files</span>
+                </div>
+                <div class="progress-stage" data-stage="compressing_evidence">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Compressing evidence files</span>
+                </div>
+                <div class="progress-stage" data-stage="creating_manifest">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Creating manifest</span>
+                </div>
+                <div class="progress-stage" data-stage="verifying">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Verifying archive integrity</span>
+                </div>
+                <div class="progress-stage" data-stage="cleanup">
+                    <span class="stage-icon">○</span>
+                    <span class="stage-text">Cleaning up original files</span>
+                </div>
+            </div>
+            
+            <div class="progress-details" id="archiveProgressDetails" style="margin-top: 16px; padding: 12px; background: var(--bg-tertiary, #f5f5f5); border-radius: 6px;">
+                <p id="archiveProgressText" style="margin: 0; font-size: 14px;">Starting archive...</p>
+                <div class="progress-bar-container" style="margin-top: 8px; height: 8px; background: var(--border-color, #ddd); border-radius: 4px; overflow: hidden;">
+                    <div class="progress-bar" id="archiveProgressBar" style="width: 0%; height: 100%; background: var(--primary-color, #007bff); transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            
+            <!-- Error display -->
+            <div id="archiveErrorDisplay" style="display: none; margin-top: 16px; padding: 12px; background: var(--error-bg, #f8d7da); border: 1px solid var(--error-border, #f5c6cb); border-radius: 6px; color: var(--error-color, #721c24);">
+                <strong>Error:</strong> <span id="archiveErrorText"></span>
+            </div>
+            
+            <!-- Success display -->
+            <div id="archiveSuccessDisplay" style="display: none; margin-top: 16px; padding: 12px; background: var(--success-bg, #d4edda); border: 1px solid var(--success-border, #c3e6cb); border-radius: 6px; color: var(--success-color, #155724);">
+                <strong>Success!</strong> Case has been archived.
+                <div id="archiveStats" style="margin-top: 8px;"></div>
+            </div>
+        </div>
+        <div class="modal-footer" id="archiveProgressFooter" style="display: none;">
+            <button class="btn btn-primary" onclick="closeArchiveProgressAndRedirect()">Close</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseUuid = '{{ case.uuid }}';
+const originalStatus = '{{ case.status }}';
+let archiveJobId = null;
+let archivePollingInterval = null;
+
+// Track original status selection
+const statusSelect = document.getElementById('status');
+const caseForm = document.querySelector('.case-form');
+
+// Intercept form submission when status changes to 'archived'
+caseForm.addEventListener('submit', function(e) {
+    const selectedStatus = statusSelect.value;
+    
+    if (selectedStatus === 'archived' && originalStatus !== 'archived') {
+        e.preventDefault();
+        showArchiveConfirmation();
+        return false;
+    }
+});
+
+function showArchiveConfirmation() {
+    // Fetch storage size info
+    fetch('/api/case/' + caseUuid + '/storage/size')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const storageSize = data.storage.size_gb || 0;
+                const evidenceSize = data.evidence.size_gb || 0;
+                const totalSize = (storageSize + evidenceSize).toFixed(2);
+                const fileCount = (data.storage.file_count || 0) + (data.evidence.file_count || 0);
+                
+                document.getElementById('archiveStorageInfo').innerHTML = 
+                    '<strong>Storage Size:</strong> ' + totalSize + ' GB (' + fileCount + ' files)';
+            } else {
+                document.getElementById('archiveStorageInfo').innerHTML = 
+                    '<strong>Storage Size:</strong> Unable to calculate';
+            }
+        })
+        .catch(err => {
+            document.getElementById('archiveStorageInfo').innerHTML = 
+                '<strong>Storage Size:</strong> Unable to calculate';
+        });
+    
+    document.getElementById('archiveConfirmModal').style.display = 'flex';
+}
+
+function closeArchiveModal() {
+    document.getElementById('archiveConfirmModal').style.display = 'none';
+    // Reset status selection
+    statusSelect.value = originalStatus;
+}
+
+function startArchive() {
+    const btn = document.getElementById('archiveConfirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
+    
+    fetch('/api/case/' + caseUuid + '/archive', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            archiveJobId = data.job_id;
+            document.getElementById('archiveConfirmModal').style.display = 'none';
+            document.getElementById('archiveProgressModal').style.display = 'flex';
+            startPollingArchiveStatus();
+        } else {
+            alert('Error starting archive: ' + data.error);
+            btn.disabled = false;
+            btn.innerHTML = '<span id="archiveConfirmText">Archive Case</span>';
+        }
+    })
+    .catch(err => {
+        alert('Error starting archive: ' + err);
+        btn.disabled = false;
+        btn.innerHTML = '<span id="archiveConfirmText">Archive Case</span>';
+    });
+}
+
+function startPollingArchiveStatus() {
+    archivePollingInterval = setInterval(pollArchiveStatus, 1000);
+    pollArchiveStatus(); // Initial poll
+}
+
+function pollArchiveStatus() {
+    fetch('/api/case/' + caseUuid + '/archive/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateArchiveProgress(data.job);
+            }
+        })
+        .catch(err => console.error('Error polling status:', err));
+}
+
+function updateArchiveProgress(job) {
+    const stages = ['validating', 'compressing_storage', 'compressing_evidence', 'creating_manifest', 'verifying', 'cleanup', 'complete'];
+    const currentStage = job.current_stage || 'validating';
+    const currentIndex = stages.indexOf(currentStage);
+    
+    // Update stage indicators
+    document.querySelectorAll('.progress-stage').forEach((el, idx) => {
+        const stageEl = el.querySelector('.stage-icon');
+        const stageName = el.dataset.stage;
+        const stageIndex = stages.indexOf(stageName);
+        
+        if (stageIndex < currentIndex) {
+            stageEl.textContent = '✓';
+            el.classList.add('completed');
+            el.classList.remove('active');
+        } else if (stageIndex === currentIndex) {
+            stageEl.textContent = '◉';
+            el.classList.add('active');
+            el.classList.remove('completed');
+        } else {
+            stageEl.textContent = '○';
+            el.classList.remove('active', 'completed');
+        }
+    });
+    
+    // Update progress bar
+    const progressPercent = job.progress_percent || 0;
+    document.getElementById('archiveProgressBar').style.width = progressPercent + '%';
+    
+    // Update progress text
+    let progressText = job.stage_description || 'Processing...';
+    if (job.total_file_count > 0) {
+        progressText += ' (' + job.current_file_count + ' of ' + job.total_file_count + ' files)';
+    }
+    if (job.current_file_name) {
+        progressText += '<br><small>' + job.current_file_name + '</small>';
+    }
+    document.getElementById('archiveProgressText').innerHTML = progressText;
+    
+    // Check for completion or failure
+    if (job.status === 'completed') {
+        clearInterval(archivePollingInterval);
+        showArchiveSuccess(job);
+    } else if (job.status === 'failed') {
+        clearInterval(archivePollingInterval);
+        showArchiveError(job.error_message || 'Unknown error');
+    }
+}
+
+function showArchiveSuccess(job) {
+    document.getElementById('archiveProgressDetails').style.display = 'none';
+    document.getElementById('archiveSuccessDisplay').style.display = 'block';
+    document.getElementById('archiveProgressFooter').style.display = 'flex';
+    
+    // Show stats
+    if (job.storage_size_bytes || job.compressed_size_bytes) {
+        const originalMB = ((job.storage_size_bytes || 0) + (job.evidence_size_bytes || 0)) / (1024 * 1024);
+        const compressedMB = (job.compressed_size_bytes || 0) / (1024 * 1024);
+        const ratio = originalMB > 0 ? ((1 - compressedMB / originalMB) * 100).toFixed(1) : 0;
+        
+        document.getElementById('archiveStats').innerHTML = 
+            'Original: ' + originalMB.toFixed(2) + ' MB → Compressed: ' + compressedMB.toFixed(2) + ' MB (' + ratio + '% reduction)';
+    }
+    
+    // Mark all stages complete
+    document.querySelectorAll('.progress-stage').forEach(el => {
+        el.querySelector('.stage-icon').textContent = '✓';
+        el.classList.add('completed');
+        el.classList.remove('active');
+    });
+}
+
+function showArchiveError(errorMessage) {
+    document.getElementById('archiveProgressDetails').style.display = 'none';
+    document.getElementById('archiveErrorDisplay').style.display = 'block';
+    document.getElementById('archiveErrorText').textContent = errorMessage;
+    document.getElementById('archiveProgressFooter').style.display = 'flex';
+}
+
+function closeArchiveProgressAndRedirect() {
+    document.getElementById('archiveProgressModal').style.display = 'none';
+    window.location.href = '{{ url_for("main.case_dashboard") }}';
+}
+</script>
+
+<style>
+.progress-stage {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    color: var(--text-muted, #6c757d);
+}
+
+.progress-stage.active {
+    color: var(--primary-color, #007bff);
+    font-weight: 500;
+}
+
+.progress-stage.completed {
+    color: var(--success-color, #28a745);
+}
+
+.stage-icon {
+    width: 20px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.spinner-border-sm {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 0.15em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-border .75s linear infinite;
+}
+
+@keyframes spinner-border {
+    to { transform: rotate(360deg); }
+}
+</style>
 {% endblock %}

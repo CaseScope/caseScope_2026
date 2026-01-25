@@ -33,6 +33,10 @@ from models.memory_data import (
     MemoryModule, MemoryCredential, MemorySID, MemoryInfo
 )
 from models.pcap_file import PcapFile, PcapFileStatus
+from models.archive_job import (
+    ArchiveJob, ArchiveJobType, ArchiveJobStatus, ArchiveStage,
+    STAGE_DESCRIPTIONS, ARCHIVE_STAGES, RESTORE_STAGES
+)
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -53,5 +57,7 @@ __all__ = [
     'FieldEnhancer', 'seed_field_enhancers',
     'MemoryProcess', 'MemoryNetwork', 'MemoryService', 'MemoryMalfind',
     'MemoryModule', 'MemoryCredential', 'MemorySID', 'MemoryInfo',
-    'PcapFile', 'PcapFileStatus'
+    'PcapFile', 'PcapFileStatus',
+    'ArchiveJob', 'ArchiveJobType', 'ArchiveJobStatus', 'ArchiveStage',
+    'STAGE_DESCRIPTIONS', 'ARCHIVE_STAGES', 'RESTORE_STAGES'
 ]
