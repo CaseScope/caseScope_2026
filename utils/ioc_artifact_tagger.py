@@ -215,11 +215,36 @@ def extract_searchable_terms(value: str, ioc_type: str) -> List[Tuple[str, bool]
     return unique_terms
 
 
+def _can_use_token_match(value: str) -> bool:
+    """Check if a value can be used with ClickHouse hasTokenCaseInsensitive().
+    
+    ClickHouse token functions treat certain characters as separators.
+    If the needle contains separators, it will only match the first token,
+    causing false positives (e.g., 'advanced ip' would only match 'advanced').
+    """
+    if not value:
+        return False
+    
+    # Characters that ClickHouse treats as separators in hasTokenCaseInsensitive
+    separator_chars = {'.', ',', ':', ';', ' ', '\t', '\n', '\r', '!', '?', 
+                       '@', '#', '$', '%', '^', '&', '*', '(', ')', '[', ']',
+                       '{', '}', '<', '>', '/', '\\', '|', '~', '`', '"', "'"}
+    
+    for char in value:
+        if char in separator_chars:
+            return False
+    return True
+
+
 def build_token_match_clause(value: str, columns: list = None) -> str:
     """Build hasTokenCaseInsensitive clause for token matching.
     
     Token matching ensures 'ltsvc' matches 'c:\\ltsvc\\' but NOT 'altsvc'.
     Searches both raw_json and search_blob for full event data coverage.
+    
+    IMPORTANT: If value contains separator characters (spaces, dots, etc.),
+    hasTokenCaseInsensitive will only match the first token, causing false
+    positives. This function will fall back to substring matching in that case.
     
     Args:
         value: The IOC value to match as a token
@@ -231,6 +256,12 @@ def build_token_match_clause(value: str, columns: list = None) -> str:
         columns = ['raw_json', 'search_blob']
     elif isinstance(columns, str):
         columns = ['raw_json', 'search_blob']
+    
+    # Safety check: if value contains separators, fall back to substring matching
+    # to prevent hasTokenCaseInsensitive from matching only the first token
+    if not _can_use_token_match(value):
+        logger.warning(f"build_token_match_clause called with value containing separators: '{value}'. Using substring matching instead.")
+        return build_substring_match_clause(value, columns)
     
     escaped = value.replace("'", "''")
     clauses = [f"hasTokenCaseInsensitive({col}, '{escaped}')" for col in columns]
@@ -267,20 +298,10 @@ def _build_substring_for_column(value: str, column: str) -> str:
             pattern = '%' + '%'.join(escaped_parts) + '%'
             return f"lower({column}) LIKE '{pattern}'"
     
-    # For values with spaces (command lines, etc.), use wildcards between words
-    # This handles whitespace variations (single vs double/multiple spaces)
-    if ' ' in value_lower:
-        parts = value_lower.split()
-        escaped_parts = []
-        for part in parts:
-            if part:
-                escaped = part.replace("'", "''").replace('%', '\\%').replace('_', '\\_')
-                escaped_parts.append(escaped)
-        if escaped_parts:
-            pattern = '%' + '%'.join(escaped_parts) + '%'
-            return f"lower({column}) LIKE '{pattern}'"
-    
-    # Standard substring match for simple values
+    # Standard substring match - match the exact phrase including spaces
+    # For values with spaces (like "advanced ip"), we match the literal phrase
+    # rather than splitting into separate words with wildcards between them
+    # (splitting caused false positives where "advanced" and "ip" matched separately)
     escaped = value_lower.replace("'", "''").replace('%', '\\%').replace('_', '\\_')
     return f"lower({column}) LIKE '%{escaped}%'"
 
@@ -347,9 +368,17 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
     """
     # Build primary match clause based on match_type
     # All functions now search both raw_json and search_blob by default
-    if match_type == 'token':
+    # SAFETY: If match_type is 'token' but value contains separators,
+    # fall back to substring matching to prevent false positives
+    # (hasTokenCaseInsensitive silently matches only the first token)
+    effective_match_type = match_type
+    if match_type == 'token' and not _can_use_token_match(ioc_value):
+        logger.debug(f"IOC '{ioc_value}' contains separators, falling back to substring matching")
+        effective_match_type = 'substring'
+    
+    if effective_match_type == 'token':
         primary_clause = build_token_match_clause(ioc_value)
-    elif match_type == 'regex':
+    elif effective_match_type == 'regex':
         primary_clause = build_regex_match_clause(ioc_value)
     else:  # substring (default)
         primary_clause = build_substring_match_clause(ioc_value)
