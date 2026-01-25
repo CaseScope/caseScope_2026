@@ -4004,11 +4004,26 @@ def get_unified_processes(case_id):
         if source_filter in ('', 'events'):
             client = get_client()
             
-            # Build WHERE clause
+            # Build WHERE clause - filter for actual executable file names
+            # This excludes garbage data like log messages stored in process_name field
+            executable_filter = """(
+                process_name LIKE '%.exe' OR 
+                process_name LIKE '%.dll' OR 
+                process_name LIKE '%.bat' OR 
+                process_name LIKE '%.cmd' OR 
+                process_name LIKE '%.ps1' OR 
+                process_name LIKE '%.vbs' OR 
+                process_name LIKE '%.com' OR 
+                process_name LIKE '%.msi' OR
+                process_name LIKE '%.js' OR
+                process_name LIKE '%.wsf'
+            )"""
+            
             where_clauses = [
                 "case_id = {case_id:UInt32}",
                 "process_name != ''",
-                "process_id > 0"
+                "process_id > 0",
+                executable_filter
             ]
             params = {'case_id': case_id}
             
@@ -4034,6 +4049,7 @@ def get_unified_processes(case_id):
             # Only fetch events if not filtering to memory only
             if source_filter != 'memory':
                 # Main query - deduplicate by hostname + pid + process_name, take latest timestamp
+                # Include child count in a single query for efficiency
                 query = f"""
                     SELECT 
                         source_host,
@@ -4056,26 +4072,28 @@ def get_unified_processes(case_id):
                 
                 result = client.query(query, parameters=params)
                 
+                # Batch check for children - collect all PIDs first
+                pid_list = [(row[0], row[1]) for row in result.result_rows]  # (hostname, pid)
+                children_set = set()
+                
+                if pid_list:
+                    # Check which PIDs have children in a single query
+                    pids_str = ','.join([str(p[1]) for p in pid_list if p[1]])
+                    if pids_str:
+                        child_check_query = f"""
+                            SELECT DISTINCT parent_pid
+                            FROM events
+                            WHERE case_id = {{case_id:UInt32}}
+                            AND parent_pid IN ({pids_str})
+                            AND process_name != ''
+                        """
+                        child_result = client.query(child_check_query, parameters={'case_id': case_id})
+                        children_set = {row[0] for row in child_result.result_rows if row[0]}
+                
                 for row in result.result_rows:
                     hostname, pid, proc_name, latest_ts, first_ts, ppid, parent_proc, cmdline, username, proc_path, evt_count = row
                     
-                    # Check for children
-                    child_query = """
-                        SELECT count() FROM events 
-                        WHERE case_id = {case_id:UInt32} 
-                        AND source_host = {hostname:String}
-                        AND parent_pid = {pid:UInt64}
-                        AND process_name != ''
-                        LIMIT 1
-                    """
-                    child_result = client.query(child_query, parameters={
-                        'case_id': case_id, 
-                        'hostname': hostname, 
-                        'pid': pid or 0
-                    })
-                    has_children = child_result.result_rows[0][0] > 0 if child_result.result_rows else False
-                    
-                    # Check for parent
+                    has_children = pid in children_set
                     has_parent = ppid and ppid > 0
                     
                     processes.append({
@@ -4481,7 +4499,7 @@ def get_process_hostnames(case_id):
         
         hostnames = set()
         
-        # From events
+        # From events - filter for actual executables
         client = get_client()
         query = """
             SELECT DISTINCT source_host
@@ -4489,6 +4507,16 @@ def get_process_hostnames(case_id):
             WHERE case_id = {case_id:UInt32}
             AND process_name != ''
             AND process_id > 0
+            AND (
+                process_name LIKE '%.exe' OR 
+                process_name LIKE '%.dll' OR 
+                process_name LIKE '%.bat' OR 
+                process_name LIKE '%.cmd' OR 
+                process_name LIKE '%.ps1' OR 
+                process_name LIKE '%.vbs' OR 
+                process_name LIKE '%.com' OR 
+                process_name LIKE '%.msi'
+            )
         """
         result = client.query(query, parameters={'case_id': case_id})
         for row in result.result_rows:

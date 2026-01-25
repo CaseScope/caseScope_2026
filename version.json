@@ -1,6 +1,15 @@
 {
-  "version": "3.148.00",
+  "version": "3.148.01",
   "changelog": [
+    {
+      "version": "3.148.01",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: Hunt Processes now filters for actual executable files (.exe, .dll, .bat, etc.)",
+        "Fix: Optimized child process detection using batch query instead of per-row queries",
+        "Fix: Corrected MemoryJob import path"
+      ]
+    },
     {
       "version": "3.148.00",
       "date": "2026-01-25",
