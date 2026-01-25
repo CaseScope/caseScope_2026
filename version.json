@@ -1,6 +1,13 @@
 {
-  "version": "3.148.02",
+  "version": "3.148.03",
   "changelog": [
+    {
+      "version": "3.148.03",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: Process tree modal now works - fixed same alias conflicts in tree query functions"
+      ]
+    },
     {
       "version": "3.148.02",
       "date": "2026-01-25",

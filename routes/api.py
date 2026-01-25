@@ -4250,11 +4250,11 @@ def get_unified_process_tree(case_id):
                     process_id,
                     process_name,
                     max(COALESCE(timestamp_utc, timestamp)) as latest_ts,
-                    argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as parent_pid,
-                    argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_process,
-                    argMax(command_line, COALESCE(timestamp_utc, timestamp)) as command_line,
-                    argMax(username, COALESCE(timestamp_utc, timestamp)) as username,
-                    argMax(process_path, COALESCE(timestamp_utc, timestamp)) as process_path
+                    argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as ppid_val,
+                    argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_proc_val,
+                    argMax(command_line, COALESCE(timestamp_utc, timestamp)) as cmdline_val,
+                    argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val,
+                    argMax(process_path, COALESCE(timestamp_utc, timestamp)) as proc_path_val
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                 AND source_host = {hostname:String}
@@ -4286,7 +4286,7 @@ def get_unified_process_tree(case_id):
                 }
             return None
         
-        def get_children_from_events(host, parent_pid, parent_name=None, depth=0):
+        def get_children_from_events(host, parent_pid_val, parent_name=None, depth=0):
             """Recursively fetch children from events"""
             if depth >= max_depth:
                 return []
@@ -4297,10 +4297,10 @@ def get_unified_process_tree(case_id):
                     process_id,
                     process_name,
                     max(COALESCE(timestamp_utc, timestamp)) as latest_ts,
-                    argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as parent_pid,
-                    argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_process,
-                    argMax(command_line, COALESCE(timestamp_utc, timestamp)) as command_line,
-                    argMax(username, COALESCE(timestamp_utc, timestamp)) as username
+                    argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as ppid_val,
+                    argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_proc_val,
+                    argMax(command_line, COALESCE(timestamp_utc, timestamp)) as cmdline_val,
+                    argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                 AND source_host = {hostname:String}
@@ -4310,7 +4310,7 @@ def get_unified_process_tree(case_id):
                 ORDER BY latest_ts ASC
                 LIMIT 100
             """
-            params = {'case_id': case_id, 'hostname': host, 'parent_pid': parent_pid}
+            params = {'case_id': case_id, 'hostname': host, 'parent_pid': parent_pid_val}
             
             result = client.query(query, parameters=params)
             children = []
