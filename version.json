@@ -1,6 +1,16 @@
 {
-  "version": "3.146.00",
+  "version": "3.147.00",
   "changelog": [
+    {
+      "version": "3.147.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: ZIP archive records now properly updated to done/archived status after move to originals",
+        "Fix: ZIP files preserved in uploads if move to originals fails (prevents data loss)",
+        "Fix: Completion task no longer counts archive files as pending (eliminates 300s delay)",
+        "Fix: Warning logged when file move to storage fails with error message on record"
+      ]
+    },
     {
       "version": "3.146.00",
       "date": "2026-01-25",

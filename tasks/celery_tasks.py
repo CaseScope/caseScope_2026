@@ -531,6 +531,11 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                     new_path = _move_file_to_storage(cf.file_path)
                     if new_path:
                         cf.file_path = new_path
+                    else:
+                        # Move failed - file stays in staging, log warning
+                        logger.warning(f"Failed to move file to storage, remains in staging: {cf.file_path}")
+                        if not cf.error_message:
+                            cf.error_message = 'File processed but failed to move to storage'
                 
                 # Get case_uuid before commit for progress tracking
                 case_uuid = cf.case_uuid
@@ -593,9 +598,11 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     with app.app_context():
         from models.case_file import CaseFile
         
+        # Exclude archives (is_archive=True) - they are tracked but not parsed
         pending_count = CaseFile.query.filter(
             CaseFile.case_uuid == case_uuid,
-            CaseFile.status.in_(['new', 'queued', 'ingesting'])
+            CaseFile.status.in_(['new', 'queued', 'ingesting']),
+            CaseFile.is_archive == False
         ).count()
         
         if pending_count > 0:

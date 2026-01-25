@@ -1136,11 +1136,22 @@ def ingest_files():
                 if source_path and os.path.exists(source_path):
                     originals_path = _move_to_originals(source_path, case_uuid, filename)
                     if originals_path:
-                        # Update the CaseFile record with the new path
+                        # Update the CaseFile record with the new path and mark as done
                         record.file_path = originals_path
+                        record.status = 'done'
+                        record.ingestion_status = 'archived'
+                        record.processed_at = datetime.utcnow()
                         logger.info(f"Archived original ZIP: {filename} -> {originals_path}")
                     else:
+                        # Move failed - keep file path pointing to source so it's not orphaned
+                        record.file_path = source_path
+                        record.status = 'error'
+                        record.ingestion_status = 'error'
+                        record.error_message = 'Failed to move to originals archive'
                         errors.append(f'Failed to archive original: {filename}')
+                        # Remove from zip_source_paths so it won't be cleaned up
+                        # (file stays in uploads for manual recovery)
+                        logger.warning(f"ZIP file kept in uploads for recovery: {source_path}")
             
             # Clean up remaining files in web upload directory (non-zip files)
             for f in os.listdir(web_path):
