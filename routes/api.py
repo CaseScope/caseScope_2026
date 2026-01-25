@@ -4049,7 +4049,7 @@ def get_unified_processes(case_id):
             # Only fetch events if not filtering to memory only
             if source_filter != 'memory':
                 # Main query - deduplicate by hostname + pid + process_name, take latest timestamp
-                # Include child count in a single query for efficiency
+                # Use unique aliases to avoid conflicts with WHERE clause column names
                 query = f"""
                     SELECT 
                         source_host,
@@ -4057,11 +4057,11 @@ def get_unified_processes(case_id):
                         process_name,
                         max(COALESCE(timestamp_utc, timestamp)) as latest_ts,
                         min(COALESCE(timestamp_utc, timestamp)) as first_ts,
-                        argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as parent_pid,
-                        argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_process,
-                        argMax(command_line, COALESCE(timestamp_utc, timestamp)) as command_line,
-                        argMax(username, COALESCE(timestamp_utc, timestamp)) as username,
-                        argMax(process_path, COALESCE(timestamp_utc, timestamp)) as process_path,
+                        argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as ppid_val,
+                        argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_proc_val,
+                        argMax(command_line, COALESCE(timestamp_utc, timestamp)) as cmdline_val,
+                        argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val,
+                        argMax(process_path, COALESCE(timestamp_utc, timestamp)) as proc_path_val,
                         count() as event_count
                     FROM events
                     WHERE {where_sql}

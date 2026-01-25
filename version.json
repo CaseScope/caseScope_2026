@@ -1,6 +1,13 @@
 {
-  "version": "3.148.01",
+  "version": "3.148.02",
   "changelog": [
+    {
+      "version": "3.148.02",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: Hunt Processes search now works - renamed SQL aliases to avoid ClickHouse column name conflicts"
+      ]
+    },
     {
       "version": "3.148.01",
       "date": "2026-01-25",
