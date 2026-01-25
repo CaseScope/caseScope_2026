@@ -3034,6 +3034,246 @@ def update_analyst_tag(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/hunting/events/bulk-tag/<int:case_id>', methods=['POST'])
+@login_required
+def bulk_analyst_tag(case_id):
+    """Bulk update analyst tagging for multiple events
+    
+    Request JSON:
+        events: Array of event identifiers (each with timestamp, source_host, record_id, etc.)
+        analyst_tagged: Boolean - whether events should be tagged
+        analyst_tags: Array of tag strings (optional)
+        analyst_notes: String notes (optional)
+    """
+    try:
+        from utils.clickhouse import get_client
+        from datetime import datetime, timedelta, timezone
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        if not data or 'events' not in data:
+            return jsonify({'success': False, 'error': 'No events provided'}), 400
+        
+        events = data.get('events', [])
+        analyst_tagged = data.get('analyst_tagged', True)
+        analyst_tags = data.get('analyst_tags', [])
+        analyst_notes = data.get('analyst_notes', '')
+        
+        if not events:
+            return jsonify({'success': False, 'error': 'Empty events list'}), 400
+        
+        client = get_client()
+        updated_count = 0
+        
+        # Prepare tag values
+        tags_array = [str(t).strip() for t in analyst_tags if t and str(t).strip()]
+        notes_value = str(analyst_notes).strip() if analyst_notes else None
+        
+        # Build SET clause
+        set_parts = [f"analyst_tagged = {1 if analyst_tagged else 0}"]
+        
+        if tags_array:
+            escaped_tags = [t.replace("'", "\\'") for t in tags_array]
+            tags_str = ", ".join([f"'{t}'" for t in escaped_tags])
+            set_parts.append(f"analyst_tags = [{tags_str}]")
+        else:
+            set_parts.append("analyst_tags = []")
+        
+        if notes_value:
+            escaped_notes = notes_value.replace("'", "\\'").replace("\\", "\\\\")
+            set_parts.append(f"analyst_notes = '{escaped_notes}'")
+        else:
+            set_parts.append("analyst_notes = NULL")
+        
+        set_clause = ", ".join(set_parts)
+        
+        # Process each event
+        for event in events:
+            event_id = event.get('event_id', '').strip() if event.get('event_id') else ''
+            record_id = event.get('record_id', '')
+            source_file = event.get('source_file', '').strip() if event.get('source_file') else ''
+            source_host = event.get('source_host', '').strip() if event.get('source_host') else ''
+            timestamp = event.get('timestamp', '').strip() if event.get('timestamp') else ''
+            artifact_type = event.get('artifact_type', '').strip() if event.get('artifact_type') else ''
+            
+            conditions = ["case_id = {case_id:UInt32}"]
+            params = {'case_id': case_id}
+            
+            has_unique_id = False
+            
+            # Use most precise identifier
+            if event_id and event_id != '-':
+                params['event_id'] = event_id
+                conditions.append("event_id = {event_id:String}")
+                has_unique_id = True
+            
+            if record_id and str(record_id) != '0':
+                try:
+                    rid = int(record_id)
+                    if rid > 0:
+                        params['record_id'] = rid
+                        conditions.append("record_id = {record_id:UInt64}")
+                        if source_file and source_host and source_host != '-':
+                            params['source_file'] = source_file
+                            params['source_host'] = source_host
+                            conditions.append("source_file = {source_file:String}")
+                            conditions.append("source_host = {source_host:String}")
+                            has_unique_id = True
+                except (ValueError, TypeError):
+                    pass
+            
+            if not has_unique_id and timestamp:
+                try:
+                    ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts_end = ts + timedelta(seconds=2)
+                    params['ts_start'] = ts
+                    params['ts_end'] = ts_end
+                    conditions.append("COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}")
+                    
+                    if source_host and source_host != '-':
+                        params['source_host'] = source_host
+                        conditions.append("source_host = {source_host:String}")
+                    
+                    if artifact_type and artifact_type != '-':
+                        params['artifact_type'] = artifact_type
+                        conditions.append("artifact_type = {artifact_type:String}")
+                except ValueError:
+                    continue  # Skip invalid timestamps
+            elif not has_unique_id:
+                continue  # Skip events without identifiers
+            
+            where_clause = " AND ".join(conditions)
+            query = f"ALTER TABLE events UPDATE {set_clause} WHERE {where_clause}"
+            
+            try:
+                client.query(query, parameters=params)
+                updated_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to update event: {e}")
+                continue
+        
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'total': len(events),
+            'message': f'Successfully tagged {updated_count} event(s)'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bulk analyst tag: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/hunting/events/bulk-noise/<int:case_id>', methods=['POST'])
+@login_required
+def bulk_noise_tag(case_id):
+    """Bulk mark events as noise
+    
+    Request JSON:
+        events: Array of event identifiers (each with timestamp, source_host, record_id, etc.)
+    """
+    try:
+        from utils.clickhouse import get_client
+        from datetime import datetime, timedelta, timezone
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        data = request.get_json()
+        if not data or 'events' not in data:
+            return jsonify({'success': False, 'error': 'No events provided'}), 400
+        
+        events = data.get('events', [])
+        
+        if not events:
+            return jsonify({'success': False, 'error': 'Empty events list'}), 400
+        
+        client = get_client()
+        updated_count = 0
+        
+        # Process each event
+        for event in events:
+            event_id = event.get('event_id', '').strip() if event.get('event_id') else ''
+            record_id = event.get('record_id', '')
+            source_file = event.get('source_file', '').strip() if event.get('source_file') else ''
+            source_host = event.get('source_host', '').strip() if event.get('source_host') else ''
+            timestamp = event.get('timestamp', '').strip() if event.get('timestamp') else ''
+            artifact_type = event.get('artifact_type', '').strip() if event.get('artifact_type') else ''
+            
+            conditions = ["case_id = {case_id:UInt32}"]
+            params = {'case_id': case_id}
+            
+            has_unique_id = False
+            
+            # Use most precise identifier
+            if event_id and event_id != '-':
+                params['event_id'] = event_id
+                conditions.append("event_id = {event_id:String}")
+                has_unique_id = True
+            
+            if record_id and str(record_id) != '0':
+                try:
+                    rid = int(record_id)
+                    if rid > 0:
+                        params['record_id'] = rid
+                        conditions.append("record_id = {record_id:UInt64}")
+                        if source_file and source_host and source_host != '-':
+                            params['source_file'] = source_file
+                            params['source_host'] = source_host
+                            conditions.append("source_file = {source_file:String}")
+                            conditions.append("source_host = {source_host:String}")
+                            has_unique_id = True
+                except (ValueError, TypeError):
+                    pass
+            
+            if not has_unique_id and timestamp:
+                try:
+                    ts = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts_end = ts + timedelta(seconds=2)
+                    params['ts_start'] = ts
+                    params['ts_end'] = ts_end
+                    conditions.append("COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}")
+                    
+                    if source_host and source_host != '-':
+                        params['source_host'] = source_host
+                        conditions.append("source_host = {source_host:String}")
+                    
+                    if artifact_type and artifact_type != '-':
+                        params['artifact_type'] = artifact_type
+                        conditions.append("artifact_type = {artifact_type:String}")
+                except ValueError:
+                    continue
+            elif not has_unique_id:
+                continue
+            
+            where_clause = " AND ".join(conditions)
+            query = f"ALTER TABLE events UPDATE is_noise = 1 WHERE {where_clause}"
+            
+            try:
+                client.query(query, parameters=params)
+                updated_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to mark event as noise: {e}")
+                continue
+        
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'total': len(events),
+            'message': f'Successfully marked {updated_count} event(s) as noise'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bulk noise tag: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/hunting/events/export-tagged/<int:case_id>')
 @login_required
 def export_tagged_events(case_id):

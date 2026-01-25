@@ -200,6 +200,7 @@ let eventsSearch = '';
 let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
 let currentEventsData = []; // Store current page's event data for modal display
 let caseIOCValues = []; // Store IOC values for highlighting in modal
+let selectedEventIndices = new Set(); // Track selected event indices for bulk actions
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 
 // Filter state
@@ -396,25 +397,26 @@ function updateTableHeader() {
     });
 }
 
-// Simple toast notification
-function showToast(message) {
-    // Remove existing toast
-    const existing = document.querySelector('.custom-col-toast');
-    if (existing) existing.remove();
+// Simple toast notification with optional type
+function showToast(message, type = 'info') {
+    // Check if toast container exists, create if not
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
     
     const toast = document.createElement('div');
-    toast.className = 'custom-col-toast';
+    toast.className = `toast toast-${type}`;
     toast.textContent = message;
-    document.body.appendChild(toast);
+    container.appendChild(toast);
     
-    // Animate in
-    setTimeout(() => toast.classList.add('show'), 10);
-    
-    // Remove after delay
+    // Auto-remove after 4 seconds
     setTimeout(() => {
-        toast.classList.remove('show');
+        toast.classList.add('toast-fade-out');
         setTimeout(() => toast.remove(), 300);
-    }, 2000);
+    }, 4000);
 }
 
 // ============================================
@@ -1257,6 +1259,17 @@ function updateTimeFilterVisibility() {
 
 // Load events from API
 function loadEvents() {
+    // Clear selection when loading new events (page change, search, filter)
+    selectedEventIndices.clear();
+    updateBulkActionBar();
+    
+    // Reset select-all checkbox
+    const selectAllCheckbox = document.getElementById('select-all-events');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    }
+    
     // Build types based on filters
     const filteredTypes = getFilteredArtifactTypes();
     
@@ -1487,8 +1500,13 @@ function renderEventsTable(events) {
             }).join('');
         }
         
+        const isSelected = selectedEventIndices.has(index);
+        
         return `
-            <tr class="${rowClass}" data-index="${index}">
+            <tr class="${rowClass}${isSelected ? ' event-selected' : ''}" data-index="${index}">
+                <td class="col-select" onclick="event.stopPropagation();">
+                    <input type="checkbox" class="event-select-checkbox" ${isSelected ? 'checked' : ''} onchange="toggleEventSelection(${index}, this.checked)">
+                </td>
                 <td class="col-tag" onclick="event.stopPropagation();">
                     <label class="analyst-tag-toggle" title="${isTagged ? 'Tagged by analyst' : 'Click to tag'}">
                         <input type="checkbox" ${isTagged ? 'checked' : ''} onchange="toggleAnalystTag(${index}, this.checked)">
@@ -1594,6 +1612,256 @@ function toggleAnalystTag(index, isTagged) {
         if (checkbox) checkbox.checked = !isTagged;
         if (row) row.classList.toggle('analyst-tagged', !isTagged);
     });
+}
+
+// ========================================
+// Multi-Select & Bulk Actions
+// ========================================
+
+// Toggle individual event selection
+function toggleEventSelection(index, isSelected) {
+    if (isSelected) {
+        selectedEventIndices.add(index);
+    } else {
+        selectedEventIndices.delete(index);
+    }
+    
+    // Update row styling
+    const row = document.querySelector(`tr[data-index="${index}"]`);
+    if (row) {
+        row.classList.toggle('event-selected', isSelected);
+    }
+    
+    updateBulkActionBar();
+    updateSelectAllCheckbox();
+}
+
+// Toggle select all events on current page
+function toggleSelectAllEvents(selectAll) {
+    const checkboxes = document.querySelectorAll('.event-select-checkbox');
+    
+    checkboxes.forEach((checkbox, idx) => {
+        checkbox.checked = selectAll;
+        if (selectAll) {
+            selectedEventIndices.add(idx);
+        } else {
+            selectedEventIndices.delete(idx);
+        }
+        
+        const row = checkbox.closest('tr');
+        if (row) {
+            row.classList.toggle('event-selected', selectAll);
+        }
+    });
+    
+    updateBulkActionBar();
+}
+
+// Update the select all checkbox state based on current selections
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('select-all-events');
+    if (!selectAllCheckbox) return;
+    
+    const totalRows = document.querySelectorAll('.event-select-checkbox').length;
+    const selectedOnPage = Array.from(document.querySelectorAll('.event-select-checkbox'))
+        .filter(cb => cb.checked).length;
+    
+    if (selectedOnPage === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    } else if (selectedOnPage === totalRows) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+    }
+}
+
+// Clear all selected events
+function clearEventSelection() {
+    selectedEventIndices.clear();
+    
+    // Uncheck all checkboxes
+    document.querySelectorAll('.event-select-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    
+    // Remove selection styling from all rows
+    document.querySelectorAll('.event-row.event-selected').forEach(row => {
+        row.classList.remove('event-selected');
+    });
+    
+    // Reset select all checkbox
+    const selectAllCheckbox = document.getElementById('select-all-events');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    }
+    
+    updateBulkActionBar();
+}
+
+// Update bulk action bar visibility and count
+function updateBulkActionBar() {
+    const bar = document.getElementById('bulk-action-bar');
+    const countEl = document.getElementById('bulk-selected-count');
+    
+    if (!bar) return;
+    
+    const count = selectedEventIndices.size;
+    
+    if (count > 0) {
+        bar.style.display = 'flex';
+        if (countEl) countEl.textContent = count;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+// Bulk tag selected events as analyst-tagged
+async function bulkTagAsAnalyst() {
+    const count = selectedEventIndices.size;
+    if (count === 0) return;
+    
+    // Get all selected events
+    const selectedEvents = Array.from(selectedEventIndices).map(idx => currentEventsData[idx]).filter(e => e);
+    
+    if (selectedEvents.length === 0) return;
+    
+    // Show loading state
+    const btn = document.querySelector('.bulk-action-buttons .btn-primary');
+    const originalText = btn?.textContent;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = `Tagging ${selectedEvents.length}...`;
+    }
+    
+    try {
+        // Send bulk request
+        const response = await fetch(`/api/hunting/events/bulk-tag/${caseId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                events: selectedEvents.map(e => ({
+                    timestamp: e.timestamp_utc_raw || e.timestamp,
+                    source_host: e.source_host,
+                    source_file: e.source_file,
+                    record_id: e.record_id,
+                    event_id: e.event_id,
+                    artifact_type: e.artifact_type
+                })),
+                analyst_tagged: true,
+                analyst_tags: [],
+                analyst_notes: ''
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update local data and UI
+            selectedEventIndices.forEach(idx => {
+                if (currentEventsData[idx]) {
+                    currentEventsData[idx].analyst_tagged = true;
+                }
+                const row = document.querySelector(`tr[data-index="${idx}"]`);
+                if (row) {
+                    row.classList.add('analyst-tagged');
+                    const tagCheckbox = row.querySelector('.analyst-tag-toggle input');
+                    if (tagCheckbox) tagCheckbox.checked = true;
+                }
+            });
+            
+            // Clear selection
+            clearEventSelection();
+            
+            // Show success message
+            showToast(`Successfully tagged ${data.updated || selectedEvents.length} event(s) for analyst review`, 'success');
+        } else {
+            showToast(`Failed to tag events: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        console.error('Bulk tag error:', err);
+        showToast('Error tagging events', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+}
+
+// Bulk tag selected events as noise
+async function bulkTagAsNoise() {
+    const count = selectedEventIndices.size;
+    if (count === 0) return;
+    
+    // Confirm action
+    if (!confirm(`Mark ${count} event(s) as noise? These events will be hidden by default.`)) {
+        return;
+    }
+    
+    // Get all selected events
+    const selectedEvents = Array.from(selectedEventIndices).map(idx => currentEventsData[idx]).filter(e => e);
+    
+    if (selectedEvents.length === 0) return;
+    
+    // Show loading state
+    const btn = document.querySelector('.bulk-action-buttons .btn-secondary');
+    const originalText = btn?.textContent;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = `Marking ${selectedEvents.length}...`;
+    }
+    
+    try {
+        // Send bulk request
+        const response = await fetch(`/api/hunting/events/bulk-noise/${caseId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                events: selectedEvents.map(e => ({
+                    timestamp: e.timestamp_utc_raw || e.timestamp,
+                    source_host: e.source_host,
+                    source_file: e.source_file,
+                    record_id: e.record_id,
+                    event_id: e.event_id,
+                    artifact_type: e.artifact_type
+                }))
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update local data
+            selectedEventIndices.forEach(idx => {
+                if (currentEventsData[idx]) {
+                    currentEventsData[idx].is_noise = true;
+                }
+            });
+            
+            // Clear selection
+            clearEventSelection();
+            
+            // Reload events to reflect noise filtering
+            loadEvents();
+            
+            // Show success message
+            showToast(`Successfully marked ${data.updated || selectedEvents.length} event(s) as noise`, 'success');
+        } else {
+            showToast(`Failed to mark events as noise: ${data.error}`, 'error');
+        }
+    } catch (err) {
+        console.error('Bulk noise tag error:', err);
+        showToast('Error marking events as noise', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
 }
 
 // Update analyst tag from modal (includes tags and notes)

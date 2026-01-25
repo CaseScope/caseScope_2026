@@ -251,6 +251,22 @@
     </div>
 </div>
 
+<!-- Bulk Action Bar (appears when events are selected) -->
+<div class="bulk-action-bar" id="bulk-action-bar" style="display: none;">
+    <div class="bulk-action-info">
+        <span class="bulk-count"><span id="bulk-selected-count">0</span> event(s) selected</span>
+        <button class="btn btn-link btn-sm" onclick="clearEventSelection()">Clear selection</button>
+    </div>
+    <div class="bulk-action-buttons">
+        <button class="btn btn-primary btn-sm" onclick="bulkTagAsAnalyst()" title="Tag selected events for analyst review">
+            🏷️ Tag for Analyst
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="bulkTagAsNoise()" title="Mark selected events as noise">
+            🔇 Tag as Noise
+        </button>
+    </div>
+</div>
+
 <!-- Events List Tile -->
 <div class="events-tile events-list-tile">
     <div class="tile-header">
@@ -275,6 +291,9 @@
         <table class="events-table" id="events-table">
             <thead>
                 <tr>
+                    <th class="col-select" title="Select events for bulk actions">
+                        <input type="checkbox" id="select-all-events" onchange="toggleSelectAllEvents(this.checked)" title="Select all on page">
+                    </th>
                     <th class="col-tag" title="Analyst Tag">🏷️</th>
                     <th class="col-timestamp">Timestamp</th>
                     <th class="col-parser">Parser</th>
@@ -286,7 +305,7 @@
             </thead>
             <tbody id="events-tbody">
                 <tr>
-                    <td colspan="7" class="text-center text-muted loading-row">
+                    <td colspan="8" class="text-center text-muted loading-row">
                         <span class="spinner-border spinner-border-sm"></span> Loading events...
                     </td>
                 </tr>

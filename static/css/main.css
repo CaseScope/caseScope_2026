@@ -7195,6 +7195,167 @@ input:checked + .slider:before {
 }
 
 /* ========================================
+   Multi-Select & Bulk Actions
+   ======================================== */
+
+/* Selection checkbox column */
+.col-select {
+  width: 40px;
+  text-align: center;
+  padding: 4px 8px !important;
+}
+
+.col-select input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.event-select-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+/* Selected row highlight */
+.event-row.event-selected {
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.event-row.event-selected td {
+  border-left-color: rgba(139, 92, 246, 0.5);
+}
+
+.event-row.event-selected:hover {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+/* Combined highlight for selected + tagged */
+.event-row.event-selected.analyst-tagged {
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
+}
+
+/* Bulk action bar (floating) */
+.bulk-action-bar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  border: 1px solid var(--accent-primary);
+  border-radius: 8px;
+  padding: 12px 20px;
+  margin-bottom: 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.bulk-action-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bulk-count {
+  font-weight: 600;
+  color: var(--accent-primary);
+  font-size: 14px;
+}
+
+.bulk-action-info .btn-link {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.bulk-action-info .btn-link:hover {
+  color: var(--text-primary);
+}
+
+.bulk-action-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.bulk-action-buttons .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* Toast notifications */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: toast-slide-in 0.3s ease;
+  max-width: 400px;
+}
+
+.toast-success {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border: 1px solid #10b981;
+}
+
+.toast-error {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  border: 1px solid #ef4444;
+}
+
+.toast-info {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  border: 1px solid #3b82f6;
+}
+
+.toast-fade-out {
+  animation: toast-fade-out 0.3s ease forwards;
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-fade-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ========================================
    Hunting - Other Tab Styles
    ======================================== */
 .other-tab-content {

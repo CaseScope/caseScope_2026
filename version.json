@@ -1,6 +1,15 @@
 {
-  "version": "3.144.01",
+  "version": "3.145.01",
   "changelog": [
+    {
+      "version": "3.145.01",
+      "date": "2026-01-25",
+      "changes": [
+        "Feature: Multi-select checkboxes for bulk event tagging in hunting page",
+        "Feature: Bulk action bar with options to tag events for analyst or mark as noise",
+        "Feature: Toast notifications for bulk action feedback"
+      ]
+    },
     {
       "version": "3.144.01",
       "date": "2026-01-25",
