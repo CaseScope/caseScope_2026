@@ -75,6 +75,13 @@
                 <span class="tab-text">Reports</span>
             </a>
             {% endif %}
+            {% if is_admin %}
+            <a href="{{ url_for('main.settings', tab='paths') }}" 
+               class="settings-tab {{ 'active' if active_tab == 'paths' else '' }}">
+                <span class="tab-icon">📂</span>
+                <span class="tab-text">Folder Paths</span>
+            </a>
+            {% endif %}
         </div>
     </div>
     <div class="card-body" style="padding: 24px;">
@@ -3647,6 +3654,146 @@
         .text-success { color: var(--accent-success); }
         .text-error { color: var(--accent-error); }
         </style>
+        {% endif %}
+
+        <!-- Folder Paths Tab -->
+        {% if active_tab == 'paths' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">Folder Paths</h3>
+            <p class="text-muted">Configure system folder paths for storage and archiving.</p>
+            
+            <div class="settings-section" style="margin-top: 24px;">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">📂</span>
+                        Path Configuration
+                    </h4>
+                </div>
+                
+                <div id="pathsSettingsContainer">
+                    <div class="info-loading">Loading folder path settings...</div>
+                </div>
+                
+                <div id="pathsSettingsForm" style="display: none;">
+                    <div class="form-row" style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px;">
+                        <div class="form-group">
+                            <label class="form-label">Archive Path</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="archivePath" class="form-input" style="flex: 1;" placeholder="/archive">
+                                <button type="button" class="btn btn-secondary" onclick="testArchivePath()">
+                                    Test Path
+                                </button>
+                            </div>
+                            <span class="form-help">Directory where archived cases and evidence are stored. Path must exist and be accessible.</span>
+                        </div>
+                    </div>
+                    
+                    <div class="worker-actions" style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="saveFolderPathSettings()">
+                            <span class="btn-icon">💾</span> Save Settings
+                        </button>
+                    </div>
+                    
+                    <div id="pathsStatus" class="worker-status" style="display: none; margin-top: 16px;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        // Folder paths settings state
+        let folderPathSettings = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFolderPathSettings();
+        });
+        
+        function loadFolderPathSettings() {
+            fetch('/api/settings/paths')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        folderPathSettings = data.settings;
+                        renderFolderPathSettings();
+                    } else {
+                        document.getElementById('pathsSettingsContainer').innerHTML = 
+                            '<div class="flash-message flash-error">Failed to load settings: ' + data.error + '</div>';
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('pathsSettingsContainer').innerHTML = 
+                        '<div class="flash-message flash-error">Failed to load settings</div>';
+                });
+        }
+        
+        function renderFolderPathSettings() {
+            document.getElementById('pathsSettingsContainer').style.display = 'none';
+            document.getElementById('pathsSettingsForm').style.display = 'block';
+            
+            document.getElementById('archivePath').value = folderPathSettings.archive_path || '/archive';
+        }
+        
+        function testArchivePath() {
+            const path = document.getElementById('archivePath').value;
+            const status = document.getElementById('pathsStatus');
+            
+            status.style.display = 'block';
+            status.className = 'worker-status status-info';
+            status.textContent = 'Testing path...';
+            
+            fetch('/api/settings/paths/test', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: path})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    status.className = 'worker-status status-success';
+                    status.textContent = '✓ Path exists and is accessible';
+                } else {
+                    status.className = 'worker-status status-error';
+                    status.textContent = '✕ ' + data.error;
+                }
+            })
+            .catch(err => {
+                status.className = 'worker-status status-error';
+                status.textContent = '✕ Failed to test path';
+            });
+        }
+        
+        function saveFolderPathSettings() {
+            const status = document.getElementById('pathsStatus');
+            
+            const settings = {
+                archive_path: document.getElementById('archivePath').value
+            };
+            
+            status.style.display = 'block';
+            status.className = 'worker-status status-info';
+            status.textContent = 'Saving settings...';
+            
+            fetch('/api/settings/paths', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    status.className = 'worker-status status-success';
+                    status.textContent = '✓ Settings saved successfully';
+                    setTimeout(() => { status.style.display = 'none'; }, 3000);
+                } else {
+                    status.className = 'worker-status status-error';
+                    status.textContent = '✕ ' + data.error;
+                }
+            })
+            .catch(err => {
+                status.className = 'worker-status status-error';
+                status.textContent = '✕ Failed to save settings';
+            });
+        }
+        </script>
         {% endif %}
     </div>
 </div>

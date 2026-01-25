@@ -1,6 +1,13 @@
 {
-  "version": "3.142.05",
+  "version": "3.143.00",
   "changelog": [
+    {
+      "version": "3.143.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Feature: Add Folder Paths settings tab with configurable archive path (default /archive)"
+      ]
+    },
     {
       "version": "3.142.05",
       "date": "2026-01-24",

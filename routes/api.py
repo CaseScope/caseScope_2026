@@ -7199,6 +7199,117 @@ def test_log_path():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================================
+# FOLDER PATHS SETTINGS ENDPOINTS
+# ============================================================
+
+DEFAULT_ARCHIVE_PATH = '/archive'
+
+@api_bp.route('/settings/paths', methods=['GET'])
+@login_required
+def get_folder_path_settings():
+    """Get folder path configuration settings"""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from models.system_settings import SystemSettings, SettingKeys
+        
+        settings = {
+            'archive_path': SystemSettings.get(SettingKeys.ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH),
+        }
+        
+        return jsonify({
+            'success': True,
+            'settings': settings
+        })
+    except Exception as e:
+        logger.error(f"Error getting folder path settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/paths', methods=['POST'])
+@login_required
+def set_folder_path_settings():
+    """Set folder path configuration settings"""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        from models.system_settings import SystemSettings, SettingKeys
+        from models.audit_log import audit_setting_change
+        
+        data = request.get_json()
+        
+        # Validate and save archive path
+        if 'archive_path' in data:
+            path = data['archive_path'].strip()
+            
+            if not path:
+                return jsonify({'success': False, 'error': 'Archive path is required'}), 400
+            
+            if not path.startswith('/'):
+                return jsonify({'success': False, 'error': 'Archive path must be an absolute path'}), 400
+            
+            # Verify path exists (not creating, just checking)
+            if not os.path.exists(path):
+                return jsonify({'success': False, 'error': f'Path does not exist: {path}'}), 400
+            
+            if not os.path.isdir(path):
+                return jsonify({'success': False, 'error': f'Path is not a directory: {path}'}), 400
+            
+            # Test if path is readable
+            if not os.access(path, os.R_OK):
+                return jsonify({'success': False, 'error': f'Path is not readable: {path}'}), 400
+            
+            old_value = SystemSettings.get(SettingKeys.ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH)
+            if old_value != path:
+                SystemSettings.set(SettingKeys.ARCHIVE_PATH, path, 
+                                 value_type='string', updated_by=current_user.username)
+                audit_setting_change('archive_path', old_value, path)
+        
+        return jsonify({'success': True, 'message': 'Folder path settings saved'})
+        
+    except Exception as e:
+        logger.error(f"Error saving folder path settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/paths/test', methods=['POST'])
+@login_required
+def test_folder_path():
+    """Test if a folder path exists and is accessible"""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    
+    try:
+        data = request.get_json()
+        path = data.get('path', '').strip()
+        
+        if not path:
+            return jsonify({'success': False, 'error': 'Path is required'}), 400
+        
+        if not path.startswith('/'):
+            return jsonify({'success': False, 'error': 'Path must be an absolute path'}), 400
+        
+        # Check if path exists
+        if not os.path.exists(path):
+            return jsonify({'success': False, 'error': f'Path does not exist: {path}'}), 400
+        
+        # Check if it's a directory
+        if not os.path.isdir(path):
+            return jsonify({'success': False, 'error': f'Path is not a directory: {path}'}), 400
+        
+        # Check if it's readable
+        if not os.access(path, os.R_OK):
+            return jsonify({'success': False, 'error': f'Path is not readable: {path}'}), 400
+        
+        return jsonify({'success': True, 'message': 'Path exists and is accessible'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/logs/view/<path:log_path>', methods=['GET'])
 @login_required
 def view_log_file(log_path):

@@ -115,6 +115,9 @@ class SettingKeys:
     LOG_RETENTION_DAYS = 'log_retention_days'    # Auto-cleanup logs older than X days
     LOG_MAX_SIZE_MB = 'log_max_size_mb'          # Max size per log file before rotation
     AUDIT_VIEW_PERMISSION = 'audit_view_permission'  # Who can view audit logs
+    
+    # Folder paths
+    ARCHIVE_PATH = 'archive_path'                # Path for archived cases/evidence
 
 
 # AI Model Configuration based on GPU VRAM

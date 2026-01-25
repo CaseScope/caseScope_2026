@@ -1000,7 +1000,7 @@ def settings():
     
     # Define tab permissions - audit is now admin-only (immutable forensic trail)
     # Reports tab is admin-only to manage report templates
-    admin_only_tabs = ['general', 'ai', 'integrations', 'logging', 'audit', 'reports']
+    admin_only_tabs = ['general', 'ai', 'integrations', 'logging', 'audit', 'reports', 'paths']
     analyst_tabs = ['evtx', 'noise']  # Accessible by analyst or admin
     
     # Determine accessible tabs based on user role
