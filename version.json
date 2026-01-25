@@ -1,6 +1,14 @@
 {
-  "version": "3.148.03",
+  "version": "3.148.04",
   "changelog": [
+    {
+      "version": "3.148.04",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: Process tree performance - limited recursion depth and child count to prevent query explosion",
+        "Fix: Tree queries now filter for actual executables to reduce PID reuse noise"
+      ]
+    },
     {
       "version": "3.148.03",
       "date": "2026-01-25",

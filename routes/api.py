@@ -4235,7 +4235,7 @@ def get_unified_process_tree(case_id):
         pid = request.args.get('pid', 0, type=int)
         process_name = request.args.get('process_name', '', type=str).strip()
         include_parent = request.args.get('include_parent', 'true', type=str).lower() == 'true'
-        max_depth = request.args.get('max_depth', 5, type=int)
+        max_depth = min(request.args.get('max_depth', 2, type=int), 3)  # Cap at 3 to prevent explosion
         
         if not hostname or not pid:
             return jsonify({'success': False, 'error': 'hostname and pid are required'}), 400
@@ -4291,6 +4291,7 @@ def get_unified_process_tree(case_id):
             if depth >= max_depth:
                 return []
             
+            # Filter for actual executables to reduce noise from PID reuse
             query = """
                 SELECT 
                     source_host,
@@ -4306,9 +4307,10 @@ def get_unified_process_tree(case_id):
                 AND source_host = {hostname:String}
                 AND parent_pid = {parent_pid:UInt64}
                 AND process_name != ''
+                AND (process_name LIKE '%.exe' OR process_name LIKE '%.dll' OR process_name LIKE '%.bat' OR process_name LIKE '%.ps1' OR process_name LIKE '%.cmd')
                 GROUP BY source_host, process_id, process_name
                 ORDER BY latest_ts ASC
-                LIMIT 100
+                LIMIT 25
             """
             params = {'case_id': case_id, 'hostname': host, 'parent_pid': parent_pid_val}
             
@@ -4316,6 +4318,8 @@ def get_unified_process_tree(case_id):
             children = []
             
             for row in result.result_rows:
+                # Only recurse if we're at depth 0 (immediate children), otherwise don't recurse to avoid explosion
+                child_children = get_children_from_events(host, row[1], row[2], depth + 1) if depth == 0 else []
                 child = {
                     'source': 'events',
                     'hostname': row[0],
@@ -4326,7 +4330,7 @@ def get_unified_process_tree(case_id):
                     'parent_process': row[5] or '',
                     'command_line': row[6] or '',
                     'username': row[7] or '',
-                    'children': get_children_from_events(host, row[1], row[2], depth + 1)
+                    'children': child_children
                 }
                 children.append(child)
             
