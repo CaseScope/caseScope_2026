@@ -1,6 +1,13 @@
 {
-  "version": "3.144.00",
+  "version": "3.144.01",
   "changelog": [
+    {
+      "version": "3.144.01",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: IOC substring matching now matches exact phrases instead of splitting words with wildcards"
+      ]
+    },
     {
       "version": "3.144.00",
       "date": "2026-01-25",
