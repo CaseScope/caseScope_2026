@@ -343,6 +343,19 @@ def case_hunting():
     )
 
 
+@main_bp.route('/case/hunting/processes')
+@login_required
+@case_required
+def case_hunting_processes():
+    """Process Hunting - unified process analysis across all sources"""
+    case = get_active_case()
+    return render_template(
+        'case_hunting_processes.html',
+        page_title='Process Hunting',
+        case=case
+    )
+
+
 @main_bp.route('/case/hunting/memory')
 @login_required
 @case_required

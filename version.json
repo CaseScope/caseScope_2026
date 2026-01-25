@@ -1,6 +1,16 @@
 {
-  "version": "3.147.00",
+  "version": "3.148.00",
   "changelog": [
+    {
+      "version": "3.148.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Feature: New Hunt Processes page - unified process analysis across events, EDR logs, and memory dumps",
+        "Feature: Process list with pagination, search, and hostname/source filtering",
+        "Feature: Interactive process tree modal with parent navigation and recursive child display",
+        "Feature: Visual badges indicating parent/child relationships and cross-source correlation"
+      ]
+    },
     {
       "version": "3.147.00",
       "date": "2026-01-25",

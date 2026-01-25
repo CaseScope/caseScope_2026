@@ -55,6 +55,10 @@
                     <span class="nav-item-icon">🎯</span>
                     <span class="nav-item-text">Hunt Artifacts</span>
                 </a>
+                <a href="{{ url_for('main.case_hunting_processes') }}" class="nav-item {{ 'active' if page_title == 'Process Hunting' else '' }}">
+                    <span class="nav-item-icon">⚙️</span>
+                    <span class="nav-item-text">Hunt Processes</span>
+                </a>
                 <a href="{{ url_for('main.case_hunting_memory') }}" class="nav-item {{ 'active' if page_title == 'Memory Hunting' else '' }}">
                     <span class="nav-item-icon">🔬</span>
                     <span class="nav-item-text">Hunt Memory</span>

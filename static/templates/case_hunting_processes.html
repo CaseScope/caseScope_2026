@@ -1,0 +1,595 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">⚙️</span>
+            Process Hunting
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary">
+            <span class="btn-icon">🎯</span> Back to Hunting
+        </a>
+    </div>
+</div>
+
+<div class="tile-row">
+    <div class="tile tile-process-hunting">
+        <!-- Filters and Search -->
+        <div class="tile-header process-header">
+            <div class="process-filters">
+                <div class="filter-group">
+                    <label for="hostnameFilter">Hostname:</label>
+                    <select id="hostnameFilter" class="form-select" onchange="loadProcesses()">
+                        <option value="">All Hosts</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="sourceFilter">Source:</label>
+                    <select id="sourceFilter" class="form-select" onchange="loadProcesses()">
+                        <option value="">All Sources</option>
+                        <option value="events">Events/EDR</option>
+                        <option value="memory">Memory Dumps</option>
+                    </select>
+                </div>
+                <div class="filter-group search-group">
+                    <label for="processSearch">Search:</label>
+                    <input type="text" id="processSearch" class="form-input" 
+                           placeholder="Process name, command line, parent..." 
+                           onkeyup="debounceSearch()">
+                </div>
+                <button class="btn btn-primary" onclick="loadProcesses()">
+                    <span class="btn-icon">🔍</span> Search
+                </button>
+            </div>
+        </div>
+        
+        <div class="tile-body">
+            <!-- Stats Bar -->
+            <div class="process-stats" id="processStats">
+                <span class="stat-item">
+                    <span class="stat-label">Total:</span>
+                    <span class="stat-value" id="statTotal">-</span>
+                </span>
+                <span class="stat-item">
+                    <span class="stat-label">Events/EDR:</span>
+                    <span class="stat-value" id="statEvents">-</span>
+                </span>
+                <span class="stat-item">
+                    <span class="stat-label">Memory:</span>
+                    <span class="stat-value" id="statMemory">-</span>
+                </span>
+            </div>
+            
+            <!-- Loading State -->
+            <div id="loadingState" class="process-loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Loading processes...</p>
+            </div>
+            
+            <!-- Empty State -->
+            <div id="emptyState" class="process-empty-state" style="display: none;">
+                <div class="empty-icon">⚙️</div>
+                <h3>No Processes Found</h3>
+                <p>Upload event logs, EDR data, or process memory dumps to analyze process activity.</p>
+            </div>
+            
+            <!-- Process Table -->
+            <div id="processTableContainer" class="process-table-container" style="display: none;">
+                <table class="data-table process-table">
+                    <thead>
+                        <tr>
+                            <th class="col-timestamp">Timestamp</th>
+                            <th class="col-hostname">Hostname</th>
+                            <th class="col-username">Username</th>
+                            <th class="col-ppid">PPID</th>
+                            <th class="col-parent">Parent Process</th>
+                            <th class="col-pid">PID</th>
+                            <th class="col-process">Process Name</th>
+                            <th class="col-badges">Info</th>
+                            <th class="col-source">Source</th>
+                        </tr>
+                    </thead>
+                    <tbody id="processTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            <div id="paginationContainer" class="pagination-container" style="display: none;">
+                <div class="pagination-info">
+                    Showing <span id="showingStart">0</span> - <span id="showingEnd">0</span> of <span id="showingTotal">0</span>
+                </div>
+                <div class="pagination-controls">
+                    <button class="btn btn-sm btn-secondary" id="btnPrevPage" onclick="prevPage()" disabled>
+                        ← Previous
+                    </button>
+                    <span class="pagination-pages" id="paginationPages"></span>
+                    <button class="btn btn-sm btn-secondary" id="btnNextPage" onclick="nextPage()" disabled>
+                        Next →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Process Tree Modal -->
+<div class="modal-overlay" id="processTreeModal" style="display: none;" onclick="closeProcessModal(event)">
+    <div class="modal-container modal-xl" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalTitle">Process Tree</h3>
+            <button class="modal-close" onclick="closeProcessModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- Parent Link -->
+            <div id="parentLink" class="parent-link-container" style="display: none;">
+                <span class="parent-label">Parent Process:</span>
+                <a href="javascript:void(0)" id="parentLinkBtn" class="parent-link-btn" onclick="navigateToParent()">
+                    <span id="parentLinkText"></span>
+                </a>
+            </div>
+            
+            <!-- Current Process Info -->
+            <div id="currentProcessInfo" class="current-process-card">
+                <div class="process-card-header">
+                    <span class="process-card-title" id="currentProcessName"></span>
+                    <span class="process-card-pid" id="currentProcessPid"></span>
+                    <span class="process-card-source" id="currentProcessSource"></span>
+                </div>
+                <div class="process-card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Command Line:</span>
+                        <span class="detail-value command-line" id="currentCmdLine"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Path:</span>
+                        <span class="detail-value" id="currentPath"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Username:</span>
+                        <span class="detail-value" id="currentUsername"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Timestamp:</span>
+                        <span class="detail-value" id="currentTimestamp"></span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Children Tree -->
+            <div id="childrenContainer" class="children-container">
+                <div class="children-header">
+                    <h4>Child Processes</h4>
+                    <div class="tree-controls">
+                        <button class="btn btn-sm btn-secondary" onclick="expandAllTreeNodes()">
+                            ➕ Expand All
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="collapseAllTreeNodes()">
+                            ➖ Collapse All
+                        </button>
+                    </div>
+                </div>
+                <div id="childrenTree" class="process-tree"></div>
+                <div id="noChildren" class="no-children" style="display: none;">
+                    No child processes found.
+                </div>
+            </div>
+            
+            <!-- Loading in modal -->
+            <div id="modalLoading" class="modal-loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Loading process tree...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const caseId = {{ case.id }};
+let currentPage = 1;
+let totalPages = 0;
+let perPage = 50;
+let searchTimeout = null;
+let currentProcess = null;
+let parentChain = [];
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadHostnames();
+    loadProcesses();
+    
+    // Enter key on search
+    document.getElementById('processSearch').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            loadProcesses();
+        }
+    });
+});
+
+// Load hostname filter options
+async function loadHostnames() {
+    try {
+        const response = await fetch(`/api/hunting/processes/hostnames/${caseId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const select = document.getElementById('hostnameFilter');
+            data.hostnames.forEach(host => {
+                const option = document.createElement('option');
+                option.value = host;
+                option.textContent = host;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading hostnames:', error);
+    }
+}
+
+// Debounce search
+function debounceSearch() {
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        currentPage = 1;
+        loadProcesses();
+    }, 300);
+}
+
+// Load processes
+async function loadProcesses() {
+    const loadingEl = document.getElementById('loadingState');
+    const tableContainer = document.getElementById('processTableContainer');
+    const emptyEl = document.getElementById('emptyState');
+    const paginationEl = document.getElementById('paginationContainer');
+    
+    loadingEl.style.display = 'block';
+    tableContainer.style.display = 'none';
+    emptyEl.style.display = 'none';
+    paginationEl.style.display = 'none';
+    
+    try {
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: perPage,
+            hostname: document.getElementById('hostnameFilter').value,
+            source: document.getElementById('sourceFilter').value,
+            search: document.getElementById('processSearch').value
+        });
+        
+        const response = await fetch(`/api/hunting/processes/list/${caseId}?${params.toString()}`);
+        const data = await response.json();
+        
+        loadingEl.style.display = 'none';
+        
+        if (data.success) {
+            // Update stats
+            document.getElementById('statTotal').textContent = data.total.toLocaleString();
+            document.getElementById('statEvents').textContent = data.total_events.toLocaleString();
+            document.getElementById('statMemory').textContent = data.total_memory.toLocaleString();
+            
+            if (data.processes.length === 0) {
+                emptyEl.style.display = 'block';
+            } else {
+                renderProcessTable(data.processes);
+                tableContainer.style.display = 'block';
+                
+                // Pagination
+                totalPages = data.pages;
+                updatePagination(data);
+                paginationEl.style.display = 'flex';
+            }
+        } else {
+            emptyEl.style.display = 'block';
+            console.error('Error:', data.error);
+        }
+    } catch (error) {
+        loadingEl.style.display = 'none';
+        emptyEl.style.display = 'block';
+        console.error('Error loading processes:', error);
+    }
+}
+
+// Render process table
+function renderProcessTable(processes) {
+    const tbody = document.getElementById('processTableBody');
+    tbody.innerHTML = '';
+    
+    processes.forEach(proc => {
+        const row = document.createElement('tr');
+        row.className = 'process-row clickable';
+        row.onclick = () => showProcessTree(proc);
+        
+        // Badges
+        let badges = '';
+        if (proc.has_children) {
+            badges += '<span class="badge badge-info" title="Has child processes">👶</span>';
+        }
+        if (proc.has_parent) {
+            badges += '<span class="badge badge-secondary" title="Has parent process">👆</span>';
+        }
+        if (proc.cross_memory_count > 1) {
+            badges += `<span class="badge badge-warning" title="Found in ${proc.cross_memory_count} memory dumps">🧠×${proc.cross_memory_count}</span>`;
+        }
+        if (proc.event_count > 1) {
+            badges += `<span class="badge badge-primary" title="${proc.event_count} events">${proc.event_count}</span>`;
+        }
+        
+        // Source badge
+        const sourceBadge = proc.source === 'events' 
+            ? '<span class="source-badge source-events">Events</span>'
+            : '<span class="source-badge source-memory">Memory</span>';
+        
+        row.innerHTML = `
+            <td class="col-timestamp">${escapeHtml(proc.timestamp || '-')}</td>
+            <td class="col-hostname">${escapeHtml(proc.hostname)}</td>
+            <td class="col-username">${escapeHtml(proc.username || '-')}</td>
+            <td class="col-ppid">${proc.ppid || '-'}</td>
+            <td class="col-parent">${escapeHtml(proc.parent_process || '-')}</td>
+            <td class="col-pid">${proc.pid}</td>
+            <td class="col-process">
+                <span class="process-name-cell">${escapeHtml(proc.process_name)}</span>
+                ${proc.command_line ? `<span class="cmdline-preview" title="${escapeHtml(proc.command_line)}">${escapeHtml(truncate(proc.command_line, 50))}</span>` : ''}
+            </td>
+            <td class="col-badges">${badges}</td>
+            <td class="col-source">${sourceBadge}</td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+// Show process tree modal
+async function showProcessTree(proc) {
+    const modal = document.getElementById('processTreeModal');
+    const modalLoading = document.getElementById('modalLoading');
+    const currentProcessInfo = document.getElementById('currentProcessInfo');
+    const childrenContainer = document.getElementById('childrenContainer');
+    const parentLinkEl = document.getElementById('parentLink');
+    
+    // Reset modal state
+    currentProcessInfo.style.display = 'none';
+    childrenContainer.style.display = 'none';
+    parentLinkEl.style.display = 'none';
+    modalLoading.style.display = 'block';
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    
+    try {
+        const params = new URLSearchParams({
+            hostname: proc.hostname,
+            pid: proc.pid,
+            process_name: proc.process_name,
+            include_parent: 'true',
+            max_depth: 5
+        });
+        
+        const response = await fetch(`/api/hunting/processes/tree/${caseId}?${params.toString()}`);
+        const data = await response.json();
+        
+        modalLoading.style.display = 'none';
+        
+        if (data.success) {
+            currentProcess = data.process;
+            parentChain = data.parent_chain || [];
+            
+            // Update modal title
+            document.getElementById('modalTitle').textContent = `Process Tree: ${data.process.process_name}`;
+            
+            // Show parent link if exists
+            if (parentChain.length > 0) {
+                const parent = parentChain[0];
+                document.getElementById('parentLinkText').textContent = 
+                    `${parent.process_name} (PID: ${parent.pid})${parent.not_found ? ' [Not in data]' : ''}`;
+                document.getElementById('parentLinkBtn').dataset.hostname = parent.hostname;
+                document.getElementById('parentLinkBtn').dataset.pid = parent.pid;
+                document.getElementById('parentLinkBtn').dataset.processName = parent.process_name;
+                document.getElementById('parentLinkBtn').dataset.notFound = parent.not_found || false;
+                parentLinkEl.style.display = 'block';
+            }
+            
+            // Show current process info
+            document.getElementById('currentProcessName').textContent = data.process.process_name;
+            document.getElementById('currentProcessPid').textContent = `PID: ${data.process.pid}`;
+            document.getElementById('currentProcessSource').textContent = data.process.source;
+            document.getElementById('currentProcessSource').className = 
+                `process-card-source source-${data.process.source}`;
+            document.getElementById('currentCmdLine').textContent = data.process.command_line || '-';
+            document.getElementById('currentPath').textContent = data.process.process_path || '-';
+            document.getElementById('currentUsername').textContent = data.process.username || '-';
+            document.getElementById('currentTimestamp').textContent = data.process.timestamp || '-';
+            currentProcessInfo.style.display = 'block';
+            
+            // Show children tree
+            const children = data.process.children || [];
+            if (children.length > 0) {
+                document.getElementById('childrenTree').innerHTML = buildTreeHTML(children, 0);
+                document.getElementById('childrenTree').style.display = 'block';
+                document.getElementById('noChildren').style.display = 'none';
+            } else {
+                document.getElementById('childrenTree').style.display = 'none';
+                document.getElementById('noChildren').style.display = 'block';
+            }
+            childrenContainer.style.display = 'block';
+            
+        } else {
+            currentProcessInfo.innerHTML = `<div class="error-message">Error: ${escapeHtml(data.error)}</div>`;
+            currentProcessInfo.style.display = 'block';
+        }
+    } catch (error) {
+        modalLoading.style.display = 'none';
+        currentProcessInfo.innerHTML = `<div class="error-message">Error: ${escapeHtml(error.message)}</div>`;
+        currentProcessInfo.style.display = 'block';
+    }
+}
+
+// Build tree HTML recursively
+function buildTreeHTML(children, depth) {
+    if (!children || children.length === 0) return '';
+    
+    let html = '';
+    children.forEach(child => {
+        const hasChildren = child.children && child.children.length > 0;
+        const toggleIcon = hasChildren ? '▶' : '•';
+        const sourceBadge = `<span class="source-badge source-${child.source}">${child.source}</span>`;
+        
+        html += `
+            <div class="tree-node" data-depth="${depth}">
+                <div class="tree-row" onclick="selectTreeNode(this, ${JSON.stringify(child).replace(/"/g, '&quot;')})">
+                    <span class="tree-toggle ${hasChildren ? 'has-children' : ''}" 
+                          onclick="toggleTreeNode(event, this)">${toggleIcon}</span>
+                    <span class="tree-pid">${child.pid}</span>
+                    <span class="tree-name">${escapeHtml(child.process_name)}</span>
+                    ${sourceBadge}
+                    ${child.command_line ? `<span class="tree-cmdline" title="${escapeHtml(child.command_line)}">${escapeHtml(truncate(child.command_line, 60))}</span>` : ''}
+                </div>
+                ${hasChildren ? `<div class="tree-children" style="display: none;">${buildTreeHTML(child.children, depth + 1)}</div>` : ''}
+            </div>
+        `;
+    });
+    
+    return html;
+}
+
+// Toggle tree node
+function toggleTreeNode(event, toggleEl) {
+    event.stopPropagation();
+    const nodeEl = toggleEl.closest('.tree-node');
+    const childrenEl = nodeEl.querySelector(':scope > .tree-children');
+    
+    if (!childrenEl) return;
+    
+    const isCollapsed = childrenEl.style.display === 'none';
+    childrenEl.style.display = isCollapsed ? 'block' : 'none';
+    toggleEl.textContent = isCollapsed ? '▼' : '▶';
+}
+
+// Expand all tree nodes
+function expandAllTreeNodes() {
+    document.querySelectorAll('#childrenTree .tree-children').forEach(el => {
+        el.style.display = 'block';
+    });
+    document.querySelectorAll('#childrenTree .tree-toggle.has-children').forEach(el => {
+        el.textContent = '▼';
+    });
+}
+
+// Collapse all tree nodes
+function collapseAllTreeNodes() {
+    document.querySelectorAll('#childrenTree .tree-children').forEach(el => {
+        el.style.display = 'none';
+    });
+    document.querySelectorAll('#childrenTree .tree-toggle.has-children').forEach(el => {
+        el.textContent = '▶';
+    });
+}
+
+// Select tree node (show details)
+function selectTreeNode(rowEl, proc) {
+    // Remove previous selection
+    document.querySelectorAll('.tree-row.selected').forEach(el => el.classList.remove('selected'));
+    rowEl.classList.add('selected');
+    
+    // Could expand details panel here
+}
+
+// Navigate to parent
+function navigateToParent() {
+    const btn = document.getElementById('parentLinkBtn');
+    const notFound = btn.dataset.notFound === 'true';
+    
+    if (notFound) {
+        alert('Parent process not found in case data.');
+        return;
+    }
+    
+    const proc = {
+        hostname: btn.dataset.hostname,
+        pid: parseInt(btn.dataset.pid),
+        process_name: btn.dataset.processName
+    };
+    
+    showProcessTree(proc);
+}
+
+// Close modal
+function closeProcessModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('processTreeModal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+// Pagination
+function updatePagination(data) {
+    const start = (data.page - 1) * data.per_page + 1;
+    const end = Math.min(data.page * data.per_page, data.total);
+    
+    document.getElementById('showingStart').textContent = start;
+    document.getElementById('showingEnd').textContent = end;
+    document.getElementById('showingTotal').textContent = data.total.toLocaleString();
+    
+    document.getElementById('btnPrevPage').disabled = data.page <= 1;
+    document.getElementById('btnNextPage').disabled = data.page >= data.pages;
+    
+    // Page numbers
+    let pagesHtml = '';
+    const maxPages = 5;
+    let startPage = Math.max(1, data.page - Math.floor(maxPages / 2));
+    let endPage = Math.min(data.pages, startPage + maxPages - 1);
+    
+    if (endPage - startPage < maxPages - 1) {
+        startPage = Math.max(1, endPage - maxPages + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        pagesHtml += `<button class="btn btn-sm ${i === data.page ? 'btn-primary' : 'btn-secondary'}" 
+                              onclick="goToPage(${i})">${i}</button>`;
+    }
+    
+    document.getElementById('paginationPages').innerHTML = pagesHtml;
+}
+
+function prevPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        loadProcesses();
+    }
+}
+
+function nextPage() {
+    if (currentPage < totalPages) {
+        currentPage++;
+        loadProcesses();
+    }
+}
+
+function goToPage(page) {
+    currentPage = page;
+    loadProcesses();
+}
+
+// Utility functions
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function truncate(str, len) {
+    if (!str) return '';
+    return str.length > len ? str.substring(0, len) + '...' : str;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeProcessModal();
+    }
+});
+</script>
+{% endblock %}

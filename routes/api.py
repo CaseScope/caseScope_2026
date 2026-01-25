@@ -3959,6 +3959,564 @@ def get_process_parent(case_id):
 
 
 # ============================================
+# Unified Process Hunting API Endpoints
+# ============================================
+
+@api_bp.route('/hunting/processes/list/<int:case_id>')
+@login_required
+def get_unified_processes(case_id):
+    """Get unified process list from all sources (events, memory, EDR)
+    
+    Combines process data from:
+    - ClickHouse events table (EVTX, EDR logs)
+    - PostgreSQL memory_processes table (memory dumps)
+    
+    Returns deduplicated list with source attribution.
+    """
+    try:
+        from utils.clickhouse import get_client
+        from utils.timezone import format_for_display
+        from models.memory_data import MemoryProcess
+        from models.memory import MemoryJob
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        case_tz = case.timezone or 'UTC'
+        
+        # Pagination
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        per_page = min(per_page, 200)  # Cap at 200
+        offset = (page - 1) * per_page
+        
+        # Filters
+        search = request.args.get('search', '', type=str).strip()
+        hostname_filter = request.args.get('hostname', '', type=str).strip()
+        source_filter = request.args.get('source', '', type=str).strip()  # events, memory, or empty for all
+        
+        processes = []
+        total_events = 0
+        total_memory = 0
+        
+        # === EVENTS SOURCE (ClickHouse) ===
+        if source_filter in ('', 'events'):
+            client = get_client()
+            
+            # Build WHERE clause
+            where_clauses = [
+                "case_id = {case_id:UInt32}",
+                "process_name != ''",
+                "process_id > 0"
+            ]
+            params = {'case_id': case_id}
+            
+            if hostname_filter:
+                where_clauses.append("source_host = {hostname:String}")
+                params['hostname'] = hostname_filter
+            
+            if search:
+                where_clauses.append("(process_name ILIKE {search:String} OR command_line ILIKE {search:String} OR parent_process ILIKE {search:String})")
+                params['search'] = f'%{search}%'
+            
+            where_sql = ' AND '.join(where_clauses)
+            
+            # Count query
+            count_query = f"""
+                SELECT count(DISTINCT (source_host, process_id, process_name))
+                FROM events
+                WHERE {where_sql}
+            """
+            count_result = client.query(count_query, parameters=params)
+            total_events = count_result.result_rows[0][0] if count_result.result_rows else 0
+            
+            # Only fetch events if not filtering to memory only
+            if source_filter != 'memory':
+                # Main query - deduplicate by hostname + pid + process_name, take latest timestamp
+                query = f"""
+                    SELECT 
+                        source_host,
+                        process_id,
+                        process_name,
+                        max(COALESCE(timestamp_utc, timestamp)) as latest_ts,
+                        min(COALESCE(timestamp_utc, timestamp)) as first_ts,
+                        argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as parent_pid,
+                        argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_process,
+                        argMax(command_line, COALESCE(timestamp_utc, timestamp)) as command_line,
+                        argMax(username, COALESCE(timestamp_utc, timestamp)) as username,
+                        argMax(process_path, COALESCE(timestamp_utc, timestamp)) as process_path,
+                        count() as event_count
+                    FROM events
+                    WHERE {where_sql}
+                    GROUP BY source_host, process_id, process_name
+                    ORDER BY latest_ts DESC
+                    LIMIT {per_page} OFFSET {offset}
+                """
+                
+                result = client.query(query, parameters=params)
+                
+                for row in result.result_rows:
+                    hostname, pid, proc_name, latest_ts, first_ts, ppid, parent_proc, cmdline, username, proc_path, evt_count = row
+                    
+                    # Check for children
+                    child_query = """
+                        SELECT count() FROM events 
+                        WHERE case_id = {case_id:UInt32} 
+                        AND source_host = {hostname:String}
+                        AND parent_pid = {pid:UInt64}
+                        AND process_name != ''
+                        LIMIT 1
+                    """
+                    child_result = client.query(child_query, parameters={
+                        'case_id': case_id, 
+                        'hostname': hostname, 
+                        'pid': pid or 0
+                    })
+                    has_children = child_result.result_rows[0][0] > 0 if child_result.result_rows else False
+                    
+                    # Check for parent
+                    has_parent = ppid and ppid > 0
+                    
+                    processes.append({
+                        'id': f"evt_{hostname}_{pid}_{proc_name}",
+                        'source': 'events',
+                        'hostname': hostname,
+                        'pid': pid,
+                        'ppid': ppid,
+                        'process_name': proc_name or '',
+                        'parent_process': parent_proc or '',
+                        'command_line': cmdline or '',
+                        'username': username or '',
+                        'process_path': proc_path or '',
+                        'timestamp': format_for_display(latest_ts, case_tz) if latest_ts else '',
+                        'first_seen': format_for_display(first_ts, case_tz) if first_ts else '',
+                        'event_count': evt_count,
+                        'has_children': has_children,
+                        'has_parent': has_parent
+                    })
+        
+        # === MEMORY SOURCE (PostgreSQL) ===
+        if source_filter in ('', 'memory'):
+            # Get completed memory jobs for this case
+            jobs = MemoryJob.query.filter_by(case_id=case_id, status='completed').all()
+            job_ids = [j.id for j in jobs]
+            
+            if job_ids:
+                # Build query
+                query = MemoryProcess.query.filter(
+                    MemoryProcess.job_id.in_(job_ids),
+                    MemoryProcess.case_id == case_id
+                )
+                
+                if hostname_filter:
+                    query = query.filter(MemoryProcess.hostname == hostname_filter)
+                
+                if search:
+                    search_term = f'%{search}%'
+                    query = query.filter(db.or_(
+                        MemoryProcess.name.ilike(search_term),
+                        MemoryProcess.cmdline.ilike(search_term),
+                        MemoryProcess.path.ilike(search_term)
+                    ))
+                
+                total_memory = query.count()
+                
+                if source_filter != 'events':
+                    # Only paginate memory if not combined with events
+                    if source_filter == 'memory':
+                        mem_procs = query.order_by(MemoryProcess.create_time.desc()).offset(offset).limit(per_page).all()
+                    else:
+                        # For combined view, get all memory and we'll merge later
+                        mem_procs = query.order_by(MemoryProcess.create_time.desc()).limit(500).all()
+                    
+                    # Get all memory processes to check parent/child relationships
+                    all_pids_by_host = {}
+                    all_ppids_by_host = {}
+                    for mp in MemoryProcess.query.filter(MemoryProcess.job_id.in_(job_ids)).all():
+                        host = mp.hostname
+                        if host not in all_pids_by_host:
+                            all_pids_by_host[host] = set()
+                            all_ppids_by_host[host] = set()
+                        all_pids_by_host[host].add(mp.pid)
+                        if mp.ppid:
+                            all_ppids_by_host[host].add(mp.ppid)
+                    
+                    for mp in mem_procs:
+                        # Check if has children (any process has this PID as ppid)
+                        has_children = mp.pid in all_ppids_by_host.get(mp.hostname, set())
+                        # Check if has parent
+                        has_parent = mp.ppid and mp.ppid in all_pids_by_host.get(mp.hostname, set())
+                        
+                        processes.append({
+                            'id': f"mem_{mp.id}",
+                            'source': 'memory',
+                            'hostname': mp.hostname,
+                            'pid': mp.pid,
+                            'ppid': mp.ppid,
+                            'process_name': mp.name or '',
+                            'parent_process': '',  # Memory doesn't store parent name directly
+                            'command_line': mp.cmdline or '',
+                            'username': '',  # Would need SID lookup
+                            'process_path': mp.path or '',
+                            'timestamp': format_for_display(mp.create_time, case_tz) if mp.create_time else '',
+                            'first_seen': '',
+                            'event_count': 1,
+                            'has_children': has_children,
+                            'has_parent': has_parent,
+                            'cross_memory_count': mp.cross_memory_count,
+                            'cross_events_count': mp.cross_events_count
+                        })
+        
+        # Sort combined results by timestamp
+        processes.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        # If combined source, limit to per_page
+        if source_filter == '':
+            processes = processes[:per_page]
+        
+        total = total_events + total_memory
+        
+        return jsonify({
+            'success': True,
+            'processes': processes,
+            'total': total,
+            'total_events': total_events,
+            'total_memory': total_memory,
+            'page': page,
+            'per_page': per_page,
+            'pages': (total + per_page - 1) // per_page if total > 0 else 0
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching unified processes: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/hunting/processes/tree/<int:case_id>')
+@login_required
+def get_unified_process_tree(case_id):
+    """Get process tree for a specific process from all sources
+    
+    Returns the process, its children, and optionally its parent chain.
+    Combines data from events and memory sources.
+    """
+    try:
+        from utils.clickhouse import get_client
+        from utils.timezone import format_for_display
+        from models.memory_data import MemoryProcess
+        from models.memory import MemoryJob
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        case_tz = case.timezone or 'UTC'
+        
+        hostname = request.args.get('hostname', '', type=str).strip()
+        pid = request.args.get('pid', 0, type=int)
+        process_name = request.args.get('process_name', '', type=str).strip()
+        include_parent = request.args.get('include_parent', 'true', type=str).lower() == 'true'
+        max_depth = request.args.get('max_depth', 5, type=int)
+        
+        if not hostname or not pid:
+            return jsonify({'success': False, 'error': 'hostname and pid are required'}), 400
+        
+        client = get_client()
+        
+        def get_process_from_events(host, p_id, p_name=None):
+            """Fetch process details from events"""
+            query = """
+                SELECT 
+                    source_host,
+                    process_id,
+                    process_name,
+                    max(COALESCE(timestamp_utc, timestamp)) as latest_ts,
+                    argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as parent_pid,
+                    argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_process,
+                    argMax(command_line, COALESCE(timestamp_utc, timestamp)) as command_line,
+                    argMax(username, COALESCE(timestamp_utc, timestamp)) as username,
+                    argMax(process_path, COALESCE(timestamp_utc, timestamp)) as process_path
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                AND source_host = {hostname:String}
+                AND process_id = {pid:UInt64}
+                AND process_name != ''
+            """
+            params = {'case_id': case_id, 'hostname': host, 'pid': p_id}
+            
+            if p_name:
+                query += " AND process_name = {process_name:String}"
+                params['process_name'] = p_name
+            
+            query += " GROUP BY source_host, process_id, process_name LIMIT 1"
+            
+            result = client.query(query, parameters=params)
+            if result.result_rows:
+                row = result.result_rows[0]
+                return {
+                    'source': 'events',
+                    'hostname': row[0],
+                    'pid': row[1],
+                    'process_name': row[2] or '',
+                    'timestamp': format_for_display(row[3], case_tz) if row[3] else '',
+                    'ppid': row[4],
+                    'parent_process': row[5] or '',
+                    'command_line': row[6] or '',
+                    'username': row[7] or '',
+                    'process_path': row[8] or ''
+                }
+            return None
+        
+        def get_children_from_events(host, parent_pid, parent_name=None, depth=0):
+            """Recursively fetch children from events"""
+            if depth >= max_depth:
+                return []
+            
+            query = """
+                SELECT 
+                    source_host,
+                    process_id,
+                    process_name,
+                    max(COALESCE(timestamp_utc, timestamp)) as latest_ts,
+                    argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as parent_pid,
+                    argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_process,
+                    argMax(command_line, COALESCE(timestamp_utc, timestamp)) as command_line,
+                    argMax(username, COALESCE(timestamp_utc, timestamp)) as username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                AND source_host = {hostname:String}
+                AND parent_pid = {parent_pid:UInt64}
+                AND process_name != ''
+                GROUP BY source_host, process_id, process_name
+                ORDER BY latest_ts ASC
+                LIMIT 100
+            """
+            params = {'case_id': case_id, 'hostname': host, 'parent_pid': parent_pid}
+            
+            result = client.query(query, parameters=params)
+            children = []
+            
+            for row in result.result_rows:
+                child = {
+                    'source': 'events',
+                    'hostname': row[0],
+                    'pid': row[1],
+                    'process_name': row[2] or '',
+                    'timestamp': format_for_display(row[3], case_tz) if row[3] else '',
+                    'ppid': row[4],
+                    'parent_process': row[5] or '',
+                    'command_line': row[6] or '',
+                    'username': row[7] or '',
+                    'children': get_children_from_events(host, row[1], row[2], depth + 1)
+                }
+                children.append(child)
+            
+            return children
+        
+        def get_children_from_memory(host, parent_pid, depth=0):
+            """Recursively fetch children from memory"""
+            if depth >= max_depth:
+                return []
+            
+            jobs = MemoryJob.query.filter_by(case_id=case_id, status='completed').all()
+            job_ids = [j.id for j in jobs]
+            
+            if not job_ids:
+                return []
+            
+            children_query = MemoryProcess.query.filter(
+                MemoryProcess.job_id.in_(job_ids),
+                MemoryProcess.hostname == host,
+                MemoryProcess.ppid == parent_pid
+            ).all()
+            
+            children = []
+            for mp in children_query:
+                child = {
+                    'source': 'memory',
+                    'hostname': mp.hostname,
+                    'pid': mp.pid,
+                    'process_name': mp.name or '',
+                    'timestamp': format_for_display(mp.create_time, case_tz) if mp.create_time else '',
+                    'ppid': mp.ppid,
+                    'parent_process': '',
+                    'command_line': mp.cmdline or '',
+                    'username': '',
+                    'children': get_children_from_memory(host, mp.pid, depth + 1)
+                }
+                children.append(child)
+            
+            return children
+        
+        # Get the main process
+        process = get_process_from_events(hostname, pid, process_name)
+        
+        # If not found in events, try memory
+        if not process:
+            jobs = MemoryJob.query.filter_by(case_id=case_id, status='completed').all()
+            job_ids = [j.id for j in jobs]
+            
+            if job_ids:
+                mp = MemoryProcess.query.filter(
+                    MemoryProcess.job_id.in_(job_ids),
+                    MemoryProcess.hostname == hostname,
+                    MemoryProcess.pid == pid
+                ).first()
+                
+                if mp:
+                    process = {
+                        'source': 'memory',
+                        'hostname': mp.hostname,
+                        'pid': mp.pid,
+                        'process_name': mp.name or '',
+                        'timestamp': format_for_display(mp.create_time, case_tz) if mp.create_time else '',
+                        'ppid': mp.ppid,
+                        'parent_process': '',
+                        'command_line': mp.cmdline or '',
+                        'username': '',
+                        'process_path': mp.path or ''
+                    }
+        
+        if not process:
+            return jsonify({'success': False, 'error': 'Process not found'}), 404
+        
+        # Get children from both sources
+        children_events = get_children_from_events(hostname, pid, process_name)
+        children_memory = get_children_from_memory(hostname, pid)
+        
+        # Merge children (dedupe by pid + name)
+        seen = set()
+        all_children = []
+        for child in children_events + children_memory:
+            key = (child['pid'], child['process_name'])
+            if key not in seen:
+                seen.add(key)
+                all_children.append(child)
+        
+        process['children'] = all_children
+        
+        # Get parent chain if requested
+        parent_chain = None
+        if include_parent and process.get('ppid'):
+            parent_chain = []
+            current_ppid = process.get('ppid')
+            current_parent_name = process.get('parent_process', '')
+            
+            for _ in range(max_depth):
+                if not current_ppid or current_ppid <= 0:
+                    break
+                
+                parent = get_process_from_events(hostname, current_ppid, current_parent_name if current_parent_name else None)
+                
+                if not parent:
+                    # Try memory
+                    jobs = MemoryJob.query.filter_by(case_id=case_id, status='completed').all()
+                    job_ids = [j.id for j in jobs]
+                    
+                    if job_ids:
+                        mp = MemoryProcess.query.filter(
+                            MemoryProcess.job_id.in_(job_ids),
+                            MemoryProcess.hostname == hostname,
+                            MemoryProcess.pid == current_ppid
+                        ).first()
+                        
+                        if mp:
+                            parent = {
+                                'source': 'memory',
+                                'hostname': mp.hostname,
+                                'pid': mp.pid,
+                                'process_name': mp.name or '',
+                                'timestamp': format_for_display(mp.create_time, case_tz) if mp.create_time else '',
+                                'ppid': mp.ppid,
+                                'parent_process': '',
+                                'command_line': mp.cmdline or '',
+                                'username': ''
+                            }
+                
+                if parent:
+                    parent_chain.append(parent)
+                    current_ppid = parent.get('ppid')
+                    current_parent_name = parent.get('parent_process', '')
+                else:
+                    # Parent not found in our data
+                    parent_chain.append({
+                        'source': 'unknown',
+                        'hostname': hostname,
+                        'pid': current_ppid,
+                        'process_name': current_parent_name or f'PID {current_ppid}',
+                        'timestamp': '',
+                        'ppid': None,
+                        'parent_process': '',
+                        'command_line': '',
+                        'username': '',
+                        'not_found': True
+                    })
+                    break
+        
+        return jsonify({
+            'success': True,
+            'process': process,
+            'parent_chain': parent_chain,
+            'hostname': hostname
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching process tree: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/hunting/processes/hostnames/<int:case_id>')
+@login_required
+def get_process_hostnames(case_id):
+    """Get unique hostnames that have process data"""
+    try:
+        from utils.clickhouse import get_client
+        from models.memory_data import MemoryProcess
+        from models.memory import MemoryJob
+        
+        case = Case.query.get(case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        hostnames = set()
+        
+        # From events
+        client = get_client()
+        query = """
+            SELECT DISTINCT source_host
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+            AND process_name != ''
+            AND process_id > 0
+        """
+        result = client.query(query, parameters={'case_id': case_id})
+        for row in result.result_rows:
+            if row[0]:
+                hostnames.add(row[0])
+        
+        # From memory
+        jobs = MemoryJob.query.filter_by(case_id=case_id, status='completed').all()
+        job_ids = [j.id for j in jobs]
+        
+        if job_ids:
+            mem_hosts = db.session.query(MemoryProcess.hostname).filter(
+                MemoryProcess.job_id.in_(job_ids)
+            ).distinct().all()
+            for row in mem_hosts:
+                if row[0]:
+                    hostnames.add(row[0])
+        
+        return jsonify({
+            'success': True,
+            'hostnames': sorted(list(hostnames))
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
 # Known Systems API Endpoints
 # ============================================
 
