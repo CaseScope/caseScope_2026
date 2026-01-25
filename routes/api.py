@@ -3977,7 +3977,7 @@ def get_unified_processes(case_id):
         from utils.clickhouse import get_client
         from utils.timezone import format_for_display
         from models.memory_data import MemoryProcess
-        from models.memory import MemoryJob
+        from models.memory_job import MemoryJob
         
         case = Case.query.get(case_id)
         if not case:
@@ -4205,7 +4205,7 @@ def get_unified_process_tree(case_id):
         from utils.clickhouse import get_client
         from utils.timezone import format_for_display
         from models.memory_data import MemoryProcess
-        from models.memory import MemoryJob
+        from models.memory_job import MemoryJob
         
         case = Case.query.get(case_id)
         if not case:
@@ -4473,7 +4473,7 @@ def get_process_hostnames(case_id):
     try:
         from utils.clickhouse import get_client
         from models.memory_data import MemoryProcess
-        from models.memory import MemoryJob
+        from models.memory_job import MemoryJob
         
         case = Case.query.get(case_id)
         if not case:
