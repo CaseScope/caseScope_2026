@@ -1,6 +1,13 @@
 {
-  "version": "3.148.05",
+  "version": "3.149.00",
   "changelog": [
+    {
+      "version": "3.149.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Added web-based upload for memory files with chunked upload support and recommendation to zip files first"
+      ]
+    },
     {
       "version": "3.148.05",
       "date": "2026-01-25",

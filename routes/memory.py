@@ -1,6 +1,7 @@
 """Memory Forensics API routes for CaseScope"""
 import os
 import re
+import shutil
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime
@@ -138,6 +139,97 @@ def clear_memory_folder(case_uuid):
             'deleted_count': deleted_count,
             'errors': errors
         })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def ensure_memory_web_upload_dir(case_uuid):
+    """Ensure the memory web upload directory exists for a case
+    
+    Web uploads go to: /opt/casescope/uploads/web/{case_uuid}/memory/
+    This is separate from SFTP uploads for organization.
+    """
+    web_upload_path = os.path.join(Config.UPLOAD_FOLDER_WEB, case_uuid, 'memory')
+    os.makedirs(web_upload_path, exist_ok=True)
+    
+    try:
+        os.chmod(web_upload_path, 0o2775)
+        shutil.chown(web_upload_path, user='casescope', group='casescope')
+    except (PermissionError, LookupError):
+        pass
+    
+    return web_upload_path
+
+
+@memory_bp.route('/upload/chunk', methods=['POST'])
+@login_required
+def upload_chunk():
+    """Handle chunked file upload for memory files
+    
+    Memory files are large (often 4-64GB), so chunked upload is essential.
+    Files are uploaded to web upload folder, then scanned for processing.
+    """
+    try:
+        chunk = request.files.get('chunk')
+        chunk_index = request.form.get('chunkIndex', type=int)
+        total_chunks = request.form.get('totalChunks', type=int)
+        upload_id = request.form.get('uploadId')
+        filename = request.form.get('filename')
+        case_uuid = request.form.get('caseUuid')
+        
+        if not all([chunk, chunk_index is not None, total_chunks, upload_id, filename, case_uuid]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        # Verify case exists
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Create upload directory - use SFTP memory folder for consistency
+        upload_path = ensure_memory_dir(case_uuid)
+        temp_dir = os.path.join(upload_path, f'.temp_{upload_id}')
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Save chunk
+        chunk_path = os.path.join(temp_dir, f'chunk_{chunk_index:06d}')
+        chunk.save(chunk_path)
+        
+        # Check if all chunks received
+        received_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
+        
+        if received_chunks == total_chunks:
+            # Combine chunks
+            final_path = os.path.join(upload_path, filename)
+            
+            with open(final_path, 'wb') as outfile:
+                for i in range(total_chunks):
+                    chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
+                    with open(chunk_file, 'rb') as infile:
+                        outfile.write(infile.read())
+            
+            # Set proper ownership
+            try:
+                shutil.chown(final_path, user='casescope', group='casescope')
+            except (PermissionError, LookupError):
+                pass
+            
+            # Cleanup temp directory
+            shutil.rmtree(temp_dir)
+            
+            return jsonify({
+                'success': True,
+                'complete': True,
+                'filename': filename,
+                'path': final_path
+            })
+        
+        return jsonify({
+            'success': True,
+            'complete': False,
+            'received': received_chunks,
+            'total': total_chunks
+        })
+        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -27,22 +27,20 @@
 <!-- Important Notice -->
 <div class="upload-helper-box warning-box">
     <div class="upload-helper-header">
-        <span class="upload-helper-icon">⚠️</span>
-        <h3>Important: Local Folder Upload Only</h3>
+        <span class="upload-helper-icon">🧠</span>
+        <h3>Memory Forensics Upload</h3>
     </div>
     <div class="upload-helper-content">
         <p class="upload-helper-intro">
-            Memory forensics requires <strong>local folder upload only</strong>. Web uploads are not supported due to the large file sizes.
+            Upload memory dumps for analysis with Volatility3. Both web upload and local folder upload are supported.
         </p>
         
-        <div class="upload-helper-note" style="margin-top: 16px; margin-bottom: 16px;">
-            <span class="upload-helper-note-icon">📁</span>
+        <div class="upload-helper-note recommendation-note" style="margin-top: 16px; margin-bottom: 16px;">
+            <span class="upload-helper-note-icon">💡</span>
             <div>
-                <strong>Upload Folder:</strong><br>
-                <code class="folder-path-inline" id="memoryFolderPath">Loading...</code>
-                <button class="btn btn-sm btn-secondary" onclick="copyPath()" title="Copy path" style="margin-left: 8px;">
-                    <span id="copyIcon">📋</span>
-                </button>
+                <strong>Recommendation: Compress Before Uploading</strong><br>
+                Memory dumps are typically 4-64GB+ in size. <strong>Zipping your files first</strong> can reduce upload time by 50-80% 
+                since memory dumps compress very well. ZIP files will be extracted automatically after upload.
             </div>
         </div>
         
@@ -56,23 +54,65 @@
     </div>
 </div>
 
-<!-- Folder Upload Card -->
-<div class="card upload-card" style="margin-top: 24px;">
-    <div class="card-header">
-        <span class="card-icon">📂</span>
-        <h3 class="card-title">Local Folder Upload</h3>
+<!-- Upload Methods -->
+<div class="grid grid-2" style="margin-top: 24px;">
+    <!-- Web Upload Card -->
+    <div class="card upload-card">
+        <div class="card-header">
+            <span class="card-icon">🌐</span>
+            <h3 class="card-title">Web Upload</h3>
+        </div>
+        <div class="card-body">
+            <p class="upload-description">Upload memory files directly from your browser. Supports large files with chunked uploads.</p>
+            <div class="upload-dropzone" id="dropzone">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">📁</span>
+                    <p class="dropzone-text">Drag & drop memory files here</p>
+                    <p class="dropzone-subtext">or click to browse (.dmp, .raw, .vmem, .lime, .zip)</p>
+                </div>
+                <input type="file" id="fileInput" multiple accept=".dmp,.dump,.raw,.mem,.vmem,.lime,.elf,.core,.e01,.ex01,.aff,.aff4,.zip,.gz,.7z" style="display: none;">
+            </div>
+            <div class="web-upload-status" id="webUploadStatus" style="display: none;">
+                <div class="upload-progress-container">
+                    <div class="upload-progress-label">
+                        <span id="uploadFileName">-</span>
+                        <span id="uploadPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar" id="uploadProgressBar" style="width: 0%"></div>
+                    </div>
+                    <div class="upload-progress-detail text-muted">
+                        File <span id="uploadFileNum">0</span> of <span id="uploadFileTotal">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="card-body">
-        <p class="upload-description">Copy or SFTP memory dump files to the folder above, then scan for files:</p>
-        <div class="folder-actions">
-            <button class="btn btn-primary" id="scanBtn" onclick="scanFolder()">
-                <span class="btn-icon">🔍</span>
-                Scan for Files
-            </button>
-            <button class="btn btn-secondary" id="clearBtn" onclick="confirmClearFolder()" style="margin-left: 8px;">
-                <span class="btn-icon">🗑️</span>
-                Clear Folder
-            </button>
+
+    <!-- Folder Upload Card -->
+    <div class="card upload-card">
+        <div class="card-header">
+            <span class="card-icon">📂</span>
+            <h3 class="card-title">Local Folder Upload</h3>
+        </div>
+        <div class="card-body">
+            <p class="upload-description">Upload files via SFTP or direct copy to the server folder below:</p>
+            <div class="folder-path-box">
+                <code class="folder-path" id="memoryFolderPath">Loading...</code>
+                <button class="btn btn-sm btn-secondary" onclick="copyPath()" title="Copy path">
+                    <span id="copyIcon">📋</span>
+                </button>
+            </div>
+            <div class="folder-actions" style="margin-top: 16px;">
+                <button class="btn btn-primary" id="scanBtn" onclick="scanFolder()">
+                    <span class="btn-icon">🔍</span>
+                    Scan for Files
+                </button>
+                <button class="btn btn-secondary" id="clearBtn" onclick="confirmClearFolder()" style="margin-left: 8px;">
+                    <span class="btn-icon">🗑️</span>
+                    Clear Folder
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -290,6 +330,8 @@
 const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
 const isAdmin = {{ 'true' if current_user.permission_level == 'administrator' else 'false' }};
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+
 let memoryFiles = [];
 let folderPath = '';
 let deleteJobId = null;
@@ -297,11 +339,161 @@ let selectedFiles = new Set();
 let pluginData = {};
 let selectedPlugins = new Set();
 let jobPollInterval = null;
+let isUploading = false;
+let webUploadQueue = [];
 
 document.addEventListener('DOMContentLoaded', function() {
     loadFolderPath();
     loadJobs();
+    setupDropzone();
 });
+
+// ========================================
+// Web Upload / Dropzone
+// ========================================
+
+function setupDropzone() {
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    
+    // Click to open file dialog
+    dropzone.addEventListener('click', () => {
+        if (!isUploading) {
+            fileInput.click();
+        }
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFiles(Array.from(e.target.files));
+        }
+    });
+    
+    // Drag events
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover');
+    });
+    
+    dropzone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+    });
+    
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+        
+        if (!isUploading && e.dataTransfer.files.length > 0) {
+            handleFiles(Array.from(e.dataTransfer.files));
+        }
+    });
+}
+
+function handleFiles(files) {
+    if (files.length === 0) return;
+    
+    // Add files to queue and start upload
+    webUploadQueue = files;
+    startWebUpload();
+}
+
+async function startWebUpload() {
+    if (isUploading || webUploadQueue.length === 0) return;
+    
+    isUploading = true;
+    const dropzone = document.getElementById('dropzone');
+    const statusDiv = document.getElementById('webUploadStatus');
+    
+    dropzone.style.opacity = '0.5';
+    dropzone.style.pointerEvents = 'none';
+    statusDiv.style.display = 'block';
+    
+    const totalFiles = webUploadQueue.length;
+    let uploadedCount = 0;
+    let errors = [];
+    
+    document.getElementById('uploadFileTotal').textContent = totalFiles;
+    
+    for (let fileIdx = 0; fileIdx < totalFiles; fileIdx++) {
+        const file = webUploadQueue[fileIdx];
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        document.getElementById('uploadFileName').textContent = file.name;
+        document.getElementById('uploadFileNum').textContent = fileIdx + 1;
+        
+        try {
+            for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                const percent = Math.round((chunkIdx / totalChunks) * 100);
+                document.getElementById('uploadPercent').textContent = percent + '%';
+                document.getElementById('uploadProgressBar').style.width = percent + '%';
+                
+                const result = await uploadChunk(file, chunkIdx, totalChunks, uploadId);
+                if (!result.success) {
+                    throw new Error(result.error || 'Upload failed');
+                }
+            }
+            
+            document.getElementById('uploadPercent').textContent = '100%';
+            document.getElementById('uploadProgressBar').style.width = '100%';
+            uploadedCount++;
+            
+        } catch (err) {
+            errors.push(`${file.name}: ${err.message}`);
+        }
+    }
+    
+    // Reset UI
+    isUploading = false;
+    webUploadQueue = [];
+    dropzone.style.opacity = '1';
+    dropzone.style.pointerEvents = 'auto';
+    
+    // Show result
+    setTimeout(() => {
+        statusDiv.style.display = 'none';
+        document.getElementById('uploadProgressBar').style.width = '0%';
+        document.getElementById('uploadPercent').textContent = '0%';
+        
+        if (uploadedCount > 0) {
+            alert(`Uploaded ${uploadedCount} file(s) successfully.\n\nClick "Scan for Files" to see them in the queue.`);
+            scanFolder(); // Auto-scan after upload
+        }
+        
+        if (errors.length > 0) {
+            alert('Upload errors:\n' + errors.join('\n'));
+        }
+    }, 500);
+    
+    // Clear file input
+    document.getElementById('fileInput').value = '';
+}
+
+async function uploadChunk(file, chunkIndex, totalChunks, uploadId) {
+    const start = chunkIndex * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+    
+    const formData = new FormData();
+    formData.append('chunk', chunk);
+    formData.append('chunkIndex', chunkIndex);
+    formData.append('totalChunks', totalChunks);
+    formData.append('uploadId', uploadId);
+    formData.append('filename', file.name);
+    formData.append('caseUuid', caseUuid);
+    
+    const response = await fetch('/api/memory/upload/chunk', {
+        method: 'POST',
+        body: formData
+    });
+    
+    return response.json();
+}
 
 // ========================================
 // Folder and File Management
@@ -971,17 +1163,24 @@ function confirmDeleteJob() {
 <style>
 /* Warning box variant */
 .warning-box {
-    border-color: var(--accent-warning);
-    background: linear-gradient(135deg, rgba(255, 193, 7, 0.05) 0%, rgba(255, 193, 7, 0.02) 100%);
+    border-color: var(--accent-primary);
+    background: linear-gradient(135deg, rgba(66, 153, 225, 0.05) 0%, rgba(66, 153, 225, 0.02) 100%);
 }
 
 .warning-box .upload-helper-header h3 {
-    color: var(--accent-warning);
+    color: var(--text-primary);
 }
 
 .danger-note {
     background-color: rgba(220, 53, 69, 0.1);
     border-color: var(--accent-danger);
+}
+
+.recommendation-note {
+    background-color: rgba(66, 153, 225, 0.1);
+    border: 1px solid var(--accent-primary);
+    border-radius: 8px;
+    padding: 12px 16px;
 }
 
 .folder-path-inline {
@@ -991,6 +1190,121 @@ function confirmDeleteJob() {
     font-family: monospace;
     font-size: 13px;
     user-select: all;
+}
+
+/* Grid layout for upload cards */
+.grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+@media (max-width: 900px) {
+    .grid-2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Dropzone styles */
+.upload-dropzone {
+    border: 2px dashed var(--border-primary);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--bg-secondary);
+    margin-bottom: 16px;
+}
+
+.upload-dropzone:hover {
+    border-color: var(--accent-primary);
+    background: rgba(66, 153, 225, 0.05);
+}
+
+.upload-dropzone.dragover {
+    border-color: var(--accent-primary);
+    background: rgba(66, 153, 225, 0.1);
+    transform: scale(1.02);
+}
+
+.dropzone-content {
+    pointer-events: none;
+}
+
+.dropzone-icon {
+    font-size: 48px;
+    display: block;
+    margin-bottom: 12px;
+}
+
+.dropzone-text {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.dropzone-subtext {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* Folder path box */
+.folder-path-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-secondary);
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.folder-path {
+    font-family: monospace;
+    font-size: 13px;
+    flex: 1;
+    word-break: break-all;
+}
+
+/* Web upload status */
+.web-upload-status {
+    padding: 16px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+.upload-progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.upload-progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+}
+
+.upload-progress-detail {
+    font-size: 12px;
+    text-align: center;
+}
+
+.progress {
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: var(--accent-primary);
+    border-radius: 4px;
+    transition: width 0.2s ease;
 }
 
 .folder-actions {
