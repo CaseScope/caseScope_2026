@@ -1,6 +1,14 @@
 {
-  "version": "3.148.04",
+  "version": "3.148.05",
   "changelog": [
+    {
+      "version": "3.148.05",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: Process tree now matches on BOTH parent_pid AND parent_process name to avoid PID reuse",
+        "Fix: Restored full recursion depth now that queries are properly scoped"
+      ]
+    },
     {
       "version": "3.148.04",
       "date": "2026-01-25",

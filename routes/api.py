@@ -4235,7 +4235,7 @@ def get_unified_process_tree(case_id):
         pid = request.args.get('pid', 0, type=int)
         process_name = request.args.get('process_name', '', type=str).strip()
         include_parent = request.args.get('include_parent', 'true', type=str).lower() == 'true'
-        max_depth = min(request.args.get('max_depth', 2, type=int), 3)  # Cap at 3 to prevent explosion
+        max_depth = min(request.args.get('max_depth', 5, type=int), 10)  # Cap at 10
         
         if not hostname or not pid:
             return jsonify({'success': False, 'error': 'hostname and pid are required'}), 400
@@ -4287,11 +4287,11 @@ def get_unified_process_tree(case_id):
             return None
         
         def get_children_from_events(host, parent_pid_val, parent_name=None, depth=0):
-            """Recursively fetch children from events"""
+            """Fetch children from events - matching on BOTH parent_pid AND parent_process name"""
             if depth >= max_depth:
                 return []
             
-            # Filter for actual executables to reduce noise from PID reuse
+            # Match on both parent_pid AND parent_process to avoid PID reuse issues
             query = """
                 SELECT 
                     source_host,
@@ -4306,20 +4306,23 @@ def get_unified_process_tree(case_id):
                 WHERE case_id = {case_id:UInt32}
                 AND source_host = {hostname:String}
                 AND parent_pid = {parent_pid:UInt64}
+                AND parent_process = {parent_process:String}
                 AND process_name != ''
-                AND (process_name LIKE '%.exe' OR process_name LIKE '%.dll' OR process_name LIKE '%.bat' OR process_name LIKE '%.ps1' OR process_name LIKE '%.cmd')
                 GROUP BY source_host, process_id, process_name
                 ORDER BY latest_ts ASC
-                LIMIT 25
+                LIMIT 50
             """
-            params = {'case_id': case_id, 'hostname': host, 'parent_pid': parent_pid_val}
+            params = {
+                'case_id': case_id, 
+                'hostname': host, 
+                'parent_pid': parent_pid_val,
+                'parent_process': parent_name or ''
+            }
             
             result = client.query(query, parameters=params)
             children = []
             
             for row in result.result_rows:
-                # Only recurse if we're at depth 0 (immediate children), otherwise don't recurse to avoid explosion
-                child_children = get_children_from_events(host, row[1], row[2], depth + 1) if depth == 0 else []
                 child = {
                     'source': 'events',
                     'hostname': row[0],
@@ -4330,7 +4333,7 @@ def get_unified_process_tree(case_id):
                     'parent_process': row[5] or '',
                     'command_line': row[6] or '',
                     'username': row[7] or '',
-                    'children': child_children
+                    'children': get_children_from_events(host, row[1], row[2], depth + 1)
                 }
                 children.append(child)
             
