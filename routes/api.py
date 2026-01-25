@@ -1203,6 +1203,30 @@ def ingest_files():
                     )
                     queued_count += 1
                 
+                # Handle nested archives (e.g., .xpi files) - move to storage without parsing
+                # These files have is_archive=True and are excluded from parsing queue above
+                nested_archives = CaseFile.query.filter_by(
+                    case_uuid=case_uuid,
+                    status='new',
+                    is_archive=True,
+                    is_extracted=True  # Only extracted archives, not original uploads
+                ).all()
+                
+                nested_archive_count = 0
+                for cf in nested_archives:
+                    if cf.file_path and os.path.exists(cf.file_path):
+                        # Move to storage
+                        storage_path = _move_to_storage(cf.file_path, case_uuid)
+                        if storage_path:
+                            cf.file_path = storage_path
+                        cf.status = 'done'
+                        cf.ingestion_status = 'no_parser'
+                        cf.processed_at = datetime.utcnow()
+                        nested_archive_count += 1
+                
+                if nested_archive_count > 0:
+                    logger.info(f"Moved {nested_archive_count} nested archive files to storage for case {case_uuid}")
+                
                 db.session.commit()
                 yield json.dumps({
                     'stage': 'parsing_queued',

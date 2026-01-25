@@ -345,6 +345,7 @@ function getCompletionPhaseName(phase, data) {
         return 'Discovering known users...';
     }
     const phases = {
+        'waiting_for_completion': 'Waiting for post-processing to start...',
         'flushing_buffer': 'Flushing events to database...',
         'deduplicating': 'Removing duplicate events...',
         'discovering_systems': 'Discovering known systems...',

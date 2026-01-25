@@ -1,6 +1,15 @@
 {
-  "version": "3.145.01",
+  "version": "3.146.00",
   "changelog": [
+    {
+      "version": "3.146.00",
+      "date": "2026-01-25",
+      "changes": [
+        "Fix: Celery workers now use app context for case timezone lookup (prevents Working outside of application context warning)",
+        "Fix: Nested archive files (.xpi etc) now properly moved to storage instead of remaining in staging",
+        "Feature: Added waiting_for_completion progress phase between ingestion and post-processing stages"
+      ]
+    },
     {
       "version": "3.145.01",
       "date": "2026-01-25",

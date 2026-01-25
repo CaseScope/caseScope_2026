@@ -271,7 +271,9 @@ def set_phase(case_uuid: str, phase: str, total: int = 0, current_item: str = ''
             'current_item': current_item
         }
         
-        if phase == 'deduplication':
+        if phase == 'waiting_for_completion':
+            updates['status'] = 'waiting_for_completion'
+        elif phase == 'deduplication':
             updates['dedup_total'] = total
             updates['dedup_completed'] = 0
             updates['status'] = 'deduplicating'

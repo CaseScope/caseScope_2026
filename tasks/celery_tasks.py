@@ -75,11 +75,14 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     logger.info(f"Processing file: {file_path} for case {case_id}")
     
     # Fetch case timezone for timestamp normalization
+    # Must use app context for database access in Celery worker
     case_tz = 'UTC'  # Default
     try:
-        case = Case.query.get(case_id)
-        if case and case.timezone:
-            case_tz = case.timezone
+        app = get_flask_app()
+        with app.app_context():
+            case = Case.query.get(case_id)
+            if case and case.timezone:
+                case_tz = case.timezone
     except Exception as e:
         logger.warning(f"Could not fetch case timezone: {e}")
     
@@ -537,7 +540,7 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 
                 # Increment progress counter when file processing completes
                 if status in ('done', 'error'):
-                    from utils.progress import increment_progress, mark_completion_triggered
+                    from utils.progress import increment_progress, mark_completion_triggered, set_phase
                     progress = increment_progress(case_uuid)
                     
                     # Check if this was the last file - trigger completion tasks
@@ -547,6 +550,8 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                             from models.case import Case
                             case = Case.get_by_uuid(case_uuid)
                             if case:
+                                # Set phase to indicate we're waiting for post-processing to start
+                                set_phase(case_uuid, 'waiting_for_completion')
                                 logger.info(f"All files complete for case {case_uuid}, triggering completion tasks")
                                 case_indexing_complete_task.delay(
                                     case_id=case.id,
