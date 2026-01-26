@@ -29,6 +29,15 @@
     {% endif %}
 {% endwith %}
 
+<!-- Active Archive Jobs Banner -->
+<div id="activeJobsBanner" class="active-jobs-banner" style="display: none;">
+    <div class="active-jobs-content">
+        <span class="active-jobs-icon">📦</span>
+        <span id="activeJobsText">Archive operation in progress...</span>
+        <button class="btn btn-sm btn-primary" onclick="showActiveJobProgress()">View Progress</button>
+    </div>
+</div>
+
 <div class="table-container">
     <div class="table-header">
         <span class="table-title">All Cases ({{ cases|length }})</span>
@@ -207,6 +216,92 @@
 let currentRestoreUuid = null;
 let restoreJobId = null;
 let restorePollingInterval = null;
+let activeJob = null;
+
+// Check for active archive/restore jobs on page load
+document.addEventListener('DOMContentLoaded', function() {
+    checkActiveJobs();
+});
+
+function checkActiveJobs() {
+    fetch('/api/archive/jobs/active')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.jobs && data.jobs.length > 0) {
+                activeJob = data.jobs[0]; // Show first active job
+                const jobType = activeJob.job_type === 'archive' ? 'Archiving' : 'Restoring';
+                const caseName = activeJob.case_name || 'Unknown';
+                const progress = activeJob.progress_percent || 0;
+                
+                document.getElementById('activeJobsText').innerHTML = 
+                    `<strong>${jobType}:</strong> ${caseName} (${progress}% complete)`;
+                document.getElementById('activeJobsBanner').style.display = 'block';
+                
+                // Continue polling
+                setTimeout(checkActiveJobs, 3000);
+            } else {
+                document.getElementById('activeJobsBanner').style.display = 'none';
+                activeJob = null;
+            }
+        })
+        .catch(err => console.error('Error checking active jobs:', err));
+}
+
+function showActiveJobProgress() {
+    if (!activeJob) return;
+    
+    currentRestoreUuid = activeJob.case_uuid;
+    
+    if (activeJob.job_type === 'archive') {
+        // Show archive progress modal - need to adapt since we're on cases page
+        document.getElementById('restoreProgressModal').querySelector('.modal-title').textContent = 'Archiving Case';
+        document.getElementById('restoreStages').innerHTML = `
+            <div class="progress-stage" data-stage="validating">
+                <span class="stage-icon">○</span>
+                <span class="stage-text">Validating archive path</span>
+            </div>
+            <div class="progress-stage" data-stage="compressing_storage">
+                <span class="stage-icon">○</span>
+                <span class="stage-text">Compressing storage files</span>
+            </div>
+            <div class="progress-stage" data-stage="compressing_evidence">
+                <span class="stage-icon">○</span>
+                <span class="stage-text">Compressing evidence files</span>
+            </div>
+            <div class="progress-stage" data-stage="verifying">
+                <span class="stage-icon">○</span>
+                <span class="stage-text">Verifying archive</span>
+            </div>
+            <div class="progress-stage" data-stage="cleanup">
+                <span class="stage-icon">○</span>
+                <span class="stage-text">Cleaning up</span>
+            </div>
+        `;
+        document.getElementById('restoreProgressModal').style.display = 'flex';
+        startPollingArchiveStatusForView();
+    } else {
+        // Show restore progress modal
+        document.getElementById('restoreProgressModal').querySelector('.modal-title').textContent = 'Restoring Case';
+        document.getElementById('restoreProgressModal').style.display = 'flex';
+        startPollingRestoreStatus();
+    }
+}
+
+function startPollingArchiveStatusForView() {
+    restorePollingInterval = setInterval(pollArchiveStatusForView, 1000);
+    pollArchiveStatusForView();
+}
+
+function pollArchiveStatusForView() {
+    fetch('/api/case/' + currentRestoreUuid + '/archive/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateRestoreProgress(data.job);
+            }
+        })
+        .catch(err => console.error('Error polling status:', err));
+}
 
 function handleCaseClick(uuid, status, name) {
     if (status === 'archived') {
@@ -482,6 +577,36 @@ function hidePopup() {
 </script>
 
 <style>
+.active-jobs-banner {
+    background: linear-gradient(90deg, var(--primary-color, #007bff), #0056b3);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    animation: pulse-bg 2s ease-in-out infinite;
+}
+
+@keyframes pulse-bg {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+}
+
+.active-jobs-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.active-jobs-icon {
+    font-size: 20px;
+}
+
+.active-jobs-content .btn-sm {
+    padding: 4px 12px;
+    font-size: 13px;
+    margin-left: auto;
+}
+
 .archived-row {
     opacity: 0.7;
     background: var(--bg-tertiary, #f8f9fa);

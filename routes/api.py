@@ -9579,3 +9579,49 @@ def get_case_storage_size(case_uuid):
     except Exception as e:
         logger.error(f"Error getting storage size: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/archive/jobs/active')
+@login_required
+def get_active_archive_jobs():
+    """Get all active (running) archive/restore jobs
+    
+    Returns list of jobs that are currently in progress.
+    """
+    try:
+        from models.archive_job import ArchiveJob, ArchiveJobStatus
+        from tasks.archive_tasks import get_archive_progress
+        
+        # Get running jobs
+        jobs = ArchiveJob.query.filter(
+            ArchiveJob.status.in_([ArchiveJobStatus.PENDING.value, ArchiveJobStatus.RUNNING.value])
+        ).order_by(ArchiveJob.created_at.desc()).all()
+        
+        result = []
+        for job in jobs:
+            job_data = job.to_dict()
+            job_data['progress_percent'] = job.get_progress_percent()
+            
+            # Get real-time progress from Redis
+            if job.status == 'running':
+                redis_progress = get_archive_progress(job.id)
+                if redis_progress:
+                    if 'stage' in redis_progress:
+                        job_data['current_stage'] = redis_progress['stage']
+                    if 'current_file' in redis_progress:
+                        job_data['current_file_count'] = int(redis_progress['current_file'])
+                    if 'total_files' in redis_progress:
+                        job_data['total_file_count'] = int(redis_progress['total_files'])
+            
+            # Get case name
+            case = Case.query.get(job.case_id)
+            if case:
+                job_data['case_name'] = case.name
+            
+            result.append(job_data)
+        
+        return jsonify({'success': True, 'jobs': result})
+        
+    except Exception as e:
+        logger.error(f"Error getting active archive jobs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
