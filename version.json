@@ -1,6 +1,14 @@
 {
-  "version": "3.153.00",
+  "version": "3.154.00",
   "changelog": [
+    {
+      "version": "3.154.00",
+      "date": "2026-01-28",
+      "changes": [
+        "Fixed AI timeout in DFIR timeline generation by limiting events to 150 or 12000 characters",
+        "Timeline now handles large event sets without timing out"
+      ]
+    },
     {
       "version": "3.153.00",
       "date": "2026-01-28",

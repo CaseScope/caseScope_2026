@@ -271,7 +271,11 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
         return content
     
     def generate_timeline(self) -> str:
-        """Generate timeline from analyst-tagged events"""
+        """Generate timeline from analyst-tagged events
+        
+        Limits events to prevent AI timeout on large datasets.
+        Max 150 events or 12000 characters of event data.
+        """
         try:
             client = get_client()
             query = """
@@ -287,15 +291,35 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
             if not result.result_rows:
                 return "No analyst-tagged events found for timeline generation."
             
+            total_events = len(result.result_rows)
+            max_events = 150
+            max_chars = 12000
+            
             events_text = []
+            char_count = 0
+            truncated = False
+            
             for row in result.result_rows:
                 (ts_utc, artifact_type, host, user, proc, cmdline, rule, 
                  mitre_tactics, mitre_tags, tags, notes, target, reg_key, src_ip, dst_ip) = row
                 mitre_list = list(mitre_tactics) if mitre_tactics else []
                 mitre_ids = list(mitre_tags) if mitre_tags else []
                 mitre_str = ', '.join(mitre_list + mitre_ids) if (mitre_list or mitre_ids) else 'None'
-                event_info = f"TIME:{ts_utc}|HOST:{host}|USER:{user}|RULE:{rule}|MITRE:{mitre_str}|PROC:{proc}|CMD:{cmdline[:300] if cmdline else 'N/A'}"
+                # Truncate command line more aggressively for large datasets
+                cmd_limit = 150 if total_events > 50 else 300
+                event_info = f"TIME:{ts_utc}|HOST:{host}|USER:{user}|RULE:{rule}|MITRE:{mitre_str}|PROC:{proc}|CMD:{cmdline[:cmd_limit] if cmdline else 'N/A'}"
+                
+                # Check limits
+                if len(events_text) >= max_events or char_count + len(event_info) > max_chars:
+                    truncated = True
+                    break
+                    
                 events_text.append(event_info)
+                char_count += len(event_info) + 1
+            
+            truncation_note = ""
+            if truncated:
+                truncation_note = f"\n\nNOTE: Showing {len(events_text)} of {total_events} events. Focus on key attack phases."
             
             prompt = f"""Create an incident timeline. Output ONLY the timeline entries.
 
@@ -303,11 +327,11 @@ FORMAT - each entry must be:
 01/21/2026 at 17:08:37: User Bill executed cmd.exe to copy finger.exe - MITRE (Execution, T1059)
 * The attacker used command prompt to stage a renamed copy of finger.exe
 
-GROUPING: If multiple similar events occur within seconds, combine them:
+GROUPING: Combine similar events occurring within seconds:
 01/21/2026 at 17:10:23-17:10:41: Multiple PowerShell commands executed (8 events on ENGINEERING by Bill) - MITRE (Discovery, T1082)
 * The attacker gathered system information
 
-EVENTS:
+EVENTS ({len(events_text)} total):{truncation_note}
 {chr(10).join(events_text)}
 
 Output timeline (chronological, no headers):"""
