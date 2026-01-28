@@ -211,17 +211,48 @@
     </div>
 </div>
 
-<!-- Description Section -->
+<!-- Incident Summary Section -->
 <div class="card">
     <div class="card-header">
         <span class="card-icon">📝</span>
-        <span class="card-title">Description</span>
+        <span class="card-title">Incident Summary</span>
     </div>
     <div class="card-body" style="padding: 20px;">
-        {% if case.description %}
-            <div class="description-content">{{ case.description }}</div>
+        {% if case.attack_description or case.containment_actions or case.eradication_actions or case.recovery_actions or case.lessons_learned %}
+            <div class="incident-summary-content">
+                {% if case.attack_description %}
+                <div class="summary-section">
+                    <h4 class="summary-section-title">Attack Description</h4>
+                    <p>{{ case.attack_description }}</p>
+                </div>
+                {% endif %}
+                {% if case.containment_actions %}
+                <div class="summary-section">
+                    <h4 class="summary-section-title">Containment Actions</h4>
+                    <p>{{ case.containment_actions }}</p>
+                </div>
+                {% endif %}
+                {% if case.eradication_actions %}
+                <div class="summary-section">
+                    <h4 class="summary-section-title">Eradication Actions</h4>
+                    <p>{{ case.eradication_actions }}</p>
+                </div>
+                {% endif %}
+                {% if case.recovery_actions %}
+                <div class="summary-section">
+                    <h4 class="summary-section-title">Recovery Actions</h4>
+                    <p>{{ case.recovery_actions }}</p>
+                </div>
+                {% endif %}
+                {% if case.lessons_learned %}
+                <div class="summary-section">
+                    <h4 class="summary-section-title">Lessons Learned</h4>
+                    <p>{{ case.lessons_learned }}</p>
+                </div>
+                {% endif %}
+            </div>
         {% else %}
-            <p class="text-muted">No description provided for this case.</p>
+            <p class="text-muted">No incident summary documented for this case.</p>
         {% endif %}
     </div>
 </div>

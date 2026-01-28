@@ -1472,6 +1472,35 @@ tbody td {
   white-space: pre-wrap;
 }
 
+/* Incident Summary Styles */
+.incident-summary-content {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.incident-summary-content .summary-section {
+  margin-bottom: 20px;
+}
+
+.incident-summary-content .summary-section:last-child {
+  margin-bottom: 0;
+}
+
+.incident-summary-content .summary-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.incident-summary-content .summary-section p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
 /* ========================================
    Settings Page Styles
    ======================================== */
