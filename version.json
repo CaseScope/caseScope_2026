@@ -1,6 +1,13 @@
 {
-  "version": "3.150.00",
+  "version": "3.151.00",
   "changelog": [
+    {
+      "version": "3.151.00",
+      "date": "2026-01-28",
+      "changes": [
+        "Added Attack Description field to Remediation Documentation section in case edit page"
+      ]
+    },
     {
       "version": "3.150.00",
       "date": "2026-01-25",

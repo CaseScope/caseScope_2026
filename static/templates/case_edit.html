@@ -114,6 +114,13 @@
             <p class="form-section-hint">Document actions taken during incident response. These fields are used for final report generation.</p>
             
             <div class="form-group">
+                <label class="form-label" for="attack_description">Attack Description</label>
+                <textarea id="attack_description" name="attack_description" class="form-input form-textarea" 
+                          placeholder="Describe what occurred during this incident - timeline, attack vectors, impact, etc." rows="4">{{ case.attack_description or '' }}</textarea>
+                <span class="form-hint">Analyst narrative explaining the attack: what happened, how it occurred, and the impact</span>
+            </div>
+            
+            <div class="form-group">
                 <label class="form-label" for="containment_actions">Containment Actions</label>
                 <textarea id="containment_actions" name="containment_actions" class="form-input form-textarea" 
                           placeholder="Describe isolation measures, network blocks, account disables, etc." rows="3">{{ case.containment_actions or '' }}</textarea>

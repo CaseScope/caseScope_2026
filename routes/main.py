@@ -520,6 +520,7 @@ def case_edit():
         assigned_to = request.form.get('assigned_to', '').strip()
         
         # Remediation fields
+        attack_description = request.form.get('attack_description', '').strip()
         containment_actions = request.form.get('containment_actions', '').strip()
         eradication_actions = request.form.get('eradication_actions', '').strip()
         recovery_actions = request.form.get('recovery_actions', '').strip()
@@ -563,6 +564,8 @@ def case_edit():
             changes['status'] = (case.status, status)
         if (case.assigned_to or '') != (assigned_to or ''):
             changes['assigned_to'] = (case.assigned_to, assigned_to or None)
+        if (case.attack_description or '') != (attack_description or ''):
+            changes['attack_description'] = (case.attack_description, attack_description or None)
         if (case.containment_actions or '') != (containment_actions or ''):
             changes['containment_actions'] = (case.containment_actions, containment_actions or None)
         if (case.eradication_actions or '') != (eradication_actions or ''):
@@ -582,6 +585,7 @@ def case_edit():
         if status in CaseStatus.all():
             case.status = status
         case.assigned_to = assigned_to or None
+        case.attack_description = attack_description or None
         case.containment_actions = containment_actions or None
         case.eradication_actions = eradication_actions or None
         case.recovery_actions = recovery_actions or None

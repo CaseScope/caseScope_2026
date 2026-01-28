@@ -123,6 +123,7 @@ class Case(db.Model):
     noise_last_scan = db.Column(db.DateTime, nullable=True)  # Last noise scan timestamp
     
     # Remediation documentation fields (for final reports)
+    attack_description = db.Column(db.Text, nullable=True)   # Analyst narrative of what occurred
     containment_actions = db.Column(db.Text, nullable=True)  # Isolation, blocks, account disables
     eradication_actions = db.Column(db.Text, nullable=True)  # Malware removal, cleanup
     recovery_actions = db.Column(db.Text, nullable=True)     # Credential resets, system restoration
@@ -158,6 +159,7 @@ class Case(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'assigned_to': self.assigned_to,
             'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
+            'attack_description': self.attack_description,
             'containment_actions': self.containment_actions,
             'eradication_actions': self.eradication_actions,
             'recovery_actions': self.recovery_actions,
