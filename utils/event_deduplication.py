@@ -249,6 +249,8 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
         unique_tuple = f"({', '.join(config.unique_fields)})"
         unique_tuple_with_time = f"({', '.join(config.unique_fields)}, indexed_at)"
         
+        # Add memory limit and enable external GROUP BY to prevent OOM
+        # Falls back to disk-based processing if memory limit exceeded
         delete_query = f"""
             ALTER TABLE events DELETE 
             WHERE case_id = {case_id}
@@ -272,6 +274,7 @@ def deduplicate_artifact_type(client, case_id: int, config: ArtifactDeduplicatio
                   GROUP BY {', '.join(config.unique_fields)}
                   HAVING count() > 1
               )
+            SETTINGS max_memory_usage = 10737418240, max_bytes_before_external_group_by = 5368709120
         """
         
         # Execute deletion
@@ -360,6 +363,11 @@ def deduplicate_case_events(case_id: int, case_uuid: str = None,
     # Process each artifact type that has events
     for config in ARTIFACT_DEDUP_CONFIGS:
         if config.artifact_type not in artifact_types_in_case:
+            continue
+        
+        # Skip artifact types that are known to cause OOM issues
+        if config.artifact_type in SKIP_AUTO_DEDUP_TYPES:
+            logger.info(f"Skipping {config.artifact_type} deduplication (high memory risk)")
             continue
         
         event_count = artifact_types_in_case[config.artifact_type]
