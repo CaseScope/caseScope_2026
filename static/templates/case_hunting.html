@@ -517,6 +517,11 @@ const preconfiguredSearches = {
                         </ul>
                     `
                 }
+            },
+            { 
+                label: 'NPS Logons/Denies', 
+                search: '6272|6273',
+                columns: ['raw_json.EventData.SubjectUserName', 'raw_json.EventData.CallingStationID', 'raw_json.EventData.NASIPv4Address']
             }
         ],
         'Common Patterns': [
