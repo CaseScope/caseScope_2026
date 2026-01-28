@@ -232,6 +232,7 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
             except Exception as e:
                 logger.error(f"Error processing hostname '{hostname}': {e}")
                 results['errors'].append(f"Error with '{hostname}': {str(e)}")
+                db.session.rollback()  # Rollback to allow subsequent hostnames to process
                 processed += 1
         
         # Commit all changes
