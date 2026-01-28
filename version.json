@@ -1,6 +1,14 @@
 {
-  "version": "3.152.00",
+  "version": "3.153.00",
   "changelog": [
+    {
+      "version": "3.153.00",
+      "date": "2026-01-28",
+      "changes": [
+        "AI DFIR reports now use Attack Description field as primary analyst narrative",
+        "Attack Description is combined with EDR report when both are provided, or used in place of EDR when only narrative exists"
+      ]
+    },
     {
       "version": "3.152.00",
       "date": "2026-01-28",

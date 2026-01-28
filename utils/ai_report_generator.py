@@ -47,6 +47,7 @@ class AIReportGenerator:
         self.tagged_events: List[Dict] = []
         self.event_context: str = ""
         self.has_edr_report = bool(self.case.edr_report and self.case.edr_report.strip())
+        self.has_attack_description = bool(self.case.attack_description and self.case.attack_description.strip())
     
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""
@@ -181,14 +182,25 @@ class AIReportGenerator:
     def _get_incident_context(self, max_chars: int = 4000) -> str:
         """Get the best available incident context for AI prompts.
         
-        Returns:
-        - If EDR report exists: Combined EDR summary + event context
-        - If no EDR report: Event context only
+        Priority order:
+        1. Attack Description (analyst narrative) - primary context if available
+        2. EDR Report - supplementary technical context
+        3. Tagged Events - detailed event sequence
+        
+        When multiple sources exist, they are combined for richer analysis.
         """
         context_parts = []
         
+        # Attack description is the analyst's narrative of what occurred
+        if self.has_attack_description:
+            attack_chars = max_chars // 3 if (self.has_edr_report or self.event_context) else max_chars // 2
+            attack_excerpt = self.case.attack_description[:attack_chars] if len(self.case.attack_description) > attack_chars else self.case.attack_description
+            context_parts.append(f"ANALYST ATTACK NARRATIVE:\n{attack_excerpt}")
+        
+        # EDR report provides technical analysis from EDR tool
         if self.has_edr_report:
-            edr_excerpt = self.case.edr_report[:max_chars // 2] if len(self.case.edr_report) > max_chars // 2 else self.case.edr_report
+            edr_chars = max_chars // 3 if self.has_attack_description else max_chars // 2
+            edr_excerpt = self.case.edr_report[:edr_chars] if len(self.case.edr_report) > edr_chars else self.case.edr_report
             context_parts.append(f"EDR ANALYSIS SUMMARY:\n{edr_excerpt}")
         
         if self.event_context:
@@ -204,12 +216,16 @@ class AIReportGenerator:
     
     def _get_data_source_note(self) -> str:
         """Get a note about what data sources were used"""
-        if self.has_edr_report and self.tagged_events:
-            return f"(Based on EDR analysis and {len(self.tagged_events)} analyst-tagged events)"
-        elif self.has_edr_report:
-            return "(Based on EDR analysis)"
-        elif self.tagged_events:
-            return f"(Based on {len(self.tagged_events)} analyst-tagged events)"
+        sources = []
+        if self.has_attack_description:
+            sources.append("analyst narrative")
+        if self.has_edr_report:
+            sources.append("EDR analysis")
+        if self.tagged_events:
+            sources.append(f"{len(self.tagged_events)} tagged events")
+        
+        if sources:
+            return f"(Based on {', '.join(sources)})"
         else:
             return "(Limited data available)"
     
@@ -441,8 +457,13 @@ Write the "How To Prevent" paragraph:"""
         self._build_event_context()
         
         # Log data source info
-        data_source = "EDR report + tagged events" if self.has_edr_report else "analyst-tagged events only"
-        current_app.logger.info(f"DFIR Report for case {self.case.id}: Using {data_source} ({len(self.tagged_events)} events)")
+        sources = []
+        if self.has_attack_description:
+            sources.append("attack narrative")
+        if self.has_edr_report:
+            sources.append("EDR report")
+        sources.append(f"{len(self.tagged_events)} tagged events")
+        current_app.logger.info(f"DFIR Report for case {self.case.id}: Using {' + '.join(sources)}")
         
         # Step 2: Executive Summary
         self._update_progress(2, total_steps, "Generating Executive Summary...")
@@ -479,6 +500,7 @@ Write the "How To Prevent" paragraph:"""
             'temp_folder': self.temp_folder,
             'sections': list(self.sections.keys()),
             'data_sources': {
+                'attack_description': self.has_attack_description,
                 'edr_report': self.has_edr_report,
                 'tagged_events': len(self.tagged_events)
             }
