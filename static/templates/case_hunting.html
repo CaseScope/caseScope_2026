@@ -484,6 +484,39 @@ const preconfiguredSearches = {
                 label: 'Failed Logons', 
                 search: '4625 Security -"NT AUTHORITY" -"ANONYMOUS LOGON" -$@',
                 columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType', 'raw_json.EventData.FailureReason']
+            },
+            { 
+                label: 'Remote Desktop (RDP)', 
+                search: '(4624 logontype:10)|4778|4779|1149',
+                columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.IpAddress', 'raw_json.EventData.SessionName'],
+                description: {
+                    title: '🖥️ Remote Desktop Logons/Logoffs',
+                    content: `
+                        <p>This search returns events related to <strong>Remote Desktop (RDP)</strong> sessions:</p>
+                        <ul>
+                            <li><strong>4624 LogonType:10</strong> - Remote Interactive logon (RDP connection)</li>
+                            <li><strong>4778</strong> - Session reconnected to a Window Station</li>
+                            <li><strong>4779</strong> - Session disconnected from a Window Station</li>
+                            <li><strong>1149</strong> - Remote Desktop Services: User authentication succeeded</li>
+                        </ul>
+                        
+                        <h4>🎯 Key Fields to Review</h4>
+                        <ul>
+                            <li><strong>TargetUserName</strong> - Who logged in</li>
+                            <li><strong>IpAddress</strong> - Source IP of the RDP connection</li>
+                            <li><strong>WorkstationName</strong> - Source hostname</li>
+                            <li><strong>SessionName</strong> - RDP session identifier</li>
+                        </ul>
+                        
+                        <h4>⚠️ Suspicious Indicators</h4>
+                        <ul>
+                            <li>RDP from external/unexpected IP addresses</li>
+                            <li>Logons outside business hours</li>
+                            <li>Privileged account RDP to multiple systems</li>
+                            <li>RDP to systems that shouldn't allow it (DCs, critical servers)</li>
+                        </ul>
+                    `
+                }
             }
         ],
         'Common Patterns': [
