@@ -5734,5 +5734,285 @@ function toggleHelp(toggle) {
         toggle.innerHTML = '<span class="ai-help-icon">❓</span> What does this do?';
     }
 }
+
+// ============================================
+// AI REVIEW MODAL - Interactive Chat Interface
+// ============================================
+
+let aiReviewConversation = [];
+let aiReviewIsProcessing = false;
+
+function openAIReviewModal() {
+    const modal = document.getElementById('ai-review-modal');
+    if (!modal) return;
+    
+    modal.style.display = 'flex';
+    
+    // Update event count
+    const eventCount = currentEventsData.length;
+    document.getElementById('ai-review-event-count').textContent = `${eventCount} events`;
+    
+    // Show welcome screen if no conversation
+    if (aiReviewConversation.length === 0) {
+        document.getElementById('ai-review-welcome').style.display = 'flex';
+        document.getElementById('ai-review-input-section').style.display = 'none';
+        document.getElementById('btn-clear-conversation').style.display = 'none';
+    }
+}
+
+function closeAIReviewModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('ai-review-modal').style.display = 'none';
+}
+
+function startAIReview() {
+    if (aiReviewIsProcessing) return;
+    
+    const eventCount = currentEventsData.length;
+    if (eventCount === 0) {
+        alert('No events in current view to analyze. Load some events first.');
+        return;
+    }
+    
+    // Hide welcome, show input section
+    document.getElementById('ai-review-welcome').style.display = 'none';
+    document.getElementById('ai-review-input-section').style.display = 'block';
+    document.getElementById('btn-clear-conversation').style.display = 'inline-flex';
+    
+    // Add initial user message
+    addAIReviewMessage('user', `Analyze these ${eventCount} events and identify any security concerns, suspicious patterns, or areas that need investigation.`);
+    
+    // Show loading
+    showAIReviewLoading();
+    
+    // Call API
+    performAIReview(false);
+}
+
+function addAIReviewMessage(role, content, meta = null) {
+    const conversation = document.getElementById('ai-review-conversation');
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `ai-review-message ${role}-message`;
+    
+    const avatar = role === 'ai' ? '🤖' : '👤';
+    
+    // Format content for AI messages
+    let formattedContent = content;
+    if (role === 'ai') {
+        formattedContent = formatAIResponse(content);
+    }
+    
+    let metaHtml = '';
+    if (meta) {
+        const parts = [];
+        if (meta.events_analyzed) parts.push(`${meta.events_analyzed} events`);
+        if (meta.duration) parts.push(meta.duration);
+        if (parts.length) {
+            metaHtml = `<div class="message-meta">${parts.join(' • ')}</div>`;
+        }
+    }
+    
+    messageDiv.innerHTML = `
+        <div class="message-avatar">${avatar}</div>
+        <div class="message-content">
+            <div class="message-text">${formattedContent}</div>
+            ${metaHtml}
+        </div>
+    `;
+    
+    conversation.appendChild(messageDiv);
+    
+    // Scroll to bottom
+    conversation.scrollTop = conversation.scrollHeight;
+    
+    // Store in conversation history
+    aiReviewConversation.push({ role, content, meta });
+}
+
+function formatAIResponse(text) {
+    // Escape HTML
+    let formatted = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    // Bold text
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // Code blocks
+    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Convert line breaks
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    return formatted;
+}
+
+function showAIReviewLoading() {
+    const conversation = document.getElementById('ai-review-conversation');
+    
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'ai-review-message ai-message';
+    loadingDiv.id = 'ai-review-loading-message';
+    
+    loadingDiv.innerHTML = `
+        <div class="message-avatar">🤖</div>
+        <div class="ai-review-loading">
+            <div class="loading-dots">
+                <div class="loading-dot"></div>
+                <div class="loading-dot"></div>
+                <div class="loading-dot"></div>
+            </div>
+            <span class="loading-text-status">Analyzing events...</span>
+        </div>
+    `;
+    
+    conversation.appendChild(loadingDiv);
+    conversation.scrollTop = conversation.scrollHeight;
+    
+    aiReviewIsProcessing = true;
+    updateAIReviewUI();
+}
+
+function hideAIReviewLoading() {
+    const loadingMsg = document.getElementById('ai-review-loading-message');
+    if (loadingMsg) {
+        loadingMsg.remove();
+    }
+    aiReviewIsProcessing = false;
+    updateAIReviewUI();
+}
+
+function updateAIReviewUI() {
+    const sendBtn = document.getElementById('btn-send-followup');
+    const startBtn = document.getElementById('btn-start-review');
+    const input = document.getElementById('ai-review-input');
+    
+    if (sendBtn) sendBtn.disabled = aiReviewIsProcessing;
+    if (startBtn) startBtn.disabled = aiReviewIsProcessing;
+    if (input) input.disabled = aiReviewIsProcessing;
+}
+
+async function performAIReview(isFollowUp = false, question = '') {
+    const startTime = Date.now();
+    
+    try {
+        // Prepare events data (limit fields to reduce payload)
+        const events = currentEventsData.slice(0, 500).map(evt => ({
+            timestamp_utc: evt.timestamp_utc || evt.timestamp,
+            event_id: evt.event_id,
+            source_host: evt.source_host || evt.computer_name,
+            username: evt.username,
+            rule_title: evt.rule_title,
+            rule_level: evt.rule_level,
+            process_name: evt.process_name,
+            command_line: evt.command_line ? evt.command_line.substring(0, 300) : null,
+            channel: evt.channel,
+            description: evt.description ? evt.description.substring(0, 200) : null
+        }));
+        
+        const response = await fetch('/api/rag/review-events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                case_id: caseId,
+                events: events,
+                follow_up: isFollowUp,
+                question: question,
+                conversation_context: aiReviewConversation.slice(-6)
+            })
+        });
+        
+        const data = await response.json();
+        
+        hideAIReviewLoading();
+        
+        if (data.success) {
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+            addAIReviewMessage('ai', data.response, {
+                events_analyzed: data.events_analyzed,
+                duration: duration
+            });
+        } else {
+            addAIReviewMessage('ai', `Error: ${data.error || 'Analysis failed. Please try again.'}`);
+        }
+    } catch (error) {
+        console.error('AI Review error:', error);
+        hideAIReviewLoading();
+        addAIReviewMessage('ai', `Error: Could not connect to AI service. ${error.message}`);
+    }
+}
+
+function sendAIReviewFollowup() {
+    const input = document.getElementById('ai-review-input');
+    const question = input.value.trim();
+    
+    if (!question || aiReviewIsProcessing) return;
+    
+    // Add user message
+    addAIReviewMessage('user', question);
+    
+    // Clear input
+    input.value = '';
+    
+    // Show loading
+    showAIReviewLoading();
+    
+    // Perform follow-up
+    performAIReview(true, question);
+}
+
+function handleAIReviewKeydown(event) {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        sendAIReviewFollowup();
+    }
+}
+
+function setQuickPrompt(prompt) {
+    const input = document.getElementById('ai-review-input');
+    if (input) {
+        input.value = prompt;
+        input.focus();
+    }
+}
+
+function clearAIReviewConversation() {
+    if (!confirm('Clear the conversation and start fresh?')) return;
+    
+    aiReviewConversation = [];
+    
+    const conversation = document.getElementById('ai-review-conversation');
+    conversation.innerHTML = '';
+    
+    // Show welcome screen
+    const welcomeHtml = `
+        <div class="ai-review-welcome" id="ai-review-welcome">
+            <div class="welcome-icon">🤖</div>
+            <h4>AI Event Review</h4>
+            <p>I'll analyze the events in your current view and provide insights about potential security threats, attack patterns, and areas that need investigation.</p>
+            <div class="welcome-capabilities">
+                <div class="capability-item">
+                    <span class="capability-icon">🔍</span>
+                    <span>Identify suspicious patterns and anomalies</span>
+                </div>
+                <div class="capability-item">
+                    <span class="capability-icon">🎯</span>
+                    <span>Map activities to MITRE ATT&CK techniques</span>
+                </div>
+                <div class="capability-item">
+                    <span class="capability-icon">💡</span>
+                    <span>Suggest investigation focus areas</span>
+                </div>
+            </div>
+            <button class="btn btn-primary btn-lg" id="btn-start-review" onclick="startAIReview()">
+                <span class="btn-icon">▶️</span> Start Analysis
+            </button>
+        </div>
+    `;
+    conversation.innerHTML = welcomeHtml;
+    
+    // Update UI
+    document.getElementById('ai-review-input-section').style.display = 'none';
+    document.getElementById('btn-clear-conversation').style.display = 'none';
+}
 </script>
 {% endblock %}

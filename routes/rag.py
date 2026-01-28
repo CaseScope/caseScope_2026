@@ -1502,6 +1502,187 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@rag_bp.route('/review-events', methods=['POST'])
+@login_required
+def review_events():
+    """AI-assisted review of current view events with streaming response
+    
+    Accepts events data from the current view (max 500) and provides
+    AI analysis with streaming output for real-time feedback.
+    """
+    import time
+    from flask import Response, stream_with_context
+    from utils.rag_llm import get_ollama_client
+    from models.system_settings import SystemSettings, SettingKeys
+    from utils.clickhouse import get_client
+    import json
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    events = data.get('events', [])
+    follow_up = data.get('follow_up', False)
+    question = data.get('question', '').strip()
+    conversation_context = data.get('conversation_context', [])
+    
+    if not case_id:
+        return jsonify({'success': False, 'error': 'case_id required'}), 400
+    
+    # Check if AI is enabled
+    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    if not ai_enabled:
+        return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    # Limit events to 500
+    events = events[:500] if events else []
+    
+    try:
+        # Build context from events
+        event_summaries = []
+        severity_counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'informational': 0}
+        unique_hosts = set()
+        unique_users = set()
+        event_ids_seen = set()
+        
+        for i, evt in enumerate(events[:100]):  # Summarize first 100 for context
+            # Collect stats
+            level = evt.get('rule_level', 'informational') or 'informational'
+            if level in severity_counts:
+                severity_counts[level] += 1
+            
+            host = evt.get('source_host') or evt.get('computer_name')
+            if host:
+                unique_hosts.add(host)
+            
+            user = evt.get('username')
+            if user:
+                unique_users.add(user)
+            
+            eid = evt.get('event_id')
+            if eid:
+                event_ids_seen.add(str(eid))
+            
+            # Build event line
+            parts = []
+            ts = evt.get('timestamp_utc') or evt.get('timestamp') or ''
+            if ts:
+                parts.append(f"[{ts}]")
+            if eid:
+                parts.append(f"EventID:{eid}")
+            if level and level in ('critical', 'high', 'medium'):
+                parts.append(f"[{level.upper()}]")
+            
+            title = evt.get('rule_title') or evt.get('description', '')[:100]
+            if title:
+                parts.append(title)
+            
+            if host:
+                parts.append(f"Host:{host}")
+            if user:
+                parts.append(f"User:{user}")
+            
+            cmd = evt.get('command_line', '')
+            if cmd and len(cmd) > 10:
+                parts.append(f"Cmd:{cmd[:150]}")
+            
+            if parts:
+                event_summaries.append(' | '.join(parts))
+        
+        # Build the prompt
+        event_text = '\n'.join(event_summaries) if event_summaries else 'No events provided.'
+        
+        stats_summary = f"""CASE: {case.name}
+EVENTS IN VIEW: {len(events)}
+SEVERITY BREAKDOWN: Critical={severity_counts['critical']}, High={severity_counts['high']}, Medium={severity_counts['medium']}, Low={severity_counts['low']}
+UNIQUE HOSTS: {len(unique_hosts)} ({', '.join(list(unique_hosts)[:5])})
+UNIQUE USERS: {len(unique_users)} ({', '.join(list(unique_users)[:5])})
+EVENT IDS SEEN: {', '.join(list(event_ids_seen)[:15])}"""
+
+        if follow_up and question:
+            # Follow-up question with conversation context
+            context_text = ""
+            for msg in conversation_context[-4:]:  # Last 4 messages for context
+                role = "Analyst" if msg.get('role') == 'user' else "AI"
+                content = msg.get('content', '')[:500]
+                context_text += f"\n{role}: {content}\n"
+            
+            user_prompt = f"""Based on our previous analysis of the events and this conversation:
+
+{context_text}
+
+The analyst now asks: {question}
+
+{stats_summary}
+
+SAMPLE EVENTS (first 100 of {len(events)}):
+{event_text}
+
+Please provide a focused response to the analyst's question based on the event data. Be specific and cite evidence."""
+        else:
+            # Initial review
+            user_prompt = f"""Analyze the following security events and provide a comprehensive threat hunting review.
+
+{stats_summary}
+
+SAMPLE EVENTS (first 100 of {len(events)}):
+{event_text}
+
+Please provide:
+1. **Summary**: What is happening in these events? Any signs of malicious activity?
+2. **Critical Findings**: Highlight the most concerning events or patterns
+3. **Attack Techniques**: Map any suspicious activities to MITRE ATT&CK if applicable
+4. **Investigation Recommendations**: What should the analyst focus on next?
+5. **Confidence Level**: Rate your confidence in the findings (High/Medium/Low)
+
+Be specific. Reference actual event IDs, timestamps, hosts, and users from the data."""
+
+        system_prompt = """You are a DFIR (Digital Forensics and Incident Response) expert assistant.
+
+CRITICAL RULES:
+1. ONLY analyze data that is explicitly provided to you
+2. NEVER fabricate events, timestamps, usernames, hosts, or any other data
+3. If you cannot find evidence for something, clearly state "No evidence found in the provided data"
+4. Always cite specific events, timestamps, and hosts when making claims
+5. Use precise forensic terminology
+6. Be concise but thorough
+
+Your role is to help analysts identify threats by analyzing event patterns, finding IOCs, recognizing attack techniques, and suggesting investigation focus areas."""
+
+        # Use non-streaming for now to get the response, then simulate streaming for better UX
+        ollama_client = get_ollama_client()
+        result = ollama_client.generate(
+            prompt=user_prompt,
+            system=system_prompt,
+            temperature=0.3,
+            max_tokens=2500
+        )
+        
+        if not result.get('success'):
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'AI analysis failed')
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'response': result.get('response', ''),
+            'model': result.get('model'),
+            'events_analyzed': len(events),
+            'stats': {
+                'severity_counts': severity_counts,
+                'unique_hosts': len(unique_hosts),
+                'unique_users': len(unique_users)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"[AI Review] Error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @rag_bp.route('/ask/feedback', methods=['POST'])
 @login_required
 def submit_query_feedback():

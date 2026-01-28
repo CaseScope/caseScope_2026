@@ -98,6 +98,79 @@
     </div>
 </div>
 
+<!-- AI Review Modal -->
+{% if ai_enabled %}
+<div class="modal-overlay" id="ai-review-modal" style="display: none;" onclick="closeAIReviewModal(event)">
+    <div class="modal-container modal-ai-review" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">🤖 AI Event Review</h3>
+            <div class="ai-review-header-info">
+                <span class="ai-review-event-count" id="ai-review-event-count">0 events</span>
+            </div>
+            <button class="modal-close" onclick="closeAIReviewModal()">&times;</button>
+        </div>
+        <div class="modal-body ai-review-body">
+            <!-- Conversation Area -->
+            <div class="ai-review-conversation" id="ai-review-conversation">
+                <!-- Messages will be appended here -->
+                <div class="ai-review-welcome" id="ai-review-welcome">
+                    <div class="welcome-icon">🤖</div>
+                    <h4>AI Event Review</h4>
+                    <p>I'll analyze the events in your current view and provide insights about potential security threats, attack patterns, and areas that need investigation.</p>
+                    <div class="welcome-capabilities">
+                        <div class="capability-item">
+                            <span class="capability-icon">🔍</span>
+                            <span>Identify suspicious patterns and anomalies</span>
+                        </div>
+                        <div class="capability-item">
+                            <span class="capability-icon">🎯</span>
+                            <span>Map activities to MITRE ATT&CK techniques</span>
+                        </div>
+                        <div class="capability-item">
+                            <span class="capability-icon">💡</span>
+                            <span>Suggest investigation focus areas</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-lg" id="btn-start-review" onclick="startAIReview()">
+                        <span class="btn-icon">▶️</span> Start Analysis
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="ai-review-input-section" id="ai-review-input-section" style="display: none;">
+                <div class="ai-review-input-row">
+                    <textarea 
+                        id="ai-review-input" 
+                        class="ai-review-textarea" 
+                        placeholder="Ask a follow-up question about the events..."
+                        rows="2"
+                        onkeydown="handleAIReviewKeydown(event)"
+                    ></textarea>
+                    <button class="btn btn-primary ai-review-send-btn" id="btn-send-followup" onclick="sendAIReviewFollowup()" title="Send (Ctrl+Enter)">
+                        <span class="btn-icon">📤</span>
+                    </button>
+                </div>
+                <div class="ai-review-input-hints">
+                    <span class="hint-text">Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to send</span>
+                    <div class="quick-prompts">
+                        <button class="quick-prompt-btn" onclick="setQuickPrompt('What are the most critical findings?')">Critical findings</button>
+                        <button class="quick-prompt-btn" onclick="setQuickPrompt('Show me any lateral movement activity')">Lateral movement</button>
+                        <button class="quick-prompt-btn" onclick="setQuickPrompt('Are there signs of persistence mechanisms?')">Persistence</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="clearAIReviewConversation()" id="btn-clear-conversation" style="display: none;">
+                <span class="btn-icon">🗑️</span> Clear
+            </button>
+            <button class="btn btn-secondary" onclick="closeAIReviewModal()">Close</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Search Tile -->
 <div class="events-tile events-search-tile">
     <div class="tile-header">
@@ -272,6 +345,11 @@
     <div class="tile-header">
         <h3 class="tile-title">📋 Events</h3>
         <div class="tile-controls">
+            {% if ai_enabled %}
+            <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openAIReviewModal()" title="AI-assisted review of current view events">
+                <span class="btn-icon">🤖</span> AI Review
+            </button>
+            {% endif %}
             <button class="btn btn-secondary btn-sm btn-export-tagged" id="btn-export-tagged" onclick="exportTaggedEvents()" title="Export all analyst-tagged events to JSON">
                 Export Tagged
             </button>
