@@ -1,6 +1,16 @@
 {
-  "version": "3.155.00",
+  "version": "3.156.00",
   "changelog": [
+    {
+      "version": "3.156.00",
+      "date": "2026-01-28",
+      "changes": [
+        "Improved timeline aggregation: groups events by host+user+rule per 5-minute window",
+        "Cleaner event format sent to AI for better narrative generation",
+        "Reduced max activities to 80 for more reliable AI processing",
+        "Better handling of repetitive authentication/logon events"
+      ]
+    },
     {
       "version": "3.155.00",
       "date": "2026-01-28",
