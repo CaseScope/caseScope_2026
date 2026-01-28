@@ -270,11 +270,125 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
         self._save_section('executive_summary', content)
         return content
     
-    def generate_timeline(self) -> str:
-        """Generate timeline from analyst-tagged events
+    def _smart_sample_events(self, all_events: List[Dict], max_events: int = 120) -> tuple:
+        """Smart sampling of events for timeline generation.
         
-        Limits events to prevent AI timeout on large datasets.
-        Max 150 events or 12000 characters of event data.
+        Strategy:
+        1. Always include events with analyst notes (priority)
+        2. Ensure MITRE tactic diversity
+        3. Sample evenly across timespan
+        4. Aggregate similar consecutive events
+        
+        Returns: (sampled_events, aggregated_groups, stats)
+        """
+        from datetime import timedelta
+        
+        if len(all_events) <= max_events:
+            return all_events, [], {'total': len(all_events), 'sampled': len(all_events), 'strategy': 'all'}
+        
+        # Separate priority events (with analyst notes)
+        priority_events = [e for e in all_events if e.get('notes')]
+        regular_events = [e for e in all_events if not e.get('notes')]
+        
+        # Reserve slots for priority events (max 40% of budget)
+        priority_budget = min(len(priority_events), int(max_events * 0.4))
+        remaining_budget = max_events - priority_budget
+        
+        # Collect unique MITRE tactics to ensure diversity
+        tactic_events = {}
+        for e in regular_events:
+            for tactic in (e.get('mitre_tactics') or []):
+                if tactic not in tactic_events:
+                    tactic_events[tactic] = []
+                tactic_events[tactic].append(e)
+        
+        # Sample events ensuring tactic diversity
+        sampled = set()
+        sampled_list = []
+        
+        # Add priority events first
+        for e in priority_events[:priority_budget]:
+            sampled.add(id(e))
+            sampled_list.append(e)
+        
+        # Add at least one event per tactic (if budget allows)
+        tactic_budget = min(len(tactic_events), remaining_budget // 3)
+        for tactic, events in list(tactic_events.items())[:tactic_budget]:
+            if events and id(events[0]) not in sampled:
+                sampled.add(id(events[0]))
+                sampled_list.append(events[0])
+                remaining_budget -= 1
+        
+        # Distribute remaining budget evenly across timeline
+        unsampled = [e for e in regular_events if id(e) not in sampled]
+        if unsampled and remaining_budget > 0:
+            # Take evenly spaced events
+            step = max(1, len(unsampled) // remaining_budget)
+            for i in range(0, len(unsampled), step):
+                if len(sampled_list) >= max_events:
+                    break
+                sampled_list.append(unsampled[i])
+        
+        # Sort by timestamp
+        sampled_list.sort(key=lambda e: e.get('timestamp') or '')
+        
+        # Aggregate similar consecutive events (same host, user, process within 60 seconds)
+        aggregated_groups = []
+        final_events = []
+        i = 0
+        while i < len(sampled_list):
+            event = sampled_list[i]
+            group = [event]
+            
+            # Look for similar consecutive events
+            j = i + 1
+            while j < len(sampled_list):
+                next_event = sampled_list[j]
+                # Check if similar (same host, user, process, within 60 seconds)
+                time_diff = abs((next_event.get('timestamp') - event.get('timestamp')).total_seconds()) if event.get('timestamp') and next_event.get('timestamp') else 9999
+                if (time_diff <= 60 and 
+                    next_event.get('host') == event.get('host') and
+                    next_event.get('user') == event.get('user') and
+                    next_event.get('process') == event.get('process')):
+                    group.append(next_event)
+                    j += 1
+                else:
+                    break
+            
+            if len(group) > 2:
+                # Aggregate this group
+                aggregated_groups.append({
+                    'start_time': group[0].get('timestamp'),
+                    'end_time': group[-1].get('timestamp'),
+                    'count': len(group),
+                    'host': event.get('host'),
+                    'user': event.get('user'),
+                    'process': event.get('process'),
+                    'mitre': event.get('mitre_tactics', []) + event.get('mitre_tags', [])
+                })
+            else:
+                final_events.extend(group)
+            
+            i = j
+        
+        stats = {
+            'total': len(all_events),
+            'sampled': len(final_events) + len(aggregated_groups),
+            'priority_included': min(len(priority_events), priority_budget),
+            'aggregated_groups': len(aggregated_groups),
+            'strategy': 'smart_sample'
+        }
+        
+        return final_events, aggregated_groups, stats
+    
+    def generate_timeline(self) -> str:
+        """Generate timeline from analyst-tagged events.
+        
+        Uses smart sampling for large datasets:
+        - Prioritizes events with analyst notes
+        - Ensures MITRE tactic diversity  
+        - Samples evenly across timespan
+        - Aggregates similar consecutive events
         """
         try:
             client = get_client()
@@ -291,35 +405,64 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
             if not result.result_rows:
                 return "No analyst-tagged events found for timeline generation."
             
-            total_events = len(result.result_rows)
-            max_events = 150
-            max_chars = 12000
-            
-            events_text = []
-            char_count = 0
-            truncated = False
-            
+            # Parse all events into structured format
+            all_events = []
             for row in result.result_rows:
                 (ts_utc, artifact_type, host, user, proc, cmdline, rule, 
                  mitre_tactics, mitre_tags, tags, notes, target, reg_key, src_ip, dst_ip) = row
-                mitre_list = list(mitre_tactics) if mitre_tactics else []
-                mitre_ids = list(mitre_tags) if mitre_tags else []
-                mitre_str = ', '.join(mitre_list + mitre_ids) if (mitre_list or mitre_ids) else 'None'
-                # Truncate command line more aggressively for large datasets
-                cmd_limit = 150 if total_events > 50 else 300
-                event_info = f"TIME:{ts_utc}|HOST:{host}|USER:{user}|RULE:{rule}|MITRE:{mitre_str}|PROC:{proc}|CMD:{cmdline[:cmd_limit] if cmdline else 'N/A'}"
-                
-                # Check limits
-                if len(events_text) >= max_events or char_count + len(event_info) > max_chars:
-                    truncated = True
-                    break
-                    
-                events_text.append(event_info)
-                char_count += len(event_info) + 1
+                all_events.append({
+                    'timestamp': ts_utc,
+                    'artifact_type': artifact_type,
+                    'host': host,
+                    'user': user,
+                    'process': proc,
+                    'command_line': cmdline,
+                    'rule': rule,
+                    'mitre_tactics': list(mitre_tactics) if mitre_tactics else [],
+                    'mitre_tags': list(mitre_tags) if mitre_tags else [],
+                    'notes': notes,
+                    'target_path': target,
+                    'src_ip': str(src_ip) if src_ip else None,
+                    'dst_ip': str(dst_ip) if dst_ip else None
+                })
             
-            truncation_note = ""
-            if truncated:
-                truncation_note = f"\n\nNOTE: Showing {len(events_text)} of {total_events} events. Focus on key attack phases."
+            total_events = len(all_events)
+            
+            # Smart sample if too many events
+            sampled_events, aggregated_groups, stats = self._smart_sample_events(all_events, max_events=120)
+            
+            # Build event text for AI
+            events_text = []
+            cmd_limit = 120 if total_events > 100 else 200
+            
+            # Add individual events
+            for event in sampled_events:
+                mitre_str = ', '.join(event['mitre_tactics'] + event['mitre_tags']) or 'None'
+                cmdline = event['command_line']
+                note_marker = " [ANALYST NOTE]" if event['notes'] else ""
+                event_info = f"TIME:{event['timestamp']}|HOST:{event['host']}|USER:{event['user']}|RULE:{event['rule']}|MITRE:{mitre_str}|PROC:{event['process']}|CMD:{cmdline[:cmd_limit] if cmdline else 'N/A'}{note_marker}"
+                if event['notes']:
+                    event_info += f"|NOTE:{event['notes'][:100]}"
+                events_text.append(event_info)
+            
+            # Add aggregated groups
+            for group in aggregated_groups:
+                mitre_str = ', '.join(group['mitre']) or 'None'
+                start = group['start_time'].strftime('%H:%M:%S') if group['start_time'] else '?'
+                end = group['end_time'].strftime('%H:%M:%S') if group['end_time'] else '?'
+                date = group['start_time'].strftime('%Y-%m-%d') if group['start_time'] else '?'
+                events_text.append(f"AGGREGATED|TIME:{date} {start}-{end}|COUNT:{group['count']} similar events|HOST:{group['host']}|USER:{group['user']}|PROC:{group['process']}|MITRE:{mitre_str}")
+            
+            # Sort by timestamp representation
+            events_text.sort()
+            
+            # Build context note
+            context_note = ""
+            if stats['strategy'] == 'smart_sample':
+                context_note = f"\n\nNOTE: Smart-sampled {stats['sampled']} from {stats['total']} total events. "
+                context_note += f"Includes {stats['priority_included']} analyst-noted events. "
+                if stats['aggregated_groups'] > 0:
+                    context_note += f"{stats['aggregated_groups']} groups of similar events aggregated."
             
             prompt = f"""Create an incident timeline. Output ONLY the timeline entries.
 
@@ -327,11 +470,13 @@ FORMAT - each entry must be:
 01/21/2026 at 17:08:37: User Bill executed cmd.exe to copy finger.exe - MITRE (Execution, T1059)
 * The attacker used command prompt to stage a renamed copy of finger.exe
 
-GROUPING: Combine similar events occurring within seconds:
-01/21/2026 at 17:10:23-17:10:41: Multiple PowerShell commands executed (8 events on ENGINEERING by Bill) - MITRE (Discovery, T1082)
-* The attacker gathered system information
+FOR AGGREGATED EVENTS:
+01/21/2026 at 17:10:23-17:10:41: Multiple PowerShell commands executed (47 events on ENGINEERING by Bill) - MITRE (Discovery, T1082)
+* The attacker performed extensive system reconnaissance
 
-EVENTS ({len(events_text)} total):{truncation_note}
+PRIORITY: Events marked [ANALYST NOTE] are especially significant - emphasize these.
+
+EVENTS ({len(events_text)} entries from {total_events} total):{context_note}
 {chr(10).join(events_text)}
 
 Output timeline (chronological, no headers):"""

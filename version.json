@@ -1,6 +1,17 @@
 {
-  "version": "3.154.00",
+  "version": "3.155.00",
   "changelog": [
+    {
+      "version": "3.155.00",
+      "date": "2026-01-28",
+      "changes": [
+        "Smart sampling for DFIR timeline handles thousands of events",
+        "Events with analyst notes always prioritized in timeline",
+        "MITRE tactic diversity ensured across sampled events",
+        "Similar consecutive events aggregated to reduce volume",
+        "Even distribution across incident timespan"
+      ]
+    },
     {
       "version": "3.154.00",
       "date": "2026-01-28",
