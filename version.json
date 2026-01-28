@@ -1,6 +1,16 @@
 {
-  "version": "3.156.00",
+  "version": "3.157.00",
   "changelog": [
+    {
+      "version": "3.157.00",
+      "date": "2026-01-28",
+      "changes": [
+        "Timeline Report now uses smart sampling for large datasets (150 max groups)",
+        "Pre-aggregates events when over 500 total for efficient processing",
+        "Attack Description field included in Timeline Report context",
+        "Improved narrative prompts for better AI timeline output"
+      ]
+    },
     {
       "version": "3.156.00",
       "date": "2026-01-28",

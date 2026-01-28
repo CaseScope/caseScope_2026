@@ -226,6 +226,11 @@ class AITimelineGenerator:
     # Maximum time gap (seconds) to consider events as part of same group
     GROUP_TIME_WINDOW = 120  # 2 minutes
     
+    # Limits for large datasets
+    MAX_EVENTS_FOR_FULL_PROCESSING = 500  # Above this, use smart sampling
+    MAX_GROUPS_FOR_AI = 150  # Maximum groups to send to AI
+    MAX_RAW_TIMELINE_CHARS = 15000  # Maximum characters for raw timeline
+    
     def __init__(self, case_id: int, template_id: Optional[int] = None,
                  progress_callback: Optional[Callable] = None):
         self.case = Case.query.get(case_id)
@@ -302,6 +307,49 @@ class AITimelineGenerator:
         self.iocs = IOC.query.filter_by(case_id=self.case.id, hidden=False).all()
         return self.iocs
     
+    def _pre_aggregate_events(self, events: List[TimelineEvent], time_window_minutes: int = 5) -> List[TimelineEvent]:
+        """Pre-aggregate events by activity type within time windows.
+        
+        For very large datasets, aggregates events with same signature
+        within 5-minute windows before the main grouping pass.
+        """
+        if len(events) <= self.MAX_EVENTS_FOR_FULL_PROCESSING:
+            return events
+        
+        current_app.logger.info(f"Pre-aggregating {len(events)} events for timeline")
+        
+        # Group by signature + time bucket
+        buckets = defaultdict(list)
+        for event in events:
+            bucket_time = event.timestamp_utc.replace(second=0, microsecond=0)
+            bucket_time = bucket_time.replace(minute=(bucket_time.minute // time_window_minutes) * time_window_minutes)
+            sig = event.get_event_signature()
+            key = (sig, str(bucket_time))
+            buckets[key].append(event)
+        
+        # Create representative events for each bucket
+        aggregated = []
+        for (sig, bucket), bucket_events in buckets.items():
+            if len(bucket_events) == 1:
+                aggregated.append(bucket_events[0])
+            else:
+                # Take first event as representative, but mark it with aggregate info
+                rep = bucket_events[0]
+                rep._aggregate_count = len(bucket_events)
+                rep._aggregate_end_time = bucket_events[-1].timestamp_utc
+                rep._aggregate_hosts = list(set(e.source_host for e in bucket_events if e.source_host))
+                rep._aggregate_users = list(set(e.username for e in bucket_events if e.username))
+                # Collect any analyst notes
+                notes = [e.analyst_notes for e in bucket_events if e.analyst_notes]
+                if notes:
+                    rep.analyst_notes = notes[0]  # Keep first note
+                aggregated.append(rep)
+        
+        # Sort by timestamp
+        aggregated.sort(key=lambda e: e.timestamp_utc)
+        current_app.logger.info(f"Pre-aggregated to {len(aggregated)} representative events")
+        return aggregated
+    
     def _group_events(self) -> List[EventGroup]:
         """Group events using the intelligent grouping algorithm.
         
@@ -309,14 +357,18 @@ class AITimelineGenerator:
         1. Only group "like" events (same signature) 
         2. Only group if they precede unlike events (no different event in between)
         3. Respect time window (default 2 minutes)
+        4. For large datasets, pre-aggregate first
         """
         if not self.events:
             return []
         
-        groups = []
-        current_group = EventGroup(self.events[0])
+        # Pre-aggregate if too many events
+        events_to_process = self._pre_aggregate_events(self.events)
         
-        for i, event in enumerate(self.events[1:], 1):
+        groups = []
+        current_group = EventGroup(events_to_process[0])
+        
+        for i, event in enumerate(events_to_process[1:], 1):
             time_gap = (event.timestamp_utc - current_group.end_time).total_seconds()
             same_signature = event.get_event_signature() == current_group.signature
             
@@ -332,7 +384,63 @@ class AITimelineGenerator:
         groups.append(current_group)
         
         self.groups = groups
+        self._original_event_count = len(self.events)
         return groups
+    
+    def _smart_sample_groups(self, groups: List[EventGroup]) -> List[EventGroup]:
+        """Smart sample groups if there are too many for AI processing.
+        
+        Strategy:
+        1. Always include groups with analyst notes
+        2. Ensure rule/activity type diversity
+        3. Sample evenly across timespan
+        """
+        if len(groups) <= self.MAX_GROUPS_FOR_AI:
+            return groups
+        
+        current_app.logger.info(f"Smart sampling {len(groups)} groups down to {self.MAX_GROUPS_FOR_AI}")
+        
+        # Separate priority groups (with analyst notes)
+        priority = []
+        regular = []
+        for g in groups:
+            has_notes = any(e.analyst_notes for e in g.events)
+            if has_notes:
+                priority.append(g)
+            else:
+                regular.append(g)
+        
+        # Reserve 40% for priority, 60% for sampled
+        priority_budget = min(len(priority), int(self.MAX_GROUPS_FOR_AI * 0.4))
+        remaining_budget = self.MAX_GROUPS_FOR_AI - priority_budget
+        
+        sampled = priority[:priority_budget]
+        sampled_ids = set(id(g) for g in sampled)
+        
+        # Ensure signature diversity - take one from each unique signature
+        sig_groups = defaultdict(list)
+        for g in regular:
+            sig_groups[g.signature].append(g)
+        
+        diversity_budget = min(len(sig_groups), remaining_budget // 3)
+        for sig, sig_group_list in list(sig_groups.items())[:diversity_budget]:
+            if sig_group_list and id(sig_group_list[0]) not in sampled_ids:
+                sampled.append(sig_group_list[0])
+                sampled_ids.add(id(sig_group_list[0]))
+                remaining_budget -= 1
+        
+        # Fill remaining with evenly distributed samples
+        unsampled = [g for g in regular if id(g) not in sampled_ids]
+        if unsampled and remaining_budget > 0:
+            step = max(1, len(unsampled) // remaining_budget)
+            for i in range(0, len(unsampled), step):
+                if len(sampled) >= self.MAX_GROUPS_FOR_AI:
+                    break
+                sampled.append(unsampled[i])
+        
+        # Sort by time
+        sampled.sort(key=lambda g: g.start_time)
+        return sampled
     
     def _format_timestamp(self, ts: datetime) -> str:
         """Format timestamp for display"""
@@ -348,51 +456,99 @@ class AITimelineGenerator:
             return f"{self._format_timestamp(start)} to {self._format_timestamp(end)}"
     
     def _build_raw_timeline(self) -> str:
-        """Build the raw timeline text from grouped events"""
-        lines = []
+        """Build the raw timeline text from grouped events.
         
-        for group in self.groups:
+        Uses smart sampling if there are too many groups.
+        """
+        # Apply smart sampling if needed
+        groups_to_process = self._smart_sample_groups(self.groups)
+        
+        lines = []
+        total_char_count = 0
+        
+        for group in groups_to_process:
             entry = group.get_timeline_entry()
             
-            if entry['type'] == 'grouped':
+            # Check for pre-aggregated events (from _pre_aggregate_events)
+            first_event = group.events[0]
+            pre_agg_count = getattr(first_event, '_aggregate_count', 1)
+            pre_agg_hosts = getattr(first_event, '_aggregate_hosts', None)
+            pre_agg_users = getattr(first_event, '_aggregate_users', None)
+            
+            if entry['type'] == 'grouped' or pre_agg_count > 1:
                 # Grouped events
-                time_str = self._format_time_range(entry['start_time'], entry['end_time'])
-                hosts = ', '.join(entry['hosts'][:5])
-                if len(entry['hosts']) > 5:
-                    hosts += f" (+{len(entry['hosts'])-5} more)"
-                users = ', '.join(entry['users'][:5])
+                time_str = self._format_time_range(entry.get('start_time', entry.get('timestamp')), 
+                                                    entry.get('end_time', entry.get('timestamp')))
+                
+                # Use pre-aggregated info if available
+                if pre_agg_hosts:
+                    hosts = ', '.join(pre_agg_hosts[:5])
+                    if len(pre_agg_hosts) > 5:
+                        hosts += f" (+{len(pre_agg_hosts)-5} more)"
+                else:
+                    hosts = ', '.join(entry.get('hosts', [entry.get('host', 'Unknown')])[:5])
+                
+                if pre_agg_users:
+                    users = ', '.join(pre_agg_users[:3])
+                else:
+                    users = ', '.join(entry.get('users', [entry.get('user', 'Unknown')])[:3])
                 
                 mitre = ''
-                if entry['mitre_tactics'] or entry['mitre_tags']:
-                    mitre_parts = entry['mitre_tactics'] + entry['mitre_tags']
+                mitre_parts = entry.get('mitre_tactics', []) + entry.get('mitre_tags', [])
+                if mitre_parts:
                     mitre = f" - MITRE ({', '.join(mitre_parts[:3])})"
                 
-                lines.append(f"{time_str}: {entry['description']} ({entry['count']} events on {hosts} by {users}){mitre}")
+                # Total count includes pre-aggregation
+                total_count = entry.get('count', 1) * pre_agg_count
                 
-                # Add details as bullet points
-                for detail in entry['details'][:5]:
-                    if detail != entry['description']:
-                        lines.append(f"  * {detail}")
+                line = f"{time_str}: {entry.get('description', 'Activity')} ({total_count} events on {hosts} by {users}){mitre}"
+                lines.append(line)
+                total_char_count += len(line)
+                
+                # Add details as bullet points (limit to 3)
+                for detail in entry.get('details', [])[:3]:
+                    if detail != entry.get('description'):
+                        detail_line = f"  * {detail}"
+                        lines.append(detail_line)
+                        total_char_count += len(detail_line)
             else:
                 # Single event
                 time_str = self._format_timestamp(entry['timestamp'])
                 mitre = ''
-                if entry['mitre_tactics'] or entry['mitre_tags']:
-                    mitre_parts = entry['mitre_tactics'] + entry['mitre_tags']
+                mitre_parts = entry.get('mitre_tactics', []) + entry.get('mitre_tags', [])
+                if mitre_parts:
                     mitre = f" - MITRE ({', '.join(mitre_parts[:3])})"
                 
-                lines.append(f"{time_str}: {entry['description']}{mitre}")
+                line = f"{time_str}: {entry['description']}{mitre}"
+                lines.append(line)
+                total_char_count += len(line)
                 
                 # Add command line snippet if meaningful
-                if entry['command'] and len(entry['command']) > 10:
-                    cmd_preview = entry['command'][:150]
-                    if len(entry['command']) > 150:
+                if entry.get('command') and len(entry['command']) > 10:
+                    cmd_preview = entry['command'][:120]
+                    if len(entry['command']) > 120:
                         cmd_preview += "..."
-                    lines.append(f"  * Command: {cmd_preview}")
+                    cmd_line = f"  * Command: {cmd_preview}"
+                    lines.append(cmd_line)
+                    total_char_count += len(cmd_line)
                 
                 # Add analyst notes if present
                 if entry.get('analyst_notes'):
-                    lines.append(f"  * Note: {entry['analyst_notes']}")
+                    note_line = f"  * [ANALYST NOTE] {entry['analyst_notes']}"
+                    lines.append(note_line)
+                    total_char_count += len(note_line)
+            
+            # Stop if we're approaching character limit
+            if total_char_count > self.MAX_RAW_TIMELINE_CHARS:
+                remaining = len(groups_to_process) - groups_to_process.index(group) - 1
+                if remaining > 0:
+                    lines.append(f"\n... and {remaining} more activity groups (timeline truncated for processing)")
+                break
+        
+        # Add sampling note if we sampled
+        if len(groups_to_process) < len(self.groups):
+            header = f"[Timeline: {len(groups_to_process)} key activities from {len(self.groups)} total groups, {getattr(self, '_original_event_count', len(self.events))} events]\n"
+            return header + '\n'.join(lines)
         
         return '\n'.join(lines)
     
@@ -417,28 +573,47 @@ class AITimelineGenerator:
         if not raw_timeline:
             return "No analyst-tagged events found for timeline generation."
         
-        prompt = f"""You are writing a detailed forensic timeline for an incident report.
+        # Build incident context - prioritize attack description
+        incident_context = ""
+        if self.case.attack_description and self.case.attack_description.strip():
+            incident_context = f"ANALYST ATTACK NARRATIVE:\n{self.case.attack_description[:2000]}\n\n"
+        
+        if self.case.edr_report and self.case.edr_report.strip():
+            edr_limit = 2000 if incident_context else 3000
+            incident_context += f"EDR ANALYSIS:\n{self.case.edr_report[:edr_limit]}"
+        
+        if not incident_context:
+            incident_context = "No incident narrative or EDR analysis available."
+        
+        prompt = f"""You are a DFIR analyst writing a detailed forensic timeline for an incident report.
 
-TASK: Enhance and format this raw timeline into a professional incident timeline.
-Add context, explanations of attacker techniques, and correlate with the IOCs.
+TASK: Convert this raw timeline into a professional, narrative incident timeline.
+Explain what the attacker did at each phase, correlate with IOCs, and note attack techniques.
 
-FORMAT REQUIREMENTS:
-1. Each entry: TIMESTAMP | Brief event description
-2. For grouped events: TIMESTAMP_START to TIMESTAMP_END | Description (count events, hosts, users involved)
-3. Below each entry, add a bullet point (*) explaining the significance
-4. Reference IOCs when relevant (e.g., "connecting to malicious IP 149.248.78.114")
-5. Note MITRE ATT&CK techniques where applicable
+FORMAT - each entry should be:
+MM/DD/YYYY at HH:MM:SS: Clear description of what happened
+* Explanation of significance and attack technique used
 
-RAW TIMELINE DATA:
-{raw_timeline}
+For grouped/aggregated events:
+MM/DD/YYYY at HH:MM-HH:MM: Description (X events across Y hosts)
+* What this activity indicates about the attack
 
-EDR ANALYSIS CONTEXT:
-{self.case.edr_report[:3000] if self.case.edr_report else 'Not available'}
+IMPORTANT:
+- Entries marked [ANALYST NOTE] are especially significant - emphasize these
+- Reference IOCs when relevant (IPs, hashes, domains)
+- Note MITRE ATT&CK techniques where applicable
+- Write for a technical but readable audience
+
+INCIDENT CONTEXT:
+{incident_context}
 
 IOCs IN THIS CASE:
 {ioc_context}
 
-Write the enhanced timeline (maintain chronological order, no headers):"""
+RAW TIMELINE DATA:
+{raw_timeline}
+
+Write the enhanced narrative timeline (chronological order, no section headers):"""
         
         content = self._generate_ai_content(prompt, timeout=240)
         self._save_section('timeline_detailed', content)
@@ -449,8 +624,8 @@ Write the enhanced timeline (maintain chronological order, no headers):"""
         if not self.groups:
             return "No events to summarize."
         
-        # Calculate key stats
-        total_events = sum(g.count for g in self.groups)
+        # Calculate key stats - use original event count if available
+        total_events = getattr(self, '_original_event_count', sum(g.count for g in self.groups))
         unique_hosts = set()
         unique_users = set()
         for g in self.groups:
@@ -459,23 +634,45 @@ Write the enhanced timeline (maintain chronological order, no headers):"""
                     unique_hosts.add(e.source_host)
                 if e.username:
                     unique_users.add(e.username)
+                # Also check pre-aggregated hosts/users
+                if hasattr(e, '_aggregate_hosts'):
+                    unique_hosts.update(e._aggregate_hosts)
+                if hasattr(e, '_aggregate_users'):
+                    unique_users.update(e._aggregate_users)
         
         start_time = self.groups[0].start_time
         end_time = self.groups[-1].end_time
         duration = end_time - start_time
         
+        # Build incident context
+        incident_context = ""
+        if self.case.attack_description and self.case.attack_description.strip():
+            incident_context = f"ATTACK NARRATIVE: {self.case.attack_description[:1000]}\n\n"
+        if self.case.edr_report and self.case.edr_report.strip():
+            incident_context += f"EDR SUMMARY: {self.case.edr_report[:1000]}"
+        if not incident_context:
+            incident_context = "No incident narrative available."
+        
+        hosts_str = ', '.join(list(unique_hosts)[:10])
+        if len(unique_hosts) > 10:
+            hosts_str += f" (+{len(unique_hosts)-10} more)"
+        
+        users_str = ', '.join(list(unique_users)[:10])
+        if len(unique_users) > 10:
+            users_str += f" (+{len(unique_users)-10} more)"
+        
         prompt = f"""Write a 2-3 sentence executive summary of this incident timeline.
 
 FACTS:
 - Time span: {self._format_timestamp(start_time)} to {self._format_timestamp(end_time)} ({duration})
-- Total events: {total_events}
-- Affected hosts: {', '.join(unique_hosts)}
-- Users involved: {', '.join(unique_users)}
+- Total events analyzed: {total_events}
+- Affected hosts ({len(unique_hosts)}): {hosts_str}
+- Users involved ({len(unique_users)}): {users_str}
 - Number of activity phases: {len(self.groups)}
 
-EDR SUMMARY: {self.case.edr_report[:1500] if self.case.edr_report else 'Not available'}
+{incident_context}
 
-Write a brief professional summary (2-3 sentences, third person):"""
+Write a brief professional summary (2-3 sentences, third person, focus on what happened):"""
         
         content = self._generate_ai_content(prompt, timeout=60)
         self._save_section('timeline_summary', content)
