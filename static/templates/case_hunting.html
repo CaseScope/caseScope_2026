@@ -526,6 +526,11 @@ const preconfiguredSearches = {
         ],
         'Common Patterns': [
             {
+                label: 'Service Registrations',
+                search: '7045',
+                columns: ['raw_json.EventData.ServiceName', 'raw_json.EventData.ImagePath', 'raw_json.EventData.ServiceType']
+            },
+            {
                 label: 'Pass the Hash',
                 search: '(4648|4634|4023)|(4624|4625 ntlm|ntlmssp logontype:3 keylength:0) security -dwm -umfd -$ -health',
                 columns: ['raw_json.EventData.TargetUserName', 'raw_json.EventData.LogonType'],
