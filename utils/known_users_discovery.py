@@ -199,12 +199,16 @@ def is_system_account(username: str, sid: str = None) -> bool:
                 if username_upper.startswith(prefix):
                     return True
         
-        # Check for hex-encoded SIDs (long hex strings starting with 0103 or 0105)
-        # These are binary SID representations, not real usernames
-        if len(username_upper) > 20 and username_upper.startswith(('0103', '0105', '0101')):
+        # Check for hex-encoded SIDs (long hex strings starting with 010X)
+        # These are binary SID representations from SRUM and other sources, not real usernames
+        if len(username_upper) > 20 and username_upper.startswith(('0101', '0102', '0103', '0104', '0105', '0106')):
             # Check if it's mostly hex characters
             if all(c in '0123456789ABCDEF' for c in username_upper):
                 return True
+        
+        # Check for SRUM application path patterns (!!APP.EXE!date!hash!)
+        if username_upper.startswith('!!') and '!' in username_upper[2:]:
+            return True
         
         # Exclude pure numeric "usernames" (like "2", "123")
         if username_upper.isdigit():
@@ -364,6 +368,7 @@ def _get_users_from_events(case_id: int) -> dict:
         client = get_client()
         
         # Query for unique username/SID combinations with counts and artifact types
+        # Exclude SRUM - it has garbage in username field (binary SIDs, app paths)
         result = client.query(
             """SELECT 
                 username, 
@@ -375,6 +380,7 @@ def _get_users_from_events(case_id: int) -> dict:
                FROM events 
                WHERE case_id = {case_id:UInt32} 
                  AND (username != '' OR sid != '')
+                 AND lower(artifact_type) NOT IN ('srum', 'srudb')
                GROUP BY username, sid, domain, artifact_type
                LIMIT 100000""",
             parameters={'case_id': case_id}
