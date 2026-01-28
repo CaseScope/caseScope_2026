@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 class MemoryParser:
     """Parser for Volatility 3 JSON output files"""
     
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
+    
+    # Maximum valid PID value (PostgreSQL INTEGER max is 2,147,483,647)
+    # Windows PIDs are typically < 65536, but can go higher. We use a safe limit.
+    MAX_VALID_PID = 2147483647
     
     # Plugin to parser method mapping
     # Note: psscan skipped as pslist provides same data (psscan finds hidden processes but creates duplicates)
@@ -139,21 +143,59 @@ class MemoryParser:
             return value.lower() in ('true', '1', 'yes')
         return bool(value)
     
+    def _is_valid_pid(self, pid: Any) -> bool:
+        """Validate PID is within acceptable range for database storage.
+        
+        Returns False for garbage/corrupt PIDs that exceed PostgreSQL INTEGER max.
+        """
+        if pid is None:
+            return False
+        try:
+            pid_int = int(pid)
+            return 0 <= pid_int <= self.MAX_VALID_PID
+        except (ValueError, TypeError):
+            return False
+    
+    def _is_valid_process_name(self, name: Any) -> bool:
+        """Validate process name is not garbage data.
+        
+        Returns False for names with control characters or excessive non-ASCII.
+        """
+        if not name or not isinstance(name, str):
+            return False
+        # Skip entries with null bytes or mostly non-printable characters
+        printable_count = sum(1 for c in name if c.isprintable())
+        return printable_count >= len(name) * 0.5  # At least 50% printable
+    
     def parse_pslist(self, filepath: str) -> int:
         """Parse windows.pslist or windows.psscan output"""
         data = self._load_json(filepath)
         count = 0
+        skipped = 0
         
         for item in data:
             try:
+                pid = item.get('PID', 0)
+                name = item.get('ImageFileName', '')
+                
+                # Validate PID and process name to filter out corrupt/garbage entries
+                if not self._is_valid_pid(pid):
+                    logger.debug(f"Skipping process with invalid PID: {pid}")
+                    skipped += 1
+                    continue
+                if not self._is_valid_process_name(name):
+                    logger.debug(f"Skipping process with invalid name: {repr(name)}")
+                    skipped += 1
+                    continue
+                
                 proc = MemoryProcess(
                     job_id=self.job_id,
                     case_id=self.case_id,
                     hostname=self.hostname,
-                    pid=item.get('PID', 0),
-                    ppid=item.get('PPID'),
-                    name=item.get('ImageFileName', ''),
-                    name_lower=item.get('ImageFileName', '').lower(),
+                    pid=pid,
+                    ppid=item.get('PPID') if self._is_valid_pid(item.get('PPID')) else None,
+                    name=name,
+                    name_lower=name.lower(),
                     offset_v=item.get('Offset(V)'),
                     session_id=item.get('SessionId'),
                     threads=item.get('Threads'),
@@ -167,6 +209,8 @@ class MemoryParser:
             except Exception as e:
                 logger.warning(f"Error parsing process: {e}")
         
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} corrupt/garbage process entries")
         self.stats['processes'] += count
         return count
     
@@ -174,15 +218,36 @@ class MemoryParser:
         """Parse windows.pstree output (recursive with __children)"""
         data = self._load_json(filepath)
         count = 0
+        skipped = 0
         
         def process_tree(items: List[Dict], depth: int = 0):
-            nonlocal count
+            nonlocal count, skipped
             for item in items:
                 try:
+                    pid = item.get('PID', 0)
+                    name = item.get('ImageFileName', '')
+                    
+                    # Validate PID and process name to filter out corrupt/garbage entries
+                    if not self._is_valid_pid(pid):
+                        logger.debug(f"Skipping pstree entry with invalid PID: {pid}")
+                        skipped += 1
+                        # Still process children - they might be valid
+                        children = item.get('__children', [])
+                        if children:
+                            process_tree(children, depth + 1)
+                        continue
+                    if not self._is_valid_process_name(name):
+                        logger.debug(f"Skipping pstree entry with invalid name: {repr(name)}")
+                        skipped += 1
+                        children = item.get('__children', [])
+                        if children:
+                            process_tree(children, depth + 1)
+                        continue
+                    
                     # Check if process already exists (from pslist)
                     existing = MemoryProcess.query.filter_by(
                         job_id=self.job_id,
-                        pid=item.get('PID', 0)
+                        pid=pid
                     ).first()
                     
                     if existing:
@@ -195,10 +260,10 @@ class MemoryParser:
                             job_id=self.job_id,
                             case_id=self.case_id,
                             hostname=self.hostname,
-                            pid=item.get('PID', 0),
-                            ppid=item.get('PPID'),
-                            name=item.get('ImageFileName', ''),
-                            name_lower=item.get('ImageFileName', '').lower(),
+                            pid=pid,
+                            ppid=item.get('PPID') if self._is_valid_pid(item.get('PPID')) else None,
+                            name=name,
+                            name_lower=name.lower(),
                             path=item.get('Path'),
                             cmdline=item.get('Cmd'),
                             audit_path=item.get('Audit'),
@@ -222,6 +287,8 @@ class MemoryParser:
                     logger.warning(f"Error parsing pstree item: {e}")
         
         process_tree(data)
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} corrupt/garbage pstree entries")
         self.stats['processes'] += count
         return count
     
@@ -256,6 +323,11 @@ class MemoryParser:
         
         for item in data:
             try:
+                pid = item.get('PID')
+                # Validate PID if present
+                if pid is not None and not self._is_valid_pid(pid):
+                    pid = None
+                
                 net = MemoryNetwork(
                     job_id=self.job_id,
                     case_id=self.case_id,
@@ -266,7 +338,7 @@ class MemoryParser:
                     foreign_addr=item.get('ForeignAddr'),
                     foreign_port=item.get('ForeignPort'),
                     state=item.get('State'),
-                    pid=item.get('PID'),
+                    pid=pid,
                     owner=item.get('Owner'),
                     offset=item.get('Offset'),
                     created_time=self._parse_timestamp(item.get('Created')),
@@ -286,6 +358,11 @@ class MemoryParser:
         
         for item in data:
             try:
+                pid = item.get('PID')
+                # Validate PID if present
+                if pid is not None and not self._is_valid_pid(pid):
+                    pid = None
+                
                 svc = MemoryService(
                     job_id=self.job_id,
                     case_id=self.case_id,
@@ -299,7 +376,7 @@ class MemoryParser:
                     state=item.get('State'),
                     start_type=item.get('Start'),
                     service_type=item.get('Type'),
-                    pid=item.get('PID'),
+                    pid=pid,
                     offset=item.get('Offset'),
                     order=item.get('Order'),
                 )
@@ -315,14 +392,21 @@ class MemoryParser:
         """Parse windows.malfind output"""
         data = self._load_json(filepath)
         count = 0
+        skipped = 0
         
         for item in data:
             try:
+                pid = item.get('PID', 0)
+                # Skip entries with invalid PIDs
+                if not self._is_valid_pid(pid):
+                    skipped += 1
+                    continue
+                
                 malf = MemoryMalfind(
                     job_id=self.job_id,
                     case_id=self.case_id,
                     hostname=self.hostname,
-                    pid=item.get('PID', 0),
+                    pid=pid,
                     process_name=item.get('Process'),
                     protection=item.get('Protection'),
                     start_vpn=item.get('Start VPN'),
@@ -339,6 +423,8 @@ class MemoryParser:
             except Exception as e:
                 logger.warning(f"Error parsing malfind: {e}")
         
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} malfind entries with invalid PIDs")
         self.stats['malfind'] += count
         return count
     
@@ -346,14 +432,21 @@ class MemoryParser:
         """Parse windows.ldrmodules output"""
         data = self._load_json(filepath)
         count = 0
+        skipped = 0
         
         for item in data:
             try:
+                pid = item.get('Pid', 0)
+                # Skip entries with invalid PIDs
+                if not self._is_valid_pid(pid):
+                    skipped += 1
+                    continue
+                
                 mod = MemoryModule(
                     job_id=self.job_id,
                     case_id=self.case_id,
                     hostname=self.hostname,
-                    pid=item.get('Pid', 0),
+                    pid=pid,
                     process_name=item.get('Process'),
                     base_address=item.get('Base'),
                     mapped_path=item.get('MappedPath'),
@@ -366,6 +459,8 @@ class MemoryParser:
             except Exception as e:
                 logger.warning(f"Error parsing ldrmodules: {e}")
         
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} ldrmodules entries with invalid PIDs")
         self.stats['modules'] += count
         return count
     
@@ -373,14 +468,21 @@ class MemoryParser:
         """Parse windows.getsids output"""
         data = self._load_json(filepath)
         count = 0
+        skipped = 0
         
         for item in data:
             try:
+                pid = item.get('PID', 0)
+                # Skip entries with invalid PIDs
+                if not self._is_valid_pid(pid):
+                    skipped += 1
+                    continue
+                
                 sid = MemorySID(
                     job_id=self.job_id,
                     case_id=self.case_id,
                     hostname=self.hostname,
-                    pid=item.get('PID', 0),
+                    pid=pid,
                     process_name=item.get('Process'),
                     sid=item.get('SID'),
                     sid_name=item.get('Name'),
@@ -390,6 +492,8 @@ class MemoryParser:
             except Exception as e:
                 logger.warning(f"Error parsing getsids: {e}")
         
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} getsids entries with invalid PIDs")
         self.stats['sids'] += count
         return count
     
