@@ -5895,18 +5895,50 @@ async function performAIReview(isFollowUp = false, question = '') {
     const startTime = Date.now();
     
     try {
-        // Prepare events data (limit fields to reduce payload)
+        // Prepare events data - include all forensically relevant fields
         const events = currentEventsData.slice(0, 500).map(evt => ({
+            // Timestamps
             timestamp_utc: evt.timestamp_utc || evt.timestamp,
+            // Source info
             event_id: evt.event_id,
             source_host: evt.source_host || evt.computer_name,
+            channel: evt.channel,
+            provider: evt.provider,
+            // User/Auth info
             username: evt.username,
+            domain: evt.domain,
+            logon_type: evt.logon_type,
+            // Process info
+            process_name: evt.process_name,
+            process_path: evt.process_path,
+            process_id: evt.process_id,
+            parent_process: evt.parent_process,
+            parent_pid: evt.parent_pid,
+            command_line: evt.command_line ? evt.command_line.substring(0, 500) : null,
+            // File info
+            target_path: evt.target_path,
+            file_hash_md5: evt.file_hash_md5,
+            file_hash_sha256: evt.file_hash_sha256,
+            // Network info
+            src_ip: evt.src_ip,
+            dst_ip: evt.dst_ip,
+            src_port: evt.src_port,
+            dst_port: evt.dst_port,
+            // Registry info
+            reg_key: evt.reg_key,
+            reg_value: evt.reg_value,
+            reg_data: evt.reg_data ? evt.reg_data.substring(0, 200) : null,
+            // SIGMA/Detection info
             rule_title: evt.rule_title,
             rule_level: evt.rule_level,
-            process_name: evt.process_name,
-            command_line: evt.command_line ? evt.command_line.substring(0, 300) : null,
-            channel: evt.channel,
-            description: evt.description ? evt.description.substring(0, 200) : null
+            mitre_tactics: evt.mitre_tactics,
+            mitre_tags: evt.mitre_tags,
+            // IOC/Analyst info
+            ioc_types: evt.ioc_types,
+            analyst_tagged: evt.analyst_tagged,
+            analyst_notes: evt.analyst_notes,
+            // Extra fields (parsed from raw JSON)
+            extra_fields: evt.extra_fields
         }));
         
         const response = await fetch('/api/rag/review-events', {

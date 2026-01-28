@@ -1540,14 +1540,19 @@ def review_events():
     events = events[:500] if events else []
     
     try:
-        # Build context from events
+        # Build comprehensive context from events
         event_summaries = []
         severity_counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'informational': 0}
         unique_hosts = set()
         unique_users = set()
         event_ids_seen = set()
+        mitre_techniques = set()
+        unique_ips = set()
+        unique_processes = set()
+        ioc_events = 0
+        analyst_tagged_events = 0
         
-        for i, evt in enumerate(events[:100]):  # Summarize first 100 for context
+        for i, evt in enumerate(events[:150]):  # Summarize first 150 for richer context
             # Collect stats
             level = evt.get('rule_level', 'informational') or 'informational'
             if level in severity_counts:
@@ -1558,14 +1563,41 @@ def review_events():
                 unique_hosts.add(host)
             
             user = evt.get('username')
-            if user:
+            if user and user not in ('-', 'SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE'):
                 unique_users.add(user)
             
             eid = evt.get('event_id')
             if eid:
                 event_ids_seen.add(str(eid))
             
-            # Build event line
+            # Collect MITRE techniques
+            mitre = evt.get('mitre_tags') or evt.get('mitre_tactics')
+            if mitre:
+                if isinstance(mitre, list):
+                    mitre_techniques.update(mitre[:3])
+                elif isinstance(mitre, str):
+                    mitre_techniques.add(mitre)
+            
+            # Collect network info
+            src_ip = evt.get('src_ip')
+            dst_ip = evt.get('dst_ip')
+            if src_ip:
+                unique_ips.add(f"src:{src_ip}")
+            if dst_ip:
+                unique_ips.add(f"dst:{dst_ip}")
+            
+            # Collect processes
+            proc = evt.get('process_name')
+            if proc:
+                unique_processes.add(proc)
+            
+            # Count IOC and analyst tagged
+            if evt.get('ioc_types'):
+                ioc_events += 1
+            if evt.get('analyst_tagged'):
+                analyst_tagged_events += 1
+            
+            # Build detailed event line
             parts = []
             ts = evt.get('timestamp_utc') or evt.get('timestamp') or ''
             if ts:
@@ -1581,12 +1613,56 @@ def review_events():
             
             if host:
                 parts.append(f"Host:{host}")
-            if user:
+            if user and user not in ('-', 'SYSTEM'):
                 parts.append(f"User:{user}")
+            
+            # Include logon type for auth events
+            logon_type = evt.get('logon_type')
+            if logon_type and str(eid) in ('4624', '4625', '4648'):
+                parts.append(f"LogonType:{logon_type}")
+            
+            # Include network info
+            if src_ip:
+                parts.append(f"SrcIP:{src_ip}")
+            if dst_ip:
+                parts.append(f"DstIP:{dst_ip}")
+            
+            # Include process info
+            if proc:
+                parts.append(f"Process:{proc}")
+            
+            parent = evt.get('parent_process')
+            if parent:
+                parts.append(f"Parent:{parent}")
             
             cmd = evt.get('command_line', '')
             if cmd and len(cmd) > 10:
-                parts.append(f"Cmd:{cmd[:150]}")
+                parts.append(f"Cmd:{cmd[:300]}")
+            
+            # Include file hashes if present
+            md5 = evt.get('file_hash_md5')
+            sha256 = evt.get('file_hash_sha256')
+            if md5:
+                parts.append(f"MD5:{md5}")
+            elif sha256:
+                parts.append(f"SHA256:{sha256[:16]}...")
+            
+            # Include registry info
+            reg_key = evt.get('reg_key')
+            if reg_key:
+                parts.append(f"RegKey:{reg_key[:100]}")
+            
+            # Include target path
+            target = evt.get('target_path')
+            if target:
+                parts.append(f"Target:{target[:100]}")
+            
+            # Include MITRE tags
+            if mitre:
+                if isinstance(mitre, list):
+                    parts.append(f"MITRE:{','.join(mitre[:2])}")
+                else:
+                    parts.append(f"MITRE:{mitre}")
             
             if parts:
                 event_summaries.append(' | '.join(parts))
@@ -1594,12 +1670,21 @@ def review_events():
         # Build the prompt
         event_text = '\n'.join(event_summaries) if event_summaries else 'No events provided.'
         
+        # Build comprehensive stats summary
+        mitre_list = list(mitre_techniques)[:10]
+        ip_list = list(unique_ips)[:10]
+        process_list = list(unique_processes)[:15]
+        
         stats_summary = f"""CASE: {case.name}
 EVENTS IN VIEW: {len(events)}
 SEVERITY BREAKDOWN: Critical={severity_counts['critical']}, High={severity_counts['high']}, Medium={severity_counts['medium']}, Low={severity_counts['low']}
+IOC MATCHES: {ioc_events} events | ANALYST TAGGED: {analyst_tagged_events} events
 UNIQUE HOSTS: {len(unique_hosts)} ({', '.join(list(unique_hosts)[:5])})
-UNIQUE USERS: {len(unique_users)} ({', '.join(list(unique_users)[:5])})
-EVENT IDS SEEN: {', '.join(list(event_ids_seen)[:15])}"""
+UNIQUE USERS: {len(unique_users)} ({', '.join(list(unique_users)[:8])})
+EVENT IDS SEEN: {', '.join(list(event_ids_seen)[:20])}
+MITRE TECHNIQUES: {', '.join(mitre_list) if mitre_list else 'None detected'}
+NETWORK IPs: {', '.join(ip_list) if ip_list else 'None'}
+PROCESSES: {', '.join(process_list) if process_list else 'Various'}"""
 
         if follow_up and question:
             # Follow-up question with conversation context
@@ -1627,17 +1712,21 @@ Please provide a focused response to the analyst's question based on the event d
 
 {stats_summary}
 
-SAMPLE EVENTS (first 100 of {len(events)}):
+DETAILED EVENTS (first 150 of {len(events)}):
+Each event includes: Timestamp, EventID, Severity, SIGMA Rule, Host, User, LogonType, Source/Dest IPs, Process, Parent Process, Command Line, File Hashes, Registry Keys, Target Paths, and MITRE mappings where available.
+
 {event_text}
 
 Please provide:
 1. **Summary**: What is happening in these events? Any signs of malicious activity?
-2. **Critical Findings**: Highlight the most concerning events or patterns
-3. **Attack Techniques**: Map any suspicious activities to MITRE ATT&CK if applicable
-4. **Investigation Recommendations**: What should the analyst focus on next?
-5. **Confidence Level**: Rate your confidence in the findings (High/Medium/Low)
+2. **Critical Findings**: Highlight the most concerning events or patterns (cite specific EventIDs, timestamps, hosts, users, IPs, processes)
+3. **Attack Techniques**: Map any suspicious activities to MITRE ATT&CK techniques (reference the MITRE tags if present)
+4. **Process Analysis**: Any suspicious process execution chains, parent-child relationships, or command lines?
+5. **Network Activity**: Any concerning network connections, lateral movement, or C2 indicators?
+6. **Investigation Recommendations**: What should the analyst focus on next? Specific hosts, users, or event types to investigate?
+7. **Confidence Level**: Rate your confidence in the findings (High/Medium/Low)
 
-Be specific. Reference actual event IDs, timestamps, hosts, and users from the data."""
+Be specific and cite actual evidence from the event data. Reference EventIDs, timestamps, hosts, users, IPs, and processes."""
 
         system_prompt = """You are a DFIR (Digital Forensics and Incident Response) expert assistant.
 
