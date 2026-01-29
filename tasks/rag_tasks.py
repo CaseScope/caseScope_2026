@@ -2711,7 +2711,10 @@ def ai_pattern_correlation(
                             'correlation_key': result['correlation_key'],
                             'confidence': result['final_confidence'],
                             'ai_reasoning': result.get('ai_reasoning'),
-                            'iocs': result.get('iocs', [])
+                            'iocs': result.get('iocs', []),
+                            'events_analyzed': result.get('events_analyzed'),
+                            'window_start': result.get('window_start').isoformat() if result.get('window_start') else None,
+                            'window_end': result.get('window_end').isoformat() if result.get('window_end') else None
                         })
                 
             except Exception as e:

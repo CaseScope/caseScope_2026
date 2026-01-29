@@ -1,6 +1,13 @@
 {
-  "version": "3.159.02",
+  "version": "3.159.03",
   "changelog": [
+    {
+      "version": "3.159.03",
+      "date": "2026-01-29",
+      "changes": [
+        "Fixed AI Pattern task to include events_analyzed and time window data in results"
+      ]
+    },
     {
       "version": "3.159.02",
       "date": "2026-01-29",
