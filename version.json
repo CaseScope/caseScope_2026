@@ -1,6 +1,18 @@
 {
-  "version": "3.160.00",
+  "version": "3.161.00",
   "changelog": [
+    {
+      "version": "3.161.00",
+      "date": "2026-01-29",
+      "changes": [
+        "Added AnalysisResultsFormatter for multi-view result display",
+        "Timeline view shows findings chronologically",
+        "Pattern-grouped view organizes by attack type",
+        "Entity-grouped view organizes by affected users/systems/IPs",
+        "Export support for JSON, Markdown, and CSV formats",
+        "Behavioral summary enrichment for entity views"
+      ]
+    },
     {
       "version": "3.160.00",
       "date": "2026-01-29",
