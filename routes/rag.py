@@ -969,12 +969,16 @@ def start_ai_correlation():
     constitute true attack pattern matches.
     """
     from tasks.rag_tasks import ai_pattern_correlation
+    from datetime import timedelta
+    from utils.clickhouse import get_client
+    from utils.timezone_utils import to_utc
     
     data = request.json or {}
     case_id = data.get('case_id')
     patterns = data.get('patterns')  # Optional: specific patterns to analyze
-    time_start = data.get('time_start')  # ISO format
-    time_end = data.get('time_end')  # ISO format
+    time_range = data.get('time_range', 'none')  # Predefined: 1d, 3d, 7d, 30d, custom
+    time_start = data.get('time_start')  # For custom range
+    time_end = data.get('time_end')  # For custom range
     
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
@@ -983,12 +987,47 @@ def start_ai_correlation():
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
+    # Process time range - use case artifact timestamps, not system time
+    processed_time_start = None
+    processed_time_end = None
+    case_tz = case.timezone or 'UTC'
+    
+    if time_range and time_range != 'none':
+        try:
+            if time_range in ('1d', '3d', '7d', '30d'):
+                # Predefined ranges: relative to most recent artifact in the case
+                client = get_client()
+                max_ts_query = "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events WHERE case_id = {case_id:UInt32}"
+                result = client.query(max_ts_query, parameters={'case_id': case_id})
+                max_timestamp = result.result_rows[0][0] if result.result_rows else None
+                
+                if max_timestamp:
+                    days_map = {'1d': 1, '3d': 3, '7d': 7, '30d': 30}
+                    days = days_map.get(time_range, 1)
+                    start_dt = max_timestamp - timedelta(days=days)
+                    processed_time_start = start_dt.isoformat()
+                    processed_time_end = max_timestamp.isoformat()
+                    current_app.logger.info(f"AI Correlation time filter: {time_range} -> {processed_time_start} to {processed_time_end}")
+            
+            elif time_range == 'custom' and time_start and time_end:
+                # Custom range: convert from case timezone to UTC
+                start_local = datetime.strptime(time_start, '%Y-%m-%dT%H:%M')
+                end_local = datetime.strptime(time_end, '%Y-%m-%dT%H:%M')
+                start_utc = to_utc(start_local, case_tz)
+                end_utc = to_utc(end_local, case_tz)
+                processed_time_start = start_utc.isoformat()
+                processed_time_end = end_utc.isoformat()
+                current_app.logger.info(f"AI Correlation custom time: {time_start} to {time_end} ({case_tz}) -> UTC: {processed_time_start} to {processed_time_end}")
+        
+        except Exception as e:
+            current_app.logger.warning(f"Error building AI correlation time filter: {e}")
+    
     task = ai_pattern_correlation.delay(
         case_id=case_id,
         case_uuid=str(case.uuid),
         patterns=patterns,
-        time_start=time_start,
-        time_end=time_end
+        time_start=processed_time_start,
+        time_end=processed_time_end
     )
     
     return jsonify({

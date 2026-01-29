@@ -4987,6 +4987,7 @@ async function startAICorrelation() {
     // Add time range if set
     const timeRange = document.getElementById('ai-time-range-select')?.value;
     if (timeRange && timeRange !== 'none') {
+        payload.time_range = timeRange;  // Send the range type (1d, 3d, 7d, 30d, custom)
         if (timeRange === 'custom') {
             payload.time_start = document.getElementById('ai-time-start')?.value;
             payload.time_end = document.getElementById('ai-time-end')?.value;
