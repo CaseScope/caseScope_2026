@@ -37,6 +37,13 @@ from models.archive_job import (
     ArchiveJob, ArchiveJobType, ArchiveJobStatus, ArchiveStage,
     STAGE_DESCRIPTIONS, ARCHIVE_STAGES, RESTORE_STAGES
 )
+from models.behavioral_profiles import (
+    CaseAnalysisRun, AnalysisMode, AnalysisStatus,
+    UserBehaviorProfile, SystemBehaviorProfile,
+    PeerGroup, PeerGroupMember,
+    GapDetectionFinding, SuggestedAction,
+    GapFindingType, SystemRole
+)
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -59,5 +66,10 @@ __all__ = [
     'MemoryModule', 'MemoryCredential', 'MemorySID', 'MemoryInfo',
     'PcapFile', 'PcapFileStatus',
     'ArchiveJob', 'ArchiveJobType', 'ArchiveJobStatus', 'ArchiveStage',
-    'STAGE_DESCRIPTIONS', 'ARCHIVE_STAGES', 'RESTORE_STAGES'
+    'STAGE_DESCRIPTIONS', 'ARCHIVE_STAGES', 'RESTORE_STAGES',
+    'CaseAnalysisRun', 'AnalysisMode', 'AnalysisStatus',
+    'UserBehaviorProfile', 'SystemBehaviorProfile',
+    'PeerGroup', 'PeerGroupMember',
+    'GapDetectionFinding', 'SuggestedAction',
+    'GapFindingType', 'SystemRole'
 ]

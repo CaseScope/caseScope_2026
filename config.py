@@ -101,6 +101,45 @@ class Config:
     # Ollama retry configuration
     OLLAMA_MAX_RETRIES = int(os.environ.get('OLLAMA_MAX_RETRIES', 3))
     OLLAMA_RETRY_DELAY = float(os.environ.get('OLLAMA_RETRY_DELAY', 1.0))  # seconds
+    
+    # =============================================================================
+    # ENHANCED ANALYSIS SYSTEM SETTINGS
+    # =============================================================================
+    
+    # --- Behavioral Profiling ---
+    ANALYSIS_MIN_EVENTS_FOR_PROFILE = int(os.environ.get('ANALYSIS_MIN_EVENTS_FOR_PROFILE', 10))
+    ANALYSIS_PEER_GROUP_MIN_SIZE = int(os.environ.get('ANALYSIS_PEER_GROUP_MIN_SIZE', 3))
+    ANALYSIS_ANOMALY_Z_THRESHOLD = float(os.environ.get('ANALYSIS_ANOMALY_Z_THRESHOLD', 3.0))
+    
+    # --- Gap Detection: Password Spraying ---
+    SPRAY_MIN_UNIQUE_USERS = int(os.environ.get('SPRAY_MIN_UNIQUE_USERS', 10))
+    SPRAY_MIN_FAILURE_RATE = float(os.environ.get('SPRAY_MIN_FAILURE_RATE', 0.9))
+    SPRAY_TIME_WINDOW_HOURS = int(os.environ.get('SPRAY_TIME_WINDOW_HOURS', 2))
+    SPRAY_TIMING_STD_THRESHOLD = float(os.environ.get('SPRAY_TIMING_STD_THRESHOLD', 5.0))
+    
+    # --- Gap Detection: Brute Force ---
+    BRUTE_MIN_ATTEMPTS = int(os.environ.get('BRUTE_MIN_ATTEMPTS', 20))
+    BRUTE_MIN_FAILURE_RATE = float(os.environ.get('BRUTE_MIN_FAILURE_RATE', 0.95))
+    BRUTE_TIME_WINDOW_HOURS = int(os.environ.get('BRUTE_TIME_WINDOW_HOURS', 1))
+    BRUTE_DISTRIBUTED_THRESHOLD = int(os.environ.get('BRUTE_DISTRIBUTED_THRESHOLD', 3))
+    
+    # --- Pattern Analysis ---
+    ANALYSIS_MAX_EVENTS_PER_PATTERN = int(os.environ.get('ANALYSIS_MAX_EVENTS_PER_PATTERN', 5000))
+    ANALYSIS_HIGH_CONFIDENCE_THRESHOLD = int(os.environ.get('ANALYSIS_HIGH_CONFIDENCE_THRESHOLD', 75))
+    ANALYSIS_HAYABUSA_CORRELATION_WINDOW = int(os.environ.get('ANALYSIS_HAYABUSA_CORRELATION_WINDOW', 60))
+    
+    # --- AI Analysis Settings ---
+    AI_ANALYSIS_ENABLED = os.environ.get('AI_ANALYSIS_ENABLED', 'true').lower() == 'true'
+    AI_MODEL_PRIMARY = os.environ.get('AI_MODEL_PRIMARY', 'deepseek-r1:14b')
+    AI_MODEL_FALLBACK = os.environ.get('AI_MODEL_FALLBACK', 'qwen2.5:14b-instruct')
+    AI_TEMPERATURE = float(os.environ.get('AI_TEMPERATURE', 0.6))
+    AI_MAX_TOKENS = int(os.environ.get('AI_MAX_TOKENS', 4000))
+    
+    # --- OpenCTI Settings ---
+    OPENCTI_ENABLED = os.environ.get('OPENCTI_ENABLED', 'true').lower() == 'true'
+    OPENCTI_URL = os.environ.get('OPENCTI_URL', '')
+    OPENCTI_API_KEY = os.environ.get('OPENCTI_API_KEY', '')
+    OPENCTI_CACHE_TTL_HOURS = int(os.environ.get('OPENCTI_CACHE_TTL_HOURS', 24))
 
 
 class UserSettings:
