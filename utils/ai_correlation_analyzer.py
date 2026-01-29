@@ -1,6 +1,6 @@
 """AI-Powered Correlation Analyzer
 
-Uses LLM (DeepSeek-R1) to analyze candidate events 
+Uses LLM (DeepSeek-R1-Distill-Qwen) to analyze candidate events 
 and determine if they constitute true attack pattern matches.
 
 This module provides Stage 4 of the AI correlation pipeline:
@@ -14,7 +14,7 @@ Usage:
     analyzer = AICorrelationAnalyzer(
         case_id=123,
         analysis_id='uuid',
-        model='deepseek-r1:8b'
+        model='deepseek-r1:14b'
     )
     results = analyzer.analyze_pattern(
         pattern_config=PATTERN_EVENT_MAPPINGS['pass_the_hash'],
@@ -33,9 +33,9 @@ from utils.rag_llm import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-# Hardcoded DeepSeek model
-DEEPSEEK_MODEL = 'deepseek-r1:8b'
-DEEPSEEK_TEMPERATURE = 0.3
+# DeepSeek-R1-Distill-Qwen model (better structured output, less hallucination)
+DEEPSEEK_MODEL = 'deepseek-r1:14b'
+DEEPSEEK_TEMPERATURE = 0.1  # Low temperature for consistent, grounded responses
 
 
 class AICorrelationAnalyzer:

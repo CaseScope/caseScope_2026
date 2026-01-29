@@ -1,6 +1,15 @@
 {
-  "version": "3.159.07",
+  "version": "3.159.08",
   "changelog": [
+    {
+      "version": "3.159.08",
+      "date": "2026-01-29",
+      "changes": [
+        "Upgraded AI pattern correlation to DeepSeek-R1-Distill-Qwen-14B model",
+        "Qwen-based architecture provides better structured JSON output",
+        "Reduced temperature to 0.1 for more consistent, grounded responses"
+      ]
+    },
     {
       "version": "3.159.07",
       "date": "2026-01-29",
