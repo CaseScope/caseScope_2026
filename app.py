@@ -332,6 +332,7 @@ def create_app():
     from routes.memory import memory_bp
     from routes.pcap import pcap_bp
     from routes.network_hunting import network_hunting_bp
+    from routes.analysis import analysis_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
@@ -343,6 +344,7 @@ def create_app():
     app.register_blueprint(memory_bp)
     app.register_blueprint(pcap_bp)
     app.register_blueprint(network_hunting_bp)
+    app.register_blueprint(analysis_bp)
     
     # Create database tables
     with app.app_context():

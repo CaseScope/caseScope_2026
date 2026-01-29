@@ -1,6 +1,20 @@
 {
-  "version": "3.161.00",
+  "version": "3.162.00",
   "changelog": [
+    {
+      "version": "3.162.00",
+      "date": "2026-01-29",
+      "changes": [
+        "Added Analysis API endpoints for Enhanced Analysis System",
+        "POST /api/case/{id}/analysis/run - Start analysis",
+        "GET /api/case/{id}/analysis/status - Get latest status",
+        "GET /api/case/{id}/analysis/results/{id} - Get formatted results",
+        "GET /api/case/{id}/analysis/findings/{type}/{id} - Get finding detail",
+        "GET/POST /api/case/{id}/analysis/suggested-actions - Manage suggestions",
+        "GET /api/case/{id}/analysis/history - View past runs",
+        "GET /api/case/{id}/analysis/capabilities - Check feature availability"
+      ]
+    },
     {
       "version": "3.161.00",
       "date": "2026-01-29",
