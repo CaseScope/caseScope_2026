@@ -10,7 +10,7 @@ Provides API endpoints for:
 
 import logging
 from datetime import datetime
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
 
 from config import Config
@@ -1118,7 +1118,7 @@ def cancel_ai_correlation():
     
     try:
         # Revoke the Celery task
-        from app import celery_app
+        from tasks.celery_tasks import celery_app
         celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
         
         # Also purge any pending tasks for this case
