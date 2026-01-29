@@ -331,8 +331,9 @@ class CandidateExtractor:
                         
                 elif field == 'encryption_type':
                     if isinstance(values, list):
+                        quoted_vals = ", ".join(f"'{v}'" for v in values)
                         event_conds.append(
-                            f"JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') IN ({', '.join(f\"'{v}'\" for v in values)})"
+                            f"JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') IN ({quoted_vals})"
                         )
                         
                 else:
