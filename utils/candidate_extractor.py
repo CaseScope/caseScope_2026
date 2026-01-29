@@ -226,7 +226,7 @@ class CandidateExtractor:
         
         query = f"""
             SELECT 
-                event_uuid,
+                generateUUIDv4() as event_uuid,
                 timestamp,
                 event_id,
                 source_host,
