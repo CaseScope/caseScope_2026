@@ -171,6 +171,276 @@
 </div>
 {% endif %}
 
+<!-- Hunt Patterns Modal -->
+<div class="modal-overlay" id="hunt-patterns-modal" style="display: none;" onclick="closeHuntPatternsModal(event)">
+    <div class="modal-container modal-hunt-patterns" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">🎯 Hunt Attack Patterns</h3>
+            <div class="hunt-patterns-header-info">
+                <span class="hunt-patterns-status" id="hunt-patterns-status">Ready</span>
+            </div>
+            <button class="modal-close" onclick="closeHuntPatternsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="hunt-patterns-desc">Detect attack patterns across case artifacts using 58 rule-based detection queries mapped to MITRE ATT&CK.</p>
+            
+            <!-- Time Range Filter -->
+            <div class="hunt-time-filter-row">
+                <div class="time-filter-group">
+                    <label class="time-filter-label">Time Range:</label>
+                    <select id="hunt-time-range-select" class="time-range-select">
+                        <option value="none" selected>No Limit</option>
+                        <option value="1d">Last 1 Day</option>
+                        <option value="3d">Last 3 Days</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="time-filter-custom" id="hunt-time-filter-custom" style="display: none;">
+                    <div class="time-filter-field">
+                        <label class="time-filter-label">Start:</label>
+                        <input type="datetime-local" id="hunt-time-start" class="time-filter-input">
+                    </div>
+                    <div class="time-filter-field">
+                        <label class="time-filter-label">End:</label>
+                        <input type="datetime-local" id="hunt-time-end" class="time-filter-input">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Stats Overview -->
+            <div class="hunt-patterns-stats" id="huntPatternsStats">
+                <div class="hunt-stat">
+                    <span class="hunt-stat-label">Patterns Available</span>
+                    <span class="hunt-stat-value">58</span>
+                </div>
+                <div class="hunt-stat">
+                    <span class="hunt-stat-label">Patterns Checked</span>
+                    <span class="hunt-stat-value" id="huntPatternsChecked">-</span>
+                </div>
+                <div class="hunt-stat hunt-stat-highlight">
+                    <span class="hunt-stat-label">Matches Found</span>
+                    <span class="hunt-stat-value" id="huntPatternsMatches">-</span>
+                </div>
+                <div class="hunt-stat">
+                    <span class="hunt-stat-label">Categories Hit</span>
+                    <span class="hunt-stat-value" id="huntPatternsCategories">-</span>
+                </div>
+            </div>
+            
+            <!-- Progress -->
+            <div class="hunt-progress" id="huntPatternsProgress" style="display: none;">
+                <div class="hunt-progress-header">
+                    <span class="hunt-progress-title">Scanning for attack patterns...</span>
+                    <span class="hunt-progress-percent" id="huntPatternsProgressPercent">0%</span>
+                </div>
+                <div class="hunt-progress-bar">
+                    <div class="hunt-progress-fill" id="huntPatternsProgressFill" style="width: 0%"></div>
+                </div>
+                <div class="hunt-progress-status" id="huntPatternsProgressStatus">Initializing...</div>
+            </div>
+            
+            <!-- Results -->
+            <div class="hunt-results" id="huntPatternsResults" style="display: none;">
+                <!-- Category Summary Cards -->
+                <div class="hunt-categories" id="huntPatternsCategoriesContainer"></div>
+                
+                <!-- Results Table -->
+                <div class="hunt-results-header">
+                    <h4>Detected Patterns</h4>
+                </div>
+                <div class="hunt-results-table-wrapper">
+                    <table class="data-table hunt-results-table">
+                        <thead>
+                            <tr>
+                                <th>Pattern</th>
+                                <th>Category</th>
+                                <th>Severity</th>
+                                <th>Confidence</th>
+                                <th>Hosts</th>
+                                <th>Events</th>
+                            </tr>
+                        </thead>
+                        <tbody id="huntPatternsResultsBody">
+                            <tr><td colspan="6" class="text-center text-muted">No patterns detected yet</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="clearHuntPatternsResults()" id="btn-clear-hunt">
+                <span class="btn-icon">🗑️</span> Clear
+            </button>
+            <button class="btn btn-primary" id="btnRunHuntPatterns" onclick="runHuntPatterns()">
+                <span class="btn-icon">🔍</span> Run Detection
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Hunt Patterns Modal Styles */
+.modal-hunt-patterns {
+    max-width: 900px;
+    max-height: 85vh;
+}
+
+.hunt-patterns-desc {
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.hunt-time-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    margin-bottom: 16px;
+}
+
+.hunt-patterns-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.hunt-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    min-width: 120px;
+}
+
+.hunt-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.hunt-stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.hunt-stat-highlight .hunt-stat-value {
+    color: var(--accent-danger);
+}
+
+.hunt-progress {
+    margin-bottom: 16px;
+}
+
+.hunt-progress-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.hunt-progress-bar {
+    height: 8px;
+    background: var(--bg-hover);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.hunt-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-info));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.hunt-progress-status {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.hunt-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.hunt-category-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
+
+.hunt-category-icon {
+    font-size: 1.1rem;
+}
+
+.hunt-category-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.hunt-category-count {
+    background: var(--accent-danger);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.hunt-results-table-wrapper {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.hunt-results-table {
+    width: 100%;
+}
+
+.btn-hunt-patterns {
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    color: #fff;
+    border: none;
+}
+
+.btn-hunt-patterns:hover {
+    background: linear-gradient(135deg, #c0392b, #a93226);
+}
+
+.hunt-patterns-status {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: var(--accent-info);
+    color: #fff;
+}
+
+.hunt-patterns-status.running {
+    background: var(--accent-warning);
+    color: #000;
+}
+
+.hunt-patterns-status.complete {
+    background: var(--accent-success);
+}
+</style>
+
 <!-- Search Tile -->
 <div class="events-tile events-search-tile">
     <div class="tile-header">
@@ -345,6 +615,9 @@
     <div class="tile-header">
         <h3 class="tile-title">📋 Events</h3>
         <div class="tile-controls">
+            <button class="btn btn-hunt-patterns btn-sm" id="btn-hunt-patterns" onclick="openHuntPatternsModal()" title="Detect attack patterns using rule-based queries">
+                <span class="btn-icon">🎯</span> Hunt Patterns
+            </button>
             {% if ai_enabled %}
             <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openAIReviewModal()" title="AI-assisted review of current view events">
                 <span class="btn-icon">🤖</span> AI Review

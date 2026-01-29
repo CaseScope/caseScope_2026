@@ -1,6 +1,16 @@
 {
-  "version": "3.158.00",
+  "version": "3.159.00",
   "changelog": [
+    {
+      "version": "3.159.00",
+      "date": "2026-01-29",
+      "changes": [
+        "Hunt Patterns button added to Events tab with modal interface",
+        "AI Hunting tab now shows AI Pattern Correlation results",
+        "Rule-based pattern detection moved to Events tab Hunt Patterns modal",
+        "AI Pattern Matching button uses DeepSeek-R1 for intelligent analysis"
+      ]
+    },
     {
       "version": "3.158.00",
       "date": "2026-01-29",

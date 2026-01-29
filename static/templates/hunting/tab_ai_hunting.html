@@ -1,4 +1,4 @@
-<!-- AI Hunting Tab - Pattern Detection Testing -->
+<!-- AI Hunting Tab - AI Pattern Correlation -->
 
 <!-- AI Tools Toolbar -->
 <div class="ai-tools-toolbar">
@@ -13,13 +13,13 @@
     </button>
 </div>
 
-<!-- Pattern Detection Section -->
+<!-- AI Pattern Correlation Section -->
 <div class="ai-section">
     <div class="ai-section-header">
-        <h3 class="ai-section-title">🎯 Attack Pattern Detection</h3>
-        <span class="ai-section-badge ai-badge-info" id="patternRulesStatus">Ready</span>
+        <h3 class="ai-section-title">🧠 AI Pattern Correlation</h3>
+        <span class="ai-section-badge ai-badge-info" id="aiCorrelationStatus">Ready</span>
     </div>
-    <p class="ai-section-desc">Detect attack patterns across case artifacts using 58 rule-based detection queries mapped to MITRE ATT&CK.</p>
+    <p class="ai-section-desc">Use DeepSeek-R1 AI to analyze events and verify attack patterns with detailed checklists and reasoning.</p>
     
     <!-- Time Range Filter -->
     <div class="ai-time-filter-row">
@@ -47,73 +47,61 @@
         <span class="time-filter-info" id="ai-time-filter-info"></span>
     </div>
     
-    <!-- Detection Options -->
-    <div class="ai-detection-options">
-        <label class="detection-option" title="Use AI to prioritize patterns most relevant to this case's events">
-            <input type="checkbox" id="useSemanticPrioritization" checked>
-            <span class="option-text">Semantic Pattern Prioritization</span>
-            <span class="option-hint">Uses AI embeddings to run most relevant patterns first</span>
-        </label>
-    </div>
-    
-    <!-- Pattern Stats Overview -->
+    <!-- Stats Overview -->
     <div class="ai-action-card">
-        <div class="ai-action-stats" id="patternRulesStats">
+        <div class="ai-action-stats" id="aiCorrelationStats">
             <div class="ai-stat">
-                <span class="ai-stat-label">Patterns Available</span>
-                <span class="ai-stat-value">58</span>
+                <span class="ai-stat-label">AI Patterns</span>
+                <span class="ai-stat-value" id="aiPatternsAvailable">18</span>
             </div>
             <div class="ai-stat">
-                <span class="ai-stat-label">Patterns Checked</span>
-                <span class="ai-stat-value" id="patternRulesChecked">-</span>
+                <span class="ai-stat-label">Analyzed</span>
+                <span class="ai-stat-value" id="aiPatternsAnalyzed">-</span>
             </div>
             <div class="ai-stat ai-stat-critical">
-                <span class="ai-stat-label">Matches Found</span>
-                <span class="ai-stat-value" id="patternRulesMatches">-</span>
+                <span class="ai-stat-label">High Confidence</span>
+                <span class="ai-stat-value" id="aiHighConfidence">-</span>
             </div>
             <div class="ai-stat">
-                <span class="ai-stat-label">Categories Hit</span>
-                <span class="ai-stat-value" id="patternRulesCategories">-</span>
+                <span class="ai-stat-label">Total Matches</span>
+                <span class="ai-stat-value" id="aiTotalMatches">-</span>
             </div>
         </div>
         <div class="ai-action-buttons">
-            <button class="btn btn-primary btn-lg" id="btnDetectPatternRules" onclick="startPatternRulesDetection()" title="Run all 58 pattern detection queries">
-                <span class="btn-icon">🔍</span> Run Detection
+            <button class="btn btn-primary btn-lg btn-ai-gradient" id="btnRunAICorrelation" onclick="startAICorrelation()" title="Run AI pattern correlation analysis">
+                <span class="btn-icon">🧠</span> AI Pattern Matching
             </button>
-            <button class="btn btn-ai-vector" id="btnEmbedEvents" onclick="startEventEmbedding()" title="Embed high-severity events for semantic search">
-                <span class="btn-icon">🧠</span> Create Vectors
-            </button>
-            <button class="btn btn-secondary" onclick="clearPatternRulesResults()" title="Clear previous results">
+            <button class="btn btn-secondary" onclick="clearAICorrelationResults()" title="Clear previous results">
                 <span class="btn-icon">🗑️</span> Clear
             </button>
         </div>
     </div>
     
     <!-- Progress -->
-    <div class="ai-progress" id="patternRulesProgress" style="display: none;">
+    <div class="ai-progress" id="aiCorrelationProgress" style="display: none;">
         <div class="ai-progress-header">
-            <span class="ai-progress-title">Scanning for attack patterns...</span>
-            <span class="ai-progress-percent" id="patternRulesProgressPercent">0%</span>
+            <span class="ai-progress-title">AI analyzing attack patterns...</span>
+            <span class="ai-progress-percent" id="aiCorrelationProgressPercent">0%</span>
         </div>
         <div class="ai-progress-bar">
-            <div class="ai-progress-fill" id="patternRulesProgressFill" style="width: 0%"></div>
+            <div class="ai-progress-fill ai-gradient-fill" id="aiCorrelationProgressFill" style="width: 0%"></div>
         </div>
-        <div class="ai-progress-status" id="patternRulesProgressStatus">Initializing...</div>
+        <div class="ai-progress-status" id="aiCorrelationProgressStatus">Initializing DeepSeek-R1...</div>
     </div>
     
     <!-- Results -->
-    <div class="ai-results" id="patternRulesResults" style="display: none;">
+    <div class="ai-results" id="aiCorrelationResults" style="display: none;">
         
         <!-- Category Summary Cards -->
-        <div class="pattern-rules-categories" id="patternRulesCategoriesContainer">
+        <div class="pattern-rules-categories" id="aiCorrelationCategoriesContainer">
             <!-- Populated by JS -->
         </div>
         
         <!-- Results Table -->
         <div class="ai-results-header">
-            <h4>Detected Patterns</h4>
+            <h4>AI-Verified Attack Patterns</h4>
             <div class="ai-results-actions">
-                <button class="btn btn-sm btn-secondary" onclick="refreshPatternRulesResults()">
+                <button class="btn btn-sm btn-secondary" onclick="refreshAICorrelationResults()">
                     <span class="btn-icon">🔄</span> Refresh
                 </button>
             </div>
@@ -125,20 +113,59 @@
                         <th>Pattern</th>
                         <th>Category</th>
                         <th>Severity</th>
-                        <th>Confidence</th>
-                        <th>MITRE</th>
-                        <th>Hosts</th>
+                        <th>AI Confidence</th>
+                        <th>Reasoning</th>
+                        <th>IOCs Found</th>
                         <th>Events</th>
-                        <th>Timeframe</th>
                     </tr>
                 </thead>
-                <tbody id="patternRulesResultsBody">
-                    <tr><td colspan="8" class="text-center text-muted">Click "Run Detection" to scan for attack patterns</td></tr>
+                <tbody id="aiCorrelationResultsBody">
+                    <tr><td colspan="7" class="text-center text-muted">Click "AI Pattern Matching" to analyze with DeepSeek-R1</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+
+<style>
+/* AI Gradient Button */
+.btn-ai-gradient {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+    border: none;
+}
+
+.btn-ai-gradient:hover:not(:disabled) {
+    background: linear-gradient(135deg, #5a67d8, #6b46c1);
+    transform: translateY(-1px);
+}
+
+.ai-gradient-fill {
+    background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+/* AI Reasoning column */
+.ai-reasoning-preview {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.ai-iocs-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: rgba(var(--accent-warning-rgb), 0.2);
+    color: var(--accent-warning);
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+</style>
 
 <!-- Pattern Categories Reference -->
 <div class="ai-section">

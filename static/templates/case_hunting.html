@@ -4917,6 +4917,296 @@ function clearPatternRulesResults() {
     .catch(err => console.error('Error clearing results:', err));
 }
 
+
+// ============================================
+// AI PATTERN CORRELATION - DeepSeek-R1 Analysis
+// ============================================
+
+let aiCorrelationTaskId = null;
+let aiCorrelationResults = [];
+
+async function startAICorrelation() {
+    const btn = document.getElementById('btnRunAICorrelation');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
+    
+    document.getElementById('aiCorrelationProgress').style.display = 'block';
+    document.getElementById('aiCorrelationResults').style.display = 'none';
+    document.getElementById('aiCorrelationStatus').textContent = 'Running';
+    document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-warning';
+    
+    // Build request payload
+    const payload = { case_id: CASE_ID };
+    
+    // Add time range if set
+    const timeRange = document.getElementById('ai-time-range-select')?.value;
+    if (timeRange && timeRange !== 'none') {
+        if (timeRange === 'custom') {
+            payload.time_start = document.getElementById('ai-time-start')?.value;
+            payload.time_end = document.getElementById('ai-time-end')?.value;
+        }
+    }
+    
+    try {
+        const response = await fetch('/api/rag/ai-correlation/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.task_id) {
+            aiCorrelationTaskId = data.task_id;
+            pollAICorrelationStatus();
+        } else {
+            showAICorrelationError(data.error || 'Failed to start AI correlation');
+        }
+    } catch (error) {
+        showAICorrelationError('Error: ' + error.message);
+    }
+}
+
+function pollAICorrelationStatus() {
+    if (!aiCorrelationTaskId) return;
+    
+    fetch(`/api/rag/status/${aiCorrelationTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                const progress = data.progress || 0;
+                const status = data.status || data.meta?.status || 'Processing...';
+                const pattern = data.meta?.pattern || '';
+                
+                document.getElementById('aiCorrelationProgressPercent').textContent = `${progress}%`;
+                document.getElementById('aiCorrelationProgressFill').style.width = `${progress}%`;
+                document.getElementById('aiCorrelationProgressStatus').textContent = pattern ? `Analyzing: ${pattern}` : status;
+                
+                setTimeout(pollAICorrelationStatus, 2000);
+            } else if (data.state === 'completed') {
+                showAICorrelationComplete(data.result);
+            } else if (data.state === 'failed') {
+                showAICorrelationError(data.error || 'Task failed');
+            } else if (data.state === 'pending') {
+                document.getElementById('aiCorrelationProgressStatus').textContent = 'Queued...';
+                setTimeout(pollAICorrelationStatus, 2000);
+            } else {
+                setTimeout(pollAICorrelationStatus, 2000);
+            }
+        })
+        .catch(err => {
+            console.error('Poll error:', err);
+            setTimeout(pollAICorrelationStatus, 3000);
+        });
+}
+
+function showAICorrelationComplete(result) {
+    document.getElementById('aiCorrelationProgress').style.display = 'none';
+    
+    const btn = document.getElementById('btnRunAICorrelation');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔄</span> Run Again';
+    
+    document.getElementById('aiCorrelationStatus').textContent = 'Complete';
+    document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-success';
+    
+    // Update stats
+    document.getElementById('aiPatternsAnalyzed').textContent = result.patterns_analyzed || '-';
+    document.getElementById('aiHighConfidence').textContent = result.high_confidence_count || 0;
+    document.getElementById('aiTotalMatches').textContent = result.results_count || 0;
+    
+    // Render results
+    if (result.results && result.results.length > 0) {
+        aiCorrelationResults = result.results;
+        renderAICorrelationResults(result.results);
+        document.getElementById('aiCorrelationResults').style.display = 'block';
+    }
+}
+
+function renderAICorrelationResults(results) {
+    const tbody = document.getElementById('aiCorrelationResultsBody');
+    
+    if (!results || results.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No patterns detected with significant confidence</td></tr>';
+        return;
+    }
+    
+    // Group by category for summary
+    const categories = {};
+    results.forEach(r => {
+        const cat = r.severity === 'critical' ? 'Critical' : r.severity === 'high' ? 'High' : 'Medium/Low';
+        categories[cat] = (categories[cat] || 0) + 1;
+    });
+    
+    // Render category cards
+    const catContainer = document.getElementById('aiCorrelationCategoriesContainer');
+    const categoryIcons = {
+        'Critical': '🔴',
+        'High': '🟠', 
+        'Medium/Low': '🟡'
+    };
+    
+    catContainer.innerHTML = Object.entries(categories).map(([name, count]) => `
+        <div class="pattern-category-card">
+            <span class="pattern-category-icon">${categoryIcons[name] || '📋'}</span>
+            <span class="pattern-category-name">${name} Severity</span>
+            <span class="pattern-category-count">${count}</span>
+        </div>
+    `).join('');
+    
+    // Render results table
+    tbody.innerHTML = results.map((r, idx) => {
+        const severityClass = `severity-${r.severity}`;
+        const confidenceClass = r.confidence >= 70 ? 'high' : r.confidence >= 50 ? 'medium' : 'low';
+        const iocCount = r.iocs ? r.iocs.length : 0;
+        const reasoning = r.ai_reasoning || 'No reasoning provided';
+        const reasoningPreview = reasoning.length > 80 ? reasoning.substring(0, 80) + '...' : reasoning;
+        
+        return `
+            <tr class="pattern-match-row" onclick="showAICorrelationDetail(${idx})">
+                <td><strong>${escapeHtml(r.pattern_name)}</strong></td>
+                <td>${escapeHtml(r.severity)}</td>
+                <td><span class="severity-badge ${severityClass}">${r.severity}</span></td>
+                <td>
+                    <div class="confidence-bar">
+                        <div class="confidence-meter">
+                            <div class="confidence-fill ${confidenceClass}" style="width: ${r.confidence}%"></div>
+                        </div>
+                        <span class="confidence-value ${confidenceClass}">${r.confidence}%</span>
+                    </div>
+                </td>
+                <td><span class="ai-reasoning-preview" title="${escapeHtml(reasoning)}">${escapeHtml(reasoningPreview)}</span></td>
+                <td>${iocCount > 0 ? `<span class="ai-iocs-count">🎯 ${iocCount}</span>` : '-'}</td>
+                <td>-</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function showAICorrelationDetail(idx) {
+    const result = aiCorrelationResults[idx];
+    if (!result) return;
+    
+    // Show in pattern modal
+    const modal = document.getElementById('pattern-match-modal');
+    const title = document.getElementById('pattern-modal-title');
+    const content = document.getElementById('pattern-match-content');
+    
+    title.textContent = `🧠 ${result.pattern_name}`;
+    
+    const iocsList = result.iocs && result.iocs.length > 0 
+        ? `<ul class="indicator-list">${result.iocs.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`
+        : '<span class="text-muted">None extracted</span>';
+    
+    content.innerHTML = `
+        <div class="detail-row">
+            <span class="detail-label">Pattern</span>
+            <span class="detail-value">${escapeHtml(result.pattern_name)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Severity</span>
+            <span class="detail-value"><span class="severity-badge severity-${result.severity}">${result.severity}</span></span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">AI Confidence</span>
+            <span class="detail-value">
+                <div class="confidence-bar">
+                    <div class="confidence-meter" style="width: 100px;">
+                        <div class="confidence-fill ${result.confidence >= 70 ? 'high' : result.confidence >= 50 ? 'medium' : 'low'}" style="width: ${result.confidence}%"></div>
+                    </div>
+                    <span class="confidence-value">${result.confidence}%</span>
+                </div>
+            </span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Correlation Key</span>
+            <span class="detail-value"><code>${escapeHtml(result.correlation_key || 'N/A')}</code></span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">AI Reasoning</span>
+            <span class="detail-value">${escapeHtml(result.ai_reasoning || 'No reasoning provided')}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">IOCs Found</span>
+            <span class="detail-value">${iocsList}</span>
+        </div>
+    `;
+    
+    modal.style.display = 'flex';
+}
+
+function showAICorrelationError(error) {
+    document.getElementById('aiCorrelationProgress').style.display = 'none';
+    document.getElementById('aiCorrelationStatus').textContent = 'Error';
+    document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-danger';
+    
+    const btn = document.getElementById('btnRunAICorrelation');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🧠</span> AI Pattern Matching';
+    
+    alert('AI Correlation failed: ' + error);
+}
+
+async function clearAICorrelationResults() {
+    // For now, just clear the UI - add API endpoint if needed
+    aiCorrelationResults = [];
+    document.getElementById('aiCorrelationResults').style.display = 'none';
+    document.getElementById('aiPatternsAnalyzed').textContent = '-';
+    document.getElementById('aiHighConfidence').textContent = '-';
+    document.getElementById('aiTotalMatches').textContent = '-';
+    document.getElementById('aiCorrelationStatus').textContent = 'Ready';
+    document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-info';
+    document.getElementById('btnRunAICorrelation').innerHTML = '<span class="btn-icon">🧠</span> AI Pattern Matching';
+}
+
+async function refreshAICorrelationResults() {
+    try {
+        const response = await fetch(`/api/rag/ai-correlation/results/${CASE_ID}`);
+        const data = await response.json();
+        
+        if (data.success && data.total_results > 0) {
+            // Flatten pattern results
+            const allResults = [];
+            data.patterns.forEach(p => {
+                p.results.forEach(r => {
+                    allResults.push({
+                        pattern_id: r.pattern_id,
+                        pattern_name: r.pattern_name,
+                        severity: 'high', // TODO: get from pattern config
+                        confidence: r.final_confidence,
+                        ai_reasoning: r.ai_reasoning,
+                        iocs: r.ai_iocs,
+                        correlation_key: r.correlation_key
+                    });
+                });
+            });
+            
+            // Sort by confidence
+            allResults.sort((a, b) => b.confidence - a.confidence);
+            
+            aiCorrelationResults = allResults;
+            document.getElementById('aiTotalMatches').textContent = data.total_results;
+            document.getElementById('aiHighConfidence').textContent = data.high_confidence;
+            
+            renderAICorrelationResults(allResults);
+            document.getElementById('aiCorrelationResults').style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Failed to refresh AI correlation results:', error);
+    }
+}
+
+// Load AI correlation results on tab switch
+document.addEventListener('DOMContentLoaded', function() {
+    // Check for existing AI correlation results when tab loads
+    const aiTab = document.querySelector('[data-tab="ai-hunting"]');
+    if (aiTab) {
+        aiTab.addEventListener('click', function() {
+            setTimeout(refreshAICorrelationResults, 500);
+        });
+    }
+});
+
 function loadOpenCTIStats() {
     fetch('/api/rag/opencti/stats')
         .then(res => res.json())
@@ -5734,6 +6024,260 @@ function toggleHelp(toggle) {
         toggle.innerHTML = '<span class="ai-help-icon">❓</span> What does this do?';
     }
 }
+
+// ============================================
+// HUNT PATTERNS MODAL - Rule-based Pattern Detection
+// ============================================
+
+let huntPatternsTaskId = null;
+let huntTimeRangeFilter = 'none';
+let huntTimeStartCustom = '';
+let huntTimeEndCustom = '';
+
+function openHuntPatternsModal() {
+    const modal = document.getElementById('hunt-patterns-modal');
+    if (!modal) return;
+    
+    modal.style.display = 'flex';
+    
+    // Load existing results if any
+    loadHuntPatternsResults();
+    
+    // Setup time range handler
+    document.getElementById('hunt-time-range-select').addEventListener('change', function() {
+        huntTimeRangeFilter = this.value;
+        const customDiv = document.getElementById('hunt-time-filter-custom');
+        customDiv.style.display = this.value === 'custom' ? 'flex' : 'none';
+    });
+}
+
+function closeHuntPatternsModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('hunt-patterns-modal').style.display = 'none';
+}
+
+async function loadHuntPatternsResults() {
+    try {
+        const response = await fetch(`/api/rag/pattern-rules/results/${CASE_ID}`);
+        const data = await response.json();
+        
+        if (data.success && data.total_matches > 0) {
+            document.getElementById('huntPatternsChecked').textContent = data.pattern_count;
+            document.getElementById('huntPatternsMatches').textContent = data.total_matches;
+            document.getElementById('huntPatternsCategories').textContent = Object.keys(data.categories || {}).length;
+            
+            // Show categories
+            renderHuntCategories(data.categories);
+            
+            // Show results table
+            renderHuntResultsTable(data.patterns);
+            
+            document.getElementById('huntPatternsResults').style.display = 'block';
+            document.getElementById('hunt-patterns-status').textContent = `${data.total_matches} Found`;
+            document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status complete';
+            
+            // Change button text
+            document.getElementById('btnRunHuntPatterns').innerHTML = '<span class="btn-icon">🔄</span> Run Again';
+        } else {
+            document.getElementById('huntPatternsResults').style.display = 'none';
+            document.getElementById('hunt-patterns-status').textContent = 'Ready';
+            document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status';
+        }
+    } catch (error) {
+        console.error('Failed to load hunt patterns results:', error);
+    }
+}
+
+function renderHuntCategories(categories) {
+    const container = document.getElementById('huntPatternsCategoriesContainer');
+    if (!categories || Object.keys(categories).length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    const categoryIcons = {
+        'Credential Access': '🔑',
+        'Lateral Movement': '🔀',
+        'Persistence': '📌',
+        'Defense Evasion': '🛡️',
+        'Discovery': '🔎',
+        'Privilege Escalation': '⬆️',
+        'Exfiltration': '📤'
+    };
+    
+    container.innerHTML = Object.entries(categories).map(([name, count]) => `
+        <div class="hunt-category-card">
+            <span class="hunt-category-icon">${categoryIcons[name] || '📋'}</span>
+            <span class="hunt-category-name">${name}</span>
+            <span class="hunt-category-count">${count}</span>
+        </div>
+    `).join('');
+}
+
+function renderHuntResultsTable(patterns) {
+    const tbody = document.getElementById('huntPatternsResultsBody');
+    
+    if (!patterns || patterns.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No patterns detected</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = patterns.map(p => {
+        const severityClass = `severity-${p.severity}`;
+        const confidenceClass = p.confidence >= 70 ? 'high' : p.confidence >= 50 ? 'medium' : 'low';
+        
+        return `
+            <tr class="hunt-pattern-row" onclick="showHuntPatternDetail('${p.pattern_id}')">
+                <td><strong>${escapeHtml(p.pattern_name)}</strong></td>
+                <td>${escapeHtml(p.category)}</td>
+                <td><span class="severity-badge ${severityClass}">${p.severity}</span></td>
+                <td>
+                    <div class="confidence-bar">
+                        <div class="confidence-meter">
+                            <div class="confidence-fill ${confidenceClass}" style="width: ${p.confidence}%"></div>
+                        </div>
+                        <span class="confidence-value ${confidenceClass}">${p.confidence}%</span>
+                    </div>
+                </td>
+                <td>${p.host_count}</td>
+                <td>${p.total_events}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function showHuntPatternDetail(patternId) {
+    // Open the pattern detail modal from AI Hunting tab
+    closeHuntPatternsModal();
+    
+    // Switch to AI Hunting tab and show pattern detail
+    document.querySelector('[data-tab="ai-hunting"]')?.click();
+    setTimeout(() => {
+        if (typeof showPatternRulesDetail === 'function') {
+            showPatternRulesDetail(patternId);
+        }
+    }, 300);
+}
+
+async function runHuntPatterns() {
+    const btn = document.getElementById('btnRunHuntPatterns');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
+    
+    document.getElementById('huntPatternsProgress').style.display = 'block';
+    document.getElementById('hunt-patterns-status').textContent = 'Running';
+    document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status running';
+    
+    // Get time range
+    const timeRange = document.getElementById('hunt-time-range-select').value;
+    const payload = { case_id: CASE_ID };
+    
+    if (timeRange && timeRange !== 'none') {
+        payload.time_range = timeRange;
+        if (timeRange === 'custom') {
+            payload.time_start = document.getElementById('hunt-time-start').value;
+            payload.time_end = document.getElementById('hunt-time-end').value;
+        }
+    }
+    
+    try {
+        const response = await fetch('/api/rag/pattern-rules/detect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.task_id) {
+            huntPatternsTaskId = data.task_id;
+            pollHuntPatternsStatus();
+        } else {
+            showHuntPatternsError(data.error || 'Failed to start detection');
+        }
+    } catch (error) {
+        showHuntPatternsError('Error: ' + error.message);
+    }
+}
+
+function pollHuntPatternsStatus() {
+    if (!huntPatternsTaskId) return;
+    
+    fetch(`/api/rag/status/${huntPatternsTaskId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.state === 'progress') {
+                updateHuntPatternsProgress(data.progress || 0, data.status || 'Processing...');
+                setTimeout(pollHuntPatternsStatus, 1000);
+            } else if (data.state === 'completed') {
+                showHuntPatternsComplete(data.result);
+            } else if (data.state === 'failed') {
+                showHuntPatternsError(data.error || 'Task failed');
+            } else if (data.state === 'pending') {
+                updateHuntPatternsProgress(0, 'Queued...');
+                setTimeout(pollHuntPatternsStatus, 1000);
+            } else {
+                setTimeout(pollHuntPatternsStatus, 1000);
+            }
+        })
+        .catch(err => {
+            showHuntPatternsError('Poll error: ' + err.message);
+        });
+}
+
+function updateHuntPatternsProgress(percent, status) {
+    document.getElementById('huntPatternsProgressPercent').textContent = `${percent}%`;
+    document.getElementById('huntPatternsProgressFill').style.width = `${percent}%`;
+    document.getElementById('huntPatternsProgressStatus').textContent = status;
+}
+
+function showHuntPatternsComplete(result) {
+    document.getElementById('huntPatternsProgress').style.display = 'none';
+    
+    const btn = document.getElementById('btnRunHuntPatterns');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔄</span> Run Again';
+    
+    // Reload results
+    loadHuntPatternsResults();
+}
+
+function showHuntPatternsError(error) {
+    document.getElementById('huntPatternsProgress').style.display = 'none';
+    document.getElementById('hunt-patterns-status').textContent = 'Error';
+    document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status';
+    
+    const btn = document.getElementById('btnRunHuntPatterns');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Run Detection';
+    
+    alert('Pattern detection failed: ' + error);
+}
+
+async function clearHuntPatternsResults() {
+    if (!confirm('Clear all pattern detection results for this case?')) return;
+    
+    try {
+        const response = await fetch(`/api/rag/pattern-rules/clear/${CASE_ID}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('huntPatternsChecked').textContent = '-';
+            document.getElementById('huntPatternsMatches').textContent = '-';
+            document.getElementById('huntPatternsCategories').textContent = '-';
+            document.getElementById('huntPatternsResults').style.display = 'none';
+            document.getElementById('hunt-patterns-status').textContent = 'Ready';
+            document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status';
+            document.getElementById('btnRunHuntPatterns').innerHTML = '<span class="btn-icon">🔍</span> Run Detection';
+        }
+    } catch (error) {
+        alert('Failed to clear results: ' + error.message);
+    }
+}
+
 
 // ============================================
 // AI REVIEW MODAL - Interactive Chat Interface

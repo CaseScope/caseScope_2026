@@ -48,55 +48,54 @@ Follow these rules without exception.
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-AI-Powered Security Analysis Platform
+Core Digital Forensics & Security Analysis Platform:
 
-Core Business Domains:
+1. AI-Assisted Threat Hunting System (85/100)
+- Pattern detection engine mapping 58 rule-based queries to MITRE ATT&CK
+- Semantic pattern prioritization with AI embeddings
+- Attack categorization across 7 threat categories
+- Real-time confidence scoring for pattern matches
+- DFIR-specialized interactive AI assistant
+- Context-aware querying incorporating detection results and case artifacts
 
-1. Threat Detection Engine
-- Pattern detection system with 58 MITRE ATT&CK mapped rules
-- Attack pattern categorization across 7 domains:
-  * Credential Access (21 patterns)
-  * Lateral Movement (8 patterns) 
-  * Persistence (8 patterns)
-  * Privilege Escalation (4 patterns)
-  * Defense Evasion (9 patterns)
-  * Discovery (5 patterns)
-  * Exfiltration (3 patterns)
+2. Evidence Processing Pipeline (90/100) 
+- Multi-stage forensic file processing workflow
+- Specialized memory dump analysis with plugin architecture
+- Network traffic analysis with PCAP processing pipeline
+- Forensic artifact categorization and correlation
+- Chain of custody tracking
+- Real-time analysis progress monitoring
 
-2. AI Analysis System
-- Context-aware investigation assistant
-- Pattern detection integration
-- Historical case correlation
-- Event vector embedding for semantic search
-- Response quality tracking
+3. IOC Management & Detection (85/100)
+- Sophisticated IOC type detection and categorization
+- Pattern-based IOC validation with category rules
+- Advanced token matching system
+- Three-tier noise filtering combining OR/AND/NOT keywords
+- Cross-reference tracking for artifact correlation
 
-3. Digital Forensics Pipeline
-- Memory forensics workflow with plugin tiers
-- Network traffic analysis with protocol-specific parsing
-- Browser artifact forensics
-- Event timeline reconstruction
-- EVTX log processing with threat enrichment
+4. Event Analysis & Parsing (90/100)
+- Windows Event Log analysis with Hayabusa integration
+- MITRE ATT&CK mapping of detected events
+- Browser artifact processing for Firefox/Chrome/Edge
+- Timeline reconstruction from multiple timestamp sources
+- Process execution history analysis
+- System configuration change tracking
 
-4. IOC Management
-- Multi-mode indicator matching:
-  * Token-based exact matching
-  * Path-aware substring matching
-  * Pattern-based regex matching
-- Source attribution tracking
-- Confidence scoring
-- Type-specific validation rules
-
-5. MITRE Integration
-- ATT&CK technique mapping to Windows events
-- Sigma rule conversion to executable queries
-- Detection pattern correlation
-- Event ID mapping for monitoring
+5. Report Generation (85/100)
+- DFIR-specific report generation combining EDR data and analyst findings
+- Technical-to-business translation layer
+- Multi-source evidence correlation
+- Domain-specific sections for executive summary, timeline, IOCs
+- Sophisticated event deduplication and relationship mapping
 
 Key Integration Points:
-- RAG architecture for security analytics
+- MITRE ATT&CK framework mapping
+- Sigma rule conversion to detection patterns
 - OpenCTI threat intelligence enrichment
-- Volatility 3 memory analysis integration
-- Zeek network traffic processing
+- Volatility3 memory analysis integration
+- Zeek network traffic analysis
+
+The platform implements comprehensive digital forensics capabilities with specialized workflows for threat detection, evidence processing, and security analysis focused on Windows systems, network traffic, and memory forensics.
 
 $END$
 
