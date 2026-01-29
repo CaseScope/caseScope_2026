@@ -5182,7 +5182,7 @@ function renderAICorrelationResults(results) {
                 </td>
                 <td><span class="ai-reasoning-preview" title="${escapeHtml(reasoning)}">${escapeHtml(reasoningPreview)}</span></td>
                 <td>${iocCount > 0 ? `<span class="ai-iocs-count">🎯 ${iocCount}</span>` : '-'}</td>
-                <td>-</td>
+                <td>${r.events_analyzed || '-'}</td>
             </tr>
         `;
     }).join('');
@@ -5286,7 +5286,8 @@ async function refreshAICorrelationResults() {
                         confidence: r.final_confidence,
                         ai_reasoning: r.ai_reasoning,
                         iocs: r.ai_iocs,
-                        correlation_key: r.correlation_key
+                        correlation_key: r.correlation_key,
+                        events_analyzed: r.events_analyzed
                     });
                 });
             });

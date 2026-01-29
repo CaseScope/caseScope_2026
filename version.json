@@ -1,6 +1,13 @@
 {
-  "version": "3.159.00",
+  "version": "3.159.01",
   "changelog": [
+    {
+      "version": "3.159.01",
+      "date": "2026-01-29",
+      "changes": [
+        "Fixed AI Hunting pattern match results showing '-' instead of event counts"
+      ]
+    },
     {
       "version": "3.159.00",
       "date": "2026-01-29",
