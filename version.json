@@ -1,6 +1,15 @@
 {
-  "version": "3.159.05",
+  "version": "3.159.06",
   "changelog": [
+    {
+      "version": "3.159.06",
+      "date": "2026-01-29",
+      "changes": [
+        "Filter out incomplete AI analysis results (50% neutral confidence)",
+        "Fixed null element error in pattern rules results loading",
+        "API now excludes incomplete results by default"
+      ]
+    },
     {
       "version": "3.159.05",
       "date": "2026-01-29",

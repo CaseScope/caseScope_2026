@@ -4708,21 +4708,27 @@ function refreshPatternRulesResults() {
                 // Sort by confidence descending (highest confidence first)
                 patternRulesResults.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
                 
-                // Update stats
-                document.getElementById('patternRulesMatches').textContent = data.total_matches || 0;
-                document.getElementById('patternRulesCategories').textContent = Object.keys(data.categories || {}).length;
-                document.getElementById('patternRulesChecked').textContent = patternRulesResults.length || '-';
+                // Update stats (with null checks for elements that may not exist)
+                const matchesEl = document.getElementById('patternRulesMatches');
+                const categoriesEl = document.getElementById('patternRulesCategories');
+                const checkedEl = document.getElementById('patternRulesChecked');
+                const statusEl = document.getElementById('patternRulesStatus');
+                const resultsEl = document.getElementById('patternRulesResults');
                 
-                if (data.total_matches > 0) {
-                    document.getElementById('patternRulesStatus').textContent = `${data.total_matches} Found`;
-                    document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-danger';
+                if (matchesEl) matchesEl.textContent = data.total_matches || 0;
+                if (categoriesEl) categoriesEl.textContent = Object.keys(data.categories || {}).length;
+                if (checkedEl) checkedEl.textContent = patternRulesResults.length || '-';
+                
+                if (data.total_matches > 0 && statusEl) {
+                    statusEl.textContent = `${data.total_matches} Found`;
+                    statusEl.className = 'ai-section-badge ai-badge-danger';
                 }
                 
                 renderPatternRulesCategories(data.categories || {});
                 renderPatternRulesResults();
                 
-                if (patternRulesResults.length > 0) {
-                    document.getElementById('patternRulesResults').style.display = 'block';
+                if (patternRulesResults.length > 0 && resultsEl) {
+                    resultsEl.style.display = 'block';
                 }
             }
         })
@@ -5302,18 +5308,28 @@ async function refreshAICorrelationResults() {
             const allResults = [];
             data.patterns.forEach(p => {
                 p.results.forEach(r => {
-                    allResults.push({
-                        pattern_id: r.pattern_id,
-                        pattern_name: r.pattern_name,
-                        severity: 'high', // TODO: get from pattern config
-                        confidence: r.final_confidence,
-                        ai_reasoning: r.ai_reasoning,
-                        iocs: r.ai_iocs,
-                        correlation_key: r.correlation_key,
-                        events_analyzed: r.events_analyzed,
-                        window_start: r.window_start,
-                        window_end: r.window_end
-                    });
+                    // Filter out neutral/incomplete results (50% confidence with no real reasoning)
+                    const reasoning = r.ai_reasoning || '';
+                    const isIncomplete = reasoning.includes('incomplete') || 
+                                        reasoning.includes('neutral confidence') ||
+                                        reasoning === 'No reasoning provided' ||
+                                        reasoning === '';
+                    
+                    // Only include results with confidence > 50 OR meaningful reasoning
+                    if (r.final_confidence > 50 || !isIncomplete) {
+                        allResults.push({
+                            pattern_id: r.pattern_id,
+                            pattern_name: r.pattern_name,
+                            severity: r.final_confidence >= 80 ? 'critical' : (r.final_confidence >= 60 ? 'high' : 'medium'),
+                            confidence: r.final_confidence,
+                            ai_reasoning: r.ai_reasoning,
+                            iocs: r.ai_iocs,
+                            correlation_key: r.correlation_key,
+                            events_analyzed: r.events_analyzed,
+                            window_start: r.window_start,
+                            window_end: r.window_end
+                        });
+                    }
                 });
             });
             
@@ -5321,11 +5337,15 @@ async function refreshAICorrelationResults() {
             allResults.sort((a, b) => b.confidence - a.confidence);
             
             aiCorrelationResults = allResults;
-            document.getElementById('aiTotalMatches').textContent = data.total_results;
-            document.getElementById('aiHighConfidence').textContent = data.high_confidence;
+            document.getElementById('aiTotalMatches').textContent = allResults.length;
+            document.getElementById('aiHighConfidence').textContent = allResults.filter(r => r.confidence >= 70).length;
             
-            renderAICorrelationResults(allResults);
-            document.getElementById('aiCorrelationResults').style.display = 'block';
+            if (allResults.length > 0) {
+                renderAICorrelationResults(allResults);
+                document.getElementById('aiCorrelationResults').style.display = 'block';
+            } else {
+                document.getElementById('aiCorrelationResults').style.display = 'none';
+            }
         }
     } catch (error) {
         console.error('Failed to refresh AI correlation results:', error);

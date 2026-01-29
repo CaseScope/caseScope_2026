@@ -1043,13 +1043,31 @@ def start_ai_correlation():
 def get_ai_correlation_results(case_id):
     """Get AI correlation analysis results for a case"""
     from models.rag import AIAnalysisResult
+    from sqlalchemy import or_, and_
     
     min_confidence = request.args.get('min_confidence', 0, type=float)
+    include_incomplete = request.args.get('include_incomplete', 'false').lower() == 'true'
     
-    results = AIAnalysisResult.query.filter(
+    # Base query
+    query = AIAnalysisResult.query.filter(
         AIAnalysisResult.case_id == case_id,
         AIAnalysisResult.final_confidence >= min_confidence
-    ).order_by(
+    )
+    
+    # Filter out incomplete/neutral results unless explicitly requested
+    if not include_incomplete:
+        query = query.filter(
+            or_(
+                AIAnalysisResult.final_confidence > 50,
+                and_(
+                    AIAnalysisResult.ai_reasoning.isnot(None),
+                    ~AIAnalysisResult.ai_reasoning.like('%incomplete%'),
+                    ~AIAnalysisResult.ai_reasoning.like('%neutral confidence%')
+                )
+            )
+        )
+    
+    results = query.order_by(
         AIAnalysisResult.final_confidence.desc()
     ).all()
     
