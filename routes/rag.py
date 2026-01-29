@@ -971,7 +971,7 @@ def start_ai_correlation():
     from tasks.rag_tasks import ai_pattern_correlation
     from datetime import timedelta
     from utils.clickhouse import get_client
-    from utils.timezone_utils import to_utc
+    from utils.timezone import to_utc
     
     data = request.json or {}
     case_id = data.get('case_id')
