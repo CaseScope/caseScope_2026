@@ -42,7 +42,7 @@ from models.behavioral_profiles import (
     UserBehaviorProfile, SystemBehaviorProfile,
     PeerGroup, PeerGroupMember,
     GapDetectionFinding, SuggestedAction,
-    GapFindingType, SystemRole
+    GapFindingType, SystemRole, OpenCTICache
 )
 
 __all__ = [
@@ -71,5 +71,5 @@ __all__ = [
     'UserBehaviorProfile', 'SystemBehaviorProfile',
     'PeerGroup', 'PeerGroupMember',
     'GapDetectionFinding', 'SuggestedAction',
-    'GapFindingType', 'SystemRole'
+    'GapFindingType', 'SystemRole', 'OpenCTICache'
 ]

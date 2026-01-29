@@ -580,3 +580,23 @@ class SystemRole:
     SERVER = 'server'
     WORKSTATION = 'workstation'
     UNKNOWN = 'unknown'
+
+
+class OpenCTICache(db.Model):
+    """Cache table for OpenCTI API responses during analysis
+    
+    Caches threat intelligence queries to avoid repeated API calls.
+    Cache is scoped to case_id and cleared at start of new analysis runs.
+    """
+    __tablename__ = 'opencti_cache'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    query_type = db.Column(db.String(50), nullable=False, index=True)
+    query_params_hash = db.Column(db.String(64), nullable=False, index=True)
+    response_json = db.Column(db.JSON, nullable=True)
+    cached_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.Index('ix_opencti_cache_lookup', 'case_id', 'query_type', 'query_params_hash'),
+    )
