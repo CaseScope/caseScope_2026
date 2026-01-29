@@ -957,6 +957,110 @@ def clear_pattern_rule_results(case_id):
 
 
 # ============================================================================
+# AI PATTERN CORRELATION (DeepSeek-R1)
+# ============================================================================
+
+@rag_bp.route('/ai-correlation/start', methods=['POST'])
+@login_required
+def start_ai_correlation():
+    """Start AI-powered pattern correlation analysis
+    
+    Uses DeepSeek-R1 LLM to analyze events and determine if they
+    constitute true attack pattern matches.
+    """
+    from tasks.rag_tasks import ai_pattern_correlation
+    
+    data = request.json or {}
+    case_id = data.get('case_id')
+    patterns = data.get('patterns')  # Optional: specific patterns to analyze
+    time_start = data.get('time_start')  # ISO format
+    time_end = data.get('time_end')  # ISO format
+    
+    if not case_id:
+        return jsonify({'success': False, 'error': 'case_id required'}), 400
+    
+    case = Case.query.get(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    task = ai_pattern_correlation.delay(
+        case_id=case_id,
+        case_uuid=str(case.uuid),
+        patterns=patterns,
+        time_start=time_start,
+        time_end=time_end
+    )
+    
+    return jsonify({
+        'success': True,
+        'task_id': task.id,
+        'case_id': case_id,
+        'patterns': patterns or 'all'
+    })
+
+
+@rag_bp.route('/ai-correlation/results/<int:case_id>')
+@login_required
+def get_ai_correlation_results(case_id):
+    """Get AI correlation analysis results for a case"""
+    from models.rag import AIAnalysisResult
+    
+    min_confidence = request.args.get('min_confidence', 0, type=float)
+    
+    results = AIAnalysisResult.query.filter(
+        AIAnalysisResult.case_id == case_id,
+        AIAnalysisResult.final_confidence >= min_confidence
+    ).order_by(
+        AIAnalysisResult.final_confidence.desc()
+    ).all()
+    
+    # Group by pattern
+    by_pattern = {}
+    for r in results:
+        if r.pattern_id not in by_pattern:
+            by_pattern[r.pattern_id] = {
+                'pattern_id': r.pattern_id,
+                'pattern_name': r.pattern_name,
+                'results': []
+            }
+        by_pattern[r.pattern_id]['results'].append(r.to_dict())
+    
+    return jsonify({
+        'success': True,
+        'case_id': case_id,
+        'total_results': len(results),
+        'high_confidence': len([r for r in results if r.final_confidence >= 70]),
+        'patterns': list(by_pattern.values())
+    })
+
+
+@rag_bp.route('/ai-correlation/patterns')
+@login_required
+def list_ai_correlation_patterns():
+    """List available AI correlation patterns"""
+    from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_summary
+    
+    patterns = []
+    for pid, config in PATTERN_EVENT_MAPPINGS.items():
+        patterns.append({
+            'id': pid,
+            'name': config['name'],
+            'category': config.get('category'),
+            'severity': config.get('severity'),
+            'description': config.get('description', '')[:200],
+            'mitre_techniques': config.get('mitre_techniques', []),
+            'anchor_events': config.get('anchor_events', [])
+        })
+    
+    return jsonify({
+        'success': True,
+        'count': len(patterns),
+        'patterns': patterns,
+        'summary': get_pattern_summary()
+    })
+
+
+# ============================================================================
 # ASK AI - RAG-POWERED HUNTING ASSISTANT
 # ============================================================================
 

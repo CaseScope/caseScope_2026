@@ -1,6 +1,17 @@
 {
-  "version": "3.157.00",
+  "version": "3.158.00",
   "changelog": [
+    {
+      "version": "3.158.00",
+      "date": "2026-01-29",
+      "changes": [
+        "AI Pattern Correlation using DeepSeek-R1 8B for attack detection",
+        "18 attack patterns with MITRE ATT&CK mapping and checklists",
+        "Candidate event extraction optimized for large datasets (30M+ events)",
+        "Blended confidence scoring combining rule-based and AI analysis",
+        "New API endpoints: /ai-correlation/start, /ai-correlation/results, /ai-correlation/patterns"
+      ]
+    },
     {
       "version": "3.157.00",
       "date": "2026-01-28",

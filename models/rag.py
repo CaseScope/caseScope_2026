@@ -491,6 +491,158 @@ class PatternRuleMatch(db.Model):
         }
 
 
+class CandidateEventSet(db.Model):
+    """Temporary storage for candidate events during AI correlation analysis
+    
+    Stores pre-filtered events that may belong to attack patterns.
+    Used by the AI correlation pipeline to stage events before analysis.
+    Should be cleaned up after analysis completes.
+    """
+    __tablename__ = 'candidate_event_sets'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    analysis_id = db.Column(db.String(36), nullable=False, index=True)  # UUID for this analysis run
+    
+    # Pattern association
+    pattern_id = db.Column(db.String(50), nullable=False, index=True)
+    pattern_name = db.Column(db.String(255))
+    
+    # Event reference (ClickHouse event_uuid)
+    event_uuid = db.Column(db.String(36), nullable=False)
+    event_timestamp = db.Column(db.DateTime, nullable=False, index=True)
+    
+    # Tagging
+    role = db.Column(db.String(20))  # anchor, supporting, context
+    correlation_key = db.Column(db.String(255), index=True)  # host|user for grouping
+    
+    # Metadata
+    event_id = db.Column(db.String(20))  # Windows Event ID
+    source_host = db.Column(db.String(255))
+    username = db.Column(db.String(255))
+    
+    # Pre-computed features for AI
+    event_summary = db.Column(db.Text)  # Condensed event for LLM context
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.Index('ix_candidate_analysis_pattern', 'analysis_id', 'pattern_id'),
+        db.Index('ix_candidate_correlation', 'analysis_id', 'correlation_key'),
+    )
+    
+    def __repr__(self):
+        return f'<CandidateEventSet {self.id}: {self.pattern_id} {self.role}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'analysis_id': self.analysis_id,
+            'pattern_id': self.pattern_id,
+            'event_uuid': self.event_uuid,
+            'event_timestamp': self.event_timestamp.isoformat() if self.event_timestamp else None,
+            'role': self.role,
+            'correlation_key': self.correlation_key,
+            'event_id': self.event_id,
+            'source_host': self.source_host,
+            'username': self.username,
+            'event_summary': self.event_summary
+        }
+
+
+class AIAnalysisResult(db.Model):
+    """Stores AI correlation analysis results
+    
+    Records the AI's assessment of whether candidate events
+    constitute an actual attack pattern match.
+    """
+    __tablename__ = 'ai_analysis_results'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    analysis_id = db.Column(db.String(36), nullable=False, index=True)
+    
+    # Pattern info
+    pattern_id = db.Column(db.String(50), nullable=False, index=True)
+    pattern_name = db.Column(db.String(255))
+    
+    # Grouping (what attack window this analyzes)
+    correlation_key = db.Column(db.String(255), index=True)
+    window_start = db.Column(db.DateTime)
+    window_end = db.Column(db.DateTime)
+    
+    # Pre-analysis scores
+    rule_based_confidence = db.Column(db.Float)  # From SQL pattern (if available)
+    
+    # AI analysis results
+    ai_confidence = db.Column(db.Float)  # AI's confidence score (0-100)
+    ai_reasoning = db.Column(db.Text)  # AI's explanation
+    ai_indicators_found = db.Column(db.JSON)  # List of indicators AI identified
+    ai_iocs = db.Column(db.JSON)  # IOCs extracted by AI (IPs, hostnames, users, tools)
+    ai_false_positive_assessment = db.Column(db.Text)  # AI's FP reasoning
+    ai_checklist_results = db.Column(db.JSON)  # Checklist item results
+    
+    # Final combined score
+    final_confidence = db.Column(db.Float)  # Blended rule + AI score
+    
+    # Metadata
+    events_analyzed = db.Column(db.Integer)
+    model_used = db.Column(db.String(100))
+    analysis_duration_ms = db.Column(db.Integer)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    case = db.relationship('Case', backref=db.backref('ai_analysis_results', lazy='dynamic'))
+    
+    __table_args__ = (
+        db.Index('ix_ai_analysis_case_pattern', 'case_id', 'pattern_id'),
+    )
+    
+    def __repr__(self):
+        return f'<AIAnalysisResult {self.id}: {self.pattern_name} conf={self.final_confidence}>'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'case_id': self.case_id,
+            'analysis_id': self.analysis_id,
+            'pattern_id': self.pattern_id,
+            'pattern_name': self.pattern_name,
+            'correlation_key': self.correlation_key,
+            'window_start': self.window_start.isoformat() if self.window_start else None,
+            'window_end': self.window_end.isoformat() if self.window_end else None,
+            'rule_based_confidence': self.rule_based_confidence,
+            'ai_confidence': self.ai_confidence,
+            'final_confidence': self.final_confidence,
+            'ai_reasoning': self.ai_reasoning,
+            'ai_indicators_found': self.ai_indicators_found or [],
+            'ai_iocs': self.ai_iocs or [],
+            'ai_false_positive_assessment': self.ai_false_positive_assessment,
+            'events_analyzed': self.events_analyzed,
+            'model_used': self.model_used,
+            'analysis_duration_ms': self.analysis_duration_ms,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @staticmethod
+    def get_results_for_case(case_id: int, min_confidence: float = 0) -> List['AIAnalysisResult']:
+        """Get AI analysis results for a case above confidence threshold"""
+        return AIAnalysisResult.query.filter(
+            AIAnalysisResult.case_id == case_id,
+            AIAnalysisResult.final_confidence >= min_confidence
+        ).order_by(AIAnalysisResult.final_confidence.desc()).all()
+    
+    @staticmethod
+    def get_high_confidence_results(case_id: int, threshold: float = 70) -> List['AIAnalysisResult']:
+        """Get high-confidence AI analysis results"""
+        return AIAnalysisResult.query.filter(
+            AIAnalysisResult.case_id == case_id,
+            AIAnalysisResult.final_confidence >= threshold
+        ).order_by(AIAnalysisResult.final_confidence.desc()).all()
+
+
 # Campaign detection templates
 CAMPAIGN_TEMPLATES = [
     {

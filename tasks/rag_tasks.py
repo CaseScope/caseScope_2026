@@ -2564,3 +2564,194 @@ def detect_attack_patterns(
             'errors': errors[:10] if errors else None,
             'log_file': hunt_log.get_log_path()
         }
+
+
+@celery_app.task(bind=True, name='tasks.ai_pattern_correlation')
+def ai_pattern_correlation(
+    self,
+    case_id: int,
+    case_uuid: str,
+    patterns: List[str] = None,
+    time_start: str = None,
+    time_end: str = None
+) -> Dict[str, Any]:
+    """AI-powered pattern correlation pipeline
+    
+    Uses DeepSeek-R1 LLM to analyze candidate events and determine
+    if they constitute true attack pattern matches.
+    
+    Pipeline stages:
+    1. Extract candidate events from ClickHouse
+    2. Tag with roles (anchor/supporting/context)
+    3. Run AI analysis with pattern checklists
+    4. Blend rule-based and AI confidence scores
+    5. Store results
+    
+    Args:
+        case_id: PostgreSQL case ID
+        case_uuid: Case UUID for logging
+        patterns: List of pattern IDs to analyze (None = all)
+        time_start: ISO format start time filter
+        time_end: ISO format end time filter
+        
+    Returns:
+        Dict with analysis results and statistics
+    """
+    import uuid as uuid_module
+    from datetime import datetime
+    from utils.candidate_extractor import CandidateExtractor
+    from utils.ai_correlation_analyzer import AICorrelationAnalyzer
+    from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        from models.database import db
+        from models.case import Case
+        
+        hunt_log = get_hunting_logger(case_id)
+        hunt_log.log_start('ai_pattern_correlation', patterns=patterns)
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 5,
+            'status': 'Initializing AI correlation pipeline',
+            'stage': 'init'
+        })
+        
+        # Parse time filters
+        start_dt = None
+        end_dt = None
+        if time_start:
+            try:
+                start_dt = datetime.fromisoformat(time_start)
+            except ValueError:
+                pass
+        if time_end:
+            try:
+                end_dt = datetime.fromisoformat(time_end)
+            except ValueError:
+                pass
+        
+        # Get patterns to analyze
+        if patterns:
+            pattern_configs = {pid: get_pattern_by_id(pid) for pid in patterns if get_pattern_by_id(pid)}
+        else:
+            pattern_configs = {pid: {**cfg, 'id': pid} for pid, cfg in PATTERN_EVENT_MAPPINGS.items()}
+        
+        if not pattern_configs:
+            return {
+                'success': False,
+                'error': 'No valid patterns to analyze',
+                'case_id': case_id
+            }
+        
+        logger.info(f"[AI Correlation] Starting analysis for {len(pattern_configs)} patterns on case {case_id}")
+        
+        # Initialize analysis
+        analysis_id = str(uuid_module.uuid4())
+        extractor = CandidateExtractor(case_id, analysis_id)
+        
+        all_results = []
+        extraction_stats = {}
+        analysis_stats = {}
+        errors = []
+        
+        total_patterns = len(pattern_configs)
+        
+        for idx, (pattern_id, pattern_config) in enumerate(pattern_configs.items()):
+            progress = 10 + int((idx / total_patterns) * 80)
+            
+            self.update_state(state='PROGRESS', meta={
+                'progress': progress,
+                'status': f'Analyzing {pattern_config["name"]}',
+                'stage': 'analysis',
+                'pattern': pattern_id,
+                'pattern_index': idx + 1,
+                'total_patterns': total_patterns
+            })
+            
+            try:
+                # Stage 1: Extract candidates
+                extraction_result = extractor.extract_pattern_candidates(
+                    pattern_config=pattern_config,
+                    time_start=start_dt,
+                    time_end=end_dt
+                )
+                
+                extraction_stats[pattern_id] = {
+                    'anchor_count': extraction_result['anchor_count'],
+                    'supporting_count': extraction_result['supporting_count'],
+                    'total_stored': extraction_result['total_stored']
+                }
+                
+                # Skip if no candidates found
+                if extraction_result['total_stored'] == 0:
+                    logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
+                    continue
+                
+                # Stage 4: AI analysis
+                analyzer = AICorrelationAnalyzer(
+                    case_id=case_id,
+                    analysis_id=analysis_id
+                )
+                
+                results = analyzer.analyze_pattern(
+                    pattern_config=pattern_config
+                )
+                
+                analysis_stats[pattern_id] = analyzer.get_stats()
+                
+                # Collect high-confidence results
+                for result in results:
+                    if result['final_confidence'] >= 50:
+                        all_results.append({
+                            'pattern_id': pattern_id,
+                            'pattern_name': pattern_config['name'],
+                            'severity': pattern_config.get('severity', 'medium'),
+                            'correlation_key': result['correlation_key'],
+                            'confidence': result['final_confidence'],
+                            'ai_reasoning': result.get('ai_reasoning'),
+                            'iocs': result.get('iocs', [])
+                        })
+                
+            except Exception as e:
+                logger.error(f"[AI Correlation] Error analyzing {pattern_id}: {e}")
+                errors.append({
+                    'pattern_id': pattern_id,
+                    'error': str(e)
+                })
+        
+        # Cleanup candidate events
+        try:
+            extractor.cleanup()
+        except Exception as e:
+            logger.warning(f"[AI Correlation] Cleanup error: {e}")
+        
+        # Sort results by confidence
+        all_results.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        self.update_state(state='PROGRESS', meta={
+            'progress': 100,
+            'status': 'Complete',
+            'stage': 'complete',
+            'results_count': len(all_results)
+        })
+        
+        hunt_log.log_complete(
+            patterns_checked=len(pattern_configs),
+            matches_found=len(all_results),
+            errors=len(errors)
+        )
+        
+        return {
+            'success': True,
+            'case_id': case_id,
+            'case_uuid': case_uuid,
+            'analysis_id': analysis_id,
+            'patterns_analyzed': len(pattern_configs),
+            'results_count': len(all_results),
+            'high_confidence_count': len([r for r in all_results if r['confidence'] >= 70]),
+            'results': all_results[:100],  # Limit response size
+            'extraction_stats': extraction_stats,
+            'errors': errors if errors else None
+        }
