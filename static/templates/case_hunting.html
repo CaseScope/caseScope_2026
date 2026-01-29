@@ -1062,6 +1062,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (aiContent) aiContent.style.display = 'block';
                 // Load AI stats when switching to AI tab
                 loadAIStats();
+                // Load saved AI correlation results
+                refreshAICorrelationResults();
             } else {
                 eventsContent.style.display = 'block';
                 // Show filter tile (Events tab only)
@@ -5332,12 +5334,18 @@ async function refreshAICorrelationResults() {
 
 // Load AI correlation results on tab switch
 document.addEventListener('DOMContentLoaded', function() {
-    // Check for existing AI correlation results when tab loads
-    const aiTab = document.querySelector('[data-tab="ai-hunting"]');
+    // Check for existing AI correlation results when AI tab is clicked
+    const aiTab = document.querySelector('[data-tab="ai"]');
     if (aiTab) {
         aiTab.addEventListener('click', function() {
             setTimeout(refreshAICorrelationResults, 500);
         });
+    }
+    
+    // Also check URL params - if tab=ai, load results immediately
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('tab') === 'ai') {
+        setTimeout(refreshAICorrelationResults, 500);
     }
 });
 

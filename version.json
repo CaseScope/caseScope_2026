@@ -1,6 +1,13 @@
 {
-  "version": "3.159.03",
+  "version": "3.159.04",
   "changelog": [
+    {
+      "version": "3.159.04",
+      "date": "2026-01-29",
+      "changes": [
+        "AI Pattern results now auto-load when switching to AI Hunting tab"
+      ]
+    },
     {
       "version": "3.159.03",
       "date": "2026-01-29",
