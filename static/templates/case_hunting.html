@@ -4924,6 +4924,7 @@ function clearPatternRulesResults() {
 
 let aiCorrelationTaskId = null;
 let aiCorrelationResults = [];
+let aiCorrelationCancelled = false;
 
 // Check for running AI correlation task on page load
 function initAICorrelation() {
@@ -4967,6 +4968,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function startAICorrelation() {
+    // Reset cancelled flag for new run
+    aiCorrelationCancelled = false;
+    
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">❌</span> Cancel';
@@ -5015,6 +5019,9 @@ async function startAICorrelation() {
 }
 
 async function cancelAICorrelation() {
+    // Stop polling immediately
+    aiCorrelationCancelled = true;
+    
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Cancelling...';
@@ -5060,7 +5067,7 @@ async function cancelAICorrelation() {
 }
 
 function pollAICorrelationStatus() {
-    if (!aiCorrelationTaskId) return;
+    if (!aiCorrelationTaskId || aiCorrelationCancelled) return;
     
     fetch(`/api/rag/status/${aiCorrelationTaskId}`)
         .then(res => res.json())

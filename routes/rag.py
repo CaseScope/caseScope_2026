@@ -1080,21 +1080,17 @@ def cancel_ai_correlation():
     try:
         # Revoke the Celery task
         from app import celery_app
-        celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+        celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
         
-        # Kill any running Ollama model processes (runners)
+        # Also purge any pending tasks for this case
+        celery_app.control.purge()
+        
+        # Kill Ollama runners using sudo (casescope user has sudo access)
         try:
-            result = subprocess.run(
-                ['pgrep', '-f', 'ollama runner'],
-                capture_output=True, text=True
+            subprocess.run(
+                ['sudo', 'pkill', '-f', 'ollama runner'],
+                capture_output=True, check=False, timeout=5
             )
-            if result.stdout.strip():
-                pids = result.stdout.strip().split('\n')
-                for pid in pids:
-                    try:
-                        subprocess.run(['kill', pid], check=False)
-                    except:
-                        pass
         except Exception as e:
             current_app.logger.warning(f"Could not kill Ollama runners: {e}")
         
