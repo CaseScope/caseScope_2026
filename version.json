@@ -1,6 +1,14 @@
 {
-  "version": "3.159.06",
+  "version": "3.159.07",
   "changelog": [
+    {
+      "version": "3.159.07",
+      "date": "2026-01-29",
+      "changes": [
+        "Fixed AI response parsing for wrapped JSON arrays (e.g., {windows: [...]})",
+        "DeepSeek-R1 responses now correctly extracted from object wrappers"
+      ]
+    },
     {
       "version": "3.159.06",
       "date": "2026-01-29",

@@ -534,9 +534,16 @@ IMPORTANT: Return ONLY valid JSON array. No markdown, no explanation outside JSO
             if result.get('success') and result.get('data'):
                 data = result['data']
                 
-                # Handle if response is a single object instead of array
+                # Handle if response is wrapped in an object (e.g., {"windows": [...]})
                 if isinstance(data, dict):
-                    data = [data]
+                    # Try to extract array from common wrapper keys
+                    for key in ['windows', 'results', 'analyses', 'data', 'items']:
+                        if key in data and isinstance(data[key], list):
+                            data = data[key]
+                            break
+                    else:
+                        # No array found, treat the dict as a single result
+                        data = [data]
                 
                 if isinstance(data, list):
                     # Validate and normalize each result
