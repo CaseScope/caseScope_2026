@@ -580,3 +580,296 @@ class CandidateExtractor:
             Dict with query and event counts
         """
         return self._stats.copy()
+    
+    # =========================================================================
+    # BEHAVIORAL CONTEXT METHODS (Enhanced Analysis System)
+    # =========================================================================
+    
+    def attach_behavioral_context(self, candidates: List[Dict]) -> List[Dict]:
+        """
+        For each candidate event group, lookup user and system profiles.
+        Attach z-scores and anomaly flags.
+        
+        Args:
+            candidates: List of candidate event groups
+            
+        Returns:
+            list: Candidates with behavioral_context field added
+        """
+        from models.behavioral_profiles import UserBehaviorProfile, SystemBehaviorProfile
+        from models.known_user import KnownUser
+        from models.known_system import KnownSystem
+        from config import Config
+        
+        z_threshold = getattr(Config, 'ANALYSIS_ANOMALY_Z_THRESHOLD', 3.0)
+        
+        for candidate in candidates:
+            behavioral_context = {
+                'user': None,
+                'system': None,
+                'anomaly_flags': [],
+                'confidence_modifier': 0
+            }
+            
+            # Get user context
+            username = candidate.get('username')
+            if username and not username.endswith('$'):
+                user_context = self._get_user_behavioral_context(username)
+                if user_context:
+                    behavioral_context['user'] = user_context
+                    
+                    # Check for anomalies
+                    for metric, z_score in user_context.get('z_scores', {}).items():
+                        if abs(z_score) >= z_threshold:
+                            behavioral_context['anomaly_flags'].append(
+                                f"User {username}: {metric} z={z_score:.1f}"
+                            )
+            
+            # Get system context
+            source_host = candidate.get('source_host')
+            if source_host:
+                system_context = self._get_system_behavioral_context(source_host)
+                if system_context:
+                    behavioral_context['system'] = system_context
+                    
+                    # Check for anomalies
+                    for metric, z_score in system_context.get('z_scores', {}).items():
+                        if abs(z_score) >= z_threshold:
+                            behavioral_context['anomaly_flags'].append(
+                                f"System {source_host}: {metric} z={z_score:.1f}"
+                            )
+            
+            # Calculate confidence modifier
+            behavioral_context['confidence_modifier'] = self._calculate_behavioral_confidence_modifier(
+                behavioral_context
+            )
+            
+            candidate['behavioral_context'] = behavioral_context
+        
+        return candidates
+    
+    def _get_user_behavioral_context(self, username: str) -> Optional[Dict]:
+        """Get behavioral profile for a user"""
+        from models.behavioral_profiles import UserBehaviorProfile, PeerGroupMember
+        from models.known_user import KnownUser
+        
+        known_user = KnownUser.query.filter_by(
+            case_id=self.case_id
+        ).filter(
+            KnownUser.username.ilike(username)
+        ).first()
+        
+        if not known_user:
+            return None
+        
+        profile = UserBehaviorProfile.query.filter_by(
+            case_id=self.case_id,
+            user_id=known_user.id
+        ).first()
+        
+        if not profile:
+            return None
+        
+        context = {
+            'has_profile': True,
+            'avg_daily_logons': profile.avg_daily_logons,
+            'failure_rate': profile.failure_rate,
+            'off_hours_percentage': profile.off_hours_percentage,
+            'z_scores': {}
+        }
+        
+        # Get peer comparison if available
+        if profile.peer_group_id:
+            member = PeerGroupMember.query.filter_by(
+                peer_group_id=profile.peer_group_id,
+                entity_type='user',
+                entity_id=known_user.id
+            ).first()
+            
+            if member and member.z_scores:
+                context['z_scores'] = member.z_scores
+        
+        return context
+    
+    def _get_system_behavioral_context(self, hostname: str) -> Optional[Dict]:
+        """Get behavioral profile for a system"""
+        from models.behavioral_profiles import SystemBehaviorProfile, PeerGroupMember
+        from models.known_system import KnownSystem
+        
+        known_system = KnownSystem.query.filter_by(
+            case_id=self.case_id
+        ).filter(
+            KnownSystem.hostname.ilike(hostname)
+        ).first()
+        
+        if not known_system:
+            return None
+        
+        profile = SystemBehaviorProfile.query.filter_by(
+            case_id=self.case_id,
+            system_id=known_system.id
+        ).first()
+        
+        if not profile:
+            return None
+        
+        context = {
+            'has_profile': True,
+            'system_role': profile.system_role,
+            'unique_users': profile.unique_users,
+            'z_scores': {}
+        }
+        
+        if profile.peer_group_id:
+            member = PeerGroupMember.query.filter_by(
+                peer_group_id=profile.peer_group_id,
+                entity_type='system',
+                entity_id=known_system.id
+            ).first()
+            
+            if member and member.z_scores:
+                context['z_scores'] = member.z_scores
+        
+        return context
+    
+    def _calculate_behavioral_confidence_modifier(self, behavioral_context: Dict) -> float:
+        """
+        Calculate confidence modifier based on behavioral analysis.
+        
+        Returns:
+            float: Modifier from -20 to +20
+            
+        Positive (more suspicious):
+        - User z-score > 2 vs peers: +5 to +15
+        - System z-score > 2 vs peers: +5 to +10
+        - Off-hours activity: +5
+        - New target access: +5
+        
+        Negative (less suspicious):
+        - Behavior matches baseline: -10 to -20
+        - Common pattern for this user/system: -5 to -10
+        """
+        modifier = 0.0
+        
+        user_context = behavioral_context.get('user')
+        system_context = behavioral_context.get('system')
+        anomaly_flags = behavioral_context.get('anomaly_flags', [])
+        
+        # User z-score anomalies: +5 to +15
+        if user_context:
+            z_scores = user_context.get('z_scores', {})
+            max_z = max([abs(z) for z in z_scores.values()], default=0)
+            
+            if max_z >= 4:
+                modifier += 15
+            elif max_z >= 3:
+                modifier += 10
+            elif max_z >= 2:
+                modifier += 5
+            elif max_z < 1 and z_scores:
+                # Behavior matches baseline closely
+                modifier -= 10
+            
+            # Off-hours activity bonus
+            off_hours = user_context.get('off_hours_percentage', 0)
+            if off_hours and off_hours > 0.3:  # > 30% off-hours
+                modifier += 5
+        
+        # System z-score anomalies: +5 to +10
+        if system_context:
+            z_scores = system_context.get('z_scores', {})
+            max_z = max([abs(z) for z in z_scores.values()], default=0)
+            
+            if max_z >= 3:
+                modifier += 10
+            elif max_z >= 2:
+                modifier += 5
+            elif max_z < 1 and z_scores:
+                modifier -= 5
+        
+        # Additional anomaly flags
+        modifier += min(5, len(anomaly_flags))
+        
+        # Cap the modifier
+        return max(-20, min(20, modifier))
+    
+    def attach_peer_comparison(self, candidates: List[Dict]) -> List[Dict]:
+        """
+        Add peer group comparison data to candidates.
+        
+        For each involved user/system:
+        - Lookup peer group
+        - Calculate z-scores vs peer median
+        - Flag significant deviations
+        
+        Args:
+            candidates: List of candidate event groups
+            
+        Returns:
+            list: Candidates with peer_comparison field added
+        """
+        from models.behavioral_profiles import (
+            UserBehaviorProfile, SystemBehaviorProfile,
+            PeerGroup, PeerGroupMember
+        )
+        from models.known_user import KnownUser
+        from models.known_system import KnownSystem
+        
+        for candidate in candidates:
+            peer_comparison = {
+                'user_peer_group': None,
+                'system_peer_group': None,
+                'significant_deviations': []
+            }
+            
+            # Get user peer comparison
+            username = candidate.get('username')
+            if username and not username.endswith('$'):
+                known_user = KnownUser.query.filter_by(
+                    case_id=self.case_id
+                ).filter(
+                    KnownUser.username.ilike(username)
+                ).first()
+                
+                if known_user:
+                    profile = UserBehaviorProfile.query.filter_by(
+                        case_id=self.case_id,
+                        user_id=known_user.id
+                    ).first()
+                    
+                    if profile and profile.peer_group_id:
+                        peer_group = PeerGroup.query.get(profile.peer_group_id)
+                        if peer_group:
+                            peer_comparison['user_peer_group'] = {
+                                'group_name': peer_group.group_name,
+                                'member_count': peer_group.member_count,
+                                'median_daily_logons': peer_group.median_daily_logons,
+                                'median_failure_rate': peer_group.median_failure_rate
+                            }
+            
+            # Get system peer comparison
+            source_host = candidate.get('source_host')
+            if source_host:
+                known_system = KnownSystem.query.filter_by(
+                    case_id=self.case_id
+                ).filter(
+                    KnownSystem.hostname.ilike(source_host)
+                ).first()
+                
+                if known_system:
+                    profile = SystemBehaviorProfile.query.filter_by(
+                        case_id=self.case_id,
+                        system_id=known_system.id
+                    ).first()
+                    
+                    if profile and profile.peer_group_id:
+                        peer_group = PeerGroup.query.get(profile.peer_group_id)
+                        if peer_group:
+                            peer_comparison['system_peer_group'] = {
+                                'group_name': peer_group.group_name,
+                                'member_count': peer_group.member_count
+                            }
+            
+            candidate['peer_comparison'] = peer_comparison
+        
+        return candidates

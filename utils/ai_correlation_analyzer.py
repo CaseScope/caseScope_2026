@@ -748,6 +748,450 @@ IMPORTANT: Return ONLY valid JSON array. No markdown, no explanation outside JSO
         if stats['ai_calls'] > 0:
             stats['avg_duration_ms'] = stats['total_duration_ms'] / stats['ai_calls']
         return stats
+    
+    def _build_behavioral_context_section(self, behavioral_context: Dict) -> str:
+        """Build behavioral context section for AI prompt
+        
+        Args:
+            behavioral_context: Behavioral analysis data
+            
+        Returns:
+            Formatted string for prompt inclusion
+        """
+        if not behavioral_context:
+            return ""
+        
+        sections = []
+        
+        user_ctx = behavioral_context.get('user')
+        if user_ctx:
+            user_section = "USER BEHAVIORAL PROFILE:\n"
+            user_section += f"  - Average daily logons: {user_ctx.get('avg_daily_logons', 'N/A')}\n"
+            user_section += f"  - Failure rate: {user_ctx.get('failure_rate', 'N/A')}\n"
+            user_section += f"  - Off-hours activity: {user_ctx.get('off_hours_percentage', 'N/A')}\n"
+            
+            z_scores = user_ctx.get('z_scores', {})
+            if z_scores:
+                user_section += "  - Peer comparison z-scores:\n"
+                for metric, z in z_scores.items():
+                    deviation = "ANOMALOUS" if abs(z) >= 3 else "normal"
+                    user_section += f"      {metric}: {z:.2f} ({deviation})\n"
+            
+            sections.append(user_section)
+        
+        system_ctx = behavioral_context.get('system')
+        if system_ctx:
+            system_section = "SYSTEM BEHAVIORAL PROFILE:\n"
+            system_section += f"  - System role: {system_ctx.get('system_role', 'N/A')}\n"
+            system_section += f"  - Unique users: {system_ctx.get('unique_users', 'N/A')}\n"
+            
+            z_scores = system_ctx.get('z_scores', {})
+            if z_scores:
+                system_section += "  - Peer comparison z-scores:\n"
+                for metric, z in z_scores.items():
+                    deviation = "ANOMALOUS" if abs(z) >= 3 else "normal"
+                    system_section += f"      {metric}: {z:.2f} ({deviation})\n"
+            
+            sections.append(system_section)
+        
+        anomaly_flags = behavioral_context.get('anomaly_flags', [])
+        if anomaly_flags:
+            sections.append("BEHAVIORAL ANOMALIES DETECTED:\n" + 
+                          "\n".join(f"  - {flag}" for flag in anomaly_flags))
+        
+        if not sections:
+            return ""
+        
+        return "\n═══════════════════════════════════════════════════════════════════════════════\n" + \
+               "BEHAVIORAL CONTEXT (from baseline profiling)\n" + \
+               "═══════════════════════════════════════════════════════════════════════════════\n" + \
+               "\n".join(sections)
+    
+    def analyze_with_behavioral_context(
+        self,
+        pattern_config: Dict,
+        behavioral_context: Dict = None,
+        rule_based_confidence: float = None,
+        max_events_per_window: int = None
+    ) -> List[Dict[str, Any]]:
+        """Analyze pattern with enhanced behavioral context
+        
+        Same as analyze_pattern but includes behavioral context in AI prompt.
+        
+        Args:
+            pattern_config: Pattern definition with checklist
+            behavioral_context: Behavioral analysis data
+            rule_based_confidence: Pre-computed rule-based score
+            max_events_per_window: Max events to include
+            
+        Returns:
+            List of analysis results with behavioral enrichment
+        """
+        # Store behavioral context for prompt building
+        self._current_behavioral_context = behavioral_context
+        
+        # Run standard analysis
+        results = self.analyze_pattern(
+            pattern_config=pattern_config,
+            rule_based_confidence=rule_based_confidence,
+            max_events_per_window=max_events_per_window
+        )
+        
+        # Apply behavioral confidence modifiers
+        if behavioral_context:
+            modifier = behavioral_context.get('confidence_modifier', 0)
+            for result in results:
+                result['behavioral_modifier'] = modifier
+                result['final_confidence'] = max(0, min(100, 
+                    result['final_confidence'] + modifier))
+                result['behavioral_context'] = behavioral_context
+        
+        return results
+    
+    def analyze_attack_chains_with_context(
+        self,
+        attack_chains: List,
+        behavioral_profiles: Dict = None
+    ) -> List[Dict]:
+        """Analyze attack chains with behavioral and AI context
+        
+        Args:
+            attack_chains: List of AttackChain objects from attack_chain_builder
+            behavioral_profiles: Dict of entity -> profile data
+            
+        Returns:
+            List of enhanced chain analysis results
+        """
+        from models.rag import AIAnalysisResult
+        
+        results = []
+        
+        for chain in attack_chains:
+            chain_dict = chain.to_dict() if hasattr(chain, 'to_dict') else chain
+            
+            # Build prompt for chain analysis
+            prompt = self._build_chain_analysis_prompt(chain_dict)
+            
+            try:
+                ai_result = self._run_ai_analysis(prompt, {'name': 'Attack Chain Analysis'})
+                
+                # Store result
+                result_record = AIAnalysisResult(
+                    case_id=self.case_id,
+                    analysis_id=self.analysis_id,
+                    pattern_id='attack_chain',
+                    pattern_name=chain_dict.get('title', 'Attack Chain'),
+                    correlation_key=chain_dict.get('chain_id', ''),
+                    window_start=chain_dict.get('time_start'),
+                    window_end=chain_dict.get('time_end'),
+                    ai_confidence=ai_result.get('confidence', 50),
+                    ai_reasoning=ai_result.get('reasoning'),
+                    ai_indicators_found=ai_result.get('indicators_found'),
+                    ai_iocs=ai_result.get('iocs'),
+                    final_confidence=ai_result.get('confidence', 50),
+                    events_analyzed=chain_dict.get('total_event_count', 0),
+                    model_used=self.model
+                )
+                db.session.add(result_record)
+                
+                results.append({
+                    'chain_id': chain_dict.get('chain_id'),
+                    'title': chain_dict.get('title'),
+                    'ai_analysis': ai_result,
+                    'confidence': ai_result.get('confidence', 50)
+                })
+                
+            except Exception as e:
+                logger.error(f"Failed to analyze attack chain: {e}")
+                results.append({
+                    'chain_id': chain_dict.get('chain_id'),
+                    'title': chain_dict.get('title'),
+                    'ai_analysis': None,
+                    'error': str(e)
+                })
+        
+        db.session.commit()
+        return results
+    
+    def _build_chain_analysis_prompt(self, chain_dict: Dict) -> str:
+        """Build prompt for attack chain AI analysis"""
+        
+        prompt = f"""Analyze this attack chain and provide your assessment.
+
+═══════════════════════════════════════════════════════════════════════════════
+ATTACK CHAIN SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Title: {chain_dict.get('title', 'Unknown')}
+Severity: {chain_dict.get('severity', 'unknown')}
+Time Span: {chain_dict.get('time_start')} to {chain_dict.get('time_end')}
+Duration: {chain_dict.get('duration_seconds', 0)} seconds
+
+MITRE ATT&CK Tactics: {', '.join(chain_dict.get('tactics_observed', []))}
+MITRE ATT&CK Techniques: {', '.join(chain_dict.get('techniques_observed', [])[:10])}
+
+Kill Chain Phases Covered: {', '.join(chain_dict.get('phases_covered', []))}
+
+═══════════════════════════════════════════════════════════════════════════════
+ENTITIES INVOLVED
+═══════════════════════════════════════════════════════════════════════════════
+Primary User: {chain_dict.get('primary_user', 'N/A')}
+Primary Host: {chain_dict.get('primary_host', 'N/A')}
+All Users: {', '.join(chain_dict.get('involved_users', [])[:5])}
+All Hosts: {', '.join(chain_dict.get('involved_hosts', [])[:5])}
+Source IPs: {', '.join(chain_dict.get('involved_ips', [])[:5])}
+
+═══════════════════════════════════════════════════════════════════════════════
+DETECTION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Detection Groups: {chain_dict.get('detection_group_count', 0)}
+Total Events: {chain_dict.get('total_event_count', 0)}
+"""
+
+        # Add behavioral anomalies if present
+        anomalies = chain_dict.get('behavioral_anomalies', [])
+        if anomalies:
+            prompt += f"""
+═══════════════════════════════════════════════════════════════════════════════
+BEHAVIORAL ANOMALIES
+═══════════════════════════════════════════════════════════════════════════════
+{chr(10).join('- ' + a for a in anomalies[:10])}
+"""
+
+        prompt += """
+═══════════════════════════════════════════════════════════════════════════════
+ANALYSIS INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+1. Assess whether this represents a real attack or potential false positive
+2. Evaluate the severity based on tactics and entities involved
+3. Identify the likely attack objective
+4. Recommend immediate investigation steps
+
+Respond with JSON only:
+{
+    "confidence": <0-100>,
+    "reasoning": "<2-4 sentence analysis>",
+    "attack_objective": "<likely goal of the attack>",
+    "indicators_found": ["<key indicator 1>", "<key indicator 2>"],
+    "iocs": ["<IOC 1>", "<IOC 2>"],
+    "false_positive_assessment": "<FP likelihood and reasoning>",
+    "investigation_priority": "<critical|high|medium|low>",
+    "recommended_actions": ["<action 1>", "<action 2>"]
+}"""
+        
+        return prompt
+
+
+class RuleBasedAnalyzer:
+    """Mode A/C analyzer: Pure rule-based analysis without AI
+    
+    Used when AI is disabled or unavailable. Provides structured
+    findings based on pattern criteria and behavioral factors.
+    """
+    
+    def __init__(self, case_id: int, analysis_id: str):
+        self.case_id = case_id
+        self.analysis_id = analysis_id
+    
+    def analyze_without_ai(
+        self,
+        candidates: list,
+        pattern_config: dict,
+        behavioral_context: dict = None
+    ) -> dict:
+        """
+        Mode A/C path: Pure rule-based analysis without AI.
+        
+        Returns structured finding with:
+        - Confidence score (calculated from criteria + behavioral factors)
+        - Criteria checklist (which indicators matched)
+        - Behavioral context summary
+        - No AI reasoning (field set to None)
+        
+        Args:
+            candidates: List of candidate events
+            pattern_config: Pattern definition with checklist
+            behavioral_context: Optional behavioral analysis data
+            
+        Returns:
+            dict: Analysis result
+        """
+        pattern_name = pattern_config.get('name', 'Unknown')
+        checklist = pattern_config.get('checklist', [])
+        
+        # Evaluate checklist items against candidates
+        checklist_results = self._evaluate_checklist(candidates, checklist, pattern_config)
+        
+        # Calculate base confidence from checklist match rate
+        matched_items = sum(1 for v in checklist_results.values() if v)
+        total_items = len(checklist_results) if checklist_results else 1
+        base_confidence = (matched_items / total_items) * 80  # Max 80 from rules
+        
+        # Apply behavioral modifier
+        behavioral_modifier = 0
+        if behavioral_context:
+            behavioral_modifier = behavioral_context.get('confidence_modifier', 0)
+        
+        final_confidence = max(0, min(100, base_confidence + behavioral_modifier))
+        
+        # Build indicators found
+        indicators_found = [
+            item for item, matched in checklist_results.items() if matched
+        ]
+        
+        # Extract IOCs from candidates
+        iocs = self._extract_iocs(candidates)
+        
+        # Build result
+        return {
+            'confidence': final_confidence,
+            'reasoning': None,  # No AI reasoning
+            'indicators_found': indicators_found,
+            'iocs': iocs,
+            'false_positive_assessment': self._assess_false_positive(
+                candidates, pattern_config, behavioral_context
+            ),
+            'checklist_results': checklist_results,
+            'behavioral_context': behavioral_context,
+            'analysis_mode': 'rule_based'
+        }
+    
+    def _evaluate_checklist(
+        self,
+        candidates: list,
+        checklist: list,
+        pattern_config: dict
+    ) -> dict:
+        """Evaluate checklist items against candidate events"""
+        results = {}
+        
+        # Build aggregated view of candidates
+        event_ids = set()
+        usernames = set()
+        hosts = set()
+        processes = set()
+        logon_types = set()
+        auth_packages = set()
+        
+        for c in candidates:
+            if hasattr(c, 'event_id'):
+                event_ids.add(str(c.event_id))
+            elif isinstance(c, dict):
+                event_ids.add(str(c.get('event_id', '')))
+            
+            if hasattr(c, 'username'):
+                usernames.add(c.username)
+            elif isinstance(c, dict):
+                usernames.add(c.get('username', ''))
+            
+            if hasattr(c, 'source_host'):
+                hosts.add(c.source_host)
+            elif isinstance(c, dict):
+                hosts.add(c.get('source_host', ''))
+            
+            if hasattr(c, 'process_name'):
+                processes.add(c.process_name)
+            elif isinstance(c, dict):
+                processes.add(c.get('process_name', ''))
+        
+        # Simple heuristic evaluation for common checklist patterns
+        for item in checklist:
+            item_lower = item.lower()
+            
+            # Default to False
+            matched = False
+            
+            # Check for event ID mentions
+            if 'event' in item_lower or '4624' in item or '4625' in item:
+                for eid in ['4624', '4625', '4768', '4769', '4776', '4672']:
+                    if eid in item and eid in event_ids:
+                        matched = True
+                        break
+            
+            # Check for logon type mentions
+            if 'logon type' in item_lower or 'type 3' in item_lower or 'type 9' in item_lower:
+                if '3' in str(logon_types) or '9' in str(logon_types):
+                    matched = True
+            
+            # Check for NTLM mentions
+            if 'ntlm' in item_lower:
+                if any('ntlm' in str(a).lower() for a in auth_packages):
+                    matched = True
+            
+            # Check for admin/privilege mentions
+            if 'admin' in item_lower or 'privilege' in item_lower:
+                if any('admin' in u.lower() for u in usernames if u):
+                    matched = True
+            
+            # Check for process mentions
+            if 'process' in item_lower or 'command' in item_lower:
+                if processes:
+                    matched = True
+            
+            # If we have anchor events, assume some basic matching
+            anchor_count = sum(1 for c in candidates if 
+                              (hasattr(c, 'role') and c.role == 'anchor') or
+                              (isinstance(c, dict) and c.get('role') == 'anchor'))
+            if anchor_count > 0 and 'anchor' not in item_lower:
+                # Has anchors, give benefit of doubt for generic items
+                matched = True
+            
+            results[item] = matched
+        
+        return results
+    
+    def _extract_iocs(self, candidates: list) -> list:
+        """Extract IOCs from candidate events"""
+        iocs = set()
+        
+        for c in candidates:
+            if isinstance(c, dict):
+                if c.get('src_ip') and c['src_ip'] not in ['', '0.0.0.0', '::']:
+                    iocs.add(c['src_ip'])
+                if c.get('username') and not c['username'].endswith('$'):
+                    iocs.add(c['username'])
+                if c.get('source_host'):
+                    iocs.add(c['source_host'])
+            elif hasattr(c, 'src_ip') and c.src_ip:
+                iocs.add(str(c.src_ip))
+        
+        return list(iocs)[:10]
+    
+    def _assess_false_positive(
+        self,
+        candidates: list,
+        pattern_config: dict,
+        behavioral_context: dict = None
+    ) -> str:
+        """Assess false positive likelihood based on patterns"""
+        fp_indicators = []
+        
+        # Check for scheduled/automated indicators
+        for c in candidates:
+            summary = ''
+            if isinstance(c, dict):
+                summary = c.get('event_summary', '') or c.get('search_summary', '')
+            elif hasattr(c, 'event_summary'):
+                summary = c.event_summary or ''
+            
+            summary_lower = summary.lower()
+            
+            if 'scheduled' in summary_lower or 'task' in summary_lower:
+                fp_indicators.append('Scheduled task activity detected')
+            if 'backup' in summary_lower:
+                fp_indicators.append('Backup process detected')
+            if 'monitor' in summary_lower or 'scan' in summary_lower:
+                fp_indicators.append('Monitoring/scanning activity detected')
+        
+        # Check behavioral context
+        if behavioral_context:
+            modifier = behavioral_context.get('confidence_modifier', 0)
+            if modifier < -5:
+                fp_indicators.append('Activity matches normal baseline')
+        
+        if fp_indicators:
+            return f"Possible false positive: {'; '.join(fp_indicators[:3])}"
+        
+        return "No obvious false positive indicators"
 
 
 class BatchAIAnalyzer:
