@@ -18,6 +18,139 @@ from utils.hunting_logger import HuntingLogger, get_hunting_logger
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# CASE ANALYSIS TASK
+# =============================================================================
+
+@celery_app.task(bind=True, name='tasks.run_case_analysis')
+def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
+    """
+    Run full case analysis pipeline.
+    
+    This is a long-running task that:
+    1. Builds behavioral profiles for all users/systems
+    2. Creates peer groups for comparison
+    3. Runs gap detection (spraying, brute force, behavioral anomalies)
+    4. Correlates Hayabusa detections into attack chains
+    5. Runs pattern analysis (AI-enhanced if available)
+    6. Enriches with OpenCTI (if available)
+    7. Generates suggested actions for analyst review
+    
+    Args:
+        case_id: The case to analyze
+        
+    Returns:
+        dict: {
+            'success': bool,
+            'analysis_id': str,
+            'mode': str,
+            'summary': dict (findings counts, etc.)
+        }
+    """
+    from utils.case_analyzer import CaseAnalyzer, AnalysisError
+    
+    app = get_flask_app()
+    
+    with app.app_context():
+        from models.case import Case
+        from models.database import db
+        
+        # Verify case exists
+        case = Case.query.get(case_id)
+        if not case:
+            return {
+                'success': False,
+                'error': f'Case {case_id} not found'
+            }
+        
+        # Hook up progress callback to Celery task state
+        def progress_callback(phase: str, percent: int, message: str):
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'phase': phase,
+                    'percent': percent,
+                    'message': message
+                }
+            )
+        
+        try:
+            analyzer = CaseAnalyzer(case_id, progress_callback)
+            analysis_id = analyzer.run_full_analysis()
+            
+            results = analyzer.get_results()
+            
+            return {
+                'success': True,
+                'analysis_id': analysis_id,
+                'case_id': case_id,
+                'mode': results.get('mode', 'A'),
+                'summary': results.get('summary', {}),
+                'gap_findings': results.get('gap_findings', 0),
+                'attack_chains': results.get('attack_chains', 0),
+                'total_findings': results.get('total_findings', 0)
+            }
+            
+        except AnalysisError as e:
+            logger.error(f"[CaseAnalysis] Analysis failed for case {case_id}: {e}")
+            return {
+                'success': False,
+                'case_id': case_id,
+                'error': str(e)
+            }
+        except Exception as e:
+            logger.error(f"[CaseAnalysis] Unexpected error for case {case_id}: {e}", exc_info=True)
+            return {
+                'success': False,
+                'case_id': case_id,
+                'error': f'Unexpected error: {str(e)}'
+            }
+
+
+@celery_app.task(bind=True, name='tasks.get_analysis_status')
+def get_analysis_status(self, analysis_id: str) -> Dict[str, Any]:
+    """
+    Get the status of a running or completed analysis.
+    
+    Args:
+        analysis_id: UUID of the analysis run
+        
+    Returns:
+        dict: Analysis status and progress
+    """
+    app = get_flask_app()
+    
+    with app.app_context():
+        from models.behavioral_profiles import CaseAnalysisRun
+        
+        run = CaseAnalysisRun.query.filter_by(analysis_id=analysis_id).first()
+        
+        if not run:
+            return {
+                'found': False,
+                'error': f'Analysis {analysis_id} not found'
+            }
+        
+        return {
+            'found': True,
+            'analysis_id': analysis_id,
+            'case_id': run.case_id,
+            'status': run.status,
+            'mode': run.mode,
+            'progress_percent': run.progress_percent,
+            'current_phase': run.current_phase,
+            'status_message': run.status_message,
+            'started_at': run.started_at.isoformat() if run.started_at else None,
+            'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+            'summary': run.summary,
+            'error_message': run.error_message
+        }
+
+
+# =============================================================================
+# OPENCTI SYNC TASKS
+# =============================================================================
+
 @celery_app.task(bind=True, name='tasks.rag_sync_opencti_patterns')
 def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, Any]:
     """
