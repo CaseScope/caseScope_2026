@@ -4933,11 +4933,12 @@ function initAICorrelation() {
             const taskData = JSON.parse(storedTask);
             aiCorrelationTaskId = taskData.task_id;
             
-            // Show progress UI and resume polling
+            // Show progress UI and resume polling with Cancel button
             const btn = document.getElementById('btnRunAICorrelation');
             if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">❌</span> Cancel';
+                btn.onclick = cancelAICorrelation;
             }
             
             const progressEl = document.getElementById('aiCorrelationProgress');
@@ -4967,8 +4968,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function startAICorrelation() {
     const btn = document.getElementById('btnRunAICorrelation');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">❌</span> Cancel';
+    btn.onclick = cancelAICorrelation;
     
     document.getElementById('aiCorrelationProgress').style.display = 'block';
     document.getElementById('aiCorrelationResults').style.display = 'none';
@@ -5009,6 +5011,51 @@ async function startAICorrelation() {
         }
     } catch (error) {
         showAICorrelationError('Error: ' + error.message);
+    }
+}
+
+async function cancelAICorrelation() {
+    const btn = document.getElementById('btnRunAICorrelation');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Cancelling...';
+    
+    try {
+        const response = await fetch('/api/rag/ai-correlation/cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                task_id: aiCorrelationTaskId,
+                case_id: CASE_ID
+            })
+        });
+        
+        const data = await response.json();
+        
+        // Clear stored task
+        localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
+        aiCorrelationTaskId = null;
+        
+        // Reset UI
+        document.getElementById('aiCorrelationProgress').style.display = 'none';
+        document.getElementById('aiCorrelationStatus').textContent = 'Cancelled';
+        document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-secondary';
+        
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🧠</span> AI Pattern Matching';
+        btn.onclick = startAICorrelation;
+        
+        if (!data.success) {
+            console.warn('Cancel warning:', data.error);
+        }
+    } catch (error) {
+        console.error('Cancel error:', error);
+        // Still reset the UI
+        localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
+        aiCorrelationTaskId = null;
+        
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🧠</span> AI Pattern Matching';
+        btn.onclick = startAICorrelation;
     }
 }
 
@@ -5055,6 +5102,7 @@ function showAICorrelationComplete(result) {
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔄</span> Run Again';
+    btn.onclick = startAICorrelation;
     
     document.getElementById('aiCorrelationStatus').textContent = 'Complete';
     document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-success';
@@ -5196,6 +5244,7 @@ function showAICorrelationError(error) {
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🧠</span> AI Pattern Matching';
+    btn.onclick = startAICorrelation;
     
     alert('AI Correlation failed: ' + error);
 }

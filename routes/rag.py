@@ -1060,6 +1060,64 @@ def list_ai_correlation_patterns():
     })
 
 
+@rag_bp.route('/ai-correlation/cancel', methods=['POST'])
+@login_required
+def cancel_ai_correlation():
+    """Cancel a running AI correlation task
+    
+    Stops the Celery task and kills any active Ollama model process.
+    """
+    import subprocess
+    from celery.result import AsyncResult
+    
+    data = request.get_json() or {}
+    task_id = data.get('task_id')
+    case_id = data.get('case_id')
+    
+    if not task_id:
+        return jsonify({'success': False, 'error': 'task_id required'}), 400
+    
+    try:
+        # Revoke the Celery task
+        from app import celery_app
+        celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+        
+        # Kill any running Ollama model processes (runners)
+        try:
+            result = subprocess.run(
+                ['pgrep', '-f', 'ollama runner'],
+                capture_output=True, text=True
+            )
+            if result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    try:
+                        subprocess.run(['kill', pid], check=False)
+                    except:
+                        pass
+        except Exception as e:
+            current_app.logger.warning(f"Could not kill Ollama runners: {e}")
+        
+        # Clean up any stored candidate events for this case if case_id provided
+        if case_id:
+            try:
+                from models.rag import CandidateEventSet
+                from models.database import db
+                CandidateEventSet.query.filter_by(case_id=case_id).delete()
+                db.session.commit()
+            except Exception as e:
+                current_app.logger.warning(f"Could not clean up candidates: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Task cancelled and Ollama processes stopped'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error cancelling AI correlation: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================================================
 # ASK AI - RAG-POWERED HUNTING ASSISTANT
 # ============================================================================
