@@ -1,6 +1,19 @@
 {
-  "version": "3.162.00",
+  "version": "3.163.00",
   "changelog": [
+    {
+      "version": "3.163.00",
+      "date": "2026-01-29",
+      "changes": [
+        "Added UI Components for Enhanced Analysis System",
+        "Run Analysis button on case dashboard",
+        "Analysis progress modal with real-time status updates",
+        "Analysis results page with multiple views (summary/timeline/pattern/entity/actions)",
+        "Finding detail modal with evidence display",
+        "Suggested actions management with accept/reject workflow",
+        "Export options for JSON/Markdown/CSV formats"
+      ]
+    },
     {
       "version": "3.162.00",
       "date": "2026-01-29",

@@ -10,6 +10,7 @@
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
     <div class="page-actions">
+        <button id="run-case-analysis-btn" class="btn btn-secondary" data-case-id="{{ case.id }}" title="Run comprehensive case analysis">🔬 Run Analysis</button>
         <button id="btnAIReport" class="btn btn-primary" onclick="generateAIReport()">📄 AI Report</button>
         <a href="{{ url_for('main.case_reports') }}" class="btn btn-secondary">📋 View Reports</a>
         <a href="{{ url_for('main.case_edit') }}" class="btn btn-secondary">✏️ Edit Case</a>
@@ -92,6 +93,76 @@
                     <p style="color: #f87171; font-size: 1.1em; margin-bottom: 10px;">✕ Report Generation Failed</p>
                     <p id="aiReportErrorMsg" style="color: var(--text-secondary);"></p>
                     <button class="btn btn-secondary" style="margin-top: 15px;" onclick="resetAIReportModal()">Try Again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Case Analysis Progress Modal -->
+<div id="analysisProgressModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
+    <div class="modal-content" style="width: 600px; max-width: 90vw; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+        <div class="modal-header">
+            <h3 class="modal-title">🔬 Case Analysis Running</h3>
+            <button class="modal-close" id="analysis-close-btn" style="display: none;" onclick="closeAnalysisModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 30px;">
+            <!-- Mode Indicator -->
+            <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+                <span class="badge badge-info" id="analysis-mode-badge">Mode: Checking...</span>
+                <span class="badge" id="ai-status-badge" style="background: var(--bg-tertiary);">AI: Checking...</span>
+                <span class="badge" id="opencti-status-badge" style="background: var(--bg-tertiary);">OpenCTI: Checking...</span>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="color: var(--text-primary);">Progress</span>
+                    <span id="analysis-progress-percent" style="color: var(--text-muted);">0%</span>
+                </div>
+                <div style="width: 100%; height: 20px; background: var(--bg-primary); border-radius: 10px; overflow: hidden;">
+                    <div id="analysis-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-primary), #4ade80); transition: width 0.5s;"></div>
+                </div>
+            </div>
+            
+            <!-- Current Phase -->
+            <p id="analysis-current-phase" style="color: var(--text-secondary); text-align: center; margin-bottom: 20px;">
+                Initializing...
+            </p>
+            
+            <!-- Stats (shown during analysis) -->
+            <div id="analysis-stats" style="display: none; background: var(--bg-tertiary); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
+                    <div>
+                        <div style="color: var(--text-muted); font-size: 0.85em;">Users Profiled</div>
+                        <div id="stat-users-profiled" style="color: var(--accent-primary); font-size: 1.5em; font-weight: 600;">0</div>
+                    </div>
+                    <div>
+                        <div style="color: var(--text-muted); font-size: 0.85em;">Systems Profiled</div>
+                        <div id="stat-systems-profiled" style="color: var(--accent-primary); font-size: 1.5em; font-weight: 600;">0</div>
+                    </div>
+                    <div>
+                        <div style="color: var(--text-muted); font-size: 0.85em;">Findings</div>
+                        <div id="stat-findings-count" style="color: var(--accent-primary); font-size: 1.5em; font-weight: 600;">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div style="text-align: center;">
+                <div id="analysis-running-msg">
+                    <span class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border-width: 2px; vertical-align: middle; margin-right: 8px;"></span>
+                    <span style="color: var(--accent-primary);">Analysis in progress... Please wait</span>
+                </div>
+                <div id="analysis-complete-msg" style="display: none;">
+                    <p style="color: #4ade80; font-size: 1.2em; margin-bottom: 15px;">✓ Analysis Complete!</p>
+                    <a id="view-results-btn" href="#" class="btn btn-primary">View Results</a>
+                    <button class="btn btn-secondary" onclick="closeAnalysisModal()">Close</button>
+                </div>
+                <div id="analysis-error-msg" style="display: none;">
+                    <p style="color: #f87171; font-size: 1.1em; margin-bottom: 10px;">✕ Analysis Failed</p>
+                    <p id="analysis-error-text" style="color: var(--text-secondary);"></p>
+                    <button class="btn btn-secondary" style="margin-top: 15px;" onclick="closeAnalysisModal()">Close</button>
                 </div>
             </div>
         </div>
@@ -1039,6 +1110,172 @@ function startAIReportGeneration() {
 document.getElementById('aiReportModal').addEventListener('click', function(e) {
     if (e.target === this) {
         closeAIReportModal();
+    }
+});
+
+// ==========================================
+// CASE ANALYSIS FUNCTIONS
+// ==========================================
+let analysisPollingInterval = null;
+let currentAnalysisId = null;
+
+document.getElementById('run-case-analysis-btn').addEventListener('click', function() {
+    const caseId = this.getAttribute('data-case-id');
+    const btn = this;
+    
+    // Disable button
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner" style="display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: middle; margin-right: 6px;"></span> Starting...';
+    
+    // Start analysis
+    fetch(`/api/case/${caseId}/analysis/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '🔬 Run Analysis';
+        
+        if (data.success) {
+            showAnalysisProgressModal(caseId);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to start analysis'));
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = '🔬 Run Analysis';
+        alert('Error: ' + error.message);
+    });
+});
+
+function showAnalysisProgressModal(caseId) {
+    // Reset and show modal
+    document.getElementById('analysis-progress-bar').style.width = '0%';
+    document.getElementById('analysis-progress-percent').textContent = '0%';
+    document.getElementById('analysis-current-phase').textContent = 'Initializing...';
+    document.getElementById('analysis-mode-badge').textContent = 'Mode: Checking...';
+    document.getElementById('ai-status-badge').textContent = 'AI: Checking...';
+    document.getElementById('ai-status-badge').style.background = 'var(--bg-tertiary)';
+    document.getElementById('opencti-status-badge').textContent = 'OpenCTI: Checking...';
+    document.getElementById('opencti-status-badge').style.background = 'var(--bg-tertiary)';
+    document.getElementById('analysis-stats').style.display = 'none';
+    document.getElementById('analysis-running-msg').style.display = 'block';
+    document.getElementById('analysis-complete-msg').style.display = 'none';
+    document.getElementById('analysis-error-msg').style.display = 'none';
+    document.getElementById('analysis-close-btn').style.display = 'none';
+    
+    document.getElementById('analysisProgressModal').style.display = 'flex';
+    
+    // Start polling
+    analysisPollingInterval = setInterval(function() {
+        pollAnalysisStatus(caseId);
+    }, 2000);
+}
+
+function pollAnalysisStatus(caseId) {
+    fetch(`/api/case/${caseId}/analysis/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success || !data.has_analysis) {
+                return;
+            }
+            
+            currentAnalysisId = data.analysis_id;
+            
+            // Update progress bar
+            const progress = data.progress_percent || 0;
+            document.getElementById('analysis-progress-bar').style.width = progress + '%';
+            document.getElementById('analysis-progress-percent').textContent = progress + '%';
+            
+            // Update phase text
+            if (data.status_message) {
+                document.getElementById('analysis-current-phase').textContent = data.status_message;
+            } else if (data.current_phase) {
+                document.getElementById('analysis-current-phase').textContent = data.current_phase;
+            }
+            
+            // Update mode badges
+            updateAnalysisModeBadges(data.mode);
+            
+            // Show stats
+            if (data.total_findings !== undefined || data.status === 'complete') {
+                document.getElementById('analysis-stats').style.display = 'block';
+                document.getElementById('stat-findings-count').textContent = data.total_findings || data.gap_findings || 0;
+            }
+            
+            // Check completion status
+            if (data.status === 'complete') {
+                clearInterval(analysisPollingInterval);
+                analysisPollingInterval = null;
+                
+                document.getElementById('analysis-progress-bar').style.width = '100%';
+                document.getElementById('analysis-progress-percent').textContent = '100%';
+                document.getElementById('analysis-current-phase').innerHTML = 
+                    '✓ Analysis complete! Found <strong>' + (data.total_findings || 0) + '</strong> findings.';
+                
+                document.getElementById('analysis-running-msg').style.display = 'none';
+                document.getElementById('analysis-complete-msg').style.display = 'block';
+                document.getElementById('analysis-close-btn').style.display = 'block';
+                document.getElementById('view-results-btn').href = `/case/${caseId}/analysis/${data.analysis_id}`;
+                
+            } else if (data.status === 'failed') {
+                clearInterval(analysisPollingInterval);
+                analysisPollingInterval = null;
+                
+                document.getElementById('analysis-progress-bar').style.background = '#f87171';
+                document.getElementById('analysis-current-phase').innerHTML = 
+                    '✕ Analysis failed';
+                
+                document.getElementById('analysis-running-msg').style.display = 'none';
+                document.getElementById('analysis-error-msg').style.display = 'block';
+                document.getElementById('analysis-error-text').textContent = data.error_message || 'Unknown error';
+                document.getElementById('analysis-close-btn').style.display = 'block';
+            }
+        })
+        .catch(error => {
+            console.error('Error polling analysis status:', error);
+        });
+}
+
+function updateAnalysisModeBadges(mode) {
+    const modeDescriptions = {
+        'A': 'Mode A: Rule-based',
+        'B': 'Mode B: AI-enhanced',
+        'C': 'Mode C: Intel-enriched',
+        'D': 'Mode D: Full Stack'
+    };
+    
+    document.getElementById('analysis-mode-badge').textContent = modeDescriptions[mode] || 'Mode: ' + mode;
+    
+    // Update AI/OpenCTI badges based on mode
+    const aiEnabled = mode === 'B' || mode === 'D';
+    const openctiEnabled = mode === 'C' || mode === 'D';
+    
+    const aiBadge = document.getElementById('ai-status-badge');
+    aiBadge.textContent = aiEnabled ? 'AI: Connected' : 'AI: Disabled';
+    aiBadge.style.background = aiEnabled ? '#28a745' : 'var(--bg-tertiary)';
+    aiBadge.style.color = aiEnabled ? '#fff' : 'var(--text-muted)';
+    
+    const octiBadge = document.getElementById('opencti-status-badge');
+    octiBadge.textContent = openctiEnabled ? 'OpenCTI: Connected' : 'OpenCTI: Disabled';
+    octiBadge.style.background = openctiEnabled ? '#28a745' : 'var(--bg-tertiary)';
+    octiBadge.style.color = openctiEnabled ? '#fff' : 'var(--text-muted)';
+}
+
+function closeAnalysisModal() {
+    document.getElementById('analysisProgressModal').style.display = 'none';
+    if (analysisPollingInterval) {
+        clearInterval(analysisPollingInterval);
+        analysisPollingInterval = null;
+    }
+}
+
+// Close analysis modal when clicking outside
+document.getElementById('analysisProgressModal').addEventListener('click', function(e) {
+    if (e.target === this && document.getElementById('analysis-close-btn').style.display !== 'none') {
+        closeAnalysisModal();
     }
 });
 </script>

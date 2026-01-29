@@ -302,6 +302,42 @@ def case_dashboard():
                            created_by_name=created_by_name, assigned_to_name=assigned_to_name)
 
 
+@main_bp.route('/case/<int:case_id>/analysis/<analysis_id>')
+@login_required
+def case_analysis_results(case_id, analysis_id):
+    """Analysis Results - view results of a case analysis run"""
+    from models.behavioral_profiles import CaseAnalysisRun
+    from models.case import Case
+    
+    case = Case.query.get_or_404(case_id)
+    analysis = CaseAnalysisRun.query.filter_by(
+        case_id=case_id,
+        analysis_id=analysis_id
+    ).first_or_404()
+    
+    # Build summary data
+    summary = {
+        'total_findings': analysis.total_findings or 0,
+        'high_confidence_count': 0,  # TODO: calculate from actual findings
+        'pending_actions': 0,  # TODO: count from SuggestedAction
+        'attack_chains': analysis.attack_chains_found or 0
+    }
+    
+    # Count pending actions
+    from models.behavioral_profiles import SuggestedAction
+    summary['pending_actions'] = SuggestedAction.query.filter_by(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        status='pending'
+    ).count()
+    
+    return render_template('case_analysis_results.html', 
+                           page_title='Analysis Results', 
+                           case=case,
+                           analysis=analysis,
+                           summary=summary)
+
+
 @main_bp.route('/case/upload')
 @login_required
 @case_required

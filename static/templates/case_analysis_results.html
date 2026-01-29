@@ -1,0 +1,740 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🔬</span>
+            Analysis Results
+        </h1>
+        <p class="page-subtitle">
+            {{ case.name }} - 
+            {% if analysis.completed_at %}
+                {{ analysis.completed_at.strftime('%Y-%m-%d %H:%M') }}
+            {% else %}
+                {{ analysis.started_at.strftime('%Y-%m-%d %H:%M') }}
+            {% endif %}
+        </p>
+    </div>
+    <div class="page-actions">
+        <span class="badge badge-info" style="padding: 8px 16px; font-size: 0.95em;">Mode {{ analysis.mode }}</span>
+        <a href="{{ url_for('main.case_dashboard') }}" class="btn btn-secondary">← Back to Dashboard</a>
+        <div class="dropdown" style="display: inline-block; position: relative;">
+            <button class="btn btn-secondary" onclick="toggleExportMenu()">📥 Export</button>
+            <div id="export-menu" class="dropdown-menu" style="display: none; position: absolute; right: 0; top: 100%; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; min-width: 150px; z-index: 100;">
+                <a href="/api/case/{{ case.id }}/analysis/results/{{ analysis.analysis_id }}?view=export&format=json" class="dropdown-item" style="display: block; padding: 10px 15px; color: var(--text-primary); text-decoration: none;">JSON</a>
+                <a href="/api/case/{{ case.id }}/analysis/results/{{ analysis.analysis_id }}?view=export&format=markdown" class="dropdown-item" style="display: block; padding: 10px 15px; color: var(--text-primary); text-decoration: none;">Markdown</a>
+                <a href="/api/case/{{ case.id }}/analysis/results/{{ analysis.analysis_id }}?view=export&format=csv" class="dropdown-item" style="display: block; padding: 10px 15px; color: var(--text-primary); text-decoration: none;">CSV</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="stats-headline" style="margin-bottom: 24px;">
+    <div class="stats-headline-item">
+        <span class="stats-headline-value" id="stat-total">{{ summary.total_findings or 0 }}</span>
+        <span class="stats-headline-label">Total Findings</span>
+    </div>
+    <div class="stats-headline-item">
+        <span class="stats-headline-value" style="color: #dc3545;">{{ summary.high_confidence_count or 0 }}</span>
+        <span class="stats-headline-label">High Confidence</span>
+    </div>
+    <div class="stats-headline-item">
+        <span class="stats-headline-value" style="color: #ffc107;">{{ summary.pending_actions or 0 }}</span>
+        <span class="stats-headline-label">Pending Actions</span>
+    </div>
+    <div class="stats-headline-item">
+        <span class="stats-headline-value" style="color: #17a2b8;">{{ summary.attack_chains or 0 }}</span>
+        <span class="stats-headline-label">Attack Chains</span>
+    </div>
+</div>
+
+<!-- View Toggle Tabs -->
+<div class="card" style="margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">
+    <div style="display: flex; border-bottom: 1px solid var(--border-color);">
+        <button class="view-tab active" data-view="summary" onclick="switchView('summary')">
+            📊 Summary
+        </button>
+        <button class="view-tab" data-view="timeline" onclick="switchView('timeline')">
+            ⏱️ Timeline
+        </button>
+        <button class="view-tab" data-view="pattern" onclick="switchView('pattern')">
+            🧩 By Pattern
+        </button>
+        <button class="view-tab" data-view="entity" onclick="switchView('entity')">
+            👤 By Entity
+        </button>
+        <button class="view-tab" data-view="actions" onclick="switchView('actions')">
+            ⚡ Actions <span class="badge badge-warning" style="margin-left: 5px;">{{ summary.pending_actions or 0 }}</span>
+        </button>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card" style="border-radius: 0; border-top: none; padding: 15px 20px;">
+    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.85em; margin-right: 8px;">Severity:</label>
+            <select id="filter-severity" class="form-input" style="width: 150px; padding: 6px 10px;" onchange="applyFilters()">
+                <option value="all">All</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+            </select>
+        </div>
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.85em; margin-right: 8px;">Confidence:</label>
+            <select id="filter-confidence" class="form-input" style="width: 150px; padding: 6px 10px;" onchange="applyFilters()">
+                <option value="all">All</option>
+                <option value="high">High (75+)</option>
+                <option value="medium">Medium (50-74)</option>
+                <option value="low">Low (&lt;50)</option>
+            </select>
+        </div>
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.85em; margin-right: 8px;">Type:</label>
+            <select id="filter-type" class="form-input" style="width: 180px; padding: 6px 10px;" onchange="applyFilters()">
+                <option value="all">All Types</option>
+                <option value="gap">Gap Detections</option>
+                <option value="pattern">Pattern Matches</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Results Container -->
+<div class="card" style="border-top-left-radius: 0; border-top-right-radius: 0; border-top: none;">
+    <div id="results-loading" style="padding: 40px; text-align: center;">
+        <div class="loading-spinner"></div>
+        <p style="color: var(--text-muted); margin-top: 15px;">Loading results...</p>
+    </div>
+    <div id="results-container" style="display: none;">
+        <!-- Populated by JavaScript -->
+    </div>
+</div>
+
+<!-- Finding Detail Modal -->
+<div id="findingDetailModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; overflow-y: auto;">
+    <div class="modal-content" style="width: 900px; max-width: 95vw; max-height: 90vh; overflow-y: auto; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); margin: 20px auto;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="finding-title">Finding Detail</h3>
+            <button class="modal-close" onclick="closeFindingModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="finding-detail-content" style="padding: 25px;">
+            <!-- Populated dynamically -->
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 15px 25px; border-top: 1px solid var(--border-color);">
+            <div>
+                <select id="analyst-verdict" class="form-input" style="width: 200px; padding: 8px;">
+                    <option value="">-- Set Verdict --</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="false_positive">False Positive</option>
+                    <option value="needs_investigation">Needs Investigation</option>
+                </select>
+                <button class="btn btn-primary" onclick="saveVerdict()" style="margin-left: 10px;">Save</button>
+            </div>
+            <button class="btn btn-secondary" onclick="closeFindingModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.view-tab {
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.95em;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+
+.view-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.view-tab.active {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+}
+
+.finding-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px 20px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.finding-card:hover {
+    border-color: var(--accent-primary);
+    transform: translateX(3px);
+}
+
+.finding-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.finding-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 1em;
+}
+
+.finding-meta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+.severity-critical { color: #dc3545 !important; }
+.severity-high { color: #fd7e14 !important; }
+.severity-medium { color: #ffc107 !important; }
+.severity-low { color: #28a745 !important; }
+
+.confidence-bar {
+    width: 60px;
+    height: 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    overflow: hidden;
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 5px;
+}
+
+.confidence-fill {
+    height: 100%;
+    border-radius: 3px;
+}
+
+.action-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid #ffc107;
+    border-radius: 4px;
+    padding: 15px 20px;
+    margin-bottom: 12px;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.entity-group {
+    margin-bottom: 25px;
+}
+
+.entity-group-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+.entity-icon {
+    font-size: 1.5em;
+    margin-right: 12px;
+}
+
+.timeline-item {
+    position: relative;
+    padding-left: 30px;
+    padding-bottom: 20px;
+    border-left: 2px solid var(--border-color);
+    margin-left: 10px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+}
+
+.timeline-time {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+}
+
+.dropdown-item:hover {
+    background: var(--bg-tertiary);
+}
+</style>
+
+<script>
+const CASE_ID = {{ case.id }};
+const ANALYSIS_ID = '{{ analysis.analysis_id }}';
+let currentView = 'summary';
+let resultsData = {};
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadResults('summary');
+});
+
+function switchView(view) {
+    // Update tabs
+    document.querySelectorAll('.view-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.dataset.view === view) {
+            tab.classList.add('active');
+        }
+    });
+    
+    currentView = view;
+    loadResults(view);
+}
+
+function loadResults(view) {
+    document.getElementById('results-loading').style.display = 'block';
+    document.getElementById('results-container').style.display = 'none';
+    
+    fetch(`/api/case/${CASE_ID}/analysis/results/${ANALYSIS_ID}?view=${view}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                resultsData[view] = data.data;
+                renderView(view, data.data);
+            } else {
+                document.getElementById('results-container').innerHTML = 
+                    '<div style="padding: 40px; text-align: center; color: var(--text-muted);">Failed to load results: ' + (data.error || 'Unknown error') + '</div>';
+            }
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-container').style.display = 'block';
+        })
+        .catch(error => {
+            document.getElementById('results-container').innerHTML = 
+                '<div style="padding: 40px; text-align: center; color: var(--text-muted);">Error: ' + error.message + '</div>';
+            document.getElementById('results-loading').style.display = 'none';
+            document.getElementById('results-container').style.display = 'block';
+        });
+}
+
+function renderView(view, data) {
+    const container = document.getElementById('results-container');
+    
+    switch (view) {
+        case 'summary':
+            renderSummaryView(container, data);
+            break;
+        case 'timeline':
+            renderTimelineView(container, data);
+            break;
+        case 'pattern':
+            renderPatternView(container, data);
+            break;
+        case 'entity':
+            renderEntityView(container, data);
+            break;
+        case 'actions':
+            renderActionsView(container, data);
+            break;
+    }
+}
+
+function renderSummaryView(container, data) {
+    let html = '<div style="padding: 20px;">';
+    
+    // Severity breakdown
+    if (data.severity_breakdown) {
+        html += '<div class="stats-section" style="margin-bottom: 20px;">';
+        html += '<div class="stats-section-header">📊 Severity Breakdown</div>';
+        html += '<div class="stats-flow-grid">';
+        for (const [severity, count] of Object.entries(data.severity_breakdown)) {
+            html += `<div class="stats-flow-item">
+                <span class="stats-flow-label severity-${severity.toLowerCase()}">${severity}</span>
+                <span class="stats-flow-value">${count}</span>
+            </div>`;
+        }
+        html += '</div></div>';
+    }
+    
+    // Top findings
+    if (data.top_findings && data.top_findings.length > 0) {
+        html += '<div style="margin-top: 20px;">';
+        html += '<h4 style="color: var(--text-primary); margin-bottom: 15px;">🔥 Top Findings</h4>';
+        data.top_findings.forEach(finding => {
+            html += renderFindingCard(finding);
+        });
+        html += '</div>';
+    }
+    
+    // Capabilities used
+    if (data.capabilities_used) {
+        html += '<div class="stats-section" style="margin-top: 20px;">';
+        html += '<div class="stats-section-header">⚙️ Capabilities Used</div>';
+        html += '<div style="display: flex; gap: 10px; flex-wrap: wrap;">';
+        for (const [cap, enabled] of Object.entries(data.capabilities_used)) {
+            const badge = enabled ? 'badge-success' : 'badge-muted';
+            const icon = enabled ? '✓' : '✕';
+            html += `<span class="badge ${badge}">${icon} ${cap}</span>`;
+        }
+        html += '</div></div>';
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderTimelineView(container, data) {
+    let html = '<div style="padding: 20px;">';
+    
+    if (!data.items || data.items.length === 0) {
+        html += '<p style="color: var(--text-muted); text-align: center; padding: 40px;">No timeline items</p>';
+    } else {
+        html += '<div class="timeline">';
+        data.items.forEach(item => {
+            html += `<div class="timeline-item">
+                <div class="timeline-time">${item.timestamp || 'Unknown time'}</div>
+                <div class="finding-card" onclick="showFindingDetail('${item.type}', ${item.id})">
+                    <div class="finding-header">
+                        <span class="finding-title">${escapeHtml(item.title || item.finding_type || 'Finding')}</span>
+                        <span class="badge severity-${(item.severity || 'medium').toLowerCase()}">${item.severity || 'Medium'}</span>
+                    </div>
+                    <div class="finding-meta">
+                        <span>Confidence: ${item.confidence || 0}%</span>
+                        ${item.entities ? '<span>Entities: ' + item.entities.join(', ') + '</span>' : ''}
+                    </div>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderPatternView(container, data) {
+    let html = '<div style="padding: 20px;">';
+    
+    if (!data.groups || Object.keys(data.groups).length === 0) {
+        html += '<p style="color: var(--text-muted); text-align: center; padding: 40px;">No pattern groups</p>';
+    } else {
+        for (const [pattern, findings] of Object.entries(data.groups)) {
+            html += `<div class="entity-group">
+                <div class="entity-group-header">
+                    <span class="entity-icon">🧩</span>
+                    <div>
+                        <strong style="color: var(--text-primary);">${escapeHtml(pattern)}</strong>
+                        <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                    </div>
+                </div>`;
+            findings.forEach(finding => {
+                html += renderFindingCard(finding);
+            });
+            html += '</div>';
+        }
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderEntityView(container, data) {
+    let html = '<div style="padding: 20px;">';
+    
+    // Users
+    if (data.users && Object.keys(data.users).length > 0) {
+        html += '<h4 style="color: var(--text-primary); margin-bottom: 15px;">👤 By User</h4>';
+        for (const [user, findings] of Object.entries(data.users)) {
+            html += `<div class="entity-group">
+                <div class="entity-group-header">
+                    <span class="entity-icon">👤</span>
+                    <strong style="color: var(--text-primary);">${escapeHtml(user)}</strong>
+                    <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                </div>`;
+            findings.forEach(finding => {
+                html += renderFindingCard(finding);
+            });
+            html += '</div>';
+        }
+    }
+    
+    // Systems
+    if (data.systems && Object.keys(data.systems).length > 0) {
+        html += '<h4 style="color: var(--text-primary); margin: 25px 0 15px;">💻 By System</h4>';
+        for (const [system, findings] of Object.entries(data.systems)) {
+            html += `<div class="entity-group">
+                <div class="entity-group-header">
+                    <span class="entity-icon">💻</span>
+                    <strong style="color: var(--text-primary);">${escapeHtml(system)}</strong>
+                    <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                </div>`;
+            findings.forEach(finding => {
+                html += renderFindingCard(finding);
+            });
+            html += '</div>';
+        }
+    }
+    
+    // Source IPs
+    if (data.source_ips && Object.keys(data.source_ips).length > 0) {
+        html += '<h4 style="color: var(--text-primary); margin: 25px 0 15px;">🌐 By Source IP</h4>';
+        for (const [ip, findings] of Object.entries(data.source_ips)) {
+            html += `<div class="entity-group">
+                <div class="entity-group-header">
+                    <span class="entity-icon">🌐</span>
+                    <strong style="color: var(--text-primary);">${escapeHtml(ip)}</strong>
+                    <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                </div>`;
+            findings.forEach(finding => {
+                html += renderFindingCard(finding);
+            });
+            html += '</div>';
+        }
+    }
+    
+    if ((!data.users || Object.keys(data.users).length === 0) && 
+        (!data.systems || Object.keys(data.systems).length === 0) &&
+        (!data.source_ips || Object.keys(data.source_ips).length === 0)) {
+        html += '<p style="color: var(--text-muted); text-align: center; padding: 40px;">No entity groups</p>';
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderActionsView(container, data) {
+    let html = '<div style="padding: 20px;">';
+    
+    if (!data.actions || data.actions.length === 0) {
+        html += '<p style="color: var(--text-muted); text-align: center; padding: 40px;">No pending actions</p>';
+    } else {
+        data.actions.forEach(action => {
+            html += `<div class="action-card" data-action-id="${action.id}">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <strong style="color: var(--text-primary);">${formatActionType(action.action_type)}</strong>
+                        <span style="color: var(--accent-primary); margin-left: 10px;">${escapeHtml(action.target_entity)}</span>
+                    </div>
+                    <span class="badge" style="background: var(--bg-primary);">Confidence: ${action.confidence}%</span>
+                </div>
+                <p style="color: var(--text-secondary); margin: 10px 0; font-size: 0.9em;">${escapeHtml(action.reason)}</p>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" style="padding: 6px 15px;" onclick="handleAction(${action.id}, 'accepted')">
+                        ✓ Accept
+                    </button>
+                    <button class="btn btn-secondary" style="padding: 6px 15px;" onclick="handleAction(${action.id}, 'rejected')">
+                        ✕ Reject
+                    </button>
+                </div>
+            </div>`;
+        });
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderFindingCard(finding) {
+    const severityClass = 'severity-' + (finding.severity || 'medium').toLowerCase();
+    const confidenceColor = finding.confidence >= 75 ? '#28a745' : (finding.confidence >= 50 ? '#ffc107' : '#6c757d');
+    
+    return `<div class="finding-card" onclick="showFindingDetail('${finding.type || 'gap'}', ${finding.id})">
+        <div class="finding-header">
+            <span class="finding-title">${escapeHtml(finding.title || finding.finding_type || 'Finding')}</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <span class="badge ${severityClass}" style="text-transform: capitalize;">${finding.severity || 'Medium'}</span>
+                <span style="font-size: 0.85em; color: var(--text-muted);">
+                    ${finding.confidence || 0}%
+                    <span class="confidence-bar">
+                        <span class="confidence-fill" style="width: ${finding.confidence || 0}%; background: ${confidenceColor};"></span>
+                    </span>
+                </span>
+            </div>
+        </div>
+        <div class="finding-meta">
+            ${finding.description ? '<span>' + escapeHtml(finding.description.substring(0, 100)) + (finding.description.length > 100 ? '...' : '') + '</span>' : ''}
+        </div>
+    </div>`;
+}
+
+function showFindingDetail(type, id) {
+    fetch(`/api/case/${CASE_ID}/analysis/findings/${type}/${id}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.finding) {
+                renderFindingDetail(data.finding);
+                document.getElementById('findingDetailModal').style.display = 'flex';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading finding detail:', error);
+        });
+}
+
+function renderFindingDetail(finding) {
+    document.getElementById('finding-title').textContent = finding.title || finding.finding_type || 'Finding Detail';
+    
+    let html = '';
+    
+    // Header info
+    html += `<div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+        <span class="badge severity-${(finding.severity || 'medium').toLowerCase()}" style="padding: 6px 12px;">${finding.severity || 'Medium'}</span>
+        <span class="badge" style="padding: 6px 12px; background: var(--bg-tertiary);">Confidence: ${finding.confidence || 0}%</span>
+        ${finding.finding_type ? '<span class="badge badge-info" style="padding: 6px 12px;">' + finding.finding_type + '</span>' : ''}
+    </div>`;
+    
+    // Description
+    if (finding.description) {
+        html += `<div style="margin-bottom: 20px;">
+            <h5 style="color: var(--text-primary); margin-bottom: 8px;">Description</h5>
+            <p style="color: var(--text-secondary);">${escapeHtml(finding.description)}</p>
+        </div>`;
+    }
+    
+    // Evidence
+    if (finding.evidence) {
+        html += `<div style="margin-bottom: 20px;">
+            <h5 style="color: var(--text-primary); margin-bottom: 8px;">Evidence</h5>
+            <pre style="background: var(--bg-primary); padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; color: var(--text-secondary);">${escapeHtml(JSON.stringify(finding.evidence, null, 2))}</pre>
+        </div>`;
+    }
+    
+    // Entities
+    if (finding.entities && Object.keys(finding.entities).length > 0) {
+        html += `<div style="margin-bottom: 20px;">
+            <h5 style="color: var(--text-primary); margin-bottom: 8px;">Affected Entities</h5>
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">`;
+        for (const [type, values] of Object.entries(finding.entities)) {
+            if (Array.isArray(values)) {
+                values.forEach(v => {
+                    html += `<span class="badge" style="padding: 6px 12px; background: var(--bg-tertiary);">${type}: ${escapeHtml(v)}</span>`;
+                });
+            }
+        }
+        html += '</div></div>';
+    }
+    
+    // MITRE ATT&CK
+    if (finding.mitre_techniques && finding.mitre_techniques.length > 0) {
+        html += `<div style="margin-bottom: 20px;">
+            <h5 style="color: var(--text-primary); margin-bottom: 8px;">MITRE ATT&CK</h5>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">`;
+        finding.mitre_techniques.forEach(t => {
+            html += `<span class="badge badge-info" style="padding: 6px 12px;">${escapeHtml(t)}</span>`;
+        });
+        html += '</div></div>';
+    }
+    
+    document.getElementById('finding-detail-content').innerHTML = html;
+}
+
+function closeFindingModal() {
+    document.getElementById('findingDetailModal').style.display = 'none';
+}
+
+function handleAction(actionId, status) {
+    const notes = prompt('Optional notes:') || '';
+    
+    fetch(`/api/case/${CASE_ID}/analysis/suggested-actions/${actionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: status, notes: notes })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Remove the action card or update it
+            const card = document.querySelector(`.action-card[data-action-id="${actionId}"]`);
+            if (card) {
+                card.style.opacity = '0.5';
+                card.innerHTML = `<div style="text-align: center; padding: 20px;">
+                    <span style="color: ${status === 'accepted' ? '#28a745' : '#6c757d'};">
+                        ${status === 'accepted' ? '✓ Accepted' : '✕ Rejected'}
+                    </span>
+                </div>`;
+            }
+            // Update pending count
+            const badge = document.querySelector('.view-tab[data-view="actions"] .badge');
+            if (badge) {
+                const count = parseInt(badge.textContent) - 1;
+                badge.textContent = count >= 0 ? count : 0;
+            }
+        } else {
+            alert('Error: ' + (data.error || 'Failed to process action'));
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+    });
+}
+
+function formatActionType(type) {
+    const types = {
+        'mark_user_compromised': '🚨 Mark User Compromised',
+        'mark_system_compromised': '🚨 Mark System Compromised',
+        'add_ioc': '🔍 Add IOC',
+        'investigate': '🔎 Investigate',
+        'credential_review': '🔑 Credential Review',
+        'lateral_movement_trace': '↔️ Trace Lateral Movement',
+        'review_timeline': '⏱️ Review Timeline'
+    };
+    return types[type] || type;
+}
+
+function applyFilters() {
+    // Re-render current view with filters applied
+    // For now just reload - could be optimized client-side
+    loadResults(currentView);
+}
+
+function toggleExportMenu() {
+    const menu = document.getElementById('export-menu');
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+function saveVerdict() {
+    const verdict = document.getElementById('analyst-verdict').value;
+    if (!verdict) {
+        alert('Please select a verdict');
+        return;
+    }
+    // TODO: Implement verdict saving
+    alert('Verdict saved: ' + verdict);
+    closeFindingModal();
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.dropdown')) {
+        document.getElementById('export-menu').style.display = 'none';
+    }
+});
+
+// Close modals when clicking outside
+document.getElementById('findingDetailModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeFindingModal();
+    }
+});
+</script>
+{% endblock %}
