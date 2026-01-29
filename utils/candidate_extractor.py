@@ -106,6 +106,26 @@ class CandidateExtractor:
             limit=max_candidates
         )
         
+        # OPTIMIZATION #2: Skip supporting/context if no anchors found
+        # Anchors are required for pattern matches - no point querying more without them
+        if not anchor_events:
+            logger.info(f"[CandidateExtractor] No anchor events found for {pattern_name}, skipping supporting/context queries")
+            return {
+                'analysis_id': self.analysis_id,
+                'pattern_id': pattern_id,
+                'pattern_name': pattern_name,
+                'anchor_count': 0,
+                'supporting_count': 0,
+                'context_count': 0,
+                'total_stored': 0,
+                'skipped_no_anchors': True,
+                'time_range': {
+                    'start': time_start.isoformat() if time_start else None,
+                    'end': time_end.isoformat() if time_end else None
+                },
+                'stats': self._stats.copy()
+            }
+        
         # Extract supporting events (corroborating evidence)
         supporting_events = self._extract_events(
             event_ids=pattern_config.get('supporting_events', []),

@@ -149,79 +149,97 @@ Key principles:
         results = []
         confidence_sum = 0.0
         
-        for (correlation_key,) in correlation_keys:
-            # Get events for this correlation key
-            candidates = CandidateEventSet.query.filter_by(
-                analysis_id=self.analysis_id,
-                pattern_id=pattern_id,
-                correlation_key=correlation_key
-            ).order_by(
-                CandidateEventSet.event_timestamp.asc()
-            ).limit(max_events).all()
+        # OPTIMIZATION #4: Batch windows for efficient AI analysis
+        BATCH_SIZE = 10
+        all_keys = [k[0] for k in correlation_keys]
+        
+        for batch_idx in range(0, len(all_keys), BATCH_SIZE):
+            batch_keys = all_keys[batch_idx:batch_idx + BATCH_SIZE]
+            batch_windows = []
             
-            if not candidates:
+            # Collect window data for this batch
+            for correlation_key in batch_keys:
+                candidates = CandidateEventSet.query.filter_by(
+                    analysis_id=self.analysis_id,
+                    pattern_id=pattern_id,
+                    correlation_key=correlation_key
+                ).order_by(
+                    CandidateEventSet.event_timestamp.asc()
+                ).limit(max_events).all()
+                
+                if not candidates:
+                    continue
+                
+                timestamps = [c.event_timestamp for c in candidates]
+                batch_windows.append({
+                    'correlation_key': correlation_key,
+                    'candidates': candidates,
+                    'window_start': min(timestamps),
+                    'window_end': max(timestamps)
+                })
+            
+            if not batch_windows:
                 continue
             
-            # Calculate time window
-            timestamps = [c.event_timestamp for c in candidates]
-            window_start = min(timestamps)
-            window_end = max(timestamps)
-            
-            # Build AI analysis prompt
-            prompt = self._build_analysis_prompt(
+            # Build batched prompt
+            prompt = self._build_batched_analysis_prompt(
                 pattern_config=pattern_config,
-                candidates=candidates,
-                correlation_key=correlation_key
+                windows=batch_windows
             )
             
-            # Run AI analysis
+            # Run AI analysis for batch
             start_time = time.time()
-            ai_result = self._run_ai_analysis(prompt, pattern_config)
+            batch_results = self._run_batched_ai_analysis(prompt, pattern_config, len(batch_windows))
             duration_ms = int((time.time() - start_time) * 1000)
             
             self._stats['ai_calls'] += 1
             self._stats['total_duration_ms'] += duration_ms
             
-            # Calculate final blended confidence
-            ai_confidence = ai_result.get('confidence', 50)
-            final_confidence = self._blend_confidence(
-                rule_based=rule_based_confidence,
-                ai_confidence=ai_confidence
-            )
+            logger.info(f"[AIAnalyzer] Batch {batch_idx//BATCH_SIZE + 1}: analyzed {len(batch_windows)} windows in {duration_ms}ms")
             
-            confidence_sum += final_confidence
-            
-            # Store result in database
-            result_record = AIAnalysisResult(
-                case_id=self.case_id,
-                analysis_id=self.analysis_id,
-                pattern_id=pattern_id,
-                pattern_name=pattern_name,
-                correlation_key=correlation_key,
-                window_start=window_start,
-                window_end=window_end,
-                rule_based_confidence=rule_based_confidence,
-                ai_confidence=ai_confidence,
-                ai_reasoning=ai_result.get('reasoning'),
-                ai_indicators_found=ai_result.get('indicators_found'),
-                ai_iocs=ai_result.get('iocs'),
-                ai_false_positive_assessment=ai_result.get('false_positive_assessment'),
-                final_confidence=final_confidence,
-                events_analyzed=len(candidates),
-                model_used=self.model,
-                analysis_duration_ms=duration_ms
-            )
-            db.session.add(result_record)
-            
-            results.append({
-                'correlation_key': correlation_key,
-                'window_start': window_start,
-                'window_end': window_end,
-                'events_analyzed': len(candidates),
-                'rule_based_confidence': rule_based_confidence,
-                'ai_confidence': ai_confidence,
-                'final_confidence': final_confidence,
-                'ai_reasoning': ai_result.get('reasoning'),
+            # Process each result in batch
+            for i, window in enumerate(batch_windows):
+                ai_result = batch_results[i] if i < len(batch_results) else {'confidence': 50}
+                
+                ai_confidence = ai_result.get('confidence', 50)
+                final_confidence = self._blend_confidence(
+                    rule_based=rule_based_confidence,
+                    ai_confidence=ai_confidence
+                )
+                
+                confidence_sum += final_confidence
+                
+                # Store result in database
+                result_record = AIAnalysisResult(
+                    case_id=self.case_id,
+                    analysis_id=self.analysis_id,
+                    pattern_id=pattern_id,
+                    pattern_name=pattern_name,
+                    correlation_key=window['correlation_key'],
+                    window_start=window['window_start'],
+                    window_end=window['window_end'],
+                    rule_based_confidence=rule_based_confidence,
+                    ai_confidence=ai_confidence,
+                    ai_reasoning=ai_result.get('reasoning'),
+                    ai_indicators_found=ai_result.get('indicators_found'),
+                    ai_iocs=ai_result.get('iocs'),
+                    ai_false_positive_assessment=ai_result.get('false_positive_assessment'),
+                    final_confidence=final_confidence,
+                    events_analyzed=len(window['candidates']),
+                    model_used=self.model,
+                    analysis_duration_ms=duration_ms // len(batch_windows)
+                )
+                db.session.add(result_record)
+                
+                results.append({
+                    'correlation_key': window['correlation_key'],
+                    'window_start': window['window_start'],
+                    'window_end': window['window_end'],
+                    'events_analyzed': len(window['candidates']),
+                    'rule_based_confidence': rule_based_confidence,
+                    'ai_confidence': ai_confidence,
+                    'final_confidence': final_confidence,
+                    'ai_reasoning': ai_result.get('reasoning'),
                 'indicators_found': ai_result.get('indicators_found', []),
                 'iocs': ai_result.get('iocs', []),
                 'false_positive_assessment': ai_result.get('false_positive_assessment'),
@@ -418,6 +436,137 @@ Respond with a JSON object (no markdown, no extra text):
         except Exception as e:
             logger.error(f"[AIAnalyzer] Exception in AI analysis: {e}")
             return self._get_neutral_result(str(e))
+    
+    def _build_batched_analysis_prompt(
+        self,
+        pattern_config: Dict,
+        windows: List[Dict]
+    ) -> str:
+        """Build prompt for batched AI analysis of multiple windows
+        
+        Args:
+            pattern_config: Pattern definition
+            windows: List of window dicts with 'correlation_key', 'candidates', etc.
+            
+        Returns:
+            Formatted prompt string for batch analysis
+        """
+        pattern_name = pattern_config['name']
+        checklist = pattern_config.get('checklist', [])
+        description = pattern_config.get('description', '')
+        
+        # Build checklist section
+        checklist_text = "\n".join(f"  - {item}" for item in checklist) if checklist else "  No specific checklist"
+        
+        # Build windows section
+        windows_section = ""
+        for idx, window in enumerate(windows):
+            windows_section += f"\n--- WINDOW {idx + 1}: {window['correlation_key']} ---\n"
+            
+            anchor_events = []
+            supporting_events = []
+            
+            for c in window['candidates'][:20]:  # Limit events per window
+                event_line = c.event_summary
+                if c.role == 'anchor':
+                    anchor_events.append(f"  [ANCHOR] {event_line}")
+                elif c.role == 'supporting':
+                    supporting_events.append(f"  [SUPPORTING] {event_line}")
+            
+            windows_section += "ANCHORS:\n"
+            windows_section += "\n".join(anchor_events[:10]) if anchor_events else "  None"
+            windows_section += "\nSUPPORTING:\n"
+            windows_section += "\n".join(supporting_events[:10]) if supporting_events else "  None"
+            windows_section += "\n"
+        
+        prompt = f"""Analyze these {len(windows)} attack windows for {pattern_name} pattern.
+
+PATTERN: {pattern_name}
+DESCRIPTION: {description}
+
+CHECKLIST (indicators to verify):
+{checklist_text}
+
+{windows_section}
+
+For EACH window, determine if it represents a true {pattern_name} attack.
+
+Respond with a JSON array containing one object per window, in order:
+[
+  {{
+    "window": 1,
+    "confidence": <0-100>,
+    "reasoning": "<brief explanation>",
+    "indicators_found": ["list", "of", "matched", "checklist", "items"],
+    "iocs": ["specific", "IOCs", "found"],
+    "false_positive_assessment": "<why this might be legitimate>"
+  }},
+  ...
+]
+
+IMPORTANT: Return ONLY valid JSON array. No markdown, no explanation outside JSON."""
+        
+        return prompt
+    
+    def _run_batched_ai_analysis(
+        self,
+        prompt: str,
+        pattern_config: Dict,
+        expected_count: int
+    ) -> List[Dict[str, Any]]:
+        """Run batched AI analysis and parse array response
+        
+        Args:
+            prompt: Batched analysis prompt
+            pattern_config: Pattern definition
+            expected_count: Number of windows in batch
+            
+        Returns:
+            List of parsed analysis results
+        """
+        try:
+            result = self.client.generate_json(
+                prompt=prompt,
+                system=self.SYSTEM_PROMPT,
+                temperature=self.temperature
+            )
+            
+            if result.get('success') and result.get('data'):
+                data = result['data']
+                
+                # Handle if response is a single object instead of array
+                if isinstance(data, dict):
+                    data = [data]
+                
+                if isinstance(data, list):
+                    # Validate and normalize each result
+                    normalized = []
+                    for item in data:
+                        if not isinstance(item, dict):
+                            item = {}
+                        item['confidence'] = max(0, min(100, int(item.get('confidence', 50))))
+                        item['reasoning'] = item.get('reasoning', 'No reasoning provided')
+                        item['indicators_found'] = item.get('indicators_found', [])
+                        item['iocs'] = item.get('iocs', [])
+                        item['false_positive_assessment'] = item.get('false_positive_assessment', '')
+                        normalized.append(item)
+                    
+                    # Pad with neutral results if needed
+                    while len(normalized) < expected_count:
+                        normalized.append(self._get_neutral_result('No result for this window'))
+                    
+                    return normalized
+                else:
+                    logger.warning(f"[AIAnalyzer] Batched response not an array: {type(data)}")
+                    return [self._get_neutral_result('Invalid response format')] * expected_count
+            else:
+                error_msg = result.get('error', 'Unknown error')
+                logger.warning(f"[AIAnalyzer] Batched AI analysis failed: {error_msg}")
+                return [self._get_neutral_result(error_msg)] * expected_count
+                
+        except Exception as e:
+            logger.error(f"[AIAnalyzer] Exception in batched AI analysis: {e}")
+            return [self._get_neutral_result(str(e))] * expected_count
     
     def _parse_fallback_response(self, raw_response: str) -> Dict[str, Any]:
         """Attempt to parse a malformed AI response
