@@ -4925,6 +4925,46 @@ function clearPatternRulesResults() {
 let aiCorrelationTaskId = null;
 let aiCorrelationResults = [];
 
+// Check for running AI correlation task on page load
+function initAICorrelation() {
+    const storedTask = localStorage.getItem(`ai_correlation_task_${CASE_ID}`);
+    if (storedTask) {
+        try {
+            const taskData = JSON.parse(storedTask);
+            aiCorrelationTaskId = taskData.task_id;
+            
+            // Show progress UI and resume polling
+            const btn = document.getElementById('btnRunAICorrelation');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
+            }
+            
+            const progressEl = document.getElementById('aiCorrelationProgress');
+            if (progressEl) {
+                progressEl.style.display = 'block';
+            }
+            
+            const statusEl = document.getElementById('aiCorrelationStatus');
+            if (statusEl) {
+                statusEl.textContent = 'Running';
+                statusEl.className = 'ai-section-badge ai-badge-warning';
+            }
+            
+            console.log('Resuming AI correlation poll for task:', aiCorrelationTaskId);
+            pollAICorrelationStatus();
+        } catch (e) {
+            localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
+        }
+    }
+}
+
+// Call init when DOM is ready (if on AI hunting tab)
+document.addEventListener('DOMContentLoaded', function() {
+    // Delay slightly to ensure CASE_ID is set
+    setTimeout(initAICorrelation, 500);
+});
+
 async function startAICorrelation() {
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = true;
@@ -4958,6 +4998,11 @@ async function startAICorrelation() {
         
         if (data.success && data.task_id) {
             aiCorrelationTaskId = data.task_id;
+            // Store in localStorage for page reload persistence
+            localStorage.setItem(`ai_correlation_task_${CASE_ID}`, JSON.stringify({
+                task_id: data.task_id,
+                started_at: new Date().toISOString()
+            }));
             pollAICorrelationStatus();
         } else {
             showAICorrelationError(data.error || 'Failed to start AI correlation');
@@ -5001,6 +5046,10 @@ function pollAICorrelationStatus() {
 }
 
 function showAICorrelationComplete(result) {
+    // Clear stored task - it's done
+    localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
+    aiCorrelationTaskId = null;
+    
     document.getElementById('aiCorrelationProgress').style.display = 'none';
     
     const btn = document.getElementById('btnRunAICorrelation');
@@ -5136,6 +5185,10 @@ function showAICorrelationDetail(idx) {
 }
 
 function showAICorrelationError(error) {
+    // Clear stored task - it failed
+    localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
+    aiCorrelationTaskId = null;
+    
     document.getElementById('aiCorrelationProgress').style.display = 'none';
     document.getElementById('aiCorrelationStatus').textContent = 'Error';
     document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-danger';
