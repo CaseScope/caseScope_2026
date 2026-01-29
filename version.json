@@ -1,6 +1,13 @@
 {
-  "version": "3.159.01",
+  "version": "3.159.02",
   "changelog": [
+    {
+      "version": "3.159.02",
+      "date": "2026-01-29",
+      "changes": [
+        "Added Time Frame column to AI Hunting pattern match results table"
+      ]
+    },
     {
       "version": "3.159.01",
       "date": "2026-01-29",

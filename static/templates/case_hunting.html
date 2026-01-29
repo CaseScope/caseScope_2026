@@ -2326,6 +2326,26 @@ function truncateText(text, maxLen) {
     return text.substring(0, maxLen) + '...';
 }
 
+function formatTimeFrame(startIso, endIso) {
+    if (!startIso && !endIso) return '-';
+    
+    const formatDateTime = (isoStr) => {
+        if (!isoStr) return '?';
+        const d = new Date(isoStr);
+        // Format as MM/DD HH:MM
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${month}/${day} ${hours}:${mins}`;
+    };
+    
+    const start = formatDateTime(startIso);
+    const end = formatDateTime(endIso);
+    
+    return `<span class="time-frame-display" title="${startIso || ''} to ${endIso || ''}">${start} - ${end}</span>`;
+}
+
 // ============================================
 // Event Detail Modal Functions
 // ============================================
@@ -5132,7 +5152,7 @@ function renderAICorrelationResults(results) {
     const tbody = document.getElementById('aiCorrelationResultsBody');
     
     if (!results || results.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No patterns detected with significant confidence</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No patterns detected with significant confidence</td></tr>';
         return;
     }
     
@@ -5183,6 +5203,7 @@ function renderAICorrelationResults(results) {
                 <td><span class="ai-reasoning-preview" title="${escapeHtml(reasoning)}">${escapeHtml(reasoningPreview)}</span></td>
                 <td>${iocCount > 0 ? `<span class="ai-iocs-count">🎯 ${iocCount}</span>` : '-'}</td>
                 <td>${r.events_analyzed || '-'}</td>
+                <td>${formatTimeFrame(r.window_start, r.window_end)}</td>
             </tr>
         `;
     }).join('');
@@ -5287,7 +5308,9 @@ async function refreshAICorrelationResults() {
                         ai_reasoning: r.ai_reasoning,
                         iocs: r.ai_iocs,
                         correlation_key: r.correlation_key,
-                        events_analyzed: r.events_analyzed
+                        events_analyzed: r.events_analyzed,
+                        window_start: r.window_start,
+                        window_end: r.window_end
                     });
                 });
             });
