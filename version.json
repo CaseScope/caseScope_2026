@@ -1,6 +1,21 @@
 {
-  "version": "3.159.08",
+  "version": "3.160.00",
   "changelog": [
+    {
+      "version": "3.160.00",
+      "date": "2026-01-29",
+      "changes": [
+        "Added Enhanced Analysis System with behavioral profiling and gap detection",
+        "New behavioral profiler creates baselines for users and systems",
+        "Peer group clustering enables z-score anomaly detection",
+        "Gap detection finds password spraying, brute force, and behavioral anomalies",
+        "Hayabusa correlation groups detections into attack chains",
+        "OpenCTI context provider adds threat intelligence enrichment with caching",
+        "Feature availability handler enables mode-aware analysis (A/B/C/D)",
+        "Case analyzer orchestrator coordinates full analysis pipeline",
+        "Celery tasks for background analysis execution with progress tracking"
+      ]
+    },
     {
       "version": "3.159.08",
       "date": "2026-01-29",
