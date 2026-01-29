@@ -128,17 +128,18 @@ def get_latest_analysis_status(case_id):
         'status': run.status,
         'progress_percent': run.progress_percent or 0,
         'current_phase': run.current_phase,
-        'status_message': run.status_message,
+        'status_message': run.current_phase,  # Use current_phase as status message
         'mode': run.mode,
         'started_at': run.started_at.isoformat() if run.started_at else None,
         'completed_at': run.completed_at.isoformat() if run.completed_at else None
     }
     
     if run.status == AnalysisStatus.COMPLETE:
-        response['total_findings'] = run.total_findings or 0
-        response['gap_findings'] = run.gap_findings or 0
-        response['attack_chains'] = run.attack_chains_found or 0
-        response['summary'] = run.summary
+        # Count findings from related tables
+        gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
+        response['total_findings'] = run.findings_generated or gap_count
+        response['gap_findings'] = gap_count
+        response['attack_chains'] = run.peer_groups_created or 0  # Use peer_groups as proxy for now
     
     if run.status == AnalysisStatus.FAILED:
         response['error_message'] = run.error_message
@@ -182,17 +183,18 @@ def get_analysis_status(case_id, analysis_id):
         'status': run.status,
         'progress_percent': run.progress_percent or 0,
         'current_phase': run.current_phase,
-        'status_message': run.status_message,
+        'status_message': run.current_phase,  # Use current_phase as status message
         'mode': run.mode,
         'started_at': run.started_at.isoformat() if run.started_at else None,
         'completed_at': run.completed_at.isoformat() if run.completed_at else None
     }
     
     if run.status == AnalysisStatus.COMPLETE:
-        response['total_findings'] = run.total_findings or 0
-        response['gap_findings'] = run.gap_findings or 0
-        response['attack_chains'] = run.attack_chains_found or 0
-        response['summary'] = run.summary
+        # Count findings from related tables
+        gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
+        response['total_findings'] = run.findings_generated or gap_count
+        response['gap_findings'] = gap_count
+        response['attack_chains'] = run.peer_groups_created or 0  # Use peer_groups as proxy
     
     if run.status == AnalysisStatus.FAILED:
         response['error_message'] = run.error_message
@@ -618,11 +620,11 @@ def get_analysis_history(case_id):
             'completed_at': run.completed_at.isoformat() if run.completed_at else None,
             'duration_seconds': duration,
             'progress_percent': run.progress_percent,
-            'total_findings': run.total_findings,
-            'gap_findings': run.gap_findings,
-            'attack_chains_found': run.attack_chains_found,
+            'total_findings': run.findings_generated,
+            'high_confidence_findings': run.high_confidence_findings,
             'users_profiled': run.users_profiled,
             'systems_profiled': run.systems_profiled,
+            'peer_groups_created': run.peer_groups_created,
             'error_message': run.error_message if run.status == AnalysisStatus.FAILED else None
         })
     

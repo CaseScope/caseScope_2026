@@ -203,20 +203,17 @@ class CaseAnalyzer:
         # Update database record
         if self._analysis_run:
             self._analysis_run.progress_percent = percent
-            self._analysis_run.current_phase = phase
-            self._analysis_run.status_message = message
+            self._analysis_run.current_phase = message or phase
             
-            # Update phase timestamps
+            # Update phase timestamps and status based on phase
             if phase == 'profiling' and not self._analysis_run.profiling_started_at:
                 self._analysis_run.profiling_started_at = datetime.utcnow()
                 self._analysis_run.status = AnalysisStatus.PROFILING
-            elif phase == 'gap_detection' and not self._analysis_run.gap_detection_started_at:
-                self._analysis_run.gap_detection_started_at = datetime.utcnow()
             elif phase == 'hayabusa_correlation' and not self._analysis_run.correlation_started_at:
                 self._analysis_run.correlation_started_at = datetime.utcnow()
                 self._analysis_run.status = AnalysisStatus.CORRELATING
-            elif phase == 'pattern_analysis' and not self._analysis_run.pattern_analysis_started_at:
-                self._analysis_run.pattern_analysis_started_at = datetime.utcnow()
+            elif phase == 'pattern_analysis' and not self._analysis_run.ai_analysis_started_at:
+                self._analysis_run.ai_analysis_started_at = datetime.utcnow()
                 self._analysis_run.status = AnalysisStatus.ANALYZING
             
             db.session.commit()
@@ -375,14 +372,14 @@ class CaseAnalyzer:
         """
         from utils.candidate_extractor import CandidateExtractor
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
-        from models.rag import PATTERN_EVENT_MAPPINGS
         
         results = []
         
         # Get available patterns
         try:
+            from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS
             patterns = PATTERN_EVENT_MAPPINGS
-        except Exception:
+        except ImportError:
             patterns = {}
             logger.warning("[CaseAnalyzer] No patterns configured for analysis")
         

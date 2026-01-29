@@ -331,7 +331,7 @@ class HayabusaCorrelator:
             
             events = []
             columns = [
-                'uuid', 'timestamp_utc', 'username', 'source_host', 'src_ip',
+                'record_id', 'timestamp_utc', 'username', 'source_host', 'src_ip',
                 'remote_host', 'event_id', 'rule_title', 'rule_level', 'rule_file',
                 'mitre_tactics', 'mitre_tags', 'process_name', 'command_line',
                 'logon_type', 'auth_package'
